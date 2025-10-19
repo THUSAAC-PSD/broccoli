@@ -208,4 +208,4 @@ pnpm test     # Run tests for all packages
 
 ## License
 
-ISC
+MIT
