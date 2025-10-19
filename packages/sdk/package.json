@@ -1,0 +1,30 @@
+{
+    "name": "@broccoli/sdk",
+    "version": "0.1.0",
+    "private": false,
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./react": {
+            "types": "./dist/react.d.ts",
+            "import": "./dist/react.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsup src/index.ts src/react.tsx --format esm --dts",
+        "dev": "tsup src/index.ts src/react.tsx --format esm --dts --watch"
+    },
+    "devDependencies": {
+        "tsup": "^8.5.0",
+        "typescript": "~5.9.3"
+    },
+    "dependencies": {
+        "react": "^19.1.1"
+    }
+}
