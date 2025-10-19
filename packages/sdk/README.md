@@ -91,4 +91,4 @@ function Setup() {
 
 ## License
 
-ISC
+MIT
