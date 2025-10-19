@@ -13,61 +13,61 @@ pnpm add @broccoli/sdk
 ### Setting up the Provider
 
 ```tsx
-import { PluginRegistryProvider } from "@broccoli/sdk/react";
+import { PluginRegistryProvider } from '@broccoli/sdk/react';
 
 function App() {
-    return (
-        <PluginRegistryProvider>
-            <YourApp />
-        </PluginRegistryProvider>
-    );
+  return (
+    <PluginRegistryProvider>
+      <YourApp />
+    </PluginRegistryProvider>
+  );
 }
 ```
 
 ### Creating Slots
 
 ```tsx
-import { Slot } from "@broccoli/sdk/react";
+import { Slot } from '@broccoli/sdk/react';
 
 function Header() {
-    return (
-        <Slot name="slots.header" className="flex gap-4">
-            <button>Default Button</button>
-        </Slot>
-    );
+  return (
+    <Slot name="slots.header" className="flex gap-4">
+      <button>Default Button</button>
+    </Slot>
+  );
 }
 ```
 
 ### Registering Plugins
 
 ```tsx
-import { usePluginRegistry } from "@broccoli/sdk/react";
-import type { PluginManifest, ComponentBundle } from "@broccoli/sdk";
+import { usePluginRegistry } from '@broccoli/sdk/react';
+import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
 
 const manifest: PluginManifest = {
-    name: "my-plugin",
-    version: "1.0.0",
-    slots: [
-        {
-            name: "slots.header",
-            position: "after",
-            component: "components/MyButton",
-        },
-    ],
+  name: 'my-plugin',
+  version: '1.0.0',
+  slots: [
+    {
+      name: 'slots.header',
+      position: 'after',
+      component: 'components/MyButton',
+    },
+  ],
 };
 
 const components: ComponentBundle = {
-    "components/MyButton": MyButton,
+  'components/MyButton': MyButton,
 };
 
 function Setup() {
-    const { registerPlugin } = usePluginRegistry();
+  const { registerPlugin } = usePluginRegistry();
 
-    useEffect(() => {
-        registerPlugin(manifest, components);
-    }, [registerPlugin]);
+  useEffect(() => {
+    registerPlugin(manifest, components);
+  }, [registerPlugin]);
 
-    return null;
+  return null;
 }
 ```
 
@@ -75,19 +75,19 @@ function Setup() {
 
 ### Types
 
--   `PluginManifest`: Plugin configuration
--   `SlotConfig`: Slot configuration
--   `ComponentBundle`: Component registry
+- `PluginManifest`: Plugin configuration
+- `SlotConfig`: Slot configuration
+- `ComponentBundle`: Component registry
 
 ### Components
 
--   `PluginRegistryProvider`: Context provider for plugin system
--   `Slot`: Slot component for plugin injection
+- `PluginRegistryProvider`: Context provider for plugin system
+- `Slot`: Slot component for plugin injection
 
 ### Hooks
 
--   `usePluginRegistry()`: Access plugin registry
--   `usePluginComponent(name)`: Get specific plugin component
+- `usePluginRegistry()`: Access plugin registry
+- `usePluginComponent(name)`: Get specific plugin component
 
 ## License
 
