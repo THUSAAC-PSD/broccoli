@@ -1,4 +1,17 @@
 [workspace]
 members = ["packages/server"]
+exclude = ["examples", "plugins"]
+resolver = "3"
 
 [workspace.dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+axum = "0.8.8"
+extism = "1.13.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["full"] }
+toml = "0.9.11"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
