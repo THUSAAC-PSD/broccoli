@@ -65,7 +65,7 @@ impl PluginManager for ExtismPluginManager {
         let (manifest_data, plugin_dir) = self.read_manifest(plugin_id)?;
 
         // Resolve the absolute path to the Wasm binary
-        let wasm_path = plugin_dir.join(&manifest_data.backend.wasm);
+        let wasm_path = plugin_dir.join(&manifest_data.server.unwrap().entry);
         if !wasm_path.exists() {
             return Err(PluginError::NotFound(format!(
                 "Wasm binary not found at {:?}",
