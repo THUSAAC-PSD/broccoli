@@ -10,8 +10,28 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{Level, info};
 
-use plugin_core::traits::PluginManagerExt;
-use plugin_core::{ExtismPluginManager, PluginConfig, PluginManager};
+use plugin_core::config::PluginConfig;
+use plugin_core::manager::PluginBaseState;
+use plugin_core::manifest::PluginManifest;
+use plugin_core::traits::{PluginManager, PluginManagerExt, PluginMap};
+
+struct ServerManager {
+    state: PluginBaseState,
+}
+
+impl PluginManager for ServerManager {
+    // Directly return references to the base state fields
+    fn get_config(&self) -> &PluginConfig {
+        &self.state.config
+    }
+    fn get_registry(&self) -> &PluginMap {
+        &self.state.registry
+    }
+
+    fn resolve_entry(&self, manifest: &PluginManifest) -> Option<String> {
+        manifest.server.as_ref().map(|s| s.entry.clone())
+    }
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -33,10 +53,10 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let config = PluginConfig::default();
-    let manager = ExtismPluginManager::new(config);
-
     let state = AppState {
-        plugins: Arc::new(manager),
+        plugins: Arc::new(ServerManager {
+            state: PluginBaseState::new(config),
+        }),
     };
 
     let app = Router::new()

@@ -14,3 +14,9 @@ impl Default for PluginConfig {
         }
     }
 }
+
+impl PluginConfig {
+    pub fn check_plugins_dir(&self) -> bool {
+        self.plugins_dir.exists() && self.plugins_dir.is_dir()
+    }
+}
