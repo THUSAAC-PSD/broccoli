@@ -8,6 +8,7 @@ use tracing::{info, instrument};
 
 use crate::config::PluginConfig;
 use crate::error::PluginError;
+use crate::host::HostFunctionRegistry;
 use crate::loader::PluginBundle;
 use crate::manifest::PluginManifest;
 use crate::runtime::PluginBuilder;
@@ -22,10 +23,11 @@ pub trait PluginManager: Send + Sync {
     /// Returns a reference to the plugin config.
     fn get_config(&self) -> &PluginConfig;
 
-    /// Decides which Wasm entry point to load from the manifest.
-    /// Server should return manifest.server.entry
-    /// Judger should return manifest.judger.entry
-    fn resolve_entry(&self, manifest: &PluginManifest) -> Option<String>;
+    /// Returns a reference to the host function registry.
+    fn get_host_functions(&self) -> &HostFunctionRegistry;
+
+    /// Resolves the appropriate entry point and permissions from the manifest.
+    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)>;
 
     #[instrument(skip(self), fields(plugin_id = %plugin_id))]
     fn load_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
@@ -34,13 +36,16 @@ pub trait PluginManager: Send + Sync {
         let plugin_dir = self.get_config().plugins_dir.join(plugin_id);
         let bundle = PluginBundle::load_from_dir(&plugin_dir)?;
 
-        let entry = self
-            .resolve_entry(&bundle.manifest)
+        let (entry, permissions) = self
+            .resolve(&bundle.manifest)
             .ok_or_else(|| PluginError::LoadFailed("No matching entry found in manifest".into()))?;
 
         let wasm_path = bundle.root_dir.join(entry);
 
-        let plugin = PluginBuilder::new(wasm_path).with_wasi(true).build()?;
+        let plugin = PluginBuilder::new(wasm_path)
+            .with_wasi(true)
+            .with_permissions(plugin_id, &permissions, self.get_host_functions())
+            .build()?;
 
         let mut registry = self
             .get_registry()
