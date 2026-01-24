@@ -10,9 +10,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{Level, info};
 
-mod plugins;
-use plugins::traits::PluginManagerExt;
-use plugins::{ExtismPluginManager, PluginConfig, PluginManager};
+use plugin_core::traits::PluginManagerExt;
+use plugin_core::{ExtismPluginManager, PluginConfig, PluginManager};
 
 #[derive(Clone)]
 struct AppState {

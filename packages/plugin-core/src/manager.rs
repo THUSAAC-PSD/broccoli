@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use extism::{Manifest, Plugin, Wasm};
 use tracing::{info, instrument};
 
-use crate::plugins::{
+use crate::{
     config::PluginConfig, error::PluginError, manifest::PluginManifest, traits::PluginManager,
 };
 
