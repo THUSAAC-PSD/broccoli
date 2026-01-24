@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use extism::{Manifest, Plugin, Wasm};
+use extism::Plugin;
 use tracing::{info, instrument};
 
 use crate::{
-    config::PluginConfig, error::PluginError, manifest::PluginManifest, traits::PluginManager,
+    config::PluginConfig, error::PluginError, loader::PluginBundle, runtime::PluginBuilder,
+    traits::PluginManager,
 };
 
 /// Manages the lifecycle and execution of Extism plugins.
@@ -32,27 +32,6 @@ impl ExtismPluginManager {
             registry: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Internal helper to locate and parse the plugin manifest file.
-    fn read_manifest(&self, plugin_id: &str) -> Result<(PluginManifest, PathBuf), PluginError> {
-        let plugin_dir = self.config.plugins_dir.join(plugin_id);
-
-        if !plugin_dir.exists() || !plugin_dir.is_dir() {
-            return Err(PluginError::NotFound(format!(
-                "Directory for plugin '{}' not found at {:?}",
-                plugin_id, plugin_dir
-            )));
-        }
-
-        let toml_path = plugin_dir.join("plugin.toml");
-        let toml_content = fs::read_to_string(&toml_path)
-            .map_err(|e| PluginError::LoadFailed(format!("Failed to read plugin.toml: {}", e)))?;
-
-        let manifest: PluginManifest = toml::from_str(&toml_content)
-            .map_err(|e| PluginError::LoadFailed(format!("Invalid plugin.toml syntax: {}", e)))?;
-
-        Ok((manifest, plugin_dir))
-    }
 }
 
 #[async_trait]
@@ -61,27 +40,25 @@ impl PluginManager for ExtismPluginManager {
     fn load_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         info!("Attempting to load plugin bundle...");
 
-        // Parse the configuration from plugin.toml
-        let (manifest_data, plugin_dir) = self.read_manifest(plugin_id)?;
+        let plugin_dir = self.config.plugins_dir.join(plugin_id);
+        let bundle = PluginBundle::load_from_dir(&plugin_dir)?;
 
-        // Resolve the absolute path to the Wasm binary
-        let wasm_path = plugin_dir.join(&manifest_data.server.unwrap().entry);
-        if !wasm_path.exists() {
-            return Err(PluginError::NotFound(format!(
-                "Wasm binary not found at {:?}",
-                wasm_path
-            )));
-        }
+        // TODO: Make this environment-specific in the future
+        let entry = bundle
+            .manifest
+            .server
+            .as_ref()
+            .map(|c| c.entry.clone())
+            .ok_or_else(|| {
+                PluginError::LoadFailed("No [server] config found in manifest".into())
+            })?;
 
-        // Initialize the Extism Manifest
-        let wasm = Wasm::file(wasm_path);
-        let extism_manifest = Manifest::new([wasm]);
+        let wasm_path = bundle.root_dir.join(entry);
 
-        // Create the plugin instance
-        // The third argument controls WASI support based on system config
-        let plugin = Plugin::new(&extism_manifest, [], self.config.enable_wasi)?;
+        let plugin = PluginBuilder::new(wasm_path)
+            .with_wasi(self.config.enable_wasi)
+            .build()?;
 
-        // Acquire write lock to update the registry
         let mut registry = self
             .registry
             .write()
@@ -91,7 +68,7 @@ impl PluginManager for ExtismPluginManager {
 
         info!(
             "Plugin '{}' (v{}) loaded successfully",
-            manifest_data.name, manifest_data.version
+            bundle.manifest.name, bundle.manifest.version
         );
         Ok(())
     }
