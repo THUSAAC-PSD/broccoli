@@ -7,16 +7,30 @@ use axum::{
     http::StatusCode,
     routing::post,
 };
+use extism::{Function, UserData, ValType, host_fn};
 use serde::{Deserialize, Serialize};
-use tracing::{Level, info};
+use tracing::{Level, info, info_span};
 
 use plugin_core::config::PluginConfig;
+use plugin_core::host::HostFunctionRegistry;
 use plugin_core::manager::PluginBaseState;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::traits::{PluginManager, PluginManagerExt, PluginMap};
 
+host_fn!(log_info(user_data: String; msg: String) -> () {
+    let plugin_id = user_data.get()?;
+    let plugin_id = plugin_id.lock().map_err(|_| extism::Error::msg("Failed to lock plugin_id"))?;
+
+    let span = info_span!("plugin_log", plugin = %*plugin_id);
+    let _enter = span.enter();
+
+    info!("{}", msg);
+    Ok(())
+});
+
 struct ServerManager {
     state: PluginBaseState,
+    host_functions: HostFunctionRegistry,
 }
 
 impl PluginManager for ServerManager {
@@ -27,9 +41,37 @@ impl PluginManager for ServerManager {
     fn get_registry(&self) -> &PluginMap {
         &self.state.registry
     }
+    fn get_host_functions(&self) -> &HostFunctionRegistry {
+        &self.host_functions
+    }
 
-    fn resolve_entry(&self, manifest: &PluginManifest) -> Option<String> {
-        manifest.server.as_ref().map(|s| s.entry.clone())
+    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+        manifest
+            .server
+            .as_ref()
+            .map(|s| (s.entry.clone(), s.permissions.clone()))
+    }
+}
+
+impl ServerManager {
+    fn new(config: PluginConfig) -> Self {
+        let mut hr = HostFunctionRegistry::new();
+
+        // Register the 'logger' permission group
+        hr.register("logger", |plugin_id| {
+            Function::new(
+                "log_info",
+                [ValType::I64],
+                [],
+                UserData::new(plugin_id.to_string()),
+                log_info,
+            )
+        });
+
+        Self {
+            state: PluginBaseState::new(config),
+            host_functions: hr,
+        }
     }
 }
 
@@ -50,13 +92,14 @@ struct JudgeResult {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .with_target(false)
+        .init();
 
     let config = PluginConfig::default();
     let state = AppState {
-        plugins: Arc::new(ServerManager {
-            state: PluginBaseState::new(config),
-        }),
+        plugins: Arc::new(ServerManager::new(config)),
     };
 
     let app = Router::new()
