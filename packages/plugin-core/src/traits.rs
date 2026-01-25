@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use extism::Plugin;
+use extism::{Manifest, Plugin, PluginBuilder, Wasm};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{info, instrument};
 
@@ -11,7 +11,6 @@ use crate::error::PluginError;
 use crate::host::HostFunctionRegistry;
 use crate::loader::PluginBundle;
 use crate::manifest::PluginManifest;
-use crate::runtime::PluginBuilder;
 
 pub type PluginMap = Arc<RwLock<HashMap<String, Mutex<Plugin>>>>;
 
@@ -41,10 +40,14 @@ pub trait PluginManager: Send + Sync {
             .ok_or_else(|| PluginError::LoadFailed("No matching entry found in manifest".into()))?;
 
         let wasm_path = bundle.root_dir.join(entry);
+        let wasm = Wasm::file(&wasm_path);
+        let manifest = Manifest::new([wasm]);
 
-        let plugin = PluginBuilder::new(wasm_path)
+        let host_functions = self.get_host_functions().resolve(plugin_id, &permissions);
+
+        let plugin = PluginBuilder::new(manifest)
             .with_wasi(true)
-            .with_permissions(plugin_id, &permissions, self.get_host_functions())
+            .with_functions(host_functions)
             .build()?;
 
         let mut registry = self
