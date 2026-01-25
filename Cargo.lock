@@ -1873,7 +1873,6 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "axum",
  "extism",
  "plugin-core",
@@ -1881,7 +1880,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "toml 0.9.11+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]
