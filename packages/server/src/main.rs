@@ -1,94 +1,19 @@
+mod handlers;
+mod host_funcs;
+mod manager;
+mod models;
+mod state;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{
-    Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
-    routing::post,
-};
-use extism::{Function, UserData, ValType, host_fn};
-use serde::{Deserialize, Serialize};
-use tracing::{Level, info, info_span};
-
+use axum::{Router, routing::post};
 use plugin_core::config::PluginConfig;
-use plugin_core::host::HostFunctionRegistry;
-use plugin_core::manager::PluginBaseState;
-use plugin_core::manifest::PluginManifest;
-use plugin_core::traits::{PluginManager, PluginManagerExt, PluginMap};
+use tracing::{Level, info};
 
-host_fn!(log_info(user_data: String; msg: String) -> () {
-    let plugin_id = user_data.get()?;
-    let plugin_id = plugin_id.lock().map_err(|_| extism::Error::msg("Failed to lock plugin_id"))?;
-
-    let span = info_span!("plugin_log", plugin = %*plugin_id);
-    let _enter = span.enter();
-
-    info!("{}", msg);
-    Ok(())
-});
-
-struct ServerManager {
-    state: PluginBaseState,
-    host_functions: HostFunctionRegistry,
-}
-
-impl PluginManager for ServerManager {
-    // Directly return references to the base state fields
-    fn get_config(&self) -> &PluginConfig {
-        &self.state.config
-    }
-    fn get_registry(&self) -> &PluginMap {
-        &self.state.registry
-    }
-    fn get_host_functions(&self) -> &HostFunctionRegistry {
-        &self.host_functions
-    }
-
-    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
-        manifest
-            .server
-            .as_ref()
-            .map(|s| (s.entry.clone(), s.permissions.clone()))
-    }
-}
-
-impl ServerManager {
-    fn new(config: PluginConfig) -> Self {
-        let mut hr = HostFunctionRegistry::new();
-
-        // Register the 'logger' permission group
-        hr.register("logger", |plugin_id| {
-            Function::new(
-                "log_info",
-                [ValType::I64],
-                [],
-                UserData::new(plugin_id.to_string()),
-                log_info,
-            )
-        });
-
-        Self {
-            state: PluginBaseState::new(config),
-            host_functions: hr,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct AppState {
-    plugins: Arc<dyn PluginManager>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Submission {
-    name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct JudgeResult {
-    greeting: String,
-}
+use crate::handlers::{judge::execute_judge, plugin::load_plugin};
+use crate::manager::ServerManager;
+use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -114,33 +39,4 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-async fn load_plugin(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<String, StatusCode> {
-    state.plugins.load_plugin(&id).map_err(|e| {
-        tracing::error!("Failed to load plugin: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    Ok(format!("Plugin '{}' loaded successfully", id))
-}
-
-async fn execute_judge(
-    State(state): State<AppState>,
-    Path(plugin_id): Path<String>,
-    Json(submission): Json<Submission>,
-) -> Result<Json<JudgeResult>, StatusCode> {
-    let result: JudgeResult = state
-        .plugins
-        .call(&plugin_id, "greet", submission)
-        .await
-        .map_err(|e| {
-            tracing::error!("Plugin execution error: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    Ok(Json(result))
 }
