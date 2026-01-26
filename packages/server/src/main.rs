@@ -5,6 +5,7 @@ mod host_funcs;
 mod manager;
 mod models;
 mod state;
+mod utils;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -13,7 +14,6 @@ use axum::{Router, routing::post};
 use plugin_core::config::PluginConfig;
 use tracing::{Level, info};
 
-use crate::handlers::{judge::execute_judge, plugin::load_plugin};
 use crate::manager::ServerManager;
 use crate::state::AppState;
 
@@ -33,8 +33,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let app = Router::new()
-        .route("/plugins/{id}/load", post(load_plugin))
-        .route("/run/{id}", post(execute_judge))
+        .route("/auth/register", post(handlers::auth::register))
+        .route("/auth/login", post(handlers::auth::login))
+        .route("/plugins/{id}/load", post(handlers::plugin::load_plugin))
+        .route("/run/{id}", post(handlers::judge::execute_judge))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
