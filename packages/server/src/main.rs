@@ -1,3 +1,5 @@
+mod database;
+mod entity;
 mod handlers;
 mod host_funcs;
 mod manager;
@@ -22,9 +24,12 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
+    let db = database::init_db("postgres://postgres:password@localhost:5432/broccoli").await?;
+
     let config = PluginConfig::default();
     let state = AppState {
         plugins: Arc::new(ServerManager::new(config)),
+        db,
     };
 
     let app = Router::new()

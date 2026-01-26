@@ -9,6 +9,7 @@ async-trait = "0.1.89"
 axum = "0.8.8"
 extism = "1.13.0"
 serde = { version = "1.0.228", features = ["derive"] }
+sea-orm = "2.0.0-rc.29"
 serde_json = "1.0.149"
 thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = ["full"] }

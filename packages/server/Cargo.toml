@@ -8,6 +8,13 @@ anyhow.workspace = true
 axum.workspace = true
 extism.workspace = true
 plugin-core = { version = "0.1.0", path = "../plugin-core" }
+sea-orm = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "sqlx-postgres",
+  "macros",
+  "schema-sync",
+  "entity-registry",
+] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
