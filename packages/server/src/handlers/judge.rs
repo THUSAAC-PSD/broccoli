@@ -5,7 +5,7 @@ use axum::{
 };
 use plugin_core::traits::PluginManagerExt;
 
-use crate::models::{JudgeResult, Submission};
+use crate::models::judge::{JudgeResult, Submission};
 use crate::state::AppState;
 
 pub async fn execute_judge(
