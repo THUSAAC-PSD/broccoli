@@ -15,7 +15,9 @@ pub async fn init_db(db_url: &str) -> Result<DatabaseConnection, DbErr> {
         .sqlx_logging(true);
 
     let db = Database::connect(opt).await?;
-    db.get_schema_registry("crate::entity::*").sync(&db).await?;
+    db.get_schema_registry("server::entity::*")
+        .sync(&db)
+        .await?;
 
     Ok(db)
 }

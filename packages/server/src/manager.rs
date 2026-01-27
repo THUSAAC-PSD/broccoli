@@ -3,6 +3,7 @@ use plugin_core::host::HostFunctionRegistry;
 use plugin_core::manager::PluginBaseState;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::traits::{PluginManager, PluginMap};
+use sea_orm::DatabaseConnection;
 
 use crate::host_funcs::init_host_functions;
 
@@ -12,10 +13,10 @@ pub struct ServerManager {
 }
 
 impl ServerManager {
-    pub fn new(config: PluginConfig) -> Self {
+    pub fn new(config: PluginConfig, db: DatabaseConnection) -> Self {
         Self {
             state: PluginBaseState::new(config),
-            host_functions: init_host_functions(),
+            host_functions: init_host_functions(db),
         }
     }
 }

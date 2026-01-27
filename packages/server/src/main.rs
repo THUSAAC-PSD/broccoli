@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = PluginConfig::default();
     let state = AppState {
-        plugins: Arc::new(ServerManager::new(config)),
+        plugins: Arc::new(ServerManager::new(config, db.clone())),
         db,
     };
 
