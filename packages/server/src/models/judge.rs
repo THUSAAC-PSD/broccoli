@@ -10,4 +10,5 @@ pub struct Submission {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JudgeResult {
     pub greeting: String,
+    pub visit_count: u32,
 }

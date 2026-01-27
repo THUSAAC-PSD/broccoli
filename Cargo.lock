@@ -475,6 +475,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "extism",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
