@@ -9,7 +9,7 @@ pub trait Message: Serialize + DeserializeOwned + Debug + Send + Sync + Clone {
     where
         Self: Sized;
 
-    /// maybe... UUID?
+    /// TODO: maybe... UUID?
     fn message_id(&self) -> &str;
 
     fn metadata(&self) -> MessageMetadata {
