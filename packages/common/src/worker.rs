@@ -17,12 +17,13 @@ pub struct TaskResult {
     pub output: serde_json::Value,
 }
 
-// TODO: extend hook functionality
-#[async_trait]
-pub trait Hook: Send + Sync {
-    async fn on_task_start(&self, task: &Task) -> Result<()>;
-    async fn on_task_complete(&self, result: &TaskResult) -> Result<()>;
-    async fn on_task_error(&self, task: &Task, error: &str) -> Result<()>;
+/// Task lifecycle events for hooks
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TaskEvent {
+    Started { task: Task },
+    Completed { result: TaskResult },
+    Failed { task: Task, error: String },
 }
 
 /// Worker use executor to run tasks
