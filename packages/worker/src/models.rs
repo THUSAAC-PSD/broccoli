@@ -1,14 +1,21 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use extism::*;
-use serde::Serialize;
+use common::worker::*;
+use plugin_core::hook::{Hook, HookManager};
+use plugin_core::traits::{PluginManager, PluginManagerExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use common::worker::*;
 
 /// Native executor to run Rust functions
 pub struct NativeExecutor {
-    handlers: Arc<Mutex<HashMap<String, Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>>>>,
+    handlers: Arc<
+        Mutex<
+            HashMap<
+                String,
+                Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
+            >,
+        >,
+    >,
 }
 
 impl NativeExecutor {
@@ -22,7 +29,10 @@ impl NativeExecutor {
     where
         F: Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
     {
-        self.handlers.lock().unwrap().insert(task_type, Box::new(handler));
+        self.handlers
+            .lock()
+            .unwrap()
+            .insert(task_type, Box::new(handler));
     }
 }
 
@@ -30,7 +40,7 @@ impl NativeExecutor {
 impl Executor for NativeExecutor {
     async fn execute(&self, task: Task) -> Result<TaskResult> {
         let handlers = self.handlers.lock().unwrap();
-        
+
         if let Some(handler) = handlers.get(&task.task_type) {
             match handler(task.payload) {
                 Ok(output) => Ok(TaskResult {
@@ -54,42 +64,42 @@ impl Executor for NativeExecutor {
     }
 }
 
-// WASM plugin executor
-pub struct WasmExecutor {
-    plugin: Arc<Mutex<Plugin>>,
+pub struct WasmExecutor<M: PluginManager> {
+    plugin_manager: Arc<M>,
+    plugin_id: String,
+    function_name: String,
 }
 
-impl WasmExecutor {
-    // TODO: wasi should not be enabled by default
-    pub fn new(wasm_path: &str) -> Result<Self> {
-        let manifest = Manifest::new([Wasm::file(wasm_path)]);
-        let plugin = Plugin::new(&manifest, [], true)?;
-        Ok(Self { 
-            plugin: Arc::new(Mutex::new(plugin))
-        })
+impl<M: PluginManager> WasmExecutor<M> {
+    pub fn new(plugin_manager: Arc<M>, plugin_id: String) -> Self {
+        Self {
+            plugin_manager,
+            plugin_id,
+            function_name: "execute_task".to_string(),
+        }
     }
-    pub fn new_from_bytes(wasm_bytes: &[u8]) -> Result<Self> {
-        let manifest = Manifest::new([Wasm::data(wasm_bytes)]);
-        let plugin = Plugin::new(&manifest, [], true)?;
-        Ok(Self { 
-            plugin: Arc::new(Mutex::new(plugin))
-        })
+
+    pub fn with_function(plugin_manager: Arc<M>, plugin_id: String, function_name: String) -> Self {
+        Self {
+            plugin_manager,
+            plugin_id,
+            function_name,
+        }
     }
 }
 
 #[async_trait]
-impl Executor for WasmExecutor {
+impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
     async fn execute(&self, task: Task) -> Result<TaskResult> {
-        let input = serde_json::to_vec(&task)?;
-        let mut plugin = self.plugin.lock().unwrap();
-        
-        match plugin.call::<&[u8], Vec<u8>>("execute_task", &input) {
-            Ok(output_bytes) => {
-                let result: TaskResult = serde_json::from_slice(&output_bytes)?;
-                Ok(result)
-            }
+        let task_id = task.id.clone();
+        match self
+            .plugin_manager
+            .call(&self.plugin_id, &self.function_name, task)
+            .await
+        {
+            Ok(result) => Ok(result),
             Err(e) => Ok(TaskResult {
-                task_id: task.id,
+                task_id,
                 success: false,
                 output: serde_json::json!({ "error": e.to_string() }),
             }),
@@ -99,14 +109,14 @@ impl Executor for WasmExecutor {
 
 pub struct Worker {
     executors: Arc<Mutex<HashMap<String, Arc<dyn Executor>>>>,
-    hooks: Arc<Mutex<Vec<Arc<dyn Hook>>>>,
+    hook_manager: Arc<Mutex<HookManager<TaskEvent>>>,
 }
 
 impl Worker {
     pub fn new() -> Self {
         Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
-            hooks: Arc::new(Mutex::new(Vec::new())),
+            hook_manager: Arc::new(Mutex::new(HookManager::new())),
         }
     }
 
@@ -114,35 +124,40 @@ impl Worker {
         self.executors.lock().unwrap().insert(name, executor);
     }
 
-    pub fn add_hook(&self, hook: Arc<dyn Hook>) {
-        self.hooks.lock().unwrap().push(hook);
+    pub fn add_hook(&self, hook: Arc<dyn Hook<TaskEvent>>) {
+        self.hook_manager.lock().unwrap().add_hook(hook);
     }
 
     pub async fn execute_task(&self, task: Task, executor_name: &str) -> Result<TaskResult> {
-        let hooks = self.hooks.lock().unwrap().clone();
-        for hook in hooks.iter() {
-            let _ = hook.on_task_start(&task).await;
-        }
+        let hook_manager = { self.hook_manager.lock().unwrap().clone() };
 
-        let executor = self.executors.lock().unwrap()
-            .get(executor_name)
-            .cloned();
-            
+        // Trigger task started event
+        hook_manager
+            .trigger(&TaskEvent::Started { task: task.clone() })
+            .await;
+
+        let executor = self.executors.lock().unwrap().get(executor_name).cloned();
+
         let result = if let Some(executor) = executor {
             match executor.execute(task.clone()).await {
                 Ok(result) => {
-                    // Trigger on_task_complete hooks
-                    for hook in hooks.iter() {
-                        let _ = hook.on_task_complete(&result).await;
-                    }
+                    // Trigger task completed event
+                    hook_manager
+                        .trigger(&TaskEvent::Completed {
+                            result: result.clone(),
+                        })
+                        .await;
                     result
                 }
                 Err(e) => {
                     let error_msg = e.to_string();
-                    // Trigger on_task_error hooks
-                    for hook in hooks.iter() {
-                        let _ = hook.on_task_error(&task, &error_msg).await;
-                    }
+                    // Trigger task failed event
+                    hook_manager
+                        .trigger(&TaskEvent::Failed {
+                            task: task.clone(),
+                            error: error_msg.clone(),
+                        })
+                        .await;
                     TaskResult {
                         task_id: task.id,
                         success: false,
@@ -162,79 +177,27 @@ impl Worker {
     }
 }
 
-pub struct WasmHook {
-    plugin: Arc<Mutex<Plugin>>,
-}
-
-impl WasmHook {
-    pub fn new(wasm_path: &str) -> Result<Self> {
-        let manifest = Manifest::new([Wasm::file(wasm_path)]);
-        let plugin = Plugin::new(&manifest, [], true)?;
-        Ok(Self {
-            plugin: Arc::new(Mutex::new(plugin)),
-        })
-    }
-
-    pub fn new_from_bytes(wasm_bytes: &[u8]) -> Result<Self> {
-        let manifest = Manifest::new([Wasm::data(wasm_bytes)]);
-        let plugin = Plugin::new(&manifest, [], true)?;
-        Ok(Self {
-            plugin: Arc::new(Mutex::new(plugin)),
-        })
-    }
-
-    // Helper to call plugin hook functions
-    fn call_hook(&self, fn_name: &str, input: &[u8]) -> Result<()> {
-        let mut plugin = self.plugin.lock().unwrap();
-        
-        match plugin.call::<&[u8], Vec<u8>>(fn_name, input) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.into())
-        }
-    }
-}
-
-#[async_trait]
-impl Hook for WasmHook {
-    async fn on_task_start(&self, task: &Task) -> Result<()> {
-        let input = serde_json::to_vec(task)?;
-        self.call_hook("on_task_start", &input)
-    }
-
-    async fn on_task_complete(&self, result: &TaskResult) -> Result<()> {
-        let input = serde_json::to_vec(result)?;
-        self.call_hook("on_task_complete", &input)
-    }
-
-    async fn on_task_error(&self, task: &Task, error: &str) -> Result<()> {
-        #[derive(Serialize)]
-        struct ErrorPayload<'a> {
-            task: &'a Task,
-            error: &'a str,
-        }
-        let payload = ErrorPayload { task, error };
-        let input = serde_json::to_vec(&payload)?;
-        self.call_hook("on_task_error", &input)
-    }
-}
-
 // Example hook: Simple logger
 pub struct LoggerHook;
 
 #[async_trait]
-impl Hook for LoggerHook {
-    async fn on_task_start(&self, task: &Task) -> Result<()> {
-        tracing::info!("Task started: {} (type: {})", task.id, task.task_type);
-        Ok(())
-    }
-
-    async fn on_task_complete(&self, result: &TaskResult) -> Result<()> {
-        tracing::info!("Task completed: {} (success: {})", result.task_id, result.success);
-        Ok(())
-    }
-
-    async fn on_task_error(&self, task: &Task, error: &str) -> Result<()> {
-        tracing::error!("Task error: {} - {}", task.id, error);
+impl Hook<TaskEvent> for LoggerHook {
+    async fn on_event(&self, event: &TaskEvent) -> Result<()> {
+        match event {
+            TaskEvent::Started { task } => {
+                tracing::info!("Task started: {} (type: {})", task.id, task.task_type);
+            }
+            TaskEvent::Completed { result } => {
+                tracing::info!(
+                    "Task completed: {} (success: {})",
+                    result.task_id,
+                    result.success
+                );
+            }
+            TaskEvent::Failed { task, error } => {
+                tracing::error!("Task error: {} - {}", task.id, error);
+            }
+        }
         Ok(())
     }
 }
