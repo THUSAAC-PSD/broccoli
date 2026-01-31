@@ -1,3 +1,4 @@
+use crate::event::Event;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -18,12 +19,22 @@ pub struct TaskResult {
 }
 
 /// Task lifecycle events for hooks
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskEvent {
     Started { task: Task },
     Completed { result: TaskResult },
     Failed { task: Task, error: String },
+}
+
+impl Event for TaskEvent {
+    fn topic(&self) -> &str {
+        match self {
+            TaskEvent::Started { .. } => "task_started",
+            TaskEvent::Completed { .. } => "task_completed",
+            TaskEvent::Failed { .. } => "task_failed",
+        }
+    }
 }
 
 /// Worker use executor to run tasks

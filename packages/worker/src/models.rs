@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use common::hook::{Hook, HookAction, HookRegistry};
 use common::worker::*;
-use plugin_core::hook::{Hook, HookManager};
 use plugin_core::traits::{PluginManager, PluginManagerExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -109,14 +109,14 @@ impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
 
 pub struct Worker {
     executors: Arc<Mutex<HashMap<String, Arc<dyn Executor>>>>,
-    hook_manager: Arc<Mutex<HookManager<TaskEvent>>>,
+    hook_registry: Arc<Mutex<HookRegistry>>,
 }
 
 impl Worker {
     pub fn new() -> Self {
         Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
-            hook_manager: Arc::new(Mutex::new(HookManager::new())),
+            hook_registry: Arc::new(Mutex::new(HookRegistry::new())),
         }
     }
 
@@ -124,15 +124,17 @@ impl Worker {
         self.executors.lock().unwrap().insert(name, executor);
     }
 
-    pub fn add_hook(&self, hook: Arc<dyn Hook<TaskEvent>>) {
-        self.hook_manager.lock().unwrap().add_hook(hook);
+    pub fn add_hook<H: Hook<TaskEvent> + 'static>(&self, hook: H) {
+        self.hook_registry.lock().unwrap().add_hook(Arc::new(hook));
     }
 
     pub async fn execute_task(&self, task: Task, executor_name: &str) -> Result<TaskResult> {
-        let hook_manager = { self.hook_manager.lock().unwrap().clone() };
+        let hook_manager = { self.hook_registry.lock().unwrap().clone() };
+
+        // TODO: take use of return value of trigger, e.g., modified event
 
         // Trigger task started event
-        hook_manager
+        let _ = hook_manager
             .trigger(&TaskEvent::Started { task: task.clone() })
             .await;
 
@@ -142,7 +144,7 @@ impl Worker {
             match executor.execute(task.clone()).await {
                 Ok(result) => {
                     // Trigger task completed event
-                    hook_manager
+                    let _ = hook_manager
                         .trigger(&TaskEvent::Completed {
                             result: result.clone(),
                         })
@@ -152,7 +154,7 @@ impl Worker {
                 Err(e) => {
                     let error_msg = e.to_string();
                     // Trigger task failed event
-                    hook_manager
+                    let _ = hook_manager
                         .trigger(&TaskEvent::Failed {
                             task: task.clone(),
                             error: error_msg.clone(),
@@ -182,7 +184,13 @@ pub struct LoggerHook;
 
 #[async_trait]
 impl Hook<TaskEvent> for LoggerHook {
-    async fn on_event(&self, event: &TaskEvent) -> Result<()> {
+    fn id(&self) -> &str {
+        "logger_hook"
+    }
+    fn topics(&self) -> &[&str] {
+        &["task_started", "task_completed", "task_failed"]
+    }
+    async fn on_event(&self, event: &TaskEvent) -> Result<HookAction<TaskEvent>> {
         match event {
             TaskEvent::Started { task } => {
                 tracing::info!("Task started: {} (type: {})", task.id, task.task_type);
@@ -198,6 +206,6 @@ impl Hook<TaskEvent> for LoggerHook {
                 tracing::error!("Task error: {} - {}", task.id, error);
             }
         }
-        Ok(())
+        Ok(HookAction::Pass)
     }
 }
