@@ -4,6 +4,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::event::{Event, GenericEvent};
 
+// TODO: add hook priorities?
+
 /// Typed hook, used for specific event type
 #[async_trait]
 pub trait Hook<E: Event>: Send + Sync {
@@ -73,6 +75,14 @@ impl<E: Event, H: Hook<E>> GenericHook for HookAdapter<E, H> {
             )),
         }
     }
+
+    async fn on_register(&self) -> Result<()> {
+        self.hook.on_register().await
+    }
+
+    async fn on_unregister(&self) -> Result<()> {
+        self.hook.on_unregister().await
+    }
 }
 
 /// Generic hook registry to manage hooks
@@ -89,11 +99,15 @@ impl HookRegistry {
     }
 
     /// Add a typed hook to the registry
-    pub fn add_hook<E: Event + 'static, H: Hook<E> + 'static>(&mut self, hook: Arc<H>) {
+    pub async fn add_hook<E: Event + 'static, H: Hook<E> + 'static>(
+        &mut self,
+        hook: Arc<H>,
+    ) -> Result<()> {
         let adapter = Arc::new(HookAdapter::<E, H> {
             hook,
             _phantom: std::marker::PhantomData,
         });
+        adapter.on_register().await?;
 
         for &topic in adapter.topics() {
             self.hooks
@@ -101,16 +115,34 @@ impl HookRegistry {
                 .or_default()
                 .push(adapter.clone());
         }
+        Ok(())
     }
 
     /// Add a generic hook to the registry
-    pub fn add_generic_hook<H: GenericHook + 'static>(&mut self, hook: Arc<H>) {
+    pub async fn add_generic_hook<H: GenericHook + 'static>(&mut self, hook: Arc<H>) -> Result<()> {
+        hook.on_register().await?;
         for &topic in hook.topics() {
             self.hooks
                 .entry(topic.to_string())
                 .or_default()
                 .push(hook.clone());
         }
+        Ok(())
+    }
+
+    /// Remove a hook by its ID, only removes the first
+    pub async fn remove_hook(&mut self, hook_id: &str) -> Result<()> {
+        let hooks = &mut self.hooks;
+
+        for hooks_list in hooks.values_mut() {
+            if let Some(pos) = hooks_list.iter().position(|h| h.id() == hook_id) {
+                let hook = hooks_list.remove(pos);
+                hook.on_unregister().await?;
+                return Ok(());
+            }
+        }
+
+        Err(anyhow::anyhow!("Hook not found: {}", hook_id))
     }
 
     /// Trigger all hooks for an event
