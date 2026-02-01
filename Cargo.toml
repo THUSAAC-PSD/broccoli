@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/common","packages/plugin-core","packages/server", "packages/worker"]
+members = ["packages/common", "packages/mq","packages/plugin-core","packages/server", "packages/worker"]
 exclude = ["examples", "plugins"]
 resolver = "3"
 
