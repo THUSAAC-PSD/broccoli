@@ -1,5 +1,5 @@
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Debug, time::Duration};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::{collections::HashMap, fmt::Debug};
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -35,7 +35,7 @@ pub struct MessageEnvelope {
     pub metadata: MessageMetadata,
     pub payload: serde_json::Value,
     /// Optional routing key for exchanges, like RabbitMQ
-    pub routing_key: Option<String>, 
+    pub routing_key: Option<String>,
 }
 
 impl MessageEnvelope {
@@ -43,17 +43,17 @@ impl MessageEnvelope {
     pub fn from_message<M: Message>(
         message: M,
         routing_key: Option<String>,
-    ) -> Result<Self, MqError> {
+    ) -> Result<Self, MessageError> {
         let message_type = M::message_type().to_string();
         let message_id = message.message_id().to_string();
-        
+
         debug!(
             message_type = %message_type,
             message_id = %message_id,
             routing_key = ?routing_key,
             "Creating message envelope"
         );
-        
+
         Ok(Self {
             message_type,
             message_id,
@@ -64,7 +64,7 @@ impl MessageEnvelope {
     }
 
     /// Deserialize into typed message
-    pub fn into_message<M: Message>(self) -> Result<M, MqError> {
+    pub fn into_message<M: Message>(self) -> Result<M, MessageError> {
         if self.message_type != M::message_type() {
             error!(
                 expected = M::message_type(),
@@ -72,51 +72,36 @@ impl MessageEnvelope {
                 message_id = %self.message_id,
                 "Message type mismatch"
             );
-            return Err(MqError::TypeMismatch {
+            return Err(MessageError::TypeMismatch {
                 expected: M::message_type().to_string(),
                 actual: self.message_type,
             });
         }
-        
+
         debug!(
             message_type = %self.message_type,
             message_id = %self.message_id,
             "Deserializing message"
         );
-        
+
         serde_json::from_value(self.payload).map_err(|e| {
             error!(error = %e, message_id = %self.message_id, "Deserialization failed");
-            MqError::Serialization(e)
+            MessageError::Serialization(e)
         })
     }
 }
 
 #[derive(Debug, Error)]
-pub enum MqError {
-    #[error("Connection error: {0}")]
-    Connection(String),
-
-    #[error("Queue not found: {0}")]
-    QueueNotFound(String),
-
-    #[error("Exchange not found: {0}")]
-    ExchangeNotFound(String),
+pub enum MessageError {
+    #[error("Message type mismatch: expected {expected}, got {actual}")]
+    TypeMismatch { expected: String, actual: String },
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
-    #[error("Message timeout after {0:?}")]
-    Timeout(Duration),
+    #[error("Invalid message: {0}")]
+    InvalidMessage(String),
 
-    #[error("Acknowledgment failed: {0}")]
-    AckFailed(String),
-
-    #[error("Message type mismatch: expected {expected}, got {actual}")]
-    TypeMismatch { expected: String, actual: String },
-
-    #[error("Configuration error: {0}")]
-    Config(String),
-
-    #[error("Internal error: {0}")]
-    Internal(String),
+    #[error("{0}")]
+    Other(String),
 }
