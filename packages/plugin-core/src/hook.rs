@@ -32,6 +32,8 @@ impl<M: PluginManager> PluginHook<M> {
 
 #[async_trait]
 impl<M: PluginManager + Send + Sync + 'static> GenericHook for PluginHook<M> {
+    type Context = ();
+
     fn id(&self) -> &str {
         &self.plugin_id
     }
@@ -40,7 +42,7 @@ impl<M: PluginManager + Send + Sync + 'static> GenericHook for PluginHook<M> {
         &self.topics
     }
 
-    async fn on_event(&self, event: &GenericEvent) -> Result<GenericHookAction> {
+    async fn on_event(&self, _ctx: (), event: &GenericEvent) -> Result<GenericHookAction> {
         // Call the plugin function with the event payload
         match self
             .plugin_manager

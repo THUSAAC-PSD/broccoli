@@ -116,7 +116,7 @@ impl Worker {
     pub fn new() -> Self {
         Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
-            hook_registry: Arc::new(Mutex::new(HookRegistry::new())),
+            hook_registry: Arc::new(Mutex::new(HookRegistry::new(()))),
         }
     }
 
@@ -124,8 +124,12 @@ impl Worker {
         self.executors.lock().unwrap().insert(name, executor);
     }
 
-    pub fn add_hook<H: Hook<TaskEvent> + 'static>(&self, hook: H) {
-        self.hook_registry.lock().unwrap().add_hook(Arc::new(hook));
+    pub async fn add_hook<H: Hook<TaskEvent, Context = ()> + 'static>(
+        &self,
+        hook: H,
+    ) -> Result<()> {
+        self.hook_registry.lock().unwrap().add_hook(hook).await?;
+        Ok(())
     }
 
     pub async fn execute_task(&self, task: Task, executor_name: &str) -> Result<TaskResult> {
@@ -184,13 +188,15 @@ pub struct LoggerHook;
 
 #[async_trait]
 impl Hook<TaskEvent> for LoggerHook {
+    type Output = TaskEvent;
+    type Context = ();
     fn id(&self) -> &str {
         "logger_hook"
     }
     fn topics(&self) -> &[&str] {
         &["task_started", "task_completed", "task_failed"]
     }
-    async fn on_event(&self, event: &TaskEvent) -> Result<HookAction<TaskEvent>> {
+    async fn on_event(&self, _ctx: (), event: &TaskEvent) -> Result<HookAction<TaskEvent>> {
         match event {
             TaskEvent::Started { task } => {
                 tracing::info!("Task started: {} (type: {})", task.id, task.task_type);
