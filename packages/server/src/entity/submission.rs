@@ -28,7 +28,6 @@ pub struct Model {
     #[sea_orm(has_one)]
     pub result: HasOne<super::judge_result::Entity>,
 
-    #[sea_orm(unique)]
     pub user_id: i32,
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<super::user::Entity>,
