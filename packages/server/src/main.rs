@@ -36,8 +36,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/plugins/{id}/load", post(handlers::plugin::load_plugin))
-        .route("/plugins/{id}/call/{func}", post(handlers::plugin::call_plugin_func))
-        .route("/run/{id}", post(handlers::judge::execute_judge))
+        .route(
+            "/plugins/{id}/call/{func}",
+            post(handlers::plugin::call_plugin_func),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
