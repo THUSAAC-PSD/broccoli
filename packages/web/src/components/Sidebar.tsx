@@ -1,4 +1,4 @@
-import { Home, Code2, Trophy, BookOpen, User, Settings } from 'lucide-react';
+import { Home, Code2, Trophy, BookOpen, User, Settings, Moon, Sun } from 'lucide-react';
 import {
   Sidebar as SidebarUI,
   SidebarContent,
@@ -13,6 +13,8 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar';
 import { Slot } from '@broccoli/sdk/react';
+import { useTheme } from '@/hooks/use-theme';
+import { Button } from '@/components/ui/button';
 
 const defaultMenuItems = [
   {
@@ -51,6 +53,8 @@ const defaultUserItems = [
 ];
 
 export function Sidebar() {
+  const { theme, toggleTheme } = useTheme();
+
   return (
     <SidebarUI collapsible="icon">
       <SidebarHeader>
@@ -120,6 +124,16 @@ export function Sidebar() {
 
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={toggleTheme}
+              tooltip="Switch theme"
+              className="bg-sidebar-accent/50 hover:bg-sidebar-accent"
+            >
+              {theme === 'light' ? <Moon /> : <Sun />}
+              <span>{theme === 'light' ? 'Dark' : 'Light'} Mode</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton>
               <User className="mr-2 h-4 w-4" />
