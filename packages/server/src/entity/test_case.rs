@@ -14,7 +14,6 @@ pub struct Model {
     pub expected_output: String,
     pub score: i32, // score for this test case
 
-    #[sea_orm(unique)]
     pub problem_id: i32,
     #[sea_orm(belongs_to, from = "problem_id", to = "id")]
     pub problem: HasOne<super::problem::Entity>,

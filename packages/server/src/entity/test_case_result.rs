@@ -13,12 +13,10 @@ pub struct Model {
     pub time_used: i32,   // in milliseconds
     pub memory_used: i32, // in kilobytes
 
-    #[sea_orm(unique)]
     pub judge_result_id: i32,
     #[sea_orm(belongs_to, from = "judge_result_id", to = "id")]
     pub judge_result: HasOne<super::judge_result::Entity>,
 
-    #[sea_orm(unique)]
     pub test_case_id: i32,
     #[sea_orm(belongs_to, from = "test_case_id", to = "id")]
     pub test_case: HasOne<super::test_case::Entity>,
