@@ -1,4 +1,5 @@
 pub mod logger;
+pub mod sql;
 pub mod storage;
 
 use extism::{Function, UserData, ValType};
@@ -37,6 +38,28 @@ pub fn init_host_functions(db: DatabaseConnection) -> HostFunctionRegistry {
             [ValType::I64],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             storage::store_get,
+        )
+    });
+
+    let db_clone = db.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_execute",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            sql::db_execute,
+        )
+    });
+
+    let db_clone = db.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_query",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            sql::db_query,
         )
     });
 
