@@ -1,0 +1,7 @@
+name = "test-plugin"
+version = "0.1.0"
+description = "A demo plugin"
+
+[server]
+entry = "main.wasm"
+permissions = ["logger", "storage", "sql"]
