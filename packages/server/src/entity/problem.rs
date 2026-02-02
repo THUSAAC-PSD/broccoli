@@ -16,6 +16,9 @@ pub struct Model {
     #[sea_orm(has_many)]
     pub submissions: HasMany<super::submission::Entity>,
 
+    #[sea_orm(has_many)]
+    pub test_cases: HasMany<super::test_case::Entity>,
+
     #[sea_orm(has_many, via = "contest_problem")]
     pub contests: HasMany<super::contest::Entity>,
 
