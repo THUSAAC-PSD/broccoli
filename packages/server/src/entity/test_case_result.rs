@@ -3,23 +3,25 @@ use serde::{Deserialize, Serialize};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "judge_result")]
+#[sea_orm(table_name = "test_case_result")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
 
-    pub verdict: String,
+    pub verdict: String, // "Accepted", "WrongAnswer", "TimeLimitExceeded", etc.
     pub score: i32,
     pub time_used: i32,   // in milliseconds
     pub memory_used: i32, // in kilobytes
 
     #[sea_orm(unique)]
-    pub submission_id: i32,
-    #[sea_orm(belongs_to, from = "submission_id", to = "id")]
-    pub submission: HasOne<super::submission::Entity>,
+    pub judge_result_id: i32,
+    #[sea_orm(belongs_to, from = "judge_result_id", to = "id")]
+    pub judge_result: HasOne<super::judge_result::Entity>,
 
-    #[sea_orm(has_many)]
-    pub test_case_results: HasMany<super::test_case_result::Entity>,
+    #[sea_orm(unique)]
+    pub test_case_id: i32,
+    #[sea_orm(belongs_to, from = "test_case_id", to = "id")]
+    pub test_case: HasOne<super::test_case::Entity>,
 
     pub created_at: DateTimeUtc,
 }

@@ -5,4 +5,6 @@ pub mod judge_result;
 pub mod plugin_storage;
 pub mod problem;
 pub mod submission;
+pub mod test_case;
+pub mod test_case_result;
 pub mod user;
