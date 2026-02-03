@@ -16,4 +16,14 @@ pub struct LoginRequest {
 pub struct LoginResponse {
     pub token: String,
     pub username: String,
+    pub role: String,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct MeResponse {
+    pub id: i32,
+    pub username: String,
+    pub role: String,
+    pub permissions: Vec<String>,
 }
