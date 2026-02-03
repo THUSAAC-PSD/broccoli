@@ -1,3 +1,4 @@
+mod config;
 mod database;
 mod entity;
 mod error;
@@ -15,12 +16,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Router;
 use axum::http::{HeaderName, HeaderValue, Method};
-use plugin_core::config::PluginConfig;
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info};
 
+use crate::config::AppConfig;
 use crate::manager::ServerManager;
 use crate::state::AppState;
 
@@ -31,35 +33,54 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
-    let db = database::init_db("postgres://postgres:password@localhost:5432/broccoli").await?;
+    let app_config = AppConfig::load().context("Failed to load configuration")?;
+
+    let db = database::init_db(&app_config.database.url).await?;
     seed::seed_role_permissions(&db).await?;
 
-    let config = PluginConfig::default();
     let state = AppState {
-        plugins: Arc::new(ServerManager::new(config, db.clone())),
+        plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
         db,
+        config: app_config.clone(),
     };
+
+    let mut allow_origins = Vec::new();
+    for origin in &app_config.server.cors.allow_origins {
+        allow_origins.push(
+            origin
+                .parse::<HeaderValue>()
+                .with_context(|| format!("Invalid CORS origin: {}", origin))?,
+        );
+    }
 
     let app = Router::new()
         .nest("/api", routes::api_routes())
         .with_state(state)
         .layer(
             CorsLayer::new()
-                .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap()) // TODO: config
+                .allow_origin(allow_origins)
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
                 .allow_headers([
                     HeaderName::from_static("content-type"),
                     HeaderName::from_static("authorization"),
                 ])
                 .allow_credentials(true)
-                .max_age(Duration::from_secs(3600)),
+                .max_age(Duration::from_secs(app_config.server.cors.max_age)),
         );
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr_str = format!("{}:{}", app_config.server.host, app_config.server.port);
+    let addr: SocketAddr = addr_str
+        .parse()
+        .with_context(|| format!("Invalid server address: {}", addr_str))?;
+
     info!("Server running at http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("Failed to bind to {}", addr))?;
+    axum::serve(listener, app)
+        .await
+        .context("Server runtime error")?;
 
     Ok(())
 }

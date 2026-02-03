@@ -1,6 +1,7 @@
+use serde::Deserialize;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct PluginConfig {
     pub plugins_dir: PathBuf,
     pub enable_wasi: bool,

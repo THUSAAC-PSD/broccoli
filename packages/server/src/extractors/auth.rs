@@ -1,6 +1,8 @@
-use axum::{extract::FromRequestParts, http::request::Parts};
+use axum::extract::{FromRef, FromRequestParts};
+use axum::http::request::Parts;
 
 use crate::error::AppError;
+use crate::state::AppState;
 use crate::utils::jwt;
 
 /// Authenticated user extracted from the `Authorization: Bearer <token>` header.
@@ -40,10 +42,11 @@ impl AuthUser {
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
+    AppState: axum::extract::FromRef<S>,
 {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get("Authorization")
@@ -54,7 +57,9 @@ where
             .strip_prefix("Bearer ")
             .ok_or(AppError::TokenInvalid)?;
 
-        let claims = jwt::verify(token).map_err(|_| AppError::TokenInvalid)?;
+        let app_state = AppState::from_ref(state);
+        let secret = app_state.config.auth.jwt_secret;
+        let claims = jwt::verify(token, &secret).map_err(|_| AppError::TokenInvalid)?;
 
         Ok(AuthUser {
             user_id: claims.uid,

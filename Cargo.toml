@@ -17,6 +17,7 @@ axum = "0.8.8"
 broccoli_queue = { version = "0.4.6", features = ["redis"] }
 chrono = "0.4.43"
 common = { path = "packages/common" }
+config = "0.15.19"
 extism = "1.13.0"
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 plugin-core = { path = "packages/plugin-core" }
