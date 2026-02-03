@@ -1,0 +1,92 @@
+use sea_orm::*;
+use tracing::info;
+
+use crate::entity::{role, role_permission};
+
+/// Default roles seeded on startup.
+const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
+
+/// Default role-permission mappings seeded on startup.
+const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
+    // Admin: all permissions
+    ("admin", "submission:submit"),
+    ("admin", "submission:view_all"),
+    ("admin", "problem:create"),
+    ("admin", "problem:edit"),
+    ("admin", "problem:delete"),
+    ("admin", "contest:create"),
+    ("admin", "contest:manage"),
+    ("admin", "contest:delete"),
+    ("admin", "user:manage"),
+    ("admin", "plugin:load"),
+    // Problem setter
+    ("problem_setter", "submission:submit"),
+    ("problem_setter", "submission:view_all"),
+    ("problem_setter", "problem:create"),
+    ("problem_setter", "problem:edit"),
+    // Contestant
+    ("contestant", "submission:submit"),
+];
+
+/// Seed the `role` and `role_permission` tables with defaults.
+pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr> {
+    // Seed roles
+    let mut roles_inserted = 0u32;
+    for &name in DEFAULT_ROLES {
+        let model = role::ActiveModel {
+            name: Set(name.to_string()),
+        };
+
+        let result = role::Entity::insert(model)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(role::Column::Name)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec_without_returning(db)
+            .await;
+
+        match result {
+            Ok(_) => roles_inserted += 1,
+            Err(DbErr::RecordNotInserted) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    if roles_inserted > 0 {
+        info!("Seeded {} new roles", roles_inserted);
+    }
+
+    // Seed role-permission mappings
+    let mut perms_inserted = 0u32;
+    for &(role, permission) in DEFAULT_MAPPINGS {
+        let model = role_permission::ActiveModel {
+            role: Set(role.to_string()),
+            permission: Set(permission.to_string()),
+        };
+
+        let result = role_permission::Entity::insert(model)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::columns([
+                    role_permission::Column::Role,
+                    role_permission::Column::Permission,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec_without_returning(db)
+            .await;
+
+        match result {
+            Ok(_) => perms_inserted += 1,
+            Err(DbErr::RecordNotInserted) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    if perms_inserted > 0 {
+        info!("Seeded {} new role-permission mappings", perms_inserted);
+    }
+
+    Ok(())
+}
