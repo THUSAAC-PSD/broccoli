@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { path = "../common" }
 anyhow.workspace = true
 async-trait.workspace = true
+broccoli_queue.workspace = true
+common.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-broccoli_queue = { version = "0.4.6", features = ["redis"] }
