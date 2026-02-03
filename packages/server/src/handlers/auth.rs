@@ -18,7 +18,7 @@ fn validate_register(payload: &RegisterRequest) -> Result<(), StatusCode> {
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if payload.password.len() < 8 {
+    if payload.password.len() < 8 || payload.password.len() > 128 {
         return Err(StatusCode::BAD_REQUEST);
     }
     Ok(())
