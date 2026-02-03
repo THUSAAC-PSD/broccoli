@@ -1,0 +1,17 @@
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[server.cors]
+allow_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+max_age = 3600
+
+[database]
+url = "postgres://postgres:password@localhost:5432/broccoli"
+
+[auth]
+jwt_secret = "generate-a-long-random-string-here"
+
+[plugin]
+plugins_dir = "./plugins"
+enable_wasi = true

@@ -13,11 +13,14 @@ pub struct Claims {
     pub exp: u64,                 // Expiration timestamp
 }
 
-// TODO: Move this to configuration/env later
-const JWT_SECRET: &[u8] = b"jwt_secret_key";
-
 /// Sign a new JWT token for a user.
-pub fn sign(user_id: i32, username: &str, role: &str, permissions: Vec<String>) -> Result<String> {
+pub fn sign(
+    user_id: i32,
+    username: &str,
+    role: &str,
+    permissions: Vec<String>,
+    secret: &str,
+) -> Result<String> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::days(7))
         .expect("valid timestamp")
@@ -34,17 +37,17 @@ pub fn sign(user_id: i32, username: &str, role: &str, permissions: Vec<String>) 
     let token = encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(JWT_SECRET),
+        &EncodingKey::from_secret(secret.as_bytes()),
     )?;
 
     Ok(token)
 }
 
 /// Verify and decode a JWT token.
-pub fn verify(token: &str) -> Result<Claims> {
+pub fn verify(token: &str, secret: &str) -> Result<Claims> {
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(JWT_SECRET),
+        &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::default(),
     )?;
     Ok(token_data.claims)

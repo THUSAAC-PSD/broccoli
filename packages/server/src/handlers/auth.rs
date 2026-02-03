@@ -90,8 +90,14 @@ pub async fn login(
 
     let permissions: Vec<String> = role_perms.into_iter().map(|rp| rp.permission).collect();
 
-    let token = jwt::sign(user.id, &user.username, &user.role, permissions.clone())
-        .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
+    let token = jwt::sign(
+        user.id,
+        &user.username,
+        &user.role,
+        permissions.clone(),
+        &state.config.auth.jwt_secret,
+    )
+    .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
     Ok(Json(LoginResponse {
         token,
