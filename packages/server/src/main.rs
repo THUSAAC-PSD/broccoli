@@ -11,9 +11,15 @@ mod utils;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
-use axum::{Router, routing::{get, post}};
+use axum::http::{HeaderName, HeaderValue, Method};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use plugin_core::config::PluginConfig;
+use tower_http::cors::CorsLayer;
 use tracing::{Level, info};
 
 use crate::manager::ServerManager;
@@ -44,7 +50,18 @@ async fn main() -> anyhow::Result<()> {
             "/plugins/{id}/call/{func}",
             post(handlers::plugin::call_plugin_func),
         )
-        .with_state(state);
+        .with_state(state)
+        .layer(
+            CorsLayer::new()
+                .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap()) // TODO: config
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+                .allow_headers([
+                    HeaderName::from_static("content-type"),
+                    HeaderName::from_static("authorization"),
+                ])
+                .allow_credentials(true)
+                .max_age(Duration::from_secs(3600)),
+        );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     info!("Server running at http://{}", addr);
