@@ -31,37 +31,61 @@ impl AppError {
         match self {
             AppError::Validation(msg) => (
                 StatusCode::BAD_REQUEST,
-                ErrorBody { code: "VALIDATION_ERROR", message: msg },
+                ErrorBody {
+                    code: "VALIDATION_ERROR",
+                    message: msg,
+                },
             ),
             AppError::TokenMissing => (
                 StatusCode::UNAUTHORIZED,
-                ErrorBody { code: "TOKEN_MISSING", message: "Authentication required".into() },
+                ErrorBody {
+                    code: "TOKEN_MISSING",
+                    message: "Authentication required".into(),
+                },
             ),
             AppError::TokenInvalid => (
                 StatusCode::UNAUTHORIZED,
-                ErrorBody { code: "TOKEN_INVALID", message: "Invalid or expired token".into() },
+                ErrorBody {
+                    code: "TOKEN_INVALID",
+                    message: "Invalid or expired token".into(),
+                },
             ),
             AppError::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
-                ErrorBody { code: "INVALID_CREDENTIALS", message: "Invalid username or password".into() },
+                ErrorBody {
+                    code: "INVALID_CREDENTIALS",
+                    message: "Invalid username or password".into(),
+                },
             ),
             AppError::PermissionDenied => (
                 StatusCode::FORBIDDEN,
-                ErrorBody { code: "PERMISSION_DENIED", message: "Insufficient permissions".into() },
+                ErrorBody {
+                    code: "PERMISSION_DENIED",
+                    message: "Insufficient permissions".into(),
+                },
             ),
             AppError::NotFound(msg) => (
                 StatusCode::NOT_FOUND,
-                ErrorBody { code: "NOT_FOUND", message: msg },
+                ErrorBody {
+                    code: "NOT_FOUND",
+                    message: msg,
+                },
             ),
             AppError::UsernameTaken => (
                 StatusCode::CONFLICT,
-                ErrorBody { code: "USERNAME_TAKEN", message: "Username is already taken".into() },
+                ErrorBody {
+                    code: "USERNAME_TAKEN",
+                    message: "Username is already taken".into(),
+                },
             ),
             AppError::Internal(detail) => {
                 tracing::error!("Internal error: {}", detail);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorBody { code: "INTERNAL_ERROR", message: "An unexpected error occurred".into() },
+                    ErrorBody {
+                        code: "INTERNAL_ERROR",
+                        message: "An unexpected error occurred".into(),
+                    },
                 )
             }
         }

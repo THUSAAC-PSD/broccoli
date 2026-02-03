@@ -17,9 +17,10 @@ pub async fn load_plugin(
 ) -> Result<String, AppError> {
     auth_user.require_permission("plugin:load")?;
 
-    state.plugins.load_plugin(&id).map_err(|e| {
-        AppError::Internal(format!("Failed to load plugin '{}': {}", id, e))
-    })?;
+    state
+        .plugins
+        .load_plugin(&id)
+        .map_err(|e| AppError::Internal(format!("Failed to load plugin '{}': {}", id, e)))?;
 
     Ok(format!("Plugin '{}' loaded successfully", id))
 }
