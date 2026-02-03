@@ -1,5 +1,6 @@
 mod database;
 mod entity;
+mod error;
 mod extractors;
 mod handlers;
 mod host_funcs;

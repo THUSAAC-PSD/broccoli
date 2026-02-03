@@ -1,25 +1,33 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{Json, extract::State};
 use sea_orm::*;
 
 use crate::entity::{role, role_permission, user};
+use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
+use crate::extractors::json::AppJson;
 use crate::models::auth::{LoginRequest, LoginResponse, MeResponse, RegisterRequest};
 use crate::state::AppState;
 use crate::utils::{hash, jwt};
 
-fn validate_register(payload: &RegisterRequest) -> Result<(), StatusCode> {
+fn validate_register(payload: &RegisterRequest) -> Result<(), AppError> {
     let username = payload.username.trim();
     if username.is_empty() || username.len() > 32 {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::Validation(
+            "Username must be 1–32 characters".into(),
+        ));
     }
     if !username
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::Validation(
+            "Username must contain only letters, digits, and underscores".into(),
+        ));
     }
     if payload.password.len() < 8 || payload.password.len() > 128 {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(AppError::Validation(
+            "Password must be 8–128 characters".into(),
+        ));
     }
     Ok(())
 }
@@ -27,28 +35,32 @@ fn validate_register(payload: &RegisterRequest) -> Result<(), StatusCode> {
 /// Handle user registration.
 pub async fn register(
     State(state): State<AppState>,
-    Json(payload): Json<RegisterRequest>,
-) -> Result<String, StatusCode> {
+    AppJson(payload): AppJson<RegisterRequest>,
+) -> Result<String, AppError> {
     validate_register(&payload)?;
 
-    let hash = hash::hash_password(&payload.password).map_err(|e| {
-        tracing::error!("Password hash error: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let username = payload.username.trim().to_string();
+
+    let existing = user::Entity::find()
+        .filter(user::Column::Username.eq(&username))
+        .one(&state.db)
+        .await?;
+    if existing.is_some() {
+        return Err(AppError::UsernameTaken);
+    }
+
+    let hash = hash::hash_password(&payload.password)
+        .map_err(|e| AppError::Internal(format!("Password hash error: {}", e)))?;
 
     let new_user = user::ActiveModel {
-        username: Set(payload.username.trim().to_string()),
+        username: Set(username),
         password: Set(hash),
         role: Set(role::DEFAULT_ROLE.to_string()),
         created_at: Set(chrono::Utc::now()),
         ..Default::default()
     };
 
-    let _user = new_user.insert(&state.db).await.map_err(|e| {
-        // TODO: Handle duplicate username error
-        tracing::error!("DB insert error: {}", e);
-        StatusCode::CONFLICT
-    })?;
+    let _user = new_user.insert(&state.db).await?;
 
     Ok("User registered successfully".to_string())
 }
@@ -56,43 +68,30 @@ pub async fn register(
 /// Handle user login.
 pub async fn login(
     State(state): State<AppState>,
-    Json(payload): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, StatusCode> {
+    AppJson(payload): AppJson<LoginRequest>,
+) -> Result<Json<LoginResponse>, AppError> {
     let user = user::Entity::find()
         .filter(user::Column::Username.eq(&payload.username))
         .one(&state.db)
-        .await
-        .map_err(|e| {
-            tracing::error!("DB query error: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::UNAUTHORIZED)?; // User not found
+        .await?
+        .ok_or(AppError::InvalidCredentials)?;
 
-    let is_valid = hash::verify_password(&payload.password, &user.password).map_err(|e| {
-        tracing::error!("Password verify error: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let is_valid = hash::verify_password(&payload.password, &user.password)
+        .map_err(|e| AppError::Internal(format!("Password verify error: {}", e)))?;
 
     if !is_valid {
-        return Err(StatusCode::UNAUTHORIZED); // Wrong password
+        return Err(AppError::InvalidCredentials);
     }
 
     let role_perms = role_permission::Entity::find()
         .filter(role_permission::Column::Role.eq(&user.role))
         .all(&state.db)
-        .await
-        .map_err(|e| {
-            tracing::error!("DB query error (role_permission): {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     let permissions: Vec<String> = role_perms.into_iter().map(|rp| rp.permission).collect();
 
-    let token =
-        jwt::sign(user.id, &user.username, &user.role, permissions.clone()).map_err(|e| {
-            tracing::error!("JWT sign error: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let token = jwt::sign(user.id, &user.username, &user.role, permissions.clone())
+        .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
     Ok(Json(LoginResponse {
         token,
