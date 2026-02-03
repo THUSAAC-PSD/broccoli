@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use common::hook::{Hook, HookAction, HookRegistry};
+use common::hook::{Hook, HookRegistry};
 use common::worker::*;
 use plugin_core::traits::{PluginManager, PluginManagerExt};
 use std::collections::HashMap;
@@ -180,38 +180,5 @@ impl Worker {
         };
 
         Ok(result)
-    }
-}
-
-// Example hook: Simple logger
-pub struct LoggerHook;
-
-#[async_trait]
-impl Hook<TaskEvent> for LoggerHook {
-    type Output = TaskEvent;
-    type Context = ();
-    fn id(&self) -> &str {
-        "logger_hook"
-    }
-    fn topics(&self) -> &[&str] {
-        &["task_started", "task_completed", "task_failed"]
-    }
-    async fn on_event(&self, _ctx: (), event: &TaskEvent) -> Result<HookAction<TaskEvent>> {
-        match event {
-            TaskEvent::Started { task } => {
-                tracing::info!("Task started: {} (type: {})", task.id, task.task_type);
-            }
-            TaskEvent::Completed { result } => {
-                tracing::info!(
-                    "Task completed: {} (success: {})",
-                    result.task_id,
-                    result.success
-                );
-            }
-            TaskEvent::Failed { task, error } => {
-                tracing::error!("Task error: {} - {}", task.id, error);
-            }
-        }
-        Ok(HookAction::Pass)
     }
 }
