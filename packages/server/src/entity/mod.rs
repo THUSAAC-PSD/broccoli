@@ -4,6 +4,8 @@ pub mod contest_user;
 pub mod judge_result;
 pub mod plugin_storage;
 pub mod problem;
+pub mod role;
+pub mod role_permission;
 pub mod submission;
 pub mod test_case;
 pub mod test_case_result;

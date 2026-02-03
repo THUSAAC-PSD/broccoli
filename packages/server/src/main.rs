@@ -1,16 +1,18 @@
 mod database;
 mod entity;
+mod extractors;
 mod handlers;
 mod host_funcs;
 mod manager;
 mod models;
+mod seed;
 mod state;
 mod utils;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{Router, routing::post};
+use axum::{Router, routing::{get, post}};
 use plugin_core::config::PluginConfig;
 use tracing::{Level, info};
 
@@ -25,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let db = database::init_db("postgres://postgres:password@localhost:5432/broccoli").await?;
+    seed::seed_role_permissions(&db).await?;
 
     let config = PluginConfig::default();
     let state = AppState {
@@ -35,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
+        .route("/auth/me", get(handlers::auth::me))
         .route("/plugins/{id}/load", post(handlers::plugin::load_plugin))
         .route(
             "/plugins/{id}/call/{func}",
