@@ -32,7 +32,6 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<super::user::Entity>,
 
-    #[sea_orm(unique)]
     pub problem_id: i32,
     #[sea_orm(belongs_to, from = "problem_id", to = "id")]
     pub problem: HasOne<super::problem::Entity>,
