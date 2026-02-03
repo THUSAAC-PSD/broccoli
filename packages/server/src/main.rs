@@ -6,6 +6,7 @@ mod handlers;
 mod host_funcs;
 mod manager;
 mod models;
+mod routes;
 mod seed;
 mod state;
 mod utils;
@@ -14,11 +15,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use axum::http::{HeaderName, HeaderValue, Method};
-use axum::{
-    Router,
-    routing::{get, post},
-};
 use plugin_core::config::PluginConfig;
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info};
@@ -43,14 +41,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let app = Router::new()
-        .route("/auth/register", post(handlers::auth::register))
-        .route("/auth/login", post(handlers::auth::login))
-        .route("/auth/me", get(handlers::auth::me))
-        .route("/plugins/{id}/load", post(handlers::plugin::load_plugin))
-        .route(
-            "/plugins/{id}/call/{func}",
-            post(handlers::plugin::call_plugin_func),
-        )
+        .nest("/api", routes::api_routes())
         .with_state(state)
         .layer(
             CorsLayer::new()
