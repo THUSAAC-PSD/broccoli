@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-common = { path = "../common" }
-plugin-core = { path = "../plugin-core" }
+common.workspace = true
+plugin-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -10,7 +10,7 @@ axum.workspace = true
 chrono.workspace = true
 extism.workspace = true
 jsonwebtoken.workspace = true
-plugin-core = { version = "0.1.0", path = "../plugin-core" }
+plugin-core.workspace = true
 sea-orm = { workspace = true, features = [
   "runtime-tokio-rustls",
   "sqlx-postgres",
