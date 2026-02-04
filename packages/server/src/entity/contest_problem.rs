@@ -13,6 +13,11 @@ pub struct Model {
     pub contest: Option<super::contest::Entity>,
     #[sea_orm(belongs_to, from = "problem_id", to = "id")]
     pub problem: Option<super::problem::Entity>,
+
+    pub label: String,
+
+    #[sea_orm(default_value = 0)]
+    pub position: i32,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

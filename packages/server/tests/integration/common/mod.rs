@@ -115,6 +115,40 @@ pub mod routes {
     pub fn test_cases_upload(problem_id: i32) -> String {
         format!("/api/v1/problems/{problem_id}/test-cases/upload")
     }
+
+    pub const CONTESTS: &str = "/api/v1/contests";
+
+    pub fn contest(id: i32) -> String {
+        format!("/api/v1/contests/{id}")
+    }
+
+    pub fn contest_problems(id: i32) -> String {
+        format!("/api/v1/contests/{id}/problems")
+    }
+
+    pub fn contest_problem(id: i32, problem_id: i32) -> String {
+        format!("/api/v1/contests/{id}/problems/{problem_id}")
+    }
+
+    pub fn contest_participants(id: i32) -> String {
+        format!("/api/v1/contests/{id}/participants")
+    }
+
+    pub fn contest_participant(id: i32, user_id: i32) -> String {
+        format!("/api/v1/contests/{id}/participants/{user_id}")
+    }
+
+    pub fn contest_problems_reorder(id: i32) -> String {
+        format!("/api/v1/contests/{id}/problems/reorder")
+    }
+
+    pub fn contest_register(id: i32) -> String {
+        format!("/api/v1/contests/{id}/register")
+    }
+
+    pub fn test_cases_reorder(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/test-cases/reorder")
+    }
 }
 
 /// A running test server.
@@ -275,6 +309,19 @@ impl TestApp {
         TestResponse::from_response(res).await
     }
 
+    pub async fn put_with_token(&self, path: &str, body: &Value, token: &str) -> TestResponse {
+        let res = self
+            .client
+            .put(self.url(path))
+            .header("Authorization", format!("Bearer {token}"))
+            .json(body)
+            .send()
+            .await
+            .expect("Failed to send PUT request");
+
+        TestResponse::from_response(res).await
+    }
+
     pub async fn delete_with_token(&self, path: &str, token: &str) -> TestResponse {
         let res = self
             .client
@@ -331,6 +378,42 @@ impl TestApp {
             .to_string()
     }
 
+    /// Create a problem via the API and return its `id`.
+    pub async fn create_problem(&self, token: &str, title: &str) -> i32 {
+        let res = self
+            .post_with_token(
+                routes::PROBLEMS,
+                &serde_json::json!({
+                    "title": title,
+                    "content": "## Description\nSolve this.",
+                    "time_limit": 1000,
+                    "memory_limit": 262144,
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(res.status, 201, "create_problem failed: {}", res.text);
+        res.id()
+    }
+
+    /// Create a test case for a problem via the API and return its `id`.
+    pub async fn create_test_case(&self, problem_id: i32, token: &str) -> i32 {
+        let res = self
+            .post_with_token(
+                &routes::test_cases(problem_id),
+                &serde_json::json!({
+                    "input": "5\n1 2 3 4 5",
+                    "expected_output": "15",
+                    "score": 10,
+                    "is_sample": true,
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(res.status, 201, "create_test_case failed: {}", res.text);
+        res.id()
+    }
+
     /// Register a user with a specific role, then log in and return the auth token.
     pub async fn create_user_with_role(
         &self,
@@ -376,5 +459,11 @@ impl TestResponse {
         let text = res.text().await.unwrap_or_default();
         let body = serde_json::from_str(&text).unwrap_or(Value::Null);
         Self { status, text, body }
+    }
+
+    pub fn id(&self) -> i32 {
+        self.body["id"]
+            .as_i64()
+            .expect("response body should contain 'id'") as i32
     }
 }

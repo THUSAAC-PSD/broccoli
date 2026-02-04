@@ -6,7 +6,7 @@ use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use sea_orm::prelude::Expr;
-use sea_orm::sea_query::{Func, LikeExpr};
+use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
 use sea_orm::*;
 use tracing::instrument;
 
@@ -200,6 +200,19 @@ pub async fn delete_problem(
         ));
     }
 
+    test_case_result::Entity::delete_many()
+        .filter(
+            test_case_result::Column::TestCaseId.in_subquery(
+                SeaQuery::select()
+                    .column(test_case::Column::Id)
+                    .from(test_case::Entity)
+                    .and_where(test_case::Column::ProblemId.eq(id))
+                    .to_owned(),
+            ),
+        )
+        .exec(&txn)
+        .await?;
+
     test_case::Entity::delete_many()
         .filter(test_case::Column::ProblemId.eq(id))
         .exec(&txn)
@@ -361,6 +374,7 @@ pub async fn delete_test_case(
     auth_user.require_permission("problem:edit")?;
 
     let txn = state.db.begin().await?;
+    find_problem_for_update(&txn, problem_id).await?;
     let tc = find_test_case_for_problem(&txn, problem_id, tc_id).await?;
 
     let result_count = test_case_result::Entity::find()
@@ -450,6 +464,55 @@ pub async fn upload_test_cases(
             test_cases,
         }),
     ))
+}
+
+#[instrument(skip(state, auth_user, payload), fields(problem_id))]
+pub async fn reorder_test_cases(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(problem_id): Path<i32>,
+    AppJson(payload): AppJson<ReorderTestCasesRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    auth_user.require_permission("problem:edit")?;
+    validate_reorder_test_cases(&payload)?;
+
+    let txn = state.db.begin().await?;
+    find_problem_for_update(&txn, problem_id).await?;
+
+    let existing: Vec<i32> = test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(problem_id))
+        .select_only()
+        .column(test_case::Column::Id)
+        .into_tuple::<i32>()
+        .all(&txn)
+        .await?;
+
+    let existing_set: std::collections::HashSet<i32> = existing.into_iter().collect();
+    let payload_set: std::collections::HashSet<i32> =
+        payload.test_case_ids.iter().copied().collect();
+    if existing_set != payload_set {
+        return Err(AppError::Validation(
+            "test_case_ids must contain exactly the test cases currently in the problem".into(),
+        ));
+    }
+
+    for (i, &tc_id) in payload.test_case_ids.iter().enumerate() {
+        test_case::Entity::update_many()
+            .filter(test_case::Column::Id.eq(tc_id))
+            .col_expr(
+                test_case::Column::Position,
+                Expr::value(
+                    i32::try_from(i).map_err(|_| {
+                        AppError::Validation("Too many test cases to reorder".into())
+                    })?,
+                ),
+            )
+            .exec(&txn)
+            .await?;
+    }
+
+    txn.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Body limit layer for test case JSON routes (32MB).

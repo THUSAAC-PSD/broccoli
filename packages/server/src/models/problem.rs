@@ -1,21 +1,13 @@
 use chrono::{DateTime, Utc};
 use sea_orm::FromQueryResult;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
-/// Serde helper for PATCH semantics on nullable fields.
-///
-/// * JSON field absent  => `None`          (don't update)
-/// * JSON field = null  => `Some(None)`    (set to NULL)
-/// * JSON field = value => `Some(Some(v))` (set to value)
-fn double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Ok(Some(Option::deserialize(deserializer)?))
-}
+pub use super::shared::{Pagination, escape_like};
+use super::shared::{
+    double_option, validate_optional_position, validate_reorder_ids, validate_title,
+};
 
 #[derive(Deserialize)]
 pub struct CreateProblemRequest {
@@ -60,14 +52,6 @@ pub struct ProblemListResponse {
     pub pagination: Pagination,
 }
 
-#[derive(Serialize)]
-pub struct Pagination {
-    pub page: u64,
-    pub per_page: u64,
-    pub total: u64,
-    pub total_pages: u64,
-}
-
 #[derive(Deserialize)]
 pub struct ProblemListQuery {
     pub page: Option<u64>,
@@ -96,6 +80,12 @@ pub struct UpdateTestCaseRequest {
     pub position: Option<i32>,
     #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
+}
+
+#[derive(Deserialize)]
+pub struct ReorderTestCasesRequest {
+    /// Ordered list of test_case_ids. Positions assigned 0, 1, 2, ... by array index.
+    pub test_case_ids: Vec<i32>,
 }
 
 #[derive(Serialize)]
@@ -170,12 +160,7 @@ pub fn truncate_preview(s: &str) -> String {
 }
 
 pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppError> {
-    let title = req.title.trim();
-    if title.is_empty() || title.chars().count() > 256 {
-        return Err(AppError::Validation(
-            "Title must be 1-256 characters".into(),
-        ));
-    }
+    validate_title(&req.title)?;
     if req.content.trim().is_empty() || req.content.len() > 1_000_000 {
         return Err(AppError::Validation(
             "Content must be non-empty and at most 1MB".into(),
@@ -194,12 +179,7 @@ pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppErro
 
 pub fn validate_update_problem(req: &UpdateProblemRequest) -> Result<(), AppError> {
     if let Some(ref title) = req.title {
-        let title = title.trim();
-        if title.is_empty() || title.chars().count() > 256 {
-            return Err(AppError::Validation(
-                "Title must be 1-256 characters".into(),
-            ));
-        }
+        validate_title(title)?;
     }
     if let Some(ref content) = req.content
         && (content.trim().is_empty() || content.len() > 1_000_000)
@@ -227,11 +207,7 @@ pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppE
     if !(0..=10_000).contains(&req.score) {
         return Err(AppError::Validation("Score must be 0-10000".into()));
     }
-    if let Some(pos) = req.position
-        && pos < 0
-    {
-        return Err(AppError::Validation("Position must be >= 0".into()));
-    }
+    validate_optional_position(req.position)?;
     if let Some(ref desc) = req.description
         && desc.trim().chars().count() > 256
     {
@@ -242,17 +218,17 @@ pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppE
     Ok(())
 }
 
+pub fn validate_reorder_test_cases(req: &ReorderTestCasesRequest) -> Result<(), AppError> {
+    validate_reorder_ids(&req.test_case_ids, "test_case_id")
+}
+
 pub fn validate_update_test_case(req: &UpdateTestCaseRequest) -> Result<(), AppError> {
     if let Some(score) = req.score
         && !(0..=10_000).contains(&score)
     {
         return Err(AppError::Validation("Score must be 0-10000".into()));
     }
-    if let Some(pos) = req.position
-        && pos < 0
-    {
-        return Err(AppError::Validation("Position must be >= 0".into()));
-    }
+    validate_optional_position(req.position)?;
     if let Some(Some(ref desc)) = req.description
         && desc.trim().chars().count() > 256
     {
@@ -261,11 +237,4 @@ pub fn validate_update_test_case(req: &UpdateTestCaseRequest) -> Result<(), AppE
         ));
     }
     Ok(())
-}
-
-/// Escape LIKE wildcard characters in a search string.
-pub fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }
