@@ -4,11 +4,20 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::AppError;
 
-#[derive(Serialize)]
+/// Pagination metadata included in list responses.
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Pagination {
+    /// Current page number (1-based).
+    #[schema(example = 1)]
     pub page: u64,
+    /// Number of items per page.
+    #[schema(example = 20)]
     pub per_page: u64,
+    /// Total number of matching items across all pages.
+    #[schema(example = 47)]
     pub total: u64,
+    /// Total number of pages.
+    #[schema(example = 3)]
     pub total_pages: u64,
 }
 

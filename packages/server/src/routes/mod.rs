@@ -1,9 +1,9 @@
 mod v1;
 
-use axum::Router;
+use utoipa_axum::router::OpenApiRouter;
 
 use crate::state::AppState;
 
-pub fn api_routes() -> Router<AppState> {
-    Router::new().nest("/v1", v1::routes())
+pub fn api_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().nest("/v1", v1::routes())
 }

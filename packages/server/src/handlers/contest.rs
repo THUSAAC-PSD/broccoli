@@ -8,13 +8,29 @@ use sea_orm::*;
 use tracing::instrument;
 
 use crate::entity::{contest, contest_problem, contest_user, problem, user};
-use crate::error::AppError;
+use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::models::contest::*;
 use crate::models::shared::{Pagination, escape_like};
 use crate::state::AppState;
 
+#[utoipa::path(
+    post,
+    path = "/",
+    tag = "Contests",
+    operation_id = "createContest",
+    summary = "Create a new contest",
+    description = "Creates a new contest. Requires `contest:create` permission.",
+    request_body = CreateContestRequest,
+    responses(
+        (status = 201, description = "Contest created", body = ContestResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(title = %payload.title))]
 pub async fn create_contest(
     auth_user: AuthUser,
@@ -41,6 +57,20 @@ pub async fn create_contest(
     Ok((StatusCode::CREATED, Json(ContestResponse::from(model))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "Contests",
+    operation_id = "listContests",
+    summary = "List contests with pagination and search",
+    description = "Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.",
+    params(ContestListQuery),
+    responses(
+        (status = 200, description = "List of contests", body = ContestListResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, query))]
 pub async fn list_contests(
     auth_user: AuthUser,
@@ -131,6 +161,21 @@ pub async fn list_contests(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/{id}",
+    tag = "Contests",
+    operation_id = "getContest",
+    summary = "Get a contest by ID",
+    description = "Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 200, description = "Contest details", body = ContestResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn get_contest(
     auth_user: AuthUser,
@@ -142,6 +187,24 @@ pub async fn get_contest(
     Ok(Json(model.into()))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/{id}",
+    tag = "Contests",
+    operation_id = "updateContest",
+    summary = "Update an existing contest",
+    description = "Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    request_body = UpdateContestRequest,
+    responses(
+        (status = 200, description = "Contest updated", body = ContestResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(id))]
 pub async fn update_contest(
     auth_user: AuthUser,
@@ -194,6 +257,22 @@ pub async fn update_contest(
     Ok(Json(model.into()))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/{id}",
+    tag = "Contests",
+    operation_id = "deleteContest",
+    summary = "Delete a contest by ID",
+    description = "Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 204, description = "Contest deleted"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn delete_contest(
     auth_user: AuthUser,
@@ -221,6 +300,25 @@ pub async fn delete_contest(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/",
+    tag = "Contest Problems",
+    operation_id = "addContestProblem",
+    summary = "Add a problem to a contest",
+    description = "Associates an existing problem with the contest under a given label. Requires `contest:manage` permission. Labels must be unique within the contest. Position is auto-assigned if omitted. Returns 409 if the problem ID or label is already present.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    request_body = AddContestProblemRequest,
+    responses(
+        (status = 201, description = "Problem added to contest", body = ContestProblemResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest or problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Problem already in contest (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(contest_id))]
 pub async fn add_contest_problem(
     auth_user: AuthUser,
@@ -283,6 +381,21 @@ pub async fn add_contest_problem(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "Contest Problems",
+    operation_id = "listContestProblems",
+    summary = "List problems in a contest",
+    description = "Returns all problems in the contest, ordered by position. Same visibility rules as getContest apply.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 200, description = "List of contest problems", body = Vec<ContestProblemResponse>),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(contest_id))]
 pub async fn list_contest_problems(
     auth_user: AuthUser,
@@ -307,6 +420,28 @@ pub async fn list_contest_problems(
     Ok(Json(items))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/{problem_id}",
+    tag = "Contest Problems",
+    operation_id = "updateContestProblem",
+    summary = "Update a contest problem's label or position",
+    description = "Updates the label or position of a problem within a contest. Requires `contest:manage` permission. Returns 409 CONFLICT on duplicate labels.",
+    params(
+        ("id" = i32, Path, description = "Contest ID"),
+        ("problem_id" = i32, Path, description = "Problem ID"),
+    ),
+    request_body = UpdateContestProblemRequest,
+    responses(
+        (status = 200, description = "Contest problem updated", body = ContestProblemResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in contest (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(contest_id, problem_id))]
 pub async fn update_contest_problem(
     auth_user: AuthUser,
@@ -367,6 +502,25 @@ pub async fn update_contest_problem(
     Ok(Json(contest_problem_response(model, title)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/{problem_id}",
+    tag = "Contest Problems",
+    operation_id = "removeContestProblem",
+    summary = "Remove a problem from a contest",
+    description = "Removes the association between a problem and the contest. Requires `contest:manage` permission. The problem itself is not deleted.",
+    params(
+        ("id" = i32, Path, description = "Contest ID"),
+        ("problem_id" = i32, Path, description = "Problem ID"),
+    ),
+    responses(
+        (status = 204, description = "Problem removed from contest"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(contest_id, problem_id))]
 pub async fn remove_contest_problem(
     auth_user: AuthUser,
@@ -385,6 +539,24 @@ pub async fn remove_contest_problem(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    put,
+    path = "/reorder",
+    tag = "Contest Problems",
+    operation_id = "reorderContestProblems",
+    summary = "Reorder problems in a contest",
+    description = "Replaces the ordering of all problems in a contest. Requires `contest:manage` permission. The ID array must contain exactly all problems currently in the contest. Positions are assigned by array index starting at 0.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    request_body = ReorderContestProblemsRequest,
+    responses(
+        (status = 204, description = "Contest problems reordered"),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(contest_id))]
 pub async fn reorder_contest_problems(
     auth_user: AuthUser,
@@ -433,6 +605,24 @@ pub async fn reorder_contest_problems(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/",
+    tag = "Contest Participants",
+    operation_id = "addParticipant",
+    summary = "Add a participant to a contest",
+    description = "Adds a user to the contest as a participant (admin action). Requires `contest:manage` permission. Returns 409 if the user is already a participant.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    request_body = AddParticipantRequest,
+    responses(
+        (status = 201, description = "Participant added", body = ContestParticipantResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest or user not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "User already a participant (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(contest_id))]
 pub async fn add_participant(
     auth_user: AuthUser,
@@ -477,6 +667,21 @@ pub async fn add_participant(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "Contest Participants",
+    operation_id = "listParticipants",
+    summary = "List participants of a contest",
+    description = "Returns all participants in the contest, ordered by registration time. Same visibility rules as getContest apply.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 200, description = "List of participants", body = Vec<ContestParticipantResponse>),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(contest_id))]
 pub async fn list_participants(
     auth_user: AuthUser,
@@ -506,6 +711,25 @@ pub async fn list_participants(
     Ok(Json(items))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/{user_id}",
+    tag = "Contest Participants",
+    operation_id = "removeParticipant",
+    summary = "Remove a participant from a contest",
+    description = "Removes a participant from the contest (admin action). Requires `contest:manage` permission.",
+    params(
+        ("id" = i32, Path, description = "Contest ID"),
+        ("user_id" = i32, Path, description = "User ID"),
+    ),
+    responses(
+        (status = 204, description = "Participant removed"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Participant not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(contest_id, user_id))]
 pub async fn remove_participant(
     auth_user: AuthUser,
@@ -528,6 +752,23 @@ pub async fn remove_participant(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/{id}/register",
+    tag = "Contests",
+    operation_id = "registerForContest",
+    summary = "Self-register for a public contest",
+    description = "Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 201, description = "Registered for contest"),
+        (status = 400, description = "Contest has ended (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Already registered (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(contest_id))]
 pub async fn register_for_contest(
     auth_user: AuthUser,
@@ -563,6 +804,21 @@ pub async fn register_for_contest(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/{id}/register",
+    tag = "Contests",
+    operation_id = "unregisterFromContest",
+    summary = "Self-unregister from a contest",
+    description = "Removes the authenticated user's registration from a contest. Returns 404 if the caller is not registered.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 204, description = "Unregistered from contest"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Not registered or contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(contest_id))]
 pub async fn unregister_from_contest(
     auth_user: AuthUser,
