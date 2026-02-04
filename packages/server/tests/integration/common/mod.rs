@@ -90,6 +90,7 @@ pub mod routes {
     pub const REGISTER: &str = "/api/v1/auth/register";
     pub const LOGIN: &str = "/api/v1/auth/login";
     pub const ME: &str = "/api/v1/auth/me";
+    pub const PROBLEMS: &str = "/api/v1/problems";
 
     pub fn plugin_load(id: &str) -> String {
         format!("/api/v1/plugins/{id}/load")
@@ -97,6 +98,22 @@ pub mod routes {
 
     pub fn plugin_call(id: &str, func: &str) -> String {
         format!("/api/v1/plugins/{id}/call/{func}")
+    }
+
+    pub fn problem(id: i32) -> String {
+        format!("/api/v1/problems/{id}")
+    }
+
+    pub fn test_cases(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/test-cases")
+    }
+
+    pub fn test_case(problem_id: i32, tc_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/test-cases/{tc_id}")
+    }
+
+    pub fn test_cases_upload(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/test-cases/upload")
     }
 }
 
@@ -241,6 +258,56 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to send GET request");
+
+        TestResponse::from_response(res).await
+    }
+
+    pub async fn patch_with_token(&self, path: &str, body: &Value, token: &str) -> TestResponse {
+        let res = self
+            .client
+            .patch(self.url(path))
+            .header("Authorization", format!("Bearer {token}"))
+            .json(body)
+            .send()
+            .await
+            .expect("Failed to send PATCH request");
+
+        TestResponse::from_response(res).await
+    }
+
+    pub async fn delete_with_token(&self, path: &str, token: &str) -> TestResponse {
+        let res = self
+            .client
+            .delete(self.url(path))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .expect("Failed to send DELETE request");
+
+        TestResponse::from_response(res).await
+    }
+
+    pub async fn upload_with_token(
+        &self,
+        path: &str,
+        file_name: &str,
+        file_bytes: Vec<u8>,
+        token: &str,
+    ) -> TestResponse {
+        let part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(file_name.to_string())
+            .mime_str("application/zip")
+            .expect("Failed to set MIME type");
+        let form = reqwest::multipart::Form::new().part("file", part);
+
+        let res = self
+            .client
+            .post(self.url(path))
+            .header("Authorization", format!("Bearer {token}"))
+            .multipart(form)
+            .send()
+            .await
+            .expect("Failed to send multipart upload request");
 
         TestResponse::from_response(res).await
     }

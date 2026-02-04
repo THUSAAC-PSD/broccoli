@@ -14,6 +14,15 @@ pub struct Model {
     pub expected_output: String,
     pub score: i32, // score for this test case
 
+    #[sea_orm(column_type = "Text", nullable)]
+    pub description: Option<String>,
+
+    #[sea_orm(default_value = false)]
+    pub is_sample: bool,
+
+    #[sea_orm(default_value = 0)]
+    pub position: i32,
+
     pub problem_id: i32,
     #[sea_orm(belongs_to, from = "problem_id", to = "id")]
     pub problem: HasOne<super::problem::Entity>,
