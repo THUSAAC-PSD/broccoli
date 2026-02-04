@@ -11,12 +11,28 @@ use sea_orm::*;
 use tracing::instrument;
 
 use crate::entity::{contest_problem, problem, submission, test_case, test_case_result};
-use crate::error::AppError;
+use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::models::problem::*;
 use crate::state::AppState;
 
+#[utoipa::path(
+    post,
+    path = "/",
+    tag = "Problems",
+    operation_id = "createProblem",
+    summary = "Create a new problem",
+    description = "Creates a new problem in the system. Requires `problem:create` permission.",
+    request_body = CreateProblemRequest,
+    responses(
+        (status = 201, description = "Problem created", body = ProblemResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(title = %payload.title))]
 pub async fn create_problem(
     auth_user: AuthUser,
@@ -42,6 +58,21 @@ pub async fn create_problem(
     Ok((StatusCode::CREATED, Json(ProblemResponse::from(model))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "Problems",
+    operation_id = "listProblems",
+    summary = "List problems with pagination and search",
+    description = "Returns a paginated list of problems with optional search and sorting. Requires `problem:create` or `problem:edit` permission. Supports case-insensitive title search and sorting by `created_at` (default, desc), `updated_at`, or `title`. Problem content is omitted from list results.",
+    params(ProblemListQuery),
+    responses(
+        (status = 200, description = "List of problems", body = ProblemListResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, query))]
 pub async fn list_problems(
     auth_user: AuthUser,
@@ -116,6 +147,22 @@ pub async fn list_problems(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/{id}",
+    tag = "Problems",
+    operation_id = "getProblem",
+    summary = "Get a problem by ID",
+    description = "Returns the full details of a problem, including its Markdown content. Requires `problem:create` or `problem:edit` permission.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    responses(
+        (status = 200, description = "Problem details", body = ProblemResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn get_problem(
     auth_user: AuthUser,
@@ -128,6 +175,24 @@ pub async fn get_problem(
     Ok(Json(model.into()))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/{id}",
+    tag = "Problems",
+    operation_id = "updateProblem",
+    summary = "Update an existing problem",
+    description = "Partially updates a problem using PATCH semantics — only provided fields are modified. Requires `problem:edit` permission. An empty payload returns the current resource unchanged.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    request_body = UpdateProblemRequest,
+    responses(
+        (status = 200, description = "Problem updated", body = ProblemResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(id))]
 pub async fn update_problem(
     auth_user: AuthUser,
@@ -168,6 +233,23 @@ pub async fn update_problem(
     Ok(Json(model.into()))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/{id}",
+    tag = "Problems",
+    operation_id = "deleteProblem",
+    summary = "Delete a problem by ID",
+    description = "Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    responses(
+        (status = 204, description = "Problem deleted"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Cannot delete: has submissions or contest associations (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn delete_problem(
     auth_user: AuthUser,
@@ -223,6 +305,24 @@ pub async fn delete_problem(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/",
+    tag = "Test Cases",
+    operation_id = "createTestCase",
+    summary = "Create a test case for a problem",
+    description = "Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 32 MB.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    request_body = CreateTestCaseRequest,
+    responses(
+        (status = 201, description = "Test case created", body = TestCaseResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(problem_id))]
 pub async fn create_test_case(
     auth_user: AuthUser,
@@ -259,6 +359,22 @@ pub async fn create_test_case(
     Ok((StatusCode::CREATED, Json(TestCaseResponse::from(model))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "Test Cases",
+    operation_id = "listTestCases",
+    summary = "List test cases for a problem",
+    description = "Returns all test cases for a problem, ordered by position. Requires `problem:create` or `problem:edit` permission. Input and output are truncated to 100-character previews.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    responses(
+        (status = 200, description = "List of test cases", body = Vec<TestCaseListItem>),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(problem_id))]
 pub async fn list_test_cases(
     auth_user: AuthUser,
@@ -306,6 +422,25 @@ pub async fn list_test_cases(
     Ok(Json(items))
 }
 
+#[utoipa::path(
+    get,
+    path = "/{tc_id}",
+    tag = "Test Cases",
+    operation_id = "getTestCase",
+    summary = "Get a test case by ID",
+    description = "Returns the full details of a test case, including complete input and expected_output. Requires `problem:create` or `problem:edit` permission. The test case must belong to the specified problem.",
+    params(
+        ("id" = i32, Path, description = "Problem ID"),
+        ("tc_id" = i32, Path, description = "Test case ID"),
+    ),
+    responses(
+        (status = 200, description = "Test case details", body = TestCaseResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Test case not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(problem_id, tc_id))]
 pub async fn get_test_case(
     auth_user: AuthUser,
@@ -319,6 +454,27 @@ pub async fn get_test_case(
     Ok(Json(tc.into()))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/{tc_id}",
+    tag = "Test Cases",
+    operation_id = "updateTestCase",
+    summary = "Update a test case",
+    description = "Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 32 MB.",
+    params(
+        ("id" = i32, Path, description = "Problem ID"),
+        ("tc_id" = i32, Path, description = "Test case ID"),
+    ),
+    request_body = UpdateTestCaseRequest,
+    responses(
+        (status = 200, description = "Test case updated", body = TestCaseResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Test case not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(problem_id, tc_id))]
 pub async fn update_test_case(
     auth_user: AuthUser,
@@ -365,6 +521,26 @@ pub async fn update_test_case(
     Ok(Json(model.into()))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/{tc_id}",
+    tag = "Test Cases",
+    operation_id = "deleteTestCase",
+    summary = "Delete a test case",
+    description = "Permanently deletes a test case. Requires `problem:edit` permission. Returns 409 CONFLICT if the test case has judge results.",
+    params(
+        ("id" = i32, Path, description = "Problem ID"),
+        ("tc_id" = i32, Path, description = "Test case ID"),
+    ),
+    responses(
+        (status = 204, description = "Test case deleted"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Test case not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Cannot delete: has judge results (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user), fields(problem_id, tc_id))]
 pub async fn delete_test_case(
     auth_user: AuthUser,
@@ -393,6 +569,24 @@ pub async fn delete_test_case(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/upload",
+    tag = "Test Cases",
+    operation_id = "uploadTestCases",
+    summary = "Upload test cases from a ZIP file",
+    description = "Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    request_body(content_type = "multipart/form-data", description = "ZIP file containing test cases (.in/.ans or .in/.out pairs)"),
+    responses(
+        (status = 201, description = "Test cases uploaded", body = UploadTestCasesResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, multipart), fields(problem_id))]
 pub async fn upload_test_cases(
     auth_user: AuthUser,
@@ -466,6 +660,24 @@ pub async fn upload_test_cases(
     ))
 }
 
+#[utoipa::path(
+    put,
+    path = "/reorder",
+    tag = "Test Cases",
+    operation_id = "reorderTestCases",
+    summary = "Reorder test cases for a problem",
+    description = "Replaces the ordering of all test cases in a problem. Requires `problem:edit` permission. The ID array must contain exactly all test cases in the problem. Positions are assigned by array index starting at 0.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    request_body = ReorderTestCasesRequest,
+    responses(
+        (status = 204, description = "Test cases reordered"),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(state, auth_user, payload), fields(problem_id))]
 pub async fn reorder_test_cases(
     auth_user: AuthUser,

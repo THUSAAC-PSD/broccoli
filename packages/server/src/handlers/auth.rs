@@ -3,7 +3,7 @@ use sea_orm::*;
 use tracing::instrument;
 
 use crate::entity::{role, role_permission, user};
-use crate::error::AppError;
+use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::models::auth::{
@@ -13,7 +13,20 @@ use crate::models::auth::{
 use crate::state::AppState;
 use crate::utils::{hash, jwt};
 
-/// Handle user registration.
+#[utoipa::path(
+    post,
+    path = "/register",
+    tag = "Auth",
+    operation_id = "registerUser",
+    summary = "Register a new user account",
+    description = "Creates a new user account with the provided credentials. No authentication required. Returns 409 USERNAME_TAKEN if the username is already in use.",
+    request_body = RegisterRequest,
+    responses(
+        (status = 201, description = "User registered", body = RegisterResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 409, description = "Username taken (USERNAME_TAKEN)", body = ErrorBody),
+    ),
+)]
 #[instrument(skip(state, payload), fields(username = %payload.username))]
 pub async fn register(
     State(state): State<AppState>,
@@ -48,7 +61,20 @@ pub async fn register(
     Ok((StatusCode::CREATED, Json(RegisterResponse::from(user))))
 }
 
-/// Handle user login.
+#[utoipa::path(
+    post,
+    path = "/login",
+    tag = "Auth",
+    operation_id = "loginUser",
+    summary = "Log in and obtain a JWT token",
+    description = "Authenticates the user and returns a JWT token valid for 7 days, along with the user's role and permissions. Returns 401 INVALID_CREDENTIALS on wrong username or password.",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = LoginResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Invalid credentials (INVALID_CREDENTIALS)", body = ErrorBody),
+    ),
+)]
 #[instrument(skip(state, payload), fields(username = %payload.username))]
 pub async fn login(
     State(state): State<AppState>,
@@ -95,7 +121,19 @@ pub async fn login(
     }))
 }
 
-/// Return the current authenticated user's info.
+#[utoipa::path(
+    get,
+    path = "/me",
+    tag = "Auth",
+    operation_id = "getCurrentUser",
+    summary = "Get current authenticated user profile",
+    description = "Returns the authenticated user's profile, including the role and permissions embedded in their JWT.",
+    responses(
+        (status = 200, description = "Current user info", body = MeResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
 #[instrument(skip(auth_user), fields(user_id = auth_user.user_id))]
 pub async fn me(auth_user: AuthUser) -> Json<MeResponse> {
     Json(MeResponse {

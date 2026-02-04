@@ -7,11 +7,17 @@ use plugin_core::error::PluginError;
 use sea_orm::DbErr;
 use serde::Serialize;
 
-/// Structured error response body.
-#[derive(Serialize)]
-struct ErrorBody {
-    code: &'static str,
-    message: String,
+/// Structured error response returned by all endpoints on failure.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ErrorBody {
+    /// Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
+    /// `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
+    /// `CONFLICT`, `USERNAME_TAKEN`, `INTERNAL_ERROR`.
+    #[schema(example = "VALIDATION_ERROR")]
+    pub code: &'static str,
+    /// Human-readable error description.
+    #[schema(example = "Title must be 1-256 characters")]
+    pub message: String,
 }
 
 /// Application-level error type.

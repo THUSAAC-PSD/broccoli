@@ -1,10 +1,14 @@
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppError;
-
-#[derive(Deserialize)]
+/// Request body for user registration.
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct RegisterRequest {
+    /// Unique username (1-32 chars, alphanumeric and underscores).
+    #[schema(example = "alice_wonder")]
     pub username: String,
+    /// Password (8-128 characters).
+    #[schema(example = "s3cure_P@ss!")]
     pub password: String,
 }
 
@@ -31,9 +35,14 @@ pub fn validate_register_request(payload: &RegisterRequest) -> Result<(), AppErr
     Ok(())
 }
 
-#[derive(Deserialize)]
+/// Request body for user login.
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
+    /// Username of the account to log into.
+    #[schema(example = "alice_wonder")]
     pub username: String,
+    /// Account password.
+    #[schema(example = "s3cure_P@ss!")]
     pub password: String,
 }
 
@@ -47,9 +56,14 @@ pub fn validate_login_request(payload: &LoginRequest) -> Result<(), AppError> {
     Ok(())
 }
 
-#[derive(Serialize)]
+/// Successful registration response.
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct RegisterResponse {
+    /// ID of the newly created user.
+    #[schema(example = 42)]
     pub id: i32,
+    /// Username of the newly created user.
+    #[schema(example = "alice_wonder")]
     pub username: String,
 }
 
@@ -62,18 +76,36 @@ impl From<crate::entity::user::Model> for RegisterResponse {
     }
 }
 
-#[derive(Serialize)]
+/// Successful login response.
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct LoginResponse {
+    /// JWT bearer token valid for 7 days.
+    #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")]
     pub token: String,
+    /// Authenticated user's username.
+    #[schema(example = "alice_wonder")]
     pub username: String,
+    /// User's role.
+    #[schema(example = "contestant")]
     pub role: String,
+    /// Permissions granted to the user.
+    #[schema(example = json!(["submission:submit"]))]
     pub permissions: Vec<String>,
 }
 
-#[derive(Serialize)]
+/// Current authenticated user's profile.
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct MeResponse {
+    /// User ID.
+    #[schema(example = 42)]
     pub id: i32,
+    /// Username.
+    #[schema(example = "alice_wonder")]
     pub username: String,
+    /// Role.
+    #[schema(example = "contestant")]
     pub role: String,
+    /// Permissions.
+    #[schema(example = json!(["submission:submit"]))]
     pub permissions: Vec<String>,
 }
