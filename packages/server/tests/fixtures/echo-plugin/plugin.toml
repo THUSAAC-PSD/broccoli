@@ -1,0 +1,7 @@
+name = "echo-plugin"
+version = "0.1.0"
+description = "Minimal test fixture plugin"
+
+[server]
+entry = "echo_plugin.wasm"
+permissions = []
