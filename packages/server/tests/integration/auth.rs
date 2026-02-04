@@ -16,7 +16,9 @@ mod registration {
             )
             .await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 201);
+        assert!(res.body["id"].is_number());
+        assert_eq!(res.body["username"], "alice");
     }
 
     #[tokio::test]
@@ -26,7 +28,7 @@ mod registration {
 
         let first = app.post_without_token(routes::REGISTER, &body).await;
         assert_eq!(
-            first.status, 200,
+            first.status, 201,
             "First registration failed: {}",
             first.text
         );
@@ -124,7 +126,7 @@ mod login {
         let body = json!({"username": "alice", "password": "securepass"});
 
         let reg = app.post_without_token(routes::REGISTER, &body).await;
-        assert_eq!(reg.status, 200, "Registration failed: {}", reg.text);
+        assert_eq!(reg.status, 201, "Registration failed: {}", reg.text);
         let res = app.post_without_token(routes::LOGIN, &body).await;
 
         assert_eq!(res.status, 200);
@@ -138,7 +140,7 @@ mod login {
         let body = json!({"username": "alice", "password": "securepass"});
 
         let reg = app.post_without_token(routes::REGISTER, &body).await;
-        assert_eq!(reg.status, 200, "Registration failed: {}", reg.text);
+        assert_eq!(reg.status, 201, "Registration failed: {}", reg.text);
         let res = app.post_without_token(routes::LOGIN, &body).await;
 
         assert_eq!(res.body["role"], "contestant");
@@ -158,7 +160,7 @@ mod login {
                 &json!({"username": "alice", "password": "securepass"}),
             )
             .await;
-        assert_eq!(reg.status, 200, "Registration failed: {}", reg.text);
+        assert_eq!(reg.status, 201, "Registration failed: {}", reg.text);
 
         let res = app
             .post_without_token(

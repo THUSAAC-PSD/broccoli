@@ -1,4 +1,4 @@
-use axum::{Json, extract::State};
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use sea_orm::*;
 use tracing::instrument;
 
@@ -6,50 +6,22 @@ use crate::entity::{role, role_permission, user};
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
-use crate::models::auth::{LoginRequest, LoginResponse, MeResponse, RegisterRequest};
+use crate::models::auth::{
+    LoginRequest, LoginResponse, MeResponse, RegisterRequest, RegisterResponse,
+    validate_login_request, validate_register_request,
+};
 use crate::state::AppState;
 use crate::utils::{hash, jwt};
-
-fn validate_register(payload: &RegisterRequest) -> Result<(), AppError> {
-    let username = payload.username.trim();
-    if username.is_empty() || username.len() > 32 {
-        return Err(AppError::Validation(
-            "Username must be 1-32 characters".into(),
-        ));
-    }
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
-        return Err(AppError::Validation(
-            "Username must contain only letters, digits, and underscores".into(),
-        ));
-    }
-    if payload.password.len() < 8 || payload.password.len() > 128 {
-        return Err(AppError::Validation(
-            "Password must be 8-128 characters".into(),
-        ));
-    }
-    Ok(())
-}
 
 /// Handle user registration.
 #[instrument(skip(state, payload), fields(username = %payload.username))]
 pub async fn register(
     State(state): State<AppState>,
     AppJson(payload): AppJson<RegisterRequest>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    validate_register(&payload)?;
+) -> Result<impl IntoResponse, AppError> {
+    validate_register_request(&payload)?;
 
     let username = payload.username.trim().to_string();
-
-    let existing = user::Entity::find()
-        .filter(user::Column::Username.eq(&username))
-        .one(&state.db)
-        .await?;
-    if existing.is_some() {
-        return Err(AppError::UsernameTaken);
-    }
 
     let hash = hash::hash_password(&payload.password)
         .map_err(|e| AppError::Internal(format!("Password hash error: {}", e)))?;
@@ -62,11 +34,18 @@ pub async fn register(
         ..Default::default()
     };
 
-    let _user = new_user.insert(&state.db).await?;
+    let user = new_user.insert(&state.db).await.map_err(|e| match e.sql_err() {
+        Some(SqlErr::UniqueConstraintViolation(_)) => {
+            tracing::debug!("Registration race condition: unique constraint caught on insert");
+            AppError::UsernameTaken
+        }
+        _ => AppError::from(e),
+    })?;
 
-    Ok(Json(serde_json::json!({
-        "message": "User registered successfully"
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(RegisterResponse::from(user)),
+    ))
 }
 
 /// Handle user login.
@@ -75,8 +54,12 @@ pub async fn login(
     State(state): State<AppState>,
     AppJson(payload): AppJson<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
+    validate_login_request(&payload)?;
+
+    let username = payload.username.trim();
+
     let user = user::Entity::find()
-        .filter(user::Column::Username.eq(&payload.username))
+        .filter(user::Column::Username.eq(username))
         .one(&state.db)
         .await?
         .ok_or(AppError::InvalidCredentials)?;

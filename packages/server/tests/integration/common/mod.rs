@@ -320,7 +320,7 @@ impl TestApp {
         });
 
         let reg = self.post_without_token(routes::REGISTER, &body).await;
-        assert_eq!(reg.status, 200, "Registration failed: {}", reg.text);
+        assert_eq!(reg.status, 201, "Registration failed: {}", reg.text);
 
         let res = self.post_without_token(routes::LOGIN, &body).await;
         assert_eq!(res.status, 200, "Login failed: {}", res.text);
@@ -344,7 +344,7 @@ impl TestApp {
         });
 
         let reg = self.post_without_token(routes::REGISTER, &body).await;
-        assert_eq!(reg.status, 200, "Registration failed: {}", reg.text);
+        assert_eq!(reg.status, 201, "Registration failed: {}", reg.text);
 
         let db_user = user::Entity::find()
             .filter(user::Column::Username.eq(username))
