@@ -23,6 +23,7 @@ pub enum AppError {
     InvalidCredentials,
     PermissionDenied,
     NotFound(String),
+    Conflict(String),
     UsernameTaken,
     Internal(String),
 }
@@ -69,6 +70,13 @@ impl AppError {
                 StatusCode::NOT_FOUND,
                 ErrorBody {
                     code: "NOT_FOUND",
+                    message: msg,
+                },
+            ),
+            AppError::Conflict(msg) => (
+                StatusCode::CONFLICT,
+                ErrorBody {
+                    code: "CONFLICT",
                     message: msg,
                 },
             ),

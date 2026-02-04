@@ -9,7 +9,8 @@ pub struct Model {
     pub id: i32,
 
     pub title: String,
-    pub content: String,   // in Markdown
+    #[sea_orm(column_type = "Text")]
+    pub content: String, // in Markdown
     pub time_limit: i32,   // in milliseconds
     pub memory_limit: i32, // in kilobytes
 
@@ -23,6 +24,7 @@ pub struct Model {
     pub contests: HasMany<super::contest::Entity>,
 
     pub created_at: DateTimeUtc,
+    pub updated_at: DateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
