@@ -34,18 +34,18 @@ pub async fn register(
         ..Default::default()
     };
 
-    let user = new_user.insert(&state.db).await.map_err(|e| match e.sql_err() {
-        Some(SqlErr::UniqueConstraintViolation(_)) => {
-            tracing::debug!("Registration race condition: unique constraint caught on insert");
-            AppError::UsernameTaken
-        }
-        _ => AppError::from(e),
-    })?;
+    let user = new_user
+        .insert(&state.db)
+        .await
+        .map_err(|e| match e.sql_err() {
+            Some(SqlErr::UniqueConstraintViolation(_)) => {
+                tracing::debug!("Registration race condition: unique constraint caught on insert");
+                AppError::UsernameTaken
+            }
+            _ => AppError::from(e),
+        })?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(RegisterResponse::from(user)),
-    ))
+    Ok((StatusCode::CREATED, Json(RegisterResponse::from(user))))
 }
 
 /// Handle user login.

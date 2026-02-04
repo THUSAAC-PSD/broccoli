@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{delete, get, patch, post, put},
 };
 
 use crate::handlers;
@@ -11,6 +11,7 @@ pub fn routes() -> Router<AppState> {
         .nest("/auth", auth_routes())
         .nest("/plugins", plugin_routes())
         .nest("/problems", problem_routes())
+        .nest("/contests", contest_routes())
 }
 
 fn auth_routes() -> Router<AppState> {
@@ -50,6 +51,7 @@ fn test_case_routes() -> Router<AppState> {
             "/",
             get(handlers::problem::list_test_cases).post(handlers::problem::create_test_case),
         )
+        .route("/reorder", put(handlers::problem::reorder_test_cases))
         .route(
             "/{tc_id}",
             get(handlers::problem::get_test_case)
@@ -63,4 +65,49 @@ fn test_case_routes() -> Router<AppState> {
         .layer(handlers::problem::upload_body_limit());
 
     crud.merge(upload)
+}
+
+fn contest_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(handlers::contest::list_contests).post(handlers::contest::create_contest),
+        )
+        .route(
+            "/{id}",
+            get(handlers::contest::get_contest)
+                .patch(handlers::contest::update_contest)
+                .delete(handlers::contest::delete_contest),
+        )
+        .nest("/{id}/problems", contest_problem_routes())
+        .nest("/{id}/participants", contest_participant_routes())
+        .route(
+            "/{id}/register",
+            post(handlers::contest::register_for_contest)
+                .delete(handlers::contest::unregister_from_contest),
+        )
+}
+
+fn contest_problem_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(handlers::contest::list_contest_problems)
+                .post(handlers::contest::add_contest_problem),
+        )
+        .route("/reorder", put(handlers::contest::reorder_contest_problems))
+        .route(
+            "/{problem_id}",
+            patch(handlers::contest::update_contest_problem)
+                .delete(handlers::contest::remove_contest_problem),
+        )
+}
+
+fn contest_participant_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(handlers::contest::list_participants).post(handlers::contest::add_participant),
+        )
+        .route("/{user_id}", delete(handlers::contest::remove_participant))
 }

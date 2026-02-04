@@ -1,0 +1,1579 @@
+use crate::common::{TestApp, routes};
+use serde_json::json;
+
+/// Create a minimal valid contest payload.
+fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
+    json!({
+        "title": title,
+        "description": "A contest description in **Markdown**.",
+        "start_time": "2099-01-01T00:00:00Z",
+        "end_time": "2099-01-02T00:00:00Z",
+        "is_public": is_public,
+    })
+}
+
+/// Create a contest as admin and return its id.
+async fn create_contest_as_admin(
+    app: &TestApp,
+    admin_token: &str,
+    title: &str,
+    is_public: bool,
+) -> i32 {
+    let body = valid_contest_body(title, is_public);
+    let res = app
+        .post_with_token(routes::CONTESTS, &body, admin_token)
+        .await;
+    assert_eq!(res.status, 201, "create_contest failed: {}", res.text);
+    res.id()
+}
+
+mod contest_creation {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_create_a_contest() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body = valid_contest_body("My Contest", false);
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["title"], "My Contest");
+        assert_eq!(res.body["is_public"], false);
+        assert!(res.body["id"].as_i64().is_some());
+    }
+
+    #[tokio::test]
+    async fn creates_contest_with_is_public_true() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body = valid_contest_body("Public Contest", true);
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["is_public"], true);
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_empty_title() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let mut body = valid_contest_body("", false);
+        body["title"] = json!("   ");
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_when_end_before_start() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body = json!({
+            "title": "Bad Times",
+            "description": "desc",
+            "start_time": "2099-01-02T00:00:00Z",
+            "end_time": "2099-01-01T00:00:00Z",
+            "is_public": false,
+        });
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_create_a_contest() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+
+        let body = valid_contest_body("Nope", false);
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_user_cannot_create_a_contest() {
+        let app = TestApp::spawn().await;
+
+        let body = valid_contest_body("Nope", false);
+        let res = app.post_without_token(routes::CONTESTS, &body).await;
+
+        assert_eq!(res.status, 401);
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_missing_fields() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body = json!({"title": "partial"});
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_description_on_create_contest() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body = json!({
+            "title": "Valid Title",
+            "description": "   ",
+            "start_time": "2099-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": false,
+        });
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn trims_title_on_create_contest() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body = json!({
+            "title": "  My Contest  ",
+            "description": "A contest description.",
+            "start_time": "2099-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": false,
+        });
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["title"], "My Contest");
+    }
+}
+
+mod contest_listing {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_sees_all_contests() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        create_contest_as_admin(&app, &admin, "Public One", true).await;
+        create_contest_as_admin(&app, &admin, "Private One", false).await;
+
+        let res = app.get_with_token(routes::CONTESTS, &admin).await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["data"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn contestant_sees_only_public_and_enrolled_contests() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+
+        create_contest_as_admin(&app, &admin, "Public", true).await;
+        let private_id = create_contest_as_admin(&app, &admin, "Private Enrolled", false).await;
+        create_contest_as_admin(&app, &admin, "Private Hidden", false).await;
+
+        // Enroll user in one private contest
+        let user_id = app.get_with_token(routes::ME, &user).await.id();
+        let enroll_body = json!({"user_id": user_id});
+        let enroll_res = app
+            .post_with_token(
+                &routes::contest_participants(private_id),
+                &enroll_body,
+                &admin,
+            )
+            .await;
+        assert_eq!(enroll_res.status, 201);
+
+        let res = app.get_with_token(routes::CONTESTS, &user).await;
+        assert_eq!(res.status, 200);
+        let data = res.body["data"].as_array().unwrap();
+        // Should see: Public + Private Enrolled = 2 (not Private Hidden)
+        assert_eq!(data.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn supports_pagination() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        for i in 0..5 {
+            create_contest_as_admin(&app, &admin, &format!("Contest {i}"), true).await;
+        }
+
+        let res = app
+            .get_with_token(&format!("{}?per_page=2&page=1", routes::CONTESTS), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["data"].as_array().unwrap().len(), 2);
+        assert_eq!(res.body["pagination"]["total"], 5);
+        assert_eq!(res.body["pagination"]["total_pages"], 3);
+    }
+
+    #[tokio::test]
+    async fn supports_search_by_title() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        create_contest_as_admin(&app, &admin, "Alpha Contest", true).await;
+        create_contest_as_admin(&app, &admin, "Beta Challenge", true).await;
+
+        let res = app
+            .get_with_token(&format!("{}?search=alpha", routes::CONTESTS), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["data"].as_array().unwrap().len(), 1);
+        assert_eq!(res.body["data"][0]["title"], "Alpha Contest");
+    }
+
+    #[tokio::test]
+    async fn supports_sorting_by_start_time() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let body_early = json!({
+            "title": "Early",
+            "description": "desc",
+            "start_time": "2099-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": true,
+        });
+        app.post_with_token(routes::CONTESTS, &body_early, &admin)
+            .await;
+
+        let body_late = json!({
+            "title": "Late",
+            "description": "desc",
+            "start_time": "2099-06-01T00:00:00Z",
+            "end_time": "2099-06-02T00:00:00Z",
+            "is_public": true,
+        });
+        app.post_with_token(routes::CONTESTS, &body_late, &admin)
+            .await;
+
+        let res = app
+            .get_with_token(
+                &format!("{}?sort_by=start_time&sort_order=asc", routes::CONTESTS),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 200);
+        let data = res.body["data"].as_array().unwrap();
+        assert_eq!(data[0]["title"], "Early");
+        assert_eq!(data[1]["title"], "Late");
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_sort_by() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let res = app
+            .get_with_token(&format!("{}?sort_by=bogus", routes::CONTESTS), &admin)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_user_cannot_list_contests() {
+        let app = TestApp::spawn().await;
+        let res = app.get_without_token(routes::CONTESTS).await;
+        assert_eq!(res.status, 401);
+    }
+}
+
+mod contest_retrieval {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_get_any_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Private", false).await;
+
+        let res = app.get_with_token(&routes::contest(id), &admin).await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["title"], "Private");
+        assert!(res.body["description"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn participant_can_get_enrolled_private_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Private", false).await;
+
+        // Enroll user
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        app.post_with_token(
+            &routes::contest_participants(id),
+            &json!({"user_id": uid}),
+            &admin,
+        )
+        .await;
+
+        let res = app.get_with_token(&routes::contest(id), &user).await;
+        assert_eq!(res.status, 200);
+    }
+
+    #[tokio::test]
+    async fn non_participant_cannot_see_private_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Private", false).await;
+
+        let res = app.get_with_token(&routes::contest(id), &user).await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn anyone_can_get_public_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Public", true).await;
+
+        let res = app.get_with_token(&routes::contest(id), &user).await;
+        assert_eq!(res.status, 200);
+    }
+}
+
+mod contest_update {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_update_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Original", false).await;
+
+        let patch = json!({"title": "Updated"});
+        let res = app
+            .patch_with_token(&routes::contest(id), &patch, &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["title"], "Updated");
+    }
+
+    #[tokio::test]
+    async fn empty_patch_returns_current_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Stable", false).await;
+
+        let res = app
+            .patch_with_token(&routes::contest(id), &json!({}), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["title"], "Stable");
+    }
+
+    #[tokio::test]
+    async fn validates_time_constraint_against_existing_values() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Test", false).await;
+
+        // Try to set start_time after existing end_time
+        let patch = json!({"start_time": "2099-01-03T00:00:00Z"});
+        let res = app
+            .patch_with_token(&routes::contest(id), &patch, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_update_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Locked", false).await;
+
+        let patch = json!({"title": "Hacked"});
+        let res = app
+            .patch_with_token(&routes::contest(id), &patch, &user)
+            .await;
+        assert_eq!(res.status, 403);
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_nonexistent_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let res = app
+            .patch_with_token(&routes::contest(99999), &json!({"title": "X"}), &admin)
+            .await;
+        assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn can_toggle_is_public() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Toggle", false).await;
+
+        let res = app
+            .patch_with_token(&routes::contest(id), &json!({"is_public": true}), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["is_public"], true);
+    }
+}
+
+mod contest_deletion {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_delete_a_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Doomed", false).await;
+
+        let res = app.delete_with_token(&routes::contest(id), &admin).await;
+        assert_eq!(res.status, 204);
+
+        let get_res = app.get_with_token(&routes::contest(id), &admin).await;
+        assert_eq!(get_res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn deletes_associated_problems_and_participants() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "Complex", true).await;
+        let problem_id = app.create_problem(&admin, "P1").await;
+
+        // Add problem
+        let add_body = json!({"problem_id": problem_id, "label": "A"});
+        app.post_with_token(&routes::contest_problems(contest_id), &add_body, &admin)
+            .await;
+
+        // Register user
+        app.post_with_token(&routes::contest_register(contest_id), &json!({}), &user)
+            .await;
+
+        // Delete contest
+        let res = app
+            .delete_with_token(&routes::contest(contest_id), &admin)
+            .await;
+        assert_eq!(res.status, 204);
+
+        // Problem itself should still exist
+        let prob_res = app
+            .get_with_token(&routes::problem(problem_id), &admin)
+            .await;
+        assert_eq!(prob_res.status, 200);
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_delete_a_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Protected", false).await;
+
+        let res = app.delete_with_token(&routes::contest(id), &user).await;
+        assert_eq!(res.status, 403);
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_nonexistent_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+
+        let res = app.delete_with_token(&routes::contest(99999), &admin).await;
+        assert_eq!(res.status, 404);
+    }
+}
+
+mod contest_problems {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_add_problem_to_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let problem_id = app.create_problem(&admin, "P1").await;
+
+        let body = json!({"problem_id": problem_id, "label": "A"});
+        let res = app
+            .post_with_token(&routes::contest_problems(contest_id), &body, &admin)
+            .await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["label"], "A");
+        assert_eq!(res.body["problem_title"], "P1");
+        assert_eq!(res.body["position"], 0);
+    }
+
+    #[tokio::test]
+    async fn returns_conflict_for_duplicate_label() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        let p2 = app.create_problem(&admin, "P2").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p2, "label": "A"}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn auto_increments_position_when_omitted() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        let p2 = app.create_problem(&admin, "P2").await;
+
+        let r1 = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p1, "label": "A"}),
+                &admin,
+            )
+            .await;
+        let r2 = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p2, "label": "B"}),
+                &admin,
+            )
+            .await;
+
+        assert_eq!(r1.body["position"], 0);
+        assert_eq!(r2.body["position"], 1);
+    }
+
+    #[tokio::test]
+    async fn admin_can_list_contest_problems() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        let p2 = app.create_problem(&admin, "P2").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p2, "label": "B"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .get_with_token(&routes::contest_problems(contest_id), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        let data = res.body.as_array().unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0]["label"], "A");
+        assert!(data[0]["problem_title"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn participant_can_see_problems_of_enrolled_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "Private", false).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        // Enroll user
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        app.post_with_token(
+            &routes::contest_participants(contest_id),
+            &json!({"user_id": uid}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .get_with_token(&routes::contest_problems(contest_id), &user)
+            .await;
+        assert_eq!(res.status, 200);
+    }
+
+    #[tokio::test]
+    async fn admin_can_update_problem_label_and_position() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let patch = json!({"label": "Z", "position": 42});
+        let res = app
+            .patch_with_token(&routes::contest_problem(contest_id, p1), &patch, &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["label"], "Z");
+        assert_eq!(res.body["position"], 42);
+    }
+
+    #[tokio::test]
+    async fn empty_patch_returns_current_contest_problem() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .patch_with_token(&routes::contest_problem(contest_id, p1), &json!({}), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["label"], "A");
+        assert_eq!(res.body["problem_title"], "P1");
+    }
+
+    #[tokio::test]
+    async fn admin_can_remove_problem_from_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .delete_with_token(&routes::contest_problem(contest_id, p1), &admin)
+            .await;
+        assert_eq!(res.status, 204);
+
+        let list = app
+            .get_with_token(&routes::contest_problems(contest_id), &admin)
+            .await;
+        assert_eq!(list.body.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_nonexistent_problem() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+
+        let body = json!({"problem_id": 99999, "label": "X"});
+        let res = app
+            .post_with_token(&routes::contest_problems(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn returns_conflict_for_duplicate_problem_id() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        // Same problem_id, different label — should still conflict
+        let res = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p1, "label": "B"}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_nonexistent_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        let body = json!({"problem_id": p1, "label": "A"});
+        let res = app
+            .post_with_token(&routes::contest_problems(99999), &body, &admin)
+            .await;
+        assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_add_problem_to_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        let body = json!({"problem_id": p1, "label": "A"});
+        let res = app
+            .post_with_token(&routes::contest_problems(contest_id), &body, &user)
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_update_contest_problem() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .patch_with_token(
+                &routes::contest_problem(contest_id, p1),
+                &json!({"label": "Z"}),
+                &user,
+            )
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_remove_contest_problem() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .delete_with_token(&routes::contest_problem(contest_id, p1), &user)
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn update_returns_conflict_for_duplicate_label() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        let p2 = app.create_problem(&admin, "P2").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p2, "label": "B"}),
+            &admin,
+        )
+        .await;
+
+        // Try to rename B to A
+        let res = app
+            .patch_with_token(
+                &routes::contest_problem(contest_id, p2),
+                &json!({"label": "A"}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn update_with_same_label_succeeds() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        // Patching with the same label should succeed (not conflict with itself)
+        let res = app
+            .patch_with_token(
+                &routes::contest_problem(contest_id, p1),
+                &json!({"label": "A"}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["label"], "A");
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_label_on_add_problem() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        let res = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p1, "label": "   "}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn rejects_label_exceeding_max_length() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        // Label > 10 characters
+        let res = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p1, "label": "ABCDEFGHIJK"}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn rejects_negative_position_on_add_problem() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        let res = app
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &json!({"problem_id": p1, "label": "A", "position": -1}),
+                &admin,
+            )
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn non_participant_cannot_see_problems_of_private_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "Private", false).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .get_with_token(&routes::contest_problems(contest_id), &user)
+            .await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+}
+
+mod contest_participants {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_add_participant() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", false).await;
+
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        let body = json!({"user_id": uid});
+        let res = app
+            .post_with_token(&routes::contest_participants(contest_id), &body, &admin)
+            .await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["user_id"], uid);
+        assert_eq!(res.body["username"], "user1");
+    }
+
+    #[tokio::test]
+    async fn returns_conflict_for_duplicate_participant() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", false).await;
+
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        let body = json!({"user_id": uid});
+        app.post_with_token(&routes::contest_participants(contest_id), &body, &admin)
+            .await;
+
+        let res = app
+            .post_with_token(&routes::contest_participants(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_nonexistent_user() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", false).await;
+
+        let body = json!({"user_id": 99999});
+        let res = app
+            .post_with_token(&routes::contest_participants(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn admin_can_list_participants() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        app.post_with_token(
+            &routes::contest_participants(contest_id),
+            &json!({"user_id": uid}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .get_with_token(&routes::contest_participants(contest_id), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        let data = res.body.as_array().unwrap();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0]["username"], "user1");
+    }
+
+    #[tokio::test]
+    async fn admin_can_remove_participant() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", false).await;
+
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        app.post_with_token(
+            &routes::contest_participants(contest_id),
+            &json!({"user_id": uid}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .delete_with_token(&routes::contest_participant(contest_id, uid), &admin)
+            .await;
+        assert_eq!(res.status, 204);
+
+        let list = app
+            .get_with_token(&routes::contest_participants(contest_id), &admin)
+            .await;
+        assert_eq!(list.body.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_add_participant() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", false).await;
+
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        let res = app
+            .post_with_token(
+                &routes::contest_participants(contest_id),
+                &json!({"user_id": uid}),
+                &user,
+            )
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_remove_participant() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+
+        // Admin adds user as participant
+        let uid = app.get_with_token(routes::ME, &user).await.id();
+        app.post_with_token(
+            &routes::contest_participants(contest_id),
+            &json!({"user_id": uid}),
+            &admin,
+        )
+        .await;
+
+        // User (contestant) cannot remove themselves via admin endpoint
+        let res = app
+            .delete_with_token(&routes::contest_participant(contest_id, uid), &user)
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn participant_can_see_participant_list() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+
+        // Register via self-registration (public contest)
+        app.post_with_token(&routes::contest_register(contest_id), &json!({}), &user)
+            .await;
+
+        let res = app
+            .get_with_token(&routes::contest_participants(contest_id), &user)
+            .await;
+        assert_eq!(res.status, 200);
+    }
+}
+
+mod contest_registration {
+    use super::*;
+
+    #[tokio::test]
+    async fn user_can_register_for_public_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Public", true).await;
+
+        let res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(res.status, 201);
+    }
+
+    #[tokio::test]
+    async fn user_cannot_register_for_private_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Private", false).await;
+
+        // Returns 404 (not 403) to prevent enumeration of private contests
+        let res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn user_cannot_register_for_ended_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+
+        let body = json!({
+            "title": "Ended",
+            "description": "desc",
+            "start_time": "2020-01-01T00:00:00Z",
+            "end_time": "2020-01-02T00:00:00Z",
+            "is_public": true,
+        });
+        let create_res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
+        let id = create_res.id();
+
+        let res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn duplicate_registration_returns_conflict() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Public", true).await;
+
+        app.post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        let res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn user_can_unregister_from_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Public", true).await;
+
+        app.post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        let res = app
+            .delete_with_token(&routes::contest_register(id), &user)
+            .await;
+        assert_eq!(res.status, 204);
+    }
+
+    #[tokio::test]
+    async fn unregister_returns_not_found_if_not_registered() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Public", true).await;
+
+        let res = app
+            .delete_with_token(&routes::contest_register(id), &user)
+            .await;
+        assert_eq!(res.status, 404);
+    }
+}
+
+mod contest_problem_reorder {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_reorder_contest_problems() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        let p2 = app.create_problem(&admin, "P2").await;
+        let p3 = app.create_problem(&admin, "P3").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p2, "label": "B"}),
+            &admin,
+        )
+        .await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p3, "label": "C"}),
+            &admin,
+        )
+        .await;
+
+        // Reorder: p3, p1, p2
+        let body = json!({"problem_ids": [p3, p1, p2]});
+        let res = app
+            .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 204);
+
+        // Verify new positions via list (sorted by position)
+        let list = app
+            .get_with_token(&routes::contest_problems(contest_id), &admin)
+            .await;
+        assert_eq!(list.status, 200);
+        let data = list.body.as_array().unwrap();
+        assert_eq!(data[0]["label"], "C");
+        assert_eq!(data[0]["position"], 0);
+        assert_eq!(data[1]["label"], "A");
+        assert_eq!(data[1]["position"], 1);
+        assert_eq!(data[2]["label"], "B");
+        assert_eq!(data[2]["position"], 2);
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_missing_problem_ids() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        let p2 = app.create_problem(&admin, "P2").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p2, "label": "B"}),
+            &admin,
+        )
+        .await;
+
+        // Only include p1, omit p2
+        let body = json!({"problem_ids": [p1]});
+        let res = app
+            .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_extra_problem_ids() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        // Include p1 + a non-existent problem ID
+        let body = json!({"problem_ids": [p1, 99999]});
+        let res = app
+            .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_duplicate_problem_ids() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let body = json!({"problem_ids": [p1, p1]});
+        let res = app
+            .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_empty_list() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+
+        let body = json!({"problem_ids": []});
+        let res = app
+            .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_reorder_contest_problems() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let body = json!({"problem_ids": [p1]});
+        let res = app
+            .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &user)
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+}

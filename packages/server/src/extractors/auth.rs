@@ -17,9 +17,14 @@ pub struct AuthUser {
 }
 
 impl AuthUser {
+    /// Returns `true` if the user has the given permission.
+    pub fn has_permission(&self, permission: &str) -> bool {
+        self.permissions.iter().any(|p| p == permission)
+    }
+
     /// Returns `Ok(())` if the user has the given permission, `Err(PermissionDenied)` otherwise.
     pub fn require_permission(&self, permission: &str) -> Result<(), AppError> {
-        if self.permissions.iter().any(|p| p == permission) {
+        if self.has_permission(permission) {
             Ok(())
         } else {
             Err(AppError::PermissionDenied)
@@ -28,10 +33,7 @@ impl AuthUser {
 
     /// Returns `Ok(())` if the user has ANY of the given permissions.
     pub fn require_any_permission(&self, permissions: &[&str]) -> Result<(), AppError> {
-        if permissions
-            .iter()
-            .any(|perm| self.permissions.iter().any(|p| p == perm))
-        {
+        if permissions.iter().any(|perm| self.has_permission(perm)) {
             Ok(())
         } else {
             Err(AppError::PermissionDenied)

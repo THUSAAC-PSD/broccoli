@@ -13,6 +13,8 @@ pub struct Model {
     pub contest: Option<super::contest::Entity>,
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: Option<super::user::Entity>,
+
+    pub registered_at: DateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -2,42 +2,6 @@ use serde_json::json;
 
 use crate::common::{TestApp, routes};
 
-/// Create a problem via the API and return its `id`.
-async fn create_test_problem(app: &TestApp, token: &str) -> i32 {
-    let res = app
-        .post_with_token(
-            routes::PROBLEMS,
-            &json!({
-                "title": "Test Problem",
-                "content": "## Description\nSolve this.",
-                "time_limit": 1000,
-                "memory_limit": 262144
-            }),
-            token,
-        )
-        .await;
-    assert_eq!(res.status, 201, "Failed to create problem: {}", res.text);
-    res.body["id"].as_i64().expect("id should be an integer") as i32
-}
-
-/// Create a test case via the API and return its `id`.
-async fn create_test_case_for(app: &TestApp, problem_id: i32, token: &str) -> i32 {
-    let res = app
-        .post_with_token(
-            &routes::test_cases(problem_id),
-            &json!({
-                "input": "5\n1 2 3 4 5",
-                "expected_output": "15",
-                "score": 10,
-                "is_sample": true
-            }),
-            token,
-        )
-        .await;
-    assert_eq!(res.status, 201, "Failed to create test case: {}", res.text);
-    res.body["id"].as_i64().expect("id should be an integer") as i32
-}
-
 /// Build a ZIP archive in memory with given file entries.
 fn build_zip(files: &[(&str, &str)]) -> Vec<u8> {
     use std::io::Write;
@@ -82,7 +46,9 @@ async fn insert_contest_association_for_problem(app: &TestApp, problem_id: i32) 
         description: Set("A test contest".into()),
         start_time: Set(now),
         end_time: Set(now + chrono::Duration::hours(3)),
+        is_public: Set(false),
         created_at: Set(now),
+        updated_at: Set(now),
         ..Default::default()
     };
     let contest_model = c.insert(&app.db).await.expect("insert contest");
@@ -90,6 +56,8 @@ async fn insert_contest_association_for_problem(app: &TestApp, problem_id: i32) 
     let cp = contest_problem::ActiveModel {
         contest_id: Set(contest_model.id),
         problem_id: Set(problem_id),
+        label: Set("A".into()),
+        position: Set(0),
     };
     cp.insert(&app.db).await.expect("insert contest_problem");
 }
@@ -435,7 +403,7 @@ mod problem_detail {
             .create_user_with_role("admin7", "password123", "admin")
             .await;
 
-        let id = create_test_problem(&app, &token).await;
+        let id = app.create_problem(&token, "Test Problem").await;
 
         let res = app.get_with_token(&routes::problem(id), &token).await;
 
@@ -471,7 +439,7 @@ mod problem_update {
             .create_user_with_role("admin9", "password123", "admin")
             .await;
 
-        let id = create_test_problem(&app, &token).await;
+        let id = app.create_problem(&token, "Test Problem").await;
 
         let res = app
             .patch_with_token(
@@ -516,7 +484,7 @@ mod problem_update {
             .create_user_with_role("contestant3", "password123", "contestant")
             .await;
 
-        let id = create_test_problem(&app, &admin_token).await;
+        let id = app.create_problem(&admin_token, "Test Problem").await;
 
         let res = app
             .patch_with_token(
@@ -537,7 +505,7 @@ mod problem_update {
             .create_user_with_role("admin45", "password123", "admin")
             .await;
 
-        let id = create_test_problem(&app, &token).await;
+        let id = app.create_problem(&token, "Test Problem").await;
 
         let original = app.get_with_token(&routes::problem(id), &token).await;
         assert_eq!(original.status, 200);
@@ -563,8 +531,8 @@ mod problem_deletion {
             .create_user_with_role("admin11", "password123", "admin")
             .await;
 
-        let id = create_test_problem(&app, &token).await;
-        create_test_case_for(&app, id, &token).await;
+        let id = app.create_problem(&token, "Test Problem").await;
+        app.create_test_case(id, &token).await;
 
         let res = app.delete_with_token(&routes::problem(id), &token).await;
 
@@ -585,7 +553,7 @@ mod problem_deletion {
             .create_user_with_role("setter2", "password123", "problem_setter")
             .await;
 
-        let id = create_test_problem(&app, &admin_token).await;
+        let id = app.create_problem(&admin_token, "Test Problem").await;
 
         let res = app
             .delete_with_token(&routes::problem(id), &setter_token)
@@ -615,7 +583,7 @@ mod problem_deletion {
             .create_user_with_role("admin13", "password123", "admin")
             .await;
 
-        let id = create_test_problem(&app, &token).await;
+        let id = app.create_problem(&token, "Test Problem").await;
         insert_submission_for_problem(&app, id).await;
 
         let res = app.delete_with_token(&routes::problem(id), &token).await;
@@ -631,7 +599,7 @@ mod problem_deletion {
             .create_user_with_role("admin46", "password123", "admin")
             .await;
 
-        let id = create_test_problem(&app, &token).await;
+        let id = app.create_problem(&token, "Test Problem").await;
         insert_contest_association_for_problem(&app, id).await;
 
         let res = app.delete_with_token(&routes::problem(id), &token).await;
@@ -651,7 +619,7 @@ mod test_case_creation {
             .create_user_with_role("admin14", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let res = app
             .post_with_token(
@@ -702,7 +670,7 @@ mod test_case_creation {
             .create_user_with_role("admin40", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let res = app
             .post_with_token(
@@ -728,7 +696,7 @@ mod test_case_creation {
             .create_user_with_role("admin42", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let res = app
             .post_with_token(
@@ -755,7 +723,7 @@ mod test_case_creation {
             .create_user_with_role("admin24", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let res1 = app
             .post_with_token(
@@ -801,8 +769,8 @@ mod test_case_listing {
             .create_user_with_role("admin18", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
-        create_test_case_for(&app, pid, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
+        app.create_test_case(pid, &token).await;
 
         let res = app.get_with_token(&routes::test_cases(pid), &token).await;
 
@@ -843,7 +811,7 @@ mod test_case_listing {
             .create_user_with_role("admin19", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let long_input = "x".repeat(200);
         app.post_with_token(
@@ -874,7 +842,7 @@ mod test_case_listing {
             .create_user_with_role("admin51", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         // 200 multi-byte characters (each is 3 bytes in UTF-8)
         let unicode_input: String = std::iter::repeat('あ').take(200).collect();
@@ -910,8 +878,8 @@ mod test_case_detail {
             .create_user_with_role("admin20", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
-        let tc_id = create_test_case_for(&app, pid, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc_id = app.create_test_case(pid, &token).await;
 
         let res = app
             .get_with_token(&routes::test_case(pid, tc_id), &token)
@@ -930,9 +898,9 @@ mod test_case_detail {
             .create_user_with_role("admin21", "password123", "admin")
             .await;
 
-        let pid1 = create_test_problem(&app, &token).await;
-        let pid2 = create_test_problem(&app, &token).await;
-        let tc_id = create_test_case_for(&app, pid1, &token).await;
+        let pid1 = app.create_problem(&token, "Test Problem").await;
+        let pid2 = app.create_problem(&token, "Test Problem").await;
+        let tc_id = app.create_test_case(pid1, &token).await;
 
         // Access test case of problem 1 via problem 2's URL
         let res = app
@@ -953,8 +921,8 @@ mod test_case_update {
             .create_user_with_role("admin22", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
-        let tc_id = create_test_case_for(&app, pid, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc_id = app.create_test_case(pid, &token).await;
 
         let res = app
             .patch_with_token(
@@ -977,7 +945,7 @@ mod test_case_update {
             .create_user_with_role("admin38", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let res = app
             .patch_with_token(
@@ -998,7 +966,7 @@ mod test_case_update {
             .create_user_with_role("admin33", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         // Create test case with a description
         let res = app
@@ -1015,7 +983,7 @@ mod test_case_update {
             )
             .await;
         assert_eq!(res.status, 201);
-        let tc_id = res.body["id"].as_i64().unwrap() as i32;
+        let tc_id = res.id();
         assert_eq!(res.body["description"], "original desc");
 
         // Set description to null
@@ -1042,8 +1010,8 @@ mod test_case_deletion {
             .create_user_with_role("admin23", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
-        let tc_id = create_test_case_for(&app, pid, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc_id = app.create_test_case(pid, &token).await;
 
         let res = app
             .delete_with_token(&routes::test_case(pid, tc_id), &token)
@@ -1059,15 +1027,82 @@ mod test_case_deletion {
     }
 
     #[tokio::test]
+    async fn delete_is_blocked_by_judge_results() {
+        use sea_orm::{ActiveModelTrait, Set};
+        use server::entity::{judge_result, submission, test_case_result};
+
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_del_blocked", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc_id = app.create_test_case(pid, &token).await;
+
+        let me = app.get_with_token(routes::ME, &token).await;
+        let user_id = me.id();
+
+        let now = chrono::Utc::now();
+
+        let sub = submission::ActiveModel {
+            code: Set("fn main() {}".into()),
+            language: Set("rust".into()),
+            status: Set("Finished".into()),
+            user_id: Set(user_id),
+            problem_id: Set(pid),
+            created_at: Set(now),
+            ..Default::default()
+        };
+        let sub_model = sub
+            .insert(&app.db)
+            .await
+            .expect("Failed to insert submission");
+
+        let jr = judge_result::ActiveModel {
+            verdict: Set("Accepted".into()),
+            score: Set(100),
+            time_used: Set(50),
+            memory_used: Set(1024),
+            submission_id: Set(sub_model.id),
+            created_at: Set(now),
+            ..Default::default()
+        };
+        let jr_model = jr
+            .insert(&app.db)
+            .await
+            .expect("Failed to insert judge result");
+
+        let tcr = test_case_result::ActiveModel {
+            verdict: Set("Accepted".into()),
+            score: Set(10),
+            time_used: Set(50),
+            memory_used: Set(1024),
+            judge_result_id: Set(jr_model.id),
+            test_case_id: Set(tc_id),
+            created_at: Set(now),
+            ..Default::default()
+        };
+        tcr.insert(&app.db)
+            .await
+            .expect("Failed to insert test case result");
+
+        let res = app
+            .delete_with_token(&routes::test_case(pid, tc_id), &token)
+            .await;
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
     async fn cannot_delete_a_test_case_via_the_wrong_problem() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin34", "password123", "admin")
             .await;
 
-        let pid1 = create_test_problem(&app, &token).await;
-        let pid2 = create_test_problem(&app, &token).await;
-        let tc_id = create_test_case_for(&app, pid1, &token).await;
+        let pid1 = app.create_problem(&token, "Test Problem").await;
+        let pid2 = app.create_problem(&token, "Test Problem").await;
+        let tc_id = app.create_test_case(pid1, &token).await;
 
         // Try to delete pid1's test case via pid2's URL
         let res = app
@@ -1084,6 +1119,152 @@ mod test_case_deletion {
     }
 }
 
+mod test_case_reorder {
+    use super::*;
+
+    #[tokio::test]
+    async fn can_reorder_test_cases() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin52", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+        let tc2 = app.create_test_case(pid, &token).await;
+        let tc3 = app.create_test_case(pid, &token).await;
+
+        // Reorder: tc3, tc1, tc2
+        let body = json!({"test_case_ids": [tc3, tc1, tc2]});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
+            .await;
+        assert_eq!(res.status, 204);
+
+        // Verify new positions
+        let list = app.get_with_token(&routes::test_cases(pid), &token).await;
+        assert_eq!(list.status, 200);
+        let data = list.body.as_array().unwrap();
+        assert_eq!(data.len(), 3);
+        assert_eq!(data[0]["id"], tc3);
+        assert_eq!(data[0]["position"], 0);
+        assert_eq!(data[1]["id"], tc1);
+        assert_eq!(data[1]["position"], 1);
+        assert_eq!(data[2]["id"], tc2);
+        assert_eq!(data[2]["position"], 2);
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_missing_test_case_ids() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin53", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+        let _tc2 = app.create_test_case(pid, &token).await;
+
+        // Only include tc1, omit tc2
+        let body = json!({"test_case_ids": [tc1]});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_extra_test_case_ids() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin54", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+
+        // Include tc1 + a non-existent test case ID
+        let body = json!({"test_case_ids": [tc1, 99999]});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_duplicate_ids() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin55", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+
+        let body = json!({"test_case_ids": [tc1, tc1]});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_empty_list() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin56", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+
+        let body = json!({"test_case_ids": []});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn reorder_returns_not_found_for_nonexistent_problem() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin57", "password123", "admin")
+            .await;
+
+        let body = json!({"test_case_ids": [1]});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(99999), &body, &token)
+            .await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_reorder_test_cases() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin58", "password123", "admin")
+            .await;
+        let contestant_token = app
+            .create_user_with_role("contestant58", "password123", "contestant")
+            .await;
+
+        let pid = app.create_problem(&admin_token, "Test Problem").await;
+        let tc1 = app.create_test_case(pid, &admin_token).await;
+
+        let body = json!({"test_case_ids": [tc1]});
+        let res = app
+            .put_with_token(&routes::test_cases_reorder(pid), &body, &contestant_token)
+            .await;
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+}
+
 mod test_case_zip_upload {
     use super::*;
 
@@ -1094,7 +1275,7 @@ mod test_case_zip_upload {
             .create_user_with_role("admin25", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let zip_data = build_zip(&[
             ("01.in", "1 2\n"),
@@ -1127,7 +1308,7 @@ mod test_case_zip_upload {
             .create_user_with_role("admin26", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let zip_data = build_zip(&[
             ("sample/01.in", "sample input\n"),
@@ -1162,7 +1343,7 @@ mod test_case_zip_upload {
             .create_user_with_role("admin27", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let zip_data = build_zip(&[
             ("01.in", "input\n"),
@@ -1189,7 +1370,7 @@ mod test_case_zip_upload {
             .create_user_with_role("admin35", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         // Use .out instead of .ans
         let zip_data = build_zip(&[("01.in", "input1\n"), ("01.out", "output1\n")]);
@@ -1214,7 +1395,7 @@ mod test_case_zip_upload {
             .create_user_with_role("admin28", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let res = app
             .upload_with_token(
@@ -1257,7 +1438,7 @@ mod test_case_zip_upload {
             .create_user_with_role("admin50", "password123", "admin")
             .await;
 
-        let pid = create_test_problem(&app, &token).await;
+        let pid = app.create_problem(&token, "Test Problem").await;
 
         let zip_data = build_zip(&[
             ("01.in", "input\n"),
