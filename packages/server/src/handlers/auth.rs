@@ -1,5 +1,6 @@
 use axum::{Json, extract::State};
 use sea_orm::*;
+use tracing::instrument;
 
 use crate::entity::{role, role_permission, user};
 use crate::error::AppError;
@@ -13,7 +14,7 @@ fn validate_register(payload: &RegisterRequest) -> Result<(), AppError> {
     let username = payload.username.trim();
     if username.is_empty() || username.len() > 32 {
         return Err(AppError::Validation(
-            "Username must be 1–32 characters".into(),
+            "Username must be 1-32 characters".into(),
         ));
     }
     if !username
@@ -26,17 +27,18 @@ fn validate_register(payload: &RegisterRequest) -> Result<(), AppError> {
     }
     if payload.password.len() < 8 || payload.password.len() > 128 {
         return Err(AppError::Validation(
-            "Password must be 8–128 characters".into(),
+            "Password must be 8-128 characters".into(),
         ));
     }
     Ok(())
 }
 
 /// Handle user registration.
+#[instrument(skip(state, payload), fields(username = %payload.username))]
 pub async fn register(
     State(state): State<AppState>,
     AppJson(payload): AppJson<RegisterRequest>,
-) -> Result<String, AppError> {
+) -> Result<Json<serde_json::Value>, AppError> {
     validate_register(&payload)?;
 
     let username = payload.username.trim().to_string();
@@ -62,10 +64,13 @@ pub async fn register(
 
     let _user = new_user.insert(&state.db).await?;
 
-    Ok("User registered successfully".to_string())
+    Ok(Json(serde_json::json!({
+        "message": "User registered successfully"
+    })))
 }
 
 /// Handle user login.
+#[instrument(skip(state, payload), fields(username = %payload.username))]
 pub async fn login(
     State(state): State<AppState>,
     AppJson(payload): AppJson<LoginRequest>,
@@ -108,6 +113,7 @@ pub async fn login(
 }
 
 /// Return the current authenticated user's info.
+#[instrument(skip(auth_user), fields(user_id = auth_user.user_id))]
 pub async fn me(auth_user: AuthUser) -> Json<MeResponse> {
     Json(MeResponse {
         id: auth_user.user_id,

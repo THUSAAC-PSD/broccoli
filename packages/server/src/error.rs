@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use plugin_core::error::PluginError;
 use sea_orm::DbErr;
 use serde::Serialize;
 
@@ -102,5 +103,18 @@ impl IntoResponse for AppError {
 impl From<DbErr> for AppError {
     fn from(err: DbErr) -> Self {
         AppError::Internal(err.to_string())
+    }
+}
+
+impl From<PluginError> for AppError {
+    fn from(err: PluginError) -> Self {
+        match err {
+            PluginError::NotFound(detail) => {
+                tracing::warn!("Plugin not found: {detail}");
+                AppError::NotFound("Plugin not found".into())
+            }
+            PluginError::Serialization(e) => AppError::Validation(e.to_string()),
+            other => AppError::Internal(other.to_string()),
+        }
     }
 }

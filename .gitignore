@@ -3,6 +3,7 @@
 
 target/
 **/*.wasm
+!packages/server/tests/fixtures/**/*.wasm
 
 node_modules/
 dist/
