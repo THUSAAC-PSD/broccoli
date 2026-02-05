@@ -5,6 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::{Duration, Utc};
+use common::SubmissionStatus;
 use sea_orm::*;
 use tracing::instrument;
 
@@ -180,10 +181,11 @@ async fn build_submission_list_items(
             .ok_or_else(|| AppError::Internal("Problem not found".into()))?;
         let result = judge_results.get(&sub.id);
 
+        let status = sub.status;
         data.push(SubmissionListItem {
             id: sub.id,
             language: sub.language,
-            status: sub.status,
+            status,
             user_id: sub.user_id,
             username: user_model.username,
             problem_id: sub.problem_id,
@@ -272,11 +274,12 @@ async fn build_submission_response(
         None
     };
 
+    let status = sub.status;
     Ok(SubmissionResponse {
         id: sub.id,
         files: files_from_json(&sub.files),
         language: sub.language,
-        status: sub.status,
+        status,
         user_id: sub.user_id,
         username: user_model.username,
         problem_id: sub.problem_id,
@@ -333,7 +336,7 @@ pub async fn create_submission(
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(payload.language.trim().to_string()),
-        status: Set(status::PENDING.to_string()),
+        status: Set(SubmissionStatus::Pending),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(None),
@@ -396,8 +399,8 @@ pub async fn list_submissions(
     if let Some(ref lang) = query.language {
         base_select = base_select.filter(submission::Column::Language.eq(lang.trim()));
     }
-    if let Some(ref stat) = query.status {
-        base_select = base_select.filter(submission::Column::Status.eq(stat.trim()));
+    if let Some(status) = query.status {
+        base_select = base_select.filter(submission::Column::Status.eq(status));
     }
 
     let total = base_select.clone().count(&state.db).await?;
@@ -516,7 +519,7 @@ pub async fn rejudge_submission(
     let sub = find_submission(&state.db, id).await?;
 
     let mut active: submission::ActiveModel = sub.into();
-    active.status = Set(status::PENDING.to_string());
+    active.status = Set(SubmissionStatus::Pending);
     let updated = active.update(&state.db).await?;
 
     // TODO: Clear existing judge results
@@ -593,7 +596,7 @@ pub async fn create_contest_submission(
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(payload.language.trim().to_string()),
-        status: Set(status::PENDING.to_string()),
+        status: Set(SubmissionStatus::Pending),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(Some(contest_id)),
@@ -674,8 +677,8 @@ pub async fn list_contest_submissions(
     if let Some(ref lang) = query.language {
         base_select = base_select.filter(submission::Column::Language.eq(lang.trim()));
     }
-    if let Some(ref stat) = query.status {
-        base_select = base_select.filter(submission::Column::Status.eq(stat.trim()));
+    if let Some(status) = query.status {
+        base_select = base_select.filter(submission::Column::Status.eq(status));
     }
 
     let total = base_select.clone().count(&state.db).await?;

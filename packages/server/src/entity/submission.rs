@@ -1,3 +1,4 @@
+use common::SubmissionStatus;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -22,10 +23,7 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub files: serde_json::Value,
     pub language: String,
-    /// One of:
-    /// Pending, Compiling, Running, Accepted, WrongAnswer,
-    /// TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, CompilationError, SystemError
-    pub status: String,
+    pub status: SubmissionStatus,
 
     #[sea_orm(has_one)]
     pub result: HasOne<super::judge_result::Entity>,

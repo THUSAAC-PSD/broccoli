@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use common::SubmissionStatus;
 use serde::{Deserialize, Serialize};
 
 use crate::entity::submission::SubmissionFile;
@@ -63,8 +64,7 @@ pub struct SubmissionListQuery {
     #[param(example = "cpp")]
     pub language: Option<String>,
     /// Filter by status.
-    #[param(example = "Accepted")]
-    pub status: Option<String>,
+    pub status: Option<SubmissionStatus>,
     /// Sort field: `created_at` (default), `status`.
     #[param(example = "created_at")]
     pub sort_by: Option<String>,
@@ -81,8 +81,7 @@ pub struct SubmissionResponse {
     pub files: Vec<SubmissionFileDto>,
     #[schema(example = "cpp")]
     pub language: String,
-    #[schema(example = "Accepted")]
-    pub status: String,
+    pub status: SubmissionStatus,
     #[schema(example = 1)]
     pub user_id: i32,
     #[schema(example = "alice")]
@@ -107,8 +106,7 @@ pub struct SubmissionListItem {
     pub id: i32,
     #[schema(example = "cpp")]
     pub language: String,
-    #[schema(example = "Accepted")]
-    pub status: String,
+    pub status: SubmissionStatus,
     #[schema(example = 1)]
     pub user_id: i32,
     #[schema(example = "alice")]
@@ -144,8 +142,7 @@ pub struct SubmissionListResponse {
 pub struct JudgeResultResponse {
     #[schema(example = 1)]
     pub id: i32,
-    #[schema(example = "Accepted")]
-    pub verdict: String,
+    pub verdict: SubmissionStatus,
     #[schema(example = 100)]
     pub score: i32,
     /// Total time used in milliseconds.
@@ -165,8 +162,7 @@ pub struct JudgeResultResponse {
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
-    #[schema(example = "Accepted")]
-    pub verdict: String,
+    pub verdict: SubmissionStatus,
     #[schema(example = 10)]
     pub score: i32,
     /// Time used in milliseconds.
@@ -179,57 +175,11 @@ pub struct TestCaseResultResponse {
     pub test_case_id: i32,
 }
 
-/// Valid submission status values.
-pub mod status {
-    pub const PENDING: &str = "Pending";
-    pub const COMPILING: &str = "Compiling";
-    pub const RUNNING: &str = "Running";
-    pub const ACCEPTED: &str = "Accepted";
-    pub const WRONG_ANSWER: &str = "WrongAnswer";
-    pub const TIME_LIMIT_EXCEEDED: &str = "TimeLimitExceeded";
-    pub const MEMORY_LIMIT_EXCEEDED: &str = "MemoryLimitExceeded";
-    pub const RUNTIME_ERROR: &str = "RuntimeError";
-    pub const COMPILATION_ERROR: &str = "CompilationError";
-    pub const SYSTEM_ERROR: &str = "SystemError";
-
-    /// All valid final verdict statuses.
-    pub const FINAL_STATUSES: &[&str] = &[
-        ACCEPTED,
-        WRONG_ANSWER,
-        TIME_LIMIT_EXCEEDED,
-        MEMORY_LIMIT_EXCEEDED,
-        RUNTIME_ERROR,
-        COMPILATION_ERROR,
-        SYSTEM_ERROR,
-    ];
-
-    /// All valid status values.
-    pub const ALL_STATUSES: &[&str] = &[
-        PENDING,
-        COMPILING,
-        RUNNING,
-        ACCEPTED,
-        WRONG_ANSWER,
-        TIME_LIMIT_EXCEEDED,
-        MEMORY_LIMIT_EXCEEDED,
-        RUNTIME_ERROR,
-        COMPILATION_ERROR,
-        SYSTEM_ERROR,
-    ];
-}
 
 /// Maximum total size of all files in bytes.
 pub const DEFAULT_MAX_SUBMISSION_SIZE: usize = 1_048_576; // 1 MB
 
 /// Validate a submission creation request.
-///
-/// Checks:
-/// - At least one file required
-/// - Each filename is valid (no path separators, traversal, null bytes, hidden files)
-/// - No duplicate filenames (case-sensitive)
-/// - No empty file content
-/// - Total size within limit
-/// - Language is non-empty
 pub fn validate_create_submission(
     req: &CreateSubmissionRequest,
     max_size: usize,
@@ -295,21 +245,11 @@ pub fn validate_submission_list_query(query: &SubmissionListQuery) -> Result<(),
     }
 
     if let Some(ref sort_order) = query.sort_order
-        && !["asc", "desc"].contains(&sort_order.to_lowercase().as_str()) {
-            return Err(AppError::Validation(
-                "sort_order must be 'asc' or 'desc'".into(),
-            ));
-        }
-
-    if let Some(ref stat) = query.status {
-        let stat_trimmed = stat.trim();
-        if !status::ALL_STATUSES.contains(&stat_trimmed) {
-            return Err(AppError::Validation(format!(
-                "Invalid status '{}'. Allowed: {}",
-                stat_trimmed,
-                status::ALL_STATUSES.join(", ")
-            )));
-        }
+        && !["asc", "desc"].contains(&sort_order.to_lowercase().as_str())
+    {
+        return Err(AppError::Validation(
+            "sort_order must be 'asc' or 'desc'".into(),
+        ));
     }
 
     Ok(())
