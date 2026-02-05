@@ -1,3 +1,4 @@
+use common::SubmissionStatus;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
 
-    pub verdict: String,
+    pub verdict: SubmissionStatus,
     pub score: i32,
     pub time_used: i32,   // in milliseconds
     pub memory_used: i32, // in kilobytes

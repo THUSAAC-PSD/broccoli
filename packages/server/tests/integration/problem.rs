@@ -29,7 +29,7 @@ async fn insert_submission_for_problem(app: &TestApp, problem_id: i32) {
         user_id: Set(1),
         language: Set("cpp".into()),
         files: Set(files),
-        status: Set("pending".into()),
+        status: Set(common::SubmissionStatus::Pending),
         created_at: Set(chrono::Utc::now()),
         ..Default::default()
     };
@@ -1029,6 +1029,7 @@ mod test_case_deletion {
 
     #[tokio::test]
     async fn delete_is_blocked_by_judge_results() {
+        use common::SubmissionStatus;
         use sea_orm::{ActiveModelTrait, Set};
         use server::entity::{judge_result, submission, test_case_result};
 
@@ -1049,7 +1050,7 @@ mod test_case_deletion {
         let sub = submission::ActiveModel {
             files: Set(files),
             language: Set("rust".into()),
-            status: Set("Finished".into()),
+            status: Set(SubmissionStatus::Accepted),
             user_id: Set(user_id),
             problem_id: Set(pid),
             created_at: Set(now),
@@ -1061,7 +1062,7 @@ mod test_case_deletion {
             .expect("Failed to insert submission");
 
         let jr = judge_result::ActiveModel {
-            verdict: Set("Accepted".into()),
+            verdict: Set(SubmissionStatus::Accepted),
             score: Set(100),
             time_used: Set(50),
             memory_used: Set(1024),
@@ -1075,7 +1076,7 @@ mod test_case_deletion {
             .expect("Failed to insert judge result");
 
         let tcr = test_case_result::ActiveModel {
-            verdict: Set("Accepted".into()),
+            verdict: Set(SubmissionStatus::Accepted),
             score: Set(10),
             time_used: Set(50),
             memory_used: Set(1024),

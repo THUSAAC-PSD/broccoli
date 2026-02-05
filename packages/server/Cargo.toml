@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
+common = { workspace = true, features = ["sea-orm"] }
 axum = { workspace = true, features = ["multipart"] }
 chrono.workspace = true
 config.workspace = true
