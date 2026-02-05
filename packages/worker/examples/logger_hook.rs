@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
     let mut registry = common::hook::HookRegistry::new(());
 
     // Register the logger hook
-    registry.add_hook(LoggerHook).await?;
+    registry.add_hook(LoggerHook)?;
 
     println!("Logger hook example registered successfully!");
     println!("The LoggerHook will log all task events it receives.");
