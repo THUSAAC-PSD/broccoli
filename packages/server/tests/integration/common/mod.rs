@@ -15,7 +15,9 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tokio::sync::OnceCell;
 
-use server::config::{AppConfig, AuthConfig, CorsConfig, DatabaseConfig, ServerConfig};
+use server::config::{
+    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, ServerConfig, SubmissionConfig,
+};
 use server::entity::user;
 use server::manager::ServerManager;
 use server::state::AppState;
@@ -78,6 +80,9 @@ async fn shared_pg_port() -> u16 {
             server::seed::seed_role_permissions(&template_db)
                 .await
                 .expect("Failed to seed template database");
+            server::seed::ensure_indexes(&template_db)
+                .await
+                .expect("Failed to create indexes");
             drop(template_db);
 
             (container, port)
@@ -149,6 +154,28 @@ pub mod routes {
     pub fn test_cases_reorder(problem_id: i32) -> String {
         format!("/api/v1/problems/{problem_id}/test-cases/reorder")
     }
+
+    pub const SUBMISSIONS: &str = "/api/v1/submissions";
+
+    pub fn submission(id: i32) -> String {
+        format!("/api/v1/submissions/{id}")
+    }
+
+    pub fn submission_rejudge(id: i32) -> String {
+        format!("/api/v1/submissions/{id}/rejudge")
+    }
+
+    pub fn problem_submissions(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/submissions")
+    }
+
+    pub fn contest_submissions(contest_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/submissions")
+    }
+
+    pub fn contest_problem_submissions(contest_id: i32, problem_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions")
+    }
 }
 
 /// A running test server.
@@ -218,6 +245,7 @@ impl TestApp {
                 plugins_dir: fixtures_dir(),
                 ..Default::default()
             },
+            submission: SubmissionConfig::default(),
         };
 
         let state = AppState {
@@ -412,6 +440,85 @@ impl TestApp {
             .await;
         assert_eq!(res.status, 201, "create_test_case failed: {}", res.text);
         res.id()
+    }
+
+    /// Create a contest via the API and return its `id`.
+    pub async fn create_contest(
+        &self,
+        token: &str,
+        title: &str,
+        is_public: bool,
+        submissions_visible: bool,
+    ) -> i32 {
+        let res = self
+            .post_with_token(
+                routes::CONTESTS,
+                &serde_json::json!({
+                    "title": title,
+                    "description": "Contest description",
+                    "start_time": "2020-01-01T00:00:00Z",
+                    "end_time": "2099-01-02T00:00:00Z",
+                    "is_public": is_public,
+                    "submissions_visible": submissions_visible,
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(res.status, 201, "create_contest failed: {}", res.text);
+        res.id()
+    }
+
+    /// Create a submission via the API and return its `id`.
+    pub async fn create_submission(
+        &self,
+        problem_id: i32,
+        token: &str,
+        language: &str,
+        code: &str,
+    ) -> i32 {
+        let res = self
+            .post_with_token(
+                &routes::problem_submissions(problem_id),
+                &serde_json::json!({
+                    "files": [{"filename": "main.cpp", "content": code}],
+                    "language": language,
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(res.status, 201, "create_submission failed: {}", res.text);
+        res.id()
+    }
+
+    /// Add a problem to a contest via the API.
+    pub async fn add_problem_to_contest(&self, contest_id: i32, problem_id: i32, token: &str) {
+        let res = self
+            .post_with_token(
+                &routes::contest_problems(contest_id),
+                &serde_json::json!({
+                    "problem_id": problem_id,
+                    "label": "A",
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(
+            res.status, 201,
+            "add_problem_to_contest failed: {}",
+            res.text
+        );
+    }
+
+    /// Register a user as a participant in a contest.
+    pub async fn register_for_contest(&self, contest_id: i32, token: &str) {
+        let res = self
+            .post_with_token(
+                &routes::contest_register(contest_id),
+                &serde_json::json!({}),
+                token,
+            )
+            .await;
+        assert_eq!(res.status, 201, "register_for_contest failed: {}", res.text);
     }
 
     /// Register a user with a specific role, then log in and return the auth token.

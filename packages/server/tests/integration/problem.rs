@@ -23,11 +23,12 @@ async fn insert_submission_for_problem(app: &TestApp, problem_id: i32) {
     use sea_orm::{ActiveModelTrait, Set};
     use server::entity::submission;
 
+    let files = serde_json::json!([{"filename": "main.cpp", "content": "int main() {}"}]);
     let sub = submission::ActiveModel {
         problem_id: Set(problem_id),
         user_id: Set(1),
         language: Set("cpp".into()),
-        code: Set("int main() {}".into()),
+        files: Set(files),
         status: Set("pending".into()),
         created_at: Set(chrono::Utc::now()),
         ..Default::default()
@@ -1044,8 +1045,9 @@ mod test_case_deletion {
 
         let now = chrono::Utc::now();
 
+        let files = serde_json::json!([{"filename": "main.rs", "content": "fn main() {}"}]);
         let sub = submission::ActiveModel {
-            code: Set("fn main() {}".into()),
+            files: Set(files),
             language: Set("rust".into()),
             status: Set("Finished".into()),
             user_id: Set(user_id),

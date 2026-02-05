@@ -60,7 +60,7 @@ impl Modify for SecurityAddon {
 /// Build the application router.
 pub fn build_router(state: AppState) -> axum::Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
-        .nest("/api", routes::api_routes())
+        .nest("/api", routes::api_routes(&state.config))
         .split_for_parts();
 
     router

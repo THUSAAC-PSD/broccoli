@@ -23,6 +23,9 @@ pub struct CreateContestRequest {
     /// Whether the contest is visible to all users.
     #[schema(example = true)]
     pub is_public: bool,
+    /// Whether participants can see each other's submissions.
+    #[schema(example = false)]
+    pub submissions_visible: Option<bool>,
 }
 
 /// PATCH body for updating a contest. Only provided fields are modified.
@@ -43,6 +46,9 @@ pub struct UpdateContestRequest {
     /// Whether the contest is visible to all users.
     #[schema(example = false)]
     pub is_public: Option<bool>,
+    /// Whether participants can see each other's submissions.
+    #[schema(example = true)]
+    pub submissions_visible: Option<bool>,
 }
 
 /// Request body for adding a problem to a contest.
@@ -123,6 +129,9 @@ pub struct ContestResponse {
     pub end_time: DateTime<Utc>,
     #[schema(example = true)]
     pub is_public: bool,
+    /// Whether participants can see each other's submissions.
+    #[schema(example = false)]
+    pub submissions_visible: bool,
     #[schema(example = "2025-09-25T10:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-25T10:30:00Z")]
@@ -142,6 +151,9 @@ pub struct ContestListItem {
     pub end_time: DateTime<Utc>,
     #[schema(example = true)]
     pub is_public: bool,
+    /// Whether participants can see each other's submissions.
+    #[schema(example = false)]
+    pub submissions_visible: bool,
     #[schema(example = "2025-09-25T10:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-25T10:30:00Z")]
@@ -192,6 +204,7 @@ impl From<crate::entity::contest::Model> for ContestResponse {
             start_time: m.start_time,
             end_time: m.end_time,
             is_public: m.is_public,
+            submissions_visible: m.submissions_visible,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }

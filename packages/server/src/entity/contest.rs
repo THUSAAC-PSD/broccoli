@@ -17,11 +17,19 @@ pub struct Model {
     #[sea_orm(default_value = false)]
     pub is_public: bool,
 
+    /// When true, all participants can see each other's submissions.
+    /// When false, participants can only see their own submissions.
+    #[sea_orm(default_value = false)]
+    pub submissions_visible: bool,
+
     #[sea_orm(has_many, via = "contest_user")]
     pub users: HasMany<super::user::Entity>,
 
     #[sea_orm(has_many, via = "contest_problem")]
     pub problems: HasMany<super::problem::Entity>,
+
+    #[sea_orm(has_many)]
+    pub submissions: HasMany<super::submission::Entity>,
 
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

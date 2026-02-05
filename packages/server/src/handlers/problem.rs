@@ -16,6 +16,7 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::models::problem::*;
 use crate::state::AppState;
+use crate::utils::filename::{is_sample_directory, split_dir_filename};
 
 #[utoipa::path(
     post,
@@ -48,6 +49,7 @@ pub async fn create_problem(
         content: Set(payload.content),
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
+        show_test_details: Set(payload.show_test_details.unwrap_or(false)),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -128,6 +130,7 @@ pub async fn list_problems(
         .column(problem::Column::Title)
         .column(problem::Column::TimeLimit)
         .column(problem::Column::MemoryLimit)
+        .column(problem::Column::ShowTestDetails)
         .column(problem::Column::CreatedAt)
         .column(problem::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -224,6 +227,9 @@ pub async fn update_problem(
     }
     if let Some(ml) = payload.memory_limit {
         active.memory_limit = Set(ml);
+    }
+    if let Some(show_test_details) = payload.show_test_details {
+        active.show_test_details = Set(show_test_details);
     }
     active.updated_at = Set(chrono::Utc::now());
 
@@ -338,7 +344,7 @@ pub async fn create_test_case(
 
     let position = match payload.position {
         Some(p) => p,
-        None => next_position(&txn, problem_id).await?,
+        None => next_test_case_position(&txn, problem_id).await?,
     };
 
     let new_tc = test_case::ActiveModel {
@@ -624,7 +630,7 @@ pub async fn upload_test_cases(
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
 
-    let mut start_pos = next_position(&txn, problem_id).await?;
+    let mut start_pos = next_test_case_position(&txn, problem_id).await?;
     let now = chrono::Utc::now();
     let mut created = Vec::with_capacity(entries.len());
 
@@ -773,8 +779,10 @@ async fn find_test_case_for_problem<C: ConnectionTrait>(
     Ok(tc)
 }
 
-/// Compute the next position for a new test case in a problem.
-async fn next_position<C: ConnectionTrait>(db: &C, problem_id: i32) -> Result<i32, AppError> {
+async fn next_test_case_position<C: ConnectionTrait>(
+    db: &C,
+    problem_id: i32,
+) -> Result<i32, AppError> {
     let max_pos: Option<i32> = test_case::Entity::find()
         .filter(test_case::Column::ProblemId.eq(problem_id))
         .select_only()
@@ -845,14 +853,14 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
             None => continue,
         };
 
-        let (dir, filename) = if let Some(pos) = name.rfind('/') {
-            (&name[..pos], &name[pos + 1..])
-        } else {
-            ("", name.as_str())
-        };
+        let (dir, filename) = split_dir_filename(&name);
 
-        let dir_lower = dir.to_lowercase();
-        let is_sample = dir_lower == "sample" || dir_lower.ends_with("/sample");
+        // Skip hidden files (e.g., .DS_Store, .gitkeep)
+        if filename.starts_with('.') {
+            continue;
+        }
+
+        let is_sample = is_sample_directory(dir);
 
         let (stem, ext) = match filename.rsplit_once('.') {
             Some((s, e)) => (s, e),

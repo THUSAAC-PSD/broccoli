@@ -24,6 +24,10 @@ pub struct CreateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 262144)]
     pub memory_limit: i32,
+    /// Whether contestants see full input/output for all test cases.
+    /// If omitted, defaults to false.
+    #[schema(example = false)]
+    pub show_test_details: Option<bool>,
 }
 
 /// PATCH body for updating a problem. Only provided fields are modified.
@@ -41,6 +45,9 @@ pub struct UpdateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 524288)]
     pub memory_limit: Option<i32>,
+    /// Whether contestants see full input/output for all test cases.
+    #[schema(example = true)]
+    pub show_test_details: Option<bool>,
 }
 
 /// Full problem details.
@@ -56,6 +63,9 @@ pub struct ProblemResponse {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
+    /// Whether contestants see full input/output for all test cases.
+    #[schema(example = false)]
+    pub show_test_details: bool,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
@@ -73,6 +83,9 @@ pub struct ProblemListItem {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
+    /// Whether contestants see full input/output for all test cases.
+    #[schema(example = false)]
+    pub show_test_details: bool,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
@@ -221,6 +234,7 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             content: m.content,
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
+            show_test_details: m.show_test_details,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }
