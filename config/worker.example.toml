@@ -1,0 +1,10 @@
+[worker]
+id = "worker-1"
+default_executor = "native"
+batch_size = 10
+poll_timeout_ms = 1000
+
+[mq]
+url = "redis://guest:guest@localhost:6379/"
+pool_size = 5
+queue = "worker_tasks"

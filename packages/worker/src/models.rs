@@ -6,10 +6,10 @@ use plugin_core::traits::{PluginManager, PluginManagerExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-type Function = Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
+type TaskHandlerFn = Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
 
 pub struct NativeExecutor {
-    handlers: Arc<Mutex<HashMap<String, Function>>>,
+    handlers: Arc<Mutex<HashMap<String, TaskHandlerFn>>>,
 }
 
 impl NativeExecutor {
@@ -19,6 +19,7 @@ impl NativeExecutor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn register_handler<F>(&self, task_type: String, handler: F)
     where
         F: Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
@@ -64,12 +65,14 @@ impl Executor for NativeExecutor {
     }
 }
 
+#[allow(dead_code)]
 pub struct WasmExecutor<M: PluginManager> {
     plugin_manager: Arc<M>,
     plugin_id: String,
     function_name: String,
 }
 
+#[allow(dead_code)]
 impl<M: PluginManager> WasmExecutor<M> {
     pub fn new(plugin_manager: Arc<M>, plugin_id: String) -> Self {
         Self {
@@ -107,12 +110,12 @@ impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
     }
 }
 
-pub struct TaskHandler {
+pub struct Worker {
     executors: Arc<Mutex<HashMap<String, Arc<dyn Executor>>>>,
     hook_registry: Arc<Mutex<HookRegistry>>,
 }
 
-impl TaskHandler {
+impl Worker {
     pub fn new() -> Self {
         Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
@@ -124,6 +127,7 @@ impl TaskHandler {
         self.executors.lock().unwrap().insert(name, executor);
     }
 
+    #[allow(dead_code)]
     pub fn add_hook<H: Hook<TaskEvent, Context = ()> + 'static>(&self, hook: H) -> Result<()> {
         self.hook_registry.lock().unwrap().add_hook(hook)
     }
@@ -179,7 +183,7 @@ impl TaskHandler {
     }
 }
 
-impl Default for TaskHandler {
+impl Default for Worker {
     fn default() -> Self {
         Self::new()
     }
