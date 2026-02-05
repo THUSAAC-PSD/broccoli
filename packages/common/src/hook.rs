@@ -17,10 +17,10 @@ pub trait Hook<E: Event>: Send + Sync {
     /// Get the topics this hook is interested in
     fn topics(&self) -> &[&str];
 
-    async fn on_register(&self, _ctx: Self::Context) -> Result<()> {
+    fn on_register(&self, _ctx: Self::Context) -> Result<()> {
         Ok(())
     }
-    async fn on_unregister(&self, _ctx: Self::Context) -> Result<()> {
+    fn on_unregister(&self, _ctx: Self::Context) -> Result<()> {
         Ok(())
     }
     async fn on_event(&self, ctx: Self::Context, e: &E) -> Result<HookAction<E, Self::Output>>;
@@ -48,10 +48,10 @@ pub trait GenericHook: Send + Sync {
     /// Get the topics this hook is interested in
     fn topics(&self) -> &[&str];
 
-    async fn on_register(&self, _ctx: Self::Context) -> Result<()> {
+    fn on_register(&self, _ctx: Self::Context) -> Result<()> {
         Ok(())
     }
-    async fn on_unregister(&self, _ctx: Self::Context) -> Result<()> {
+    fn on_unregister(&self, _ctx: Self::Context) -> Result<()> {
         Ok(())
     }
     async fn on_event(&self, ctx: Self::Context, e: &GenericEvent) -> Result<GenericHookAction>;
@@ -93,12 +93,12 @@ impl<E: Event, H: Hook<E>> GenericHook for HookAdapter<E, H> {
         }
     }
 
-    async fn on_register(&self, ctx: H::Context) -> Result<()> {
-        self.hook.on_register(ctx).await
+    fn on_register(&self, ctx: H::Context) -> Result<()> {
+        self.hook.on_register(ctx)
     }
 
-    async fn on_unregister(&self, ctx: H::Context) -> Result<()> {
-        self.hook.on_unregister(ctx).await
+    fn on_unregister(&self, ctx: H::Context) -> Result<()> {
+        self.hook.on_unregister(ctx)
     }
 }
 
@@ -119,7 +119,7 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
     }
 
     /// Add a typed hook to the registry
-    pub async fn add_hook<E: Event + 'static, H: Hook<E, Context = C> + 'static>(
+    pub fn add_hook<E: Event + 'static, H: Hook<E, Context = C> + 'static>(
         &mut self,
         hook: H,
     ) -> Result<()> {
@@ -127,7 +127,7 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
             hook: Arc::new(hook),
             _phantom: std::marker::PhantomData,
         });
-        adapter.on_register(self.ctx).await?;
+        adapter.on_register(self.ctx)?;
 
         for &topic in adapter.topics() {
             self.hooks
@@ -139,11 +139,8 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
     }
 
     /// Add a generic hook to the registry
-    pub async fn add_generic_hook(
-        &mut self,
-        hook: Arc<dyn GenericHook<Context = C>>,
-    ) -> Result<()> {
-        hook.on_register(self.ctx).await?;
+    pub fn add_generic_hook(&mut self, hook: Arc<dyn GenericHook<Context = C>>) -> Result<()> {
+        hook.on_register(self.ctx)?;
         for &topic in hook.topics() {
             self.hooks
                 .entry(topic.to_string())
@@ -154,13 +151,13 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
     }
 
     /// Remove a hook by its ID, only removes the first
-    pub async fn remove_hook(&mut self, hook_id: &str) -> Result<()> {
+    pub fn remove_hook(&mut self, hook_id: &str) -> Result<()> {
         let hooks = &mut self.hooks;
 
         for hooks_list in hooks.values_mut() {
             if let Some(pos) = hooks_list.iter().position(|h| h.id() == hook_id) {
                 let hook = hooks_list.remove(pos);
-                hook.on_unregister(self.ctx).await?;
+                hook.on_unregister(self.ctx)?;
                 return Ok(());
             }
         }

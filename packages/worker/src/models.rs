@@ -6,16 +6,10 @@ use plugin_core::traits::{PluginManager, PluginManagerExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Native executor to run Rust functions
+type Function = Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
+
 pub struct NativeExecutor {
-    handlers: Arc<
-        Mutex<
-            HashMap<
-                String,
-                Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
-            >,
-        >,
-    >,
+    handlers: Arc<Mutex<HashMap<String, Function>>>,
 }
 
 impl NativeExecutor {
@@ -33,6 +27,12 @@ impl NativeExecutor {
             .lock()
             .unwrap()
             .insert(task_type, Box::new(handler));
+    }
+}
+
+impl Default for NativeExecutor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -107,12 +107,12 @@ impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
     }
 }
 
-pub struct Worker {
+pub struct TaskHandler {
     executors: Arc<Mutex<HashMap<String, Arc<dyn Executor>>>>,
     hook_registry: Arc<Mutex<HookRegistry>>,
 }
 
-impl Worker {
+impl TaskHandler {
     pub fn new() -> Self {
         Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
@@ -124,12 +124,8 @@ impl Worker {
         self.executors.lock().unwrap().insert(name, executor);
     }
 
-    pub async fn add_hook<H: Hook<TaskEvent, Context = ()> + 'static>(
-        &self,
-        hook: H,
-    ) -> Result<()> {
-        self.hook_registry.lock().unwrap().add_hook(hook).await?;
-        Ok(())
+    pub fn add_hook<H: Hook<TaskEvent, Context = ()> + 'static>(&self, hook: H) -> Result<()> {
+        self.hook_registry.lock().unwrap().add_hook(hook)
     }
 
     pub async fn execute_task(&self, task: Task, executor_name: &str) -> Result<TaskResult> {
@@ -180,5 +176,11 @@ impl Worker {
         };
 
         Ok(result)
+    }
+}
+
+impl Default for TaskHandler {
+    fn default() -> Self {
+        Self::new()
     }
 }
