@@ -12,7 +12,7 @@ use serde::Serialize;
 pub struct ErrorBody {
     /// Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
     /// `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
-    /// `CONFLICT`, `USERNAME_TAKEN`, `INTERNAL_ERROR`.
+    /// `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `INTERNAL_ERROR`.
     #[schema(example = "VALIDATION_ERROR")]
     pub code: &'static str,
     /// Human-readable error description.
@@ -31,6 +31,10 @@ pub enum AppError {
     NotFound(String),
     Conflict(String),
     UsernameTaken,
+    /// Rate limit exceeded. Contains seconds until retry is allowed.
+    RateLimited {
+        retry_after: u64,
+    },
     Internal(String),
 }
 
@@ -93,6 +97,13 @@ impl AppError {
                     message: "Username is already taken".into(),
                 },
             ),
+            AppError::RateLimited { retry_after } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                ErrorBody {
+                    code: "RATE_LIMITED",
+                    message: format!("Rate limit exceeded. Try again in {} seconds", retry_after),
+                },
+            ),
             AppError::Internal(detail) => {
                 tracing::error!("Internal error: {}", detail);
                 (
@@ -109,8 +120,19 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let retry_after = if let AppError::RateLimited { retry_after } = &self {
+            Some(*retry_after)
+        } else {
+            None
+        };
+
         let (status, body) = self.status_and_body();
-        (status, Json(body)).into_response()
+
+        if let Some(seconds) = retry_after {
+            (status, [("Retry-After", seconds.to_string())], Json(body)).into_response()
+        } else {
+            (status, Json(body)).into_response()
+        }
     }
 }
 

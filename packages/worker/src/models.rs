@@ -12,6 +12,12 @@ pub struct NativeExecutor {
     handlers: Arc<Mutex<HashMap<String, TaskHandlerFn>>>,
 }
 
+impl Default for NativeExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NativeExecutor {
     pub fn new() -> Self {
         Self {
@@ -113,6 +119,12 @@ impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
 pub struct Worker {
     executors: Arc<Mutex<HashMap<String, Arc<dyn Executor>>>>,
     hook_registry: Arc<Mutex<HookRegistry>>,
+}
+
+impl Default for Worker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Worker {

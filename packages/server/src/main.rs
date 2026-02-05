@@ -23,6 +23,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db = server::database::init_db(&app_config.database.url).await?;
     server::seed::seed_role_permissions(&db).await?;
+    server::seed::ensure_indexes(&db).await?;
 
     let state = AppState {
         plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
@@ -42,7 +43,13 @@ async fn main() -> anyhow::Result<()> {
     let app = build_router(state).layer(
         CorsLayer::new()
             .allow_origin(allow_origins)
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+            ])
             .allow_headers([
                 HeaderName::from_static("content-type"),
                 HeaderName::from_static("authorization"),

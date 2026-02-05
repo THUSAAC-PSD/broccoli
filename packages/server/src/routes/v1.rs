@@ -1,14 +1,18 @@
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use crate::config::AppConfig;
 use crate::handlers;
 use crate::state::AppState;
 
-pub fn routes() -> OpenApiRouter<AppState> {
+pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
+    let submission_max_size = config.submission.max_size;
+
     OpenApiRouter::new()
         .nest("/auth", auth_routes())
         .nest("/plugins", plugin_routes())
-        .nest("/problems", problem_routes())
-        .nest("/contests", contest_routes())
+        .nest("/problems", problem_routes(submission_max_size))
+        .nest("/contests", contest_routes(submission_max_size))
+        .nest("/submissions", submission_routes())
 }
 
 fn auth_routes() -> OpenApiRouter<AppState> {
@@ -24,7 +28,7 @@ fn plugin_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::plugin::call_plugin_func))
 }
 
-fn problem_routes() -> OpenApiRouter<AppState> {
+fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(
             handlers::problem::list_problems,
@@ -36,6 +40,18 @@ fn problem_routes() -> OpenApiRouter<AppState> {
             handlers::problem::delete_problem,
         ))
         .nest("/{id}/test-cases", test_case_routes())
+        .nest(
+            "/{id}/submissions",
+            problem_submission_routes(submission_max_size),
+        )
+}
+
+fn problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::submission::create_submission))
+        .layer(handlers::submission::submission_body_limit(
+            submission_max_size,
+        ))
 }
 
 fn test_case_routes() -> OpenApiRouter<AppState> {
@@ -59,7 +75,7 @@ fn test_case_routes() -> OpenApiRouter<AppState> {
     crud.merge(upload)
 }
 
-fn contest_routes() -> OpenApiRouter<AppState> {
+fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(
             handlers::contest::list_contests,
@@ -70,15 +86,23 @@ fn contest_routes() -> OpenApiRouter<AppState> {
             handlers::contest::update_contest,
             handlers::contest::delete_contest,
         ))
-        .nest("/{id}/problems", contest_problem_routes())
+        .nest(
+            "/{id}/problems",
+            contest_problem_routes(submission_max_size),
+        )
         .nest("/{id}/participants", contest_participant_routes())
+        .nest("/{id}/submissions", contest_submission_routes())
         .routes(routes!(
             handlers::contest::register_for_contest,
             handlers::contest::unregister_from_contest,
         ))
 }
 
-fn contest_problem_routes() -> OpenApiRouter<AppState> {
+fn contest_submission_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(handlers::submission::list_contest_submissions))
+}
+
+fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(
             handlers::contest::list_contest_problems,
@@ -89,6 +113,18 @@ fn contest_problem_routes() -> OpenApiRouter<AppState> {
             handlers::contest::update_contest_problem,
             handlers::contest::remove_contest_problem,
         ))
+        .nest(
+            "/{problem_id}/submissions",
+            contest_problem_submission_routes(submission_max_size),
+        )
+}
+
+fn contest_problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::submission::create_contest_submission))
+        .layer(handlers::submission::submission_body_limit(
+            submission_max_size,
+        ))
 }
 
 fn contest_participant_routes() -> OpenApiRouter<AppState> {
@@ -98,4 +134,11 @@ fn contest_participant_routes() -> OpenApiRouter<AppState> {
             handlers::contest::add_participant,
         ))
         .routes(routes!(handlers::contest::remove_participant))
+}
+
+fn submission_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::submission::list_submissions))
+        .routes(routes!(handlers::submission::get_submission))
+        .routes(routes!(handlers::submission::rejudge_submission))
 }

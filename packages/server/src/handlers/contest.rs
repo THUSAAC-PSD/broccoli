@@ -47,6 +47,7 @@ pub async fn create_contest(
         start_time: Set(payload.start_time),
         end_time: Set(payload.end_time),
         is_public: Set(payload.is_public),
+        submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -142,6 +143,7 @@ pub async fn list_contests(
         .column(contest::Column::StartTime)
         .column(contest::Column::EndTime)
         .column(contest::Column::IsPublic)
+        .column(contest::Column::SubmissionsVisible)
         .column(contest::Column::CreatedAt)
         .column(contest::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -248,6 +250,9 @@ pub async fn update_contest(
     }
     if let Some(is_public) = payload.is_public {
         active.is_public = Set(is_public);
+    }
+    if let Some(submissions_visible) = payload.submissions_visible {
+        active.submissions_visible = Set(submissions_visible);
     }
     active.updated_at = Set(chrono::Utc::now());
 
