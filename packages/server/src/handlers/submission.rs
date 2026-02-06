@@ -6,13 +6,15 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::{Duration, Utc};
 use common::SubmissionStatus;
+use common::judge_job::{JudgeFile, JudgeJob, TestCaseData};
+use common::worker::Task;
+use sea_orm::sea_query::LockType;
 use sea_orm::*;
-use tracing::instrument;
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::entity::submission::SubmissionFile;
 use crate::entity::{
-    contest, contest_problem, contest_user, judge_result, problem, submission, test_case_result,
-    user,
+    contest, contest_problem, contest_user, problem, submission, test_case, test_case_result, user,
 };
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -122,6 +124,101 @@ async fn is_problem_in_contest<C: ConnectionTrait>(
     Ok(exists)
 }
 
+/// Enqueue a judge job for a submission.
+#[instrument(skip(state, files), fields(submission_id = submission.id))]
+async fn enqueue_judge_job(
+    state: &AppState,
+    submission: &submission::Model,
+    files: Vec<JudgeFile>,
+) {
+    let Some(ref mq) = state.mq else {
+        debug!("MQ unavailable, skipping enqueue");
+        return;
+    };
+
+    let problem = match problem::Entity::find_by_id(submission.problem_id)
+        .one(&state.db)
+        .await
+    {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            error!(
+                problem_id = submission.problem_id,
+                "Problem not found for judge job"
+            );
+            return;
+        }
+        Err(e) => {
+            error!(error = %e, "DB error fetching problem for judge job");
+            return;
+        }
+    };
+
+    let test_cases: Vec<TestCaseData> = match test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(submission.problem_id))
+        .order_by_asc(test_case::Column::Position)
+        .all(&state.db)
+        .await
+    {
+        Ok(tcs) => tcs
+            .into_iter()
+            .map(|tc| TestCaseData {
+                id: tc.id,
+                input: tc.input,
+                expected_output: tc.expected_output,
+                score: tc.score,
+            })
+            .collect(),
+        Err(e) => {
+            error!(error = %e, "DB error fetching test cases for judge job");
+            return;
+        }
+    };
+
+    let test_case_count = test_cases.len();
+
+    let job = JudgeJob::new(
+        submission.id,
+        submission.problem_id,
+        files,
+        submission.language.clone(),
+        problem.time_limit,
+        problem.memory_limit,
+        submission.contest_id,
+        test_cases,
+    );
+
+    let job_id = job.job_id.clone();
+
+    let task = Task {
+        id: job.job_id.clone(),
+        task_type: "judge".into(),
+        payload: match serde_json::to_value(&job) {
+            Ok(v) => v,
+            Err(e) => {
+                error!(error = %e, "Failed to serialize JudgeJob");
+                return;
+            }
+        },
+    };
+
+    match mq
+        .publish(&state.config.mq.queue_name, None, &task, None)
+        .await
+    {
+        Ok(_) => {
+            info!(
+                job_id = %job_id,
+                test_cases = test_case_count,
+                "Judge job enqueued"
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to enqueue judge job");
+        }
+    }
+}
+
 /// Convert files to JSON value for storage.
 fn files_to_json(files: &[SubmissionFileDto]) -> serde_json::Value {
     let submission_files: Vec<SubmissionFile> = files
@@ -154,7 +251,6 @@ async fn build_submission_list_items(
         return Ok(vec![]);
     }
 
-    let submission_ids: Vec<i32> = submissions.iter().map(|(s, _)| s.id).collect();
     let problem_ids: Vec<i32> = submissions.iter().map(|(s, _)| s.problem_id).collect();
 
     let problems: HashMap<i32, problem::Model> = problem::Entity::find()
@@ -165,36 +261,27 @@ async fn build_submission_list_items(
         .map(|p| (p.id, p))
         .collect();
 
-    let judge_results: HashMap<i32, judge_result::Model> = judge_result::Entity::find()
-        .filter(judge_result::Column::SubmissionId.is_in(submission_ids))
-        .all(db)
-        .await?
-        .into_iter()
-        .map(|r| (r.submission_id, r))
-        .collect();
-
     let mut data = Vec::with_capacity(submissions.len());
     for (sub, user_opt) in submissions {
         let user_model = user_opt.ok_or_else(|| AppError::Internal("User not found".into()))?;
         let problem_model = problems
             .get(&sub.problem_id)
             .ok_or_else(|| AppError::Internal("Problem not found".into()))?;
-        let result = judge_results.get(&sub.id);
 
-        let status = sub.status;
         data.push(SubmissionListItem {
             id: sub.id,
             language: sub.language,
-            status,
+            status: sub.status,
+            verdict: sub.verdict,
             user_id: sub.user_id,
             username: user_model.username,
             problem_id: sub.problem_id,
             problem_title: problem_model.title.clone(),
             contest_id: sub.contest_id,
             created_at: sub.created_at,
-            score: result.map(|r| r.score),
-            time_used: result.map(|r| r.time_used),
-            memory_used: result.map(|r| r.memory_used),
+            score: sub.score,
+            time_used: sub.time_used,
+            memory_used: sub.memory_used,
         });
     }
 
@@ -223,63 +310,104 @@ async fn build_submission_response(
         .await?
         .ok_or_else(|| AppError::Internal("Submission problem not found".into()))?;
 
-    let include_test_details = match visibility {
-        None => true, // No visibility check, so always show
-        Some(ctx) if ctx.has_view_all => true,
-        Some(_) if problem_model.show_test_details => true,
-        Some(ctx) if sub.user_id == ctx.viewer_id => {
-            // Owner, check if contest is still active
-            if let Some(contest_id) = sub.contest_id {
-                let contest_model = contest::Entity::find_by_id(contest_id)
-                    .one(db)
-                    .await?
-                    .ok_or_else(|| AppError::Internal("Contest not found".into()))?;
-                Utc::now() > contest_model.end_time
-            } else {
-                true // Not a contest submission
-            }
-        }
-        Some(_) => false,
+    let contest_model = if let Some(contest_id) = sub.contest_id {
+        Some(
+            contest::Entity::find_by_id(contest_id)
+                .one(db)
+                .await?
+                .ok_or_else(|| AppError::Internal("Contest not found".into()))?,
+        )
+    } else {
+        None
     };
 
-    let result = judge_result::Entity::find()
-        .filter(judge_result::Column::SubmissionId.eq(sub.id))
-        .one(db)
-        .await?;
+    let is_owner = visibility
+        .as_ref()
+        .is_some_and(|ctx| ctx.viewer_id == sub.user_id);
+    let has_view_all = visibility.as_ref().is_some_and(|ctx| ctx.has_view_all);
+    let contest_ended = contest_model
+        .as_ref()
+        .is_none_or(|c| Utc::now() > c.end_time);
 
-    let result_response = if let Some(jr) = result {
+    let show_source_code = has_view_all || is_owner;
+
+    let show_compile_output = has_view_all
+        || is_owner
+        || contest_ended
+        || contest_model
+            .as_ref()
+            .is_some_and(|c| c.show_compile_output);
+
+    let include_test_details =
+        has_view_all || problem_model.show_test_details || (is_owner && contest_ended);
+
+    let result_response = if sub.status.is_terminal() {
         let test_case_results = if include_test_details {
             let test_results = test_case_result::Entity::find()
-                .filter(test_case_result::Column::JudgeResultId.eq(jr.id))
+                .filter(test_case_result::Column::SubmissionId.eq(sub.id))
+                .find_also_related(test_case::Entity)
                 .all(db)
                 .await?;
+
             test_results
                 .into_iter()
-                .map(TestCaseResultResponse::from)
+                .map(|(result, tc)| {
+                    let is_sample = tc.is_some_and(|t| t.is_sample);
+                    let show_output = has_view_all || is_sample;
+                    TestCaseResultResponse {
+                        id: result.id,
+                        verdict: result.verdict,
+                        score: result.score,
+                        time_used: result.time_used,
+                        memory_used: result.memory_used,
+                        test_case_id: result.test_case_id,
+                        stdout: if show_output { result.stdout } else { None },
+                        stderr: if show_output { result.stderr } else { None },
+                        checker_output: if show_output {
+                            result.checker_output
+                        } else {
+                            None
+                        },
+                    }
+                })
                 .collect()
         } else {
-            vec![] // Hide individual test case results
+            vec![]
         };
 
         Some(JudgeResultResponse {
-            id: jr.id,
-            verdict: jr.verdict,
-            score: jr.score,
-            time_used: jr.time_used,
-            memory_used: jr.memory_used,
-            created_at: jr.created_at,
+            verdict: sub.verdict,
+            score: sub.score,
+            time_used: sub.time_used,
+            memory_used: sub.memory_used,
+            compile_output: if show_compile_output {
+                sub.compile_output.clone()
+            } else {
+                None
+            },
+            error_message: if show_compile_output {
+                sub.error_message.clone()
+            } else {
+                None
+            },
+            judged_at: sub.judged_at,
             test_case_results,
         })
     } else {
         None
     };
 
-    let status = sub.status;
+    let files = if show_source_code {
+        files_from_json(&sub.files)
+    } else {
+        vec![]
+    };
+
     Ok(SubmissionResponse {
         id: sub.id,
-        files: files_from_json(&sub.files),
+        files,
         language: sub.language,
-        status,
+        status: sub.status,
         user_id: sub.user_id,
         username: user_model.username,
         problem_id: sub.problem_id,
@@ -328,7 +456,9 @@ pub async fn create_submission(
     )
     .await?;
 
-    let _ = find_problem(&state.db, problem_id).await?;
+    let txn = state.db.begin().await?;
+
+    let _ = find_problem(&txn, problem_id).await?;
 
     // TODO: Validate language against plugin registry
 
@@ -344,12 +474,24 @@ pub async fn create_submission(
         ..Default::default()
     };
 
-    let model = new_submission.insert(&state.db).await?;
+    let model = new_submission.insert(&txn).await?;
+    txn.commit().await?;
 
-    // TODO: Enqueue judge job
+    let judge_files: Vec<JudgeFile> = payload
+        .files
+        .iter()
+        .map(|f| JudgeFile {
+            filename: f.filename.trim().to_string(),
+            content: f.content.clone(),
+        })
+        .collect();
+    enqueue_judge_job(&state, &model, judge_files).await;
 
-    // For standalone submissions, owner always sees test details
-    let response = build_submission_response(&state.db, model, None).await?;
+    let visibility = Some(VisibilityContext {
+        viewer_id: auth_user.user_id,
+        has_view_all: auth_user.has_permission("submission:view_all"),
+    });
+    let response = build_submission_response(&state.db, model, visibility).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -393,9 +535,10 @@ pub async fn list_submissions(
         base_select = base_select.filter(submission::Column::ProblemId.eq(pid));
     }
     if let Some(uid) = query.user_id
-        && (can_view_all || uid == auth_user.user_id) {
-            base_select = base_select.filter(submission::Column::UserId.eq(uid));
-        }
+        && (can_view_all || uid == auth_user.user_id)
+    {
+        base_select = base_select.filter(submission::Column::UserId.eq(uid));
+    }
     if let Some(ref lang) = query.language {
         base_select = base_select.filter(submission::Column::Language.eq(lang.trim()));
     }
@@ -516,17 +659,47 @@ pub async fn rejudge_submission(
 ) -> Result<Json<SubmissionResponse>, AppError> {
     auth_user.require_permission("submission:rejudge")?;
 
-    let sub = find_submission(&state.db, id).await?;
+    let txn = state.db.begin().await?;
 
-    let mut active: submission::ActiveModel = sub.into();
+    let sub = submission::Entity::find_by_id(id)
+        .lock(LockType::Update)
+        .one(&txn)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Submission not found".into()))?;
+
+    test_case_result::Entity::delete_many()
+        .filter(test_case_result::Column::SubmissionId.eq(sub.id))
+        .exec(&txn)
+        .await?;
+
+    let mut active: submission::ActiveModel = sub.clone().into();
     active.status = Set(SubmissionStatus::Pending);
-    let updated = active.update(&state.db).await?;
+    active.verdict = Set(None);
+    active.compile_output = Set(None);
+    active.error_message = Set(None);
+    active.score = Set(None);
+    active.time_used = Set(None);
+    active.memory_used = Set(None);
+    active.judged_at = Set(None);
+    let updated = active.update(&txn).await?;
 
-    // TODO: Clear existing judge results
-    // TODO: Enqueue new judge job
+    txn.commit().await?;
 
-    // Admin performing rejudge, so always show test details
-    let response = build_submission_response(&state.db, updated, None).await?;
+    let files = files_from_json(&sub.files);
+    let judge_files: Vec<JudgeFile> = files
+        .iter()
+        .map(|f| JudgeFile {
+            filename: f.filename.clone(),
+            content: f.content.clone(),
+        })
+        .collect();
+    enqueue_judge_job(&state, &updated, judge_files).await;
+
+    let visibility = Some(VisibilityContext {
+        viewer_id: auth_user.user_id,
+        has_view_all: true,
+    });
+    let response = build_submission_response(&state.db, updated, visibility).await?;
     Ok(Json(response))
 }
 
@@ -569,17 +742,19 @@ pub async fn create_contest_submission(
     )
     .await?;
 
-    let contest_model = find_contest(&state.db, contest_id).await?;
+    let txn = state.db.begin().await?;
 
-    let _ = find_problem(&state.db, problem_id).await?;
-    if !is_problem_in_contest(&state.db, contest_id, problem_id).await? {
+    let contest_model = find_contest(&txn, contest_id).await?;
+
+    let _ = find_problem(&txn, problem_id).await?;
+    if !is_problem_in_contest(&txn, contest_id, problem_id).await? {
         return Err(AppError::NotFound(
             "Problem not found in this contest".into(),
         ));
     }
 
     let can_manage = auth_user.has_permission("contest:manage");
-    let is_participant = is_contest_participant(&state.db, contest_id, auth_user.user_id).await?;
+    let is_participant = is_contest_participant(&txn, contest_id, auth_user.user_id).await?;
 
     if !can_manage && !is_participant {
         return Err(AppError::NotFound("Contest not found".into())); // Prevent enumeration
@@ -604,13 +779,22 @@ pub async fn create_contest_submission(
         ..Default::default()
     };
 
-    let model = new_submission.insert(&state.db).await?;
+    let model = new_submission.insert(&txn).await?;
+    txn.commit().await?;
 
-    // TODO: Enqueue judge job
+    let judge_files: Vec<JudgeFile> = payload
+        .files
+        .iter()
+        .map(|f| JudgeFile {
+            filename: f.filename.trim().to_string(),
+            content: f.content.clone(),
+        })
+        .collect();
+    enqueue_judge_job(&state, &model, judge_files).await;
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
-        has_view_all: can_manage,
+        has_view_all: auth_user.has_permission("submission:view_all"),
     });
     let response = build_submission_response(&state.db, model, visibility).await?;
 
@@ -671,9 +855,10 @@ pub async fn list_contest_submissions(
         base_select = base_select.filter(submission::Column::ProblemId.eq(pid));
     }
     if let Some(uid) = query.user_id
-        && (can_see_all || uid == auth_user.user_id) {
-            base_select = base_select.filter(submission::Column::UserId.eq(uid));
-        }
+        && (can_see_all || uid == auth_user.user_id)
+    {
+        base_select = base_select.filter(submission::Column::UserId.eq(uid));
+    }
     if let Some(ref lang) = query.language {
         base_select = base_select.filter(submission::Column::Language.eq(lang.trim()));
     }

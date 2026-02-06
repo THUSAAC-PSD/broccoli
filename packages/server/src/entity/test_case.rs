@@ -24,11 +24,11 @@ pub struct Model {
     pub position: i32,
 
     pub problem_id: i32,
+
     #[sea_orm(belongs_to, from = "problem_id", to = "id")]
     pub problem: HasOne<super::problem::Entity>,
-
     #[sea_orm(has_many)]
-    pub results: HasMany<super::test_case_result::Entity>,
+    pub test_case_results: HasMany<super::test_case_result::Entity>,
 
     pub created_at: DateTimeUtc,
 }

@@ -1028,10 +1028,10 @@ mod test_case_deletion {
     }
 
     #[tokio::test]
-    async fn delete_is_blocked_by_judge_results() {
-        use common::SubmissionStatus;
+    async fn delete_is_blocked_by_test_case_results() {
+        use common::{SubmissionStatus, Verdict};
         use sea_orm::{ActiveModelTrait, Set};
-        use server::entity::{judge_result, submission, test_case_result};
+        use server::entity::{submission, test_case_result};
 
         let app = TestApp::spawn().await;
         let token = app
@@ -1046,14 +1046,20 @@ mod test_case_deletion {
 
         let now = chrono::Utc::now();
 
+        // Create a submission with judged results
         let files = serde_json::json!([{"filename": "main.rs", "content": "fn main() {}"}]);
         let sub = submission::ActiveModel {
             files: Set(files),
             language: Set("rust".into()),
-            status: Set(SubmissionStatus::Accepted),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(100)),
+            time_used: Set(Some(50)),
+            memory_used: Set(Some(1024)),
             user_id: Set(user_id),
             problem_id: Set(pid),
             created_at: Set(now),
+            judged_at: Set(Some(now)),
             ..Default::default()
         };
         let sub_model = sub
@@ -1061,27 +1067,14 @@ mod test_case_deletion {
             .await
             .expect("Failed to insert submission");
 
-        let jr = judge_result::ActiveModel {
-            verdict: Set(SubmissionStatus::Accepted),
-            score: Set(100),
-            time_used: Set(50),
-            memory_used: Set(1024),
-            submission_id: Set(sub_model.id),
-            created_at: Set(now),
-            ..Default::default()
-        };
-        let jr_model = jr
-            .insert(&app.db)
-            .await
-            .expect("Failed to insert judge result");
-
+        // Create test case result linked to submission
         let tcr = test_case_result::ActiveModel {
-            verdict: Set(SubmissionStatus::Accepted),
-            score: Set(10),
-            time_used: Set(50),
-            memory_used: Set(1024),
-            judge_result_id: Set(jr_model.id),
+            submission_id: Set(sub_model.id),
             test_case_id: Set(tc_id),
+            verdict: Set(Verdict::Accepted),
+            score: Set(10),
+            time_used: Set(Some(50)),
+            memory_used: Set(Some(1024)),
             created_at: Set(now),
             ..Default::default()
         };

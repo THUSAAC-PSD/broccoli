@@ -1,5 +1,6 @@
 pub mod config;
 pub mod error;
+pub mod handlers;
 pub mod models;
 
 pub use config::{MqSettings, WorkerConfig, WorkerSettings};

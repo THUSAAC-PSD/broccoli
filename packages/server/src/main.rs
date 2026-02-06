@@ -4,11 +4,13 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
+use mq::{MqConfig as MqConnConfig, init_mq};
 use server::build_router;
 use tower_http::cors::CorsLayer;
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 
 use server::config::AppConfig;
+use server::consumers::consume_judge_results;
 use server::manager::ServerManager;
 use server::state::AppState;
 
@@ -25,10 +27,42 @@ async fn main() -> anyhow::Result<()> {
     server::seed::seed_role_permissions(&db).await?;
     server::seed::ensure_indexes(&db).await?;
 
+    let mq = if app_config.mq.enabled {
+        match init_mq(MqConnConfig {
+            url: app_config.mq.url.clone(),
+            pool_size: app_config.mq.pool_size,
+        })
+        .await
+        {
+            Ok(queue) => {
+                info!("MQ connected to {}", app_config.mq.url);
+                Some(Arc::new(queue))
+            }
+            Err(e) => {
+                warn!("MQ connection failed, submissions won't be queued: {}", e);
+                None
+            }
+        }
+    } else {
+        info!("MQ disabled by configuration");
+        None
+    };
+
+    if let Some(ref mq_arc) = mq {
+        let consumer_db = db.clone();
+        let consumer_mq = Arc::clone(mq_arc);
+        let result_queue = app_config.mq.result_queue_name.clone();
+        tokio::spawn(async move {
+            consume_judge_results(consumer_db, consumer_mq, result_queue).await;
+        });
+        info!("Judge result consumer started");
+    }
+
     let state = AppState {
         plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
         db,
         config: app_config.clone(),
+        mq,
     };
 
     let mut allow_origins = Vec::new();

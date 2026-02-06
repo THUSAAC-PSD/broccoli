@@ -1,4 +1,5 @@
 pub mod config;
+pub mod consumers;
 pub mod database;
 pub mod entity;
 pub mod error;
