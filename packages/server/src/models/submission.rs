@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use common::SubmissionStatus;
+use common::{SubmissionStatus, Verdict};
 use serde::{Deserialize, Serialize};
 
 use crate::entity::submission::SubmissionFile;
@@ -107,6 +107,8 @@ pub struct SubmissionListItem {
     #[schema(example = "cpp")]
     pub language: String,
     pub status: SubmissionStatus,
+    /// Execution verdict if judged, null otherwise.
+    pub verdict: Option<Verdict>,
     #[schema(example = 1)]
     pub user_id: i32,
     #[schema(example = "alice")]
@@ -140,19 +142,23 @@ pub struct SubmissionListResponse {
 /// Judge result for a submission.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
-    #[schema(example = 1)]
-    pub id: i32,
-    pub verdict: SubmissionStatus,
+    /// Execution verdict (null if compilation failed or system error).
+    pub verdict: Option<Verdict>,
+    /// Total score across all test cases.
     #[schema(example = 100)]
-    pub score: i32,
-    /// Total time used in milliseconds.
+    pub score: Option<i32>,
+    /// Maximum time used in milliseconds.
     #[schema(example = 50)]
-    pub time_used: i32,
-    /// Total memory used in kilobytes.
+    pub time_used: Option<i32>,
+    /// Maximum memory used in kilobytes.
     #[schema(example = 1024)]
-    pub memory_used: i32,
-    #[schema(example = "2025-10-01T14:30:05Z")]
-    pub created_at: DateTime<Utc>,
+    pub memory_used: Option<i32>,
+    /// Compiler output (stdout/stderr).
+    pub compile_output: Option<String>,
+    /// System error message (only for SystemError status).
+    pub error_message: Option<String>,
+    /// When judging completed.
+    pub judged_at: Option<DateTime<Utc>>,
     /// Individual test case results.
     pub test_case_results: Vec<TestCaseResultResponse>,
 }
@@ -162,19 +168,24 @@ pub struct JudgeResultResponse {
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
-    pub verdict: SubmissionStatus,
+    pub verdict: Verdict,
     #[schema(example = 10)]
     pub score: i32,
     /// Time used in milliseconds.
     #[schema(example = 5)]
-    pub time_used: i32,
+    pub time_used: Option<i32>,
     /// Memory used in kilobytes.
     #[schema(example = 256)]
-    pub memory_used: i32,
+    pub memory_used: Option<i32>,
     #[schema(example = 1)]
     pub test_case_id: i32,
+    /// Program stdout.
+    pub stdout: Option<String>,
+    /// Program stderr.
+    pub stderr: Option<String>,
+    /// Custom checker feedback.
+    pub checker_output: Option<String>,
 }
-
 
 /// Maximum total size of all files in bytes.
 pub const DEFAULT_MAX_SUBMISSION_SIZE: usize = 1_048_576; // 1 MB
@@ -255,20 +266,6 @@ pub fn validate_submission_list_query(query: &SubmissionListQuery) -> Result<(),
     Ok(())
 }
 
-impl From<crate::entity::judge_result::Model> for JudgeResultResponse {
-    fn from(m: crate::entity::judge_result::Model) -> Self {
-        Self {
-            id: m.id,
-            verdict: m.verdict,
-            score: m.score,
-            time_used: m.time_used,
-            memory_used: m.memory_used,
-            created_at: m.created_at,
-            test_case_results: Vec::new(), // Populated separately
-        }
-    }
-}
-
 impl From<crate::entity::test_case_result::Model> for TestCaseResultResponse {
     fn from(m: crate::entity::test_case_result::Model) -> Self {
         Self {
@@ -278,6 +275,9 @@ impl From<crate::entity::test_case_result::Model> for TestCaseResultResponse {
             time_used: m.time_used,
             memory_used: m.memory_used,
             test_case_id: m.test_case_id,
+            stdout: m.stdout,
+            stderr: m.stderr,
+            checker_output: m.checker_output,
         }
     }
 }

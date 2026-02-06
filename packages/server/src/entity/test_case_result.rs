@@ -1,4 +1,4 @@
-use common::SubmissionStatus;
+use common::Verdict;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -9,16 +9,26 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
 
-    pub verdict: SubmissionStatus,
-    pub score: i32,
-    pub time_used: i32,   // in milliseconds
-    pub memory_used: i32, // in kilobytes
-
-    pub judge_result_id: i32,
-    #[sea_orm(belongs_to, from = "judge_result_id", to = "id")]
-    pub judge_result: HasOne<super::judge_result::Entity>,
-
+    #[sea_orm(unique_key = "submission_test_case")]
+    pub submission_id: i32,
+    #[sea_orm(unique_key = "submission_test_case")]
     pub test_case_id: i32,
+
+    pub verdict: Verdict,
+    pub score: i32,
+
+    pub time_used: Option<i32>,   // in miliseconds
+    pub memory_used: Option<i32>, // in kilobytes
+
+    #[sea_orm(column_type = "Text", nullable)]
+    pub stdout: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub stderr: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub checker_output: Option<String>,
+
+    #[sea_orm(belongs_to, from = "submission_id", to = "id")]
+    pub submission: HasOne<super::submission::Entity>,
     #[sea_orm(belongs_to, from = "test_case_id", to = "id")]
     pub test_case: HasOne<super::test_case::Entity>,
 

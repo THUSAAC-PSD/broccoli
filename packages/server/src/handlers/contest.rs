@@ -48,6 +48,8 @@ pub async fn create_contest(
         end_time: Set(payload.end_time),
         is_public: Set(payload.is_public),
         submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
+        show_compile_output: Set(payload.show_compile_output.unwrap_or(true)),
+        show_participants_list: Set(payload.show_participants_list.unwrap_or(true)),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -144,6 +146,8 @@ pub async fn list_contests(
         .column(contest::Column::EndTime)
         .column(contest::Column::IsPublic)
         .column(contest::Column::SubmissionsVisible)
+        .column(contest::Column::ShowCompileOutput)
+        .column(contest::Column::ShowParticipantsList)
         .column(contest::Column::CreatedAt)
         .column(contest::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -253,6 +257,12 @@ pub async fn update_contest(
     }
     if let Some(submissions_visible) = payload.submissions_visible {
         active.submissions_visible = Set(submissions_visible);
+    }
+    if let Some(show_compile_output) = payload.show_compile_output {
+        active.show_compile_output = Set(show_compile_output);
+    }
+    if let Some(show_participants_list) = payload.show_participants_list {
+        active.show_participants_list = Set(show_participants_list);
     }
     active.updated_at = Set(chrono::Utc::now());
 
@@ -678,11 +688,12 @@ pub async fn add_participant(
     tag = "Contest Participants",
     operation_id = "listParticipants",
     summary = "List participants of a contest",
-    description = "Returns all participants in the contest, ordered by registration time. Same visibility rules as getContest apply.",
+    description = "Returns all participants in the contest, ordered by registration time. Requires `contest:manage` permission if `show_participants_list` is false.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 200, description = "List of participants", body = Vec<ContestParticipantResponse>),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden when show_participants_list is false (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
@@ -695,6 +706,10 @@ pub async fn list_participants(
 ) -> Result<Json<Vec<ContestParticipantResponse>>, AppError> {
     let contest_model = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest_model).await?;
+
+    if !contest_model.show_participants_list && !auth_user.has_permission("contest:manage") {
+        return Err(AppError::PermissionDenied);
+    }
 
     let rows = contest_user::Entity::find()
         .filter(contest_user::Column::ContestId.eq(contest_id))

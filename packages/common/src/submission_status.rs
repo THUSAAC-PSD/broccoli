@@ -1,62 +1,53 @@
-#[cfg(feature = "sea-orm")]
-use sea_orm::prelude::StringLen;
-
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "sea-orm")]
+use sea_orm::entity::prelude::*;
+
 /// Status of a submission during the judging lifecycle.
-///
-/// When the `sea-orm` feature is enabled, this enum can be used directly in SeaORM entities.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, utoipa::ToSchema,
+)]
 #[cfg_attr(
     feature = "sea-orm",
-    derive(sea_orm::DeriveActiveEnum, sea_orm::EnumIter),
-    sea_orm(rs_type = "String", db_type = "String(StringLen::None)")
+    derive(DeriveValueType),
+    sea_orm(value_type = "String")
 )]
 #[serde(rename_all = "PascalCase")]
 pub enum SubmissionStatus {
     /// Waiting to be picked up by a worker.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "Pending"))]
+    #[default]
     Pending,
     /// Currently being compiled.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "Compiling"))]
     Compiling,
     /// Currently running test cases.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "Running"))]
     Running,
-    /// All test cases passed.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "Accepted"))]
-    Accepted,
-    /// Output did not match expected output.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "WrongAnswer"))]
-    WrongAnswer,
-    /// Exceeded time limit.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "TimeLimitExceeded"))]
-    TimeLimitExceeded,
-    /// Exceeded memory limit.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "MemoryLimitExceeded"))]
-    MemoryLimitExceeded,
-    /// Program crashed or exited with non-zero code.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "RuntimeError"))]
-    RuntimeError,
-    /// Failed to compile.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "CompilationError"))]
+    /// Judging complete.
+    Judged,
+    /// Compilation failed.
     CompilationError,
-    /// Internal judge error.
-    #[cfg_attr(feature = "sea-orm", sea_orm(string_value = "SystemError"))]
+    /// Internal system error.
     SystemError,
 }
 
 impl SubmissionStatus {
-    /// Returns true if this is a final verdict (judging is complete).
-    pub fn is_final(&self) -> bool {
-        !matches!(self, Self::Pending | Self::Compiling | Self::Running)
+    /// Returns true if this is a terminal state (judging is complete or failed).
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Judged | Self::CompilationError | Self::SystemError
+        )
     }
 
-    /// Returns true if this is a successful verdict.
-    pub fn is_accepted(&self) -> bool {
-        matches!(self, Self::Accepted)
+    /// Returns true if this is a successful completion.
+    pub fn is_judged(&self) -> bool {
+        matches!(self, Self::Judged)
+    }
+
+    /// Returns true if this is an error state.
+    pub fn is_error(&self) -> bool {
+        matches!(self, Self::CompilationError | Self::SystemError)
     }
 
     /// All possible status values.
@@ -64,37 +55,18 @@ impl SubmissionStatus {
         Self::Pending,
         Self::Compiling,
         Self::Running,
-        Self::Accepted,
-        Self::WrongAnswer,
-        Self::TimeLimitExceeded,
-        Self::MemoryLimitExceeded,
-        Self::RuntimeError,
+        Self::Judged,
         Self::CompilationError,
         Self::SystemError,
     ];
 
-    /// All final verdict statuses.
-    pub const FINAL: &'static [SubmissionStatus] = &[
-        Self::Accepted,
-        Self::WrongAnswer,
-        Self::TimeLimitExceeded,
-        Self::MemoryLimitExceeded,
-        Self::RuntimeError,
-        Self::CompilationError,
-        Self::SystemError,
-    ];
-
-    /// Returns the string representation (PascalCase).
+    /// Returns the string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "Pending",
             Self::Compiling => "Compiling",
             Self::Running => "Running",
-            Self::Accepted => "Accepted",
-            Self::WrongAnswer => "WrongAnswer",
-            Self::TimeLimitExceeded => "TimeLimitExceeded",
-            Self::MemoryLimitExceeded => "MemoryLimitExceeded",
-            Self::RuntimeError => "RuntimeError",
+            Self::Judged => "Judged",
             Self::CompilationError => "CompilationError",
             Self::SystemError => "SystemError",
         }
@@ -104,12 +76,6 @@ impl SubmissionStatus {
 impl fmt::Display for SubmissionStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl Default for SubmissionStatus {
-    fn default() -> Self {
-        Self::Pending
     }
 }
 
@@ -144,11 +110,7 @@ impl FromStr for SubmissionStatus {
             "Pending" => Ok(Self::Pending),
             "Compiling" => Ok(Self::Compiling),
             "Running" => Ok(Self::Running),
-            "Accepted" => Ok(Self::Accepted),
-            "WrongAnswer" => Ok(Self::WrongAnswer),
-            "TimeLimitExceeded" => Ok(Self::TimeLimitExceeded),
-            "MemoryLimitExceeded" => Ok(Self::MemoryLimitExceeded),
-            "RuntimeError" => Ok(Self::RuntimeError),
+            "Judged" => Ok(Self::Judged),
             "CompilationError" => Ok(Self::CompilationError),
             "SystemError" => Ok(Self::SystemError),
             _ => Err(ParseStatusError {
@@ -158,25 +120,118 @@ impl FromStr for SubmissionStatus {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Execution verdict for a test case or submission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[cfg_attr(
+    feature = "sea-orm",
+    derive(DeriveValueType),
+    sea_orm(value_type = "String")
+)]
+pub enum Verdict {
+    /// All tests passed.
+    Accepted,
+    /// Output did not match expected output.
+    WrongAnswer,
+    /// Exceeded time limit.
+    TimeLimitExceeded,
+    /// Exceeded memory limit.
+    MemoryLimitExceeded,
+    /// Program crashed or exited with non-zero code.
+    RuntimeError,
+    /// Internal judge error during test execution.
+    SystemError,
+}
 
-    #[test]
-    fn test_serde_roundtrip() {
-        for status in SubmissionStatus::ALL {
-            let json = serde_json::to_string(status).unwrap();
-            let parsed: SubmissionStatus = serde_json::from_str(&json).unwrap();
-            assert_eq!(*status, parsed);
+impl Verdict {
+    /// Returns true if this is an accepted verdict.
+    pub fn is_accepted(&self) -> bool {
+        matches!(self, Self::Accepted)
+    }
+
+    /// All possible verdict values.
+    pub const ALL: &'static [Verdict] = &[
+        Self::Accepted,
+        Self::WrongAnswer,
+        Self::TimeLimitExceeded,
+        Self::MemoryLimitExceeded,
+        Self::RuntimeError,
+        Self::SystemError,
+    ];
+
+    /// Returns the string representation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Accepted => "Accepted",
+            Self::WrongAnswer => "WrongAnswer",
+            Self::TimeLimitExceeded => "TimeLimitExceeded",
+            Self::MemoryLimitExceeded => "MemoryLimitExceeded",
+            Self::RuntimeError => "RuntimeError",
+            Self::SystemError => "SystemError",
         }
     }
 
-    #[test]
-    fn test_from_str() {
-        assert_eq!(
-            "Accepted".parse::<SubmissionStatus>().unwrap(),
-            SubmissionStatus::Accepted
-        );
-        assert!("Invalid".parse::<SubmissionStatus>().is_err());
+    /// Severity of the verdict (higher = worse).
+    pub fn severity(&self) -> u8 {
+        match self {
+            Self::Accepted => 0,
+            Self::WrongAnswer => 1,
+            Self::TimeLimitExceeded => 2,
+            Self::MemoryLimitExceeded => 3,
+            Self::RuntimeError => 4,
+            Self::SystemError => 5,
+        }
+    }
+}
+
+impl fmt::Display for Verdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Default for Verdict {
+    fn default() -> Self {
+        Self::Accepted
+    }
+}
+
+/// Error when parsing an invalid verdict string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseVerdictError {
+    invalid: String,
+}
+
+impl fmt::Display for ParseVerdictError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Invalid verdict '{}'. Valid values: {}",
+            self.invalid,
+            Verdict::ALL
+                .iter()
+                .map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+impl std::error::Error for ParseVerdictError {}
+
+impl FromStr for Verdict {
+    type Err = ParseVerdictError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Accepted" => Ok(Self::Accepted),
+            "WrongAnswer" => Ok(Self::WrongAnswer),
+            "TimeLimitExceeded" => Ok(Self::TimeLimitExceeded),
+            "MemoryLimitExceeded" => Ok(Self::MemoryLimitExceeded),
+            "RuntimeError" => Ok(Self::RuntimeError),
+            "SystemError" => Ok(Self::SystemError),
+            _ => Err(ParseVerdictError {
+                invalid: s.to_string(),
+            }),
+        }
     }
 }

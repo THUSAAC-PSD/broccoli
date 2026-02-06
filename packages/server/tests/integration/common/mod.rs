@@ -16,7 +16,7 @@ use testcontainers_modules::postgres::Postgres;
 use tokio::sync::OnceCell;
 
 use server::config::{
-    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, ServerConfig, SubmissionConfig,
+    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqConfig, ServerConfig, SubmissionConfig,
 };
 use server::entity::user;
 use server::manager::ServerManager;
@@ -34,7 +34,7 @@ static CONTAINER_ID: OnceLock<String> = OnceLock::new();
 extern "C" fn cleanup_container() {
     if let Some(id) = CONTAINER_ID.get() {
         let _ = std::process::Command::new("docker")
-            .args(["rm", "-f", id])
+            .args(["rm", "-f", "-v", id])
             .output();
     }
 }
@@ -246,12 +246,17 @@ impl TestApp {
                 ..Default::default()
             },
             submission: SubmissionConfig::default(),
+            mq: MqConfig {
+                enabled: false,
+                ..Default::default()
+            },
         };
 
         let state = AppState {
             plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
             db: db.clone(),
             config: app_config,
+            mq: None,
         };
 
         let app = server::build_router(state);

@@ -1,7 +1,8 @@
 use sea_orm::*;
+use sea_query::{Index, PostgresQueryBuilder};
 use tracing::info;
 
-use crate::entity::{role, role_permission};
+use crate::entity::{role, role_permission, submission};
 
 /// Default roles seeded on startup.
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
@@ -97,25 +98,26 @@ pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr>
 /// SeaORM's schema-sync doesn't support composite non-unique indexes,
 /// so we create them manually on startup.
 pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
-    use sea_orm::ConnectionTrait;
-
     // Composite index for rate limiting queries:
     // SELECT COUNT(*) FROM submission WHERE user_id = ? AND created_at > ?
-    let result = db
-        .execute_unprepared(
-            r#"CREATE INDEX IF NOT EXISTS idx_submission_user_created
-               ON submission (user_id, created_at)"#,
-        )
-        .await;
+    let stmt = Index::create()
+        .if_not_exists()
+        .name("idx_submission_user_created")
+        .table(submission::Entity)
+        .col(submission::Column::UserId)
+        .col(submission::Column::CreatedAt)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
 
     match result {
         Ok(_) => {
             info!("Ensured index idx_submission_user_created exists");
-            Ok(())
         }
         Err(e) => {
             tracing::warn!("Failed to create index idx_submission_user_created: {}", e);
-            Ok(())
         }
     }
+
+    Ok(())
 }

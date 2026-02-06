@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-config.workspace = true
 common.workspace = true
+config.workspace = true
 mq.workspace = true
 plugin-core.workspace = true
 serde.workspace = true

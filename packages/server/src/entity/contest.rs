@@ -22,6 +22,16 @@ pub struct Model {
     #[sea_orm(default_value = false)]
     pub submissions_visible: bool,
 
+    /// When true, participants can see compile output/errors for their submissions during contest.
+    /// When false, compile output is hidden until contest ends.
+    #[sea_orm(default_value = true)]
+    pub show_compile_output: bool,
+
+    /// When true, the participants list is visible to all who can view the contest.
+    /// When false, only admins can see the participants list.
+    #[sea_orm(default_value = true)]
+    pub show_participants_list: bool,
+
     #[sea_orm(has_many, via = "contest_user")]
     pub users: HasMany<super::user::Entity>,
 

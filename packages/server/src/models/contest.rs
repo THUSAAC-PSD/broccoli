@@ -26,6 +26,12 @@ pub struct CreateContestRequest {
     /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: Option<bool>,
+    /// Whether participants can see compile output during contest (default: true).
+    #[schema(example = true)]
+    pub show_compile_output: Option<bool>,
+    /// Whether participants list is visible (default: true).
+    #[schema(example = true)]
+    pub show_participants_list: Option<bool>,
 }
 
 /// PATCH body for updating a contest. Only provided fields are modified.
@@ -49,6 +55,12 @@ pub struct UpdateContestRequest {
     /// Whether participants can see each other's submissions.
     #[schema(example = true)]
     pub submissions_visible: Option<bool>,
+    /// Whether participants can see compile output during contest.
+    #[schema(example = true)]
+    pub show_compile_output: Option<bool>,
+    /// Whether participants list is visible.
+    #[schema(example = true)]
+    pub show_participants_list: Option<bool>,
 }
 
 /// Request body for adding a problem to a contest.
@@ -132,6 +144,12 @@ pub struct ContestResponse {
     /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: bool,
+    /// Whether participants can see compile output during contest.
+    #[schema(example = true)]
+    pub show_compile_output: bool,
+    /// Whether participants list is visible.
+    #[schema(example = true)]
+    pub show_participants_list: bool,
     #[schema(example = "2025-09-25T10:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-25T10:30:00Z")]
@@ -154,6 +172,12 @@ pub struct ContestListItem {
     /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: bool,
+    /// Whether participants can see compile output during contest.
+    #[schema(example = true)]
+    pub show_compile_output: bool,
+    /// Whether participants list is visible.
+    #[schema(example = true)]
+    pub show_participants_list: bool,
     #[schema(example = "2025-09-25T10:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-25T10:30:00Z")]
@@ -205,6 +229,8 @@ impl From<crate::entity::contest::Model> for ContestResponse {
             end_time: m.end_time,
             is_public: m.is_public,
             submissions_visible: m.submissions_visible,
+            show_compile_output: m.show_compile_output,
+            show_participants_list: m.show_participants_list,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }

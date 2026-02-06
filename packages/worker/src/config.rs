@@ -12,7 +12,6 @@ pub struct WorkerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerSettings {
     pub id: String,
-    pub default_executor: String,
     pub batch_size: usize,
     pub poll_timeout_ms: u64,
 }
@@ -21,7 +20,10 @@ pub struct WorkerSettings {
 pub struct MqSettings {
     pub url: String,
     pub pool_size: u8,
-    pub queue: String,
+    /// Queue to consume jobs from.
+    pub job_queue: String,
+    /// Queue to publish results to.
+    pub result_queue: String,
 }
 
 impl WorkerConfig {

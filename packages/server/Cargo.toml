@@ -7,6 +7,7 @@ edition = "2024"
 anyhow.workspace = true
 argon2.workspace = true
 common = { workspace = true, features = ["sea-orm"] }
+mq.workspace = true
 axum = { workspace = true, features = ["multipart"] }
 chrono.workspace = true
 config.workspace = true
@@ -23,6 +24,7 @@ sea-orm = { workspace = true, features = [
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true

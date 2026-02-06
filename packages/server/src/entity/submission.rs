@@ -1,4 +1,4 @@
-use common::SubmissionStatus;
+use common::{SubmissionStatus, Verdict};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -23,25 +23,39 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub files: serde_json::Value,
     pub language: String,
-    pub status: SubmissionStatus,
-
-    #[sea_orm(has_one)]
-    pub result: HasOne<super::judge_result::Entity>,
 
     pub user_id: i32,
-    #[sea_orm(belongs_to, from = "user_id", to = "id")]
-    pub user: HasOne<super::user::Entity>,
-
     pub problem_id: i32,
-    #[sea_orm(belongs_to, from = "problem_id", to = "id")]
-    pub problem: HasOne<super::problem::Entity>,
-
     /// NULL for standalone submissions.
     pub contest_id: Option<i32>,
+
+    pub status: SubmissionStatus,
+    pub verdict: Option<Verdict>,
+
+    #[sea_orm(column_type = "Text", nullable)]
+    pub compile_output: Option<String>,
+    /// System error details. Only set when status is SystemError.
+    #[sea_orm(column_type = "Text", nullable)]
+    pub error_message: Option<String>,
+
+    /// Total score across all test cases.
+    pub score: Option<i32>,
+    /// Maximum time used across all test cases (milliseconds).
+    pub time_used: Option<i32>,
+    /// Maximum memory used across all test cases (kilobytes).
+    pub memory_used: Option<i32>,
+
+    #[sea_orm(belongs_to, from = "user_id", to = "id")]
+    pub user: HasOne<super::user::Entity>,
+    #[sea_orm(belongs_to, from = "problem_id", to = "id")]
+    pub problem: HasOne<super::problem::Entity>,
     #[sea_orm(belongs_to, from = "contest_id", to = "id")]
     pub contest: Option<super::contest::Entity>,
+    #[sea_orm(has_many)]
+    pub test_case_results: HasMany<super::test_case_result::Entity>,
 
     pub created_at: DateTimeUtc,
+    pub judged_at: Option<DateTimeUtc>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
