@@ -16,7 +16,7 @@ use testcontainers_modules::postgres::Postgres;
 use tokio::sync::OnceCell;
 
 use server::config::{
-    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqConfig, ServerConfig, SubmissionConfig,
+    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig, SubmissionConfig,
 };
 use server::entity::user;
 use server::manager::ServerManager;
@@ -246,7 +246,7 @@ impl TestApp {
                 ..Default::default()
             },
             submission: SubmissionConfig::default(),
-            mq: MqConfig {
+            mq: MqAppConfig {
                 enabled: false,
                 ..Default::default()
             },

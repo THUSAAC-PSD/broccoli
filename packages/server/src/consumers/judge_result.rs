@@ -1,16 +1,14 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::Utc;
 use common::judge_result::JudgeResult;
-use mq::Mq;
+use mq::{BroccoliError, BrokerMessage, Mq};
 use sea_orm::sea_query::LockType;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     QuerySelect, Set, TransactionTrait,
 };
-use time::Duration as TimeDuration;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::entity::{submission, test_case_result};
 
@@ -18,20 +16,18 @@ use crate::entity::{submission, test_case_result};
 pub async fn consume_judge_results(db: DatabaseConnection, mq: Arc<Mq>, queue_name: String) {
     info!(queue = %queue_name, "Starting judge result consumer");
 
-    let poll_timeout = TimeDuration::milliseconds(1000);
-    let mut consecutive_failures: u32 = 0;
-    const MAX_BACKOFF_SECS: u64 = 30;
-
-    loop {
-        match mq
-            .consume_batch::<JudgeResult>(&queue_name, 10, poll_timeout, None)
-            .await
-        {
-            Ok(batch) => {
-                for message in batch {
+    let result = mq
+        .process_messages(
+            &queue_name,
+            None, // single-threaded for sequential DB writes
+            None,
+            move |message: BrokerMessage<JudgeResult>| {
+                let db = db.clone();
+                async move {
                     let result = message.payload;
                     let submission_id = result.submission_id;
                     let job_id = result.job_id.clone();
+
                     if let Err(e) = process_judge_result(&db, result).await {
                         error!(
                             submission_id,
@@ -39,27 +35,16 @@ pub async fn consume_judge_results(db: DatabaseConnection, mq: Arc<Mq>, queue_na
                             error = %e,
                             "Failed to process judge result"
                         );
-                        consecutive_failures = consecutive_failures.saturating_add(1);
-
-                        if consecutive_failures >= 3 {
-                            let backoff_secs =
-                                (2_u64.pow(consecutive_failures - 3)).min(MAX_BACKOFF_SECS);
-                            warn!(
-                                consecutive_failures,
-                                backoff_secs, "Multiple processing failures, backing off"
-                            );
-                            tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
-                        }
-                    } else {
-                        consecutive_failures = 0;
+                        return Err(BroccoliError::Job(e.to_string()));
                     }
+                    Ok(())
                 }
-            }
-            Err(e) => {
-                error!(error = %e, "MQ consume error");
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }
+            },
+        )
+        .await;
+
+    if let Err(e) = result {
+        error!(error = %e, "Judge result consumer stopped unexpectedly");
     }
 }
 
