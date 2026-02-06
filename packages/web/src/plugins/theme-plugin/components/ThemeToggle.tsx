@@ -1,5 +1,6 @@
 import { Moon, Sun } from 'lucide-react';
-import { SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
+
+import { SidebarMenuButton,SidebarMenuItem } from '@/components/ui/sidebar';
 import { useTheme } from '@/hooks/use-theme';
 
 export function ThemeToggle() {

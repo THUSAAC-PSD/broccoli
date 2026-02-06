@@ -1,18 +1,22 @@
 # IOI Plugin
 
-An IOI (International Olympiad in Informatics) scoring plugin for Broccoli online judge system.
+An IOI (International Olympiad in Informatics) scoring plugin for Broccoli
+online judge system.
 
 ## Features
 
-- **Subtask-based Scoring**: Support for organizing test cases into subtasks with independent scoring
-- **Multiple Scoring Methods**: 
+- **Subtask-based Scoring**: Support for organizing test cases into subtasks
+  with independent scoring
+- **Multiple Scoring Methods**:
   - `Sum`: Accumulate scores from all test cases (partial credit)
   - `GroupMin`: All-or-nothing scoring (full points if all pass, 0 otherwise)
   - `GroupMul`: Product-based partial credit scoring
 - **Final Score Calculation Methods**:
   - `BestSubmission`: Use the highest total score from any single submission
-  - `BestSubtaskSum`: Use the best score for each subtask across all submissions (IOI 2010-2016 style)
-- **Per-Problem Configuration**: Each problem can have its own subtask and scoring configuration
+  - `BestSubtaskSum`: Use the best score for each subtask across all submissions
+    (IOI 2010-2016 style)
+- **Per-Problem Configuration**: Each problem can have its own subtask and
+  scoring configuration
 
 ## API Functions
 
@@ -21,6 +25,7 @@ An IOI (International Olympiad in Informatics) scoring plugin for Broccoli onlin
 Get the contest leaderboard with IOI scoring.
 
 **Input:**
+
 ```json
 {
   "contest_id": 1,
@@ -30,6 +35,7 @@ Get the contest leaderboard with IOI scoring.
 ```
 
 **Output:**
+
 ```json
 {
   "contest_id": 1,
@@ -55,6 +61,7 @@ Get the contest leaderboard with IOI scoring.
 Get detailed information about a submission, including subtask results.
 
 **Input:**
+
 ```json
 {
   "submission_id": 1,
@@ -63,6 +70,7 @@ Get detailed information about a submission, including subtask results.
 ```
 
 **Output:**
+
 ```json
 {
   "submission": {...},
@@ -88,6 +96,7 @@ Get detailed information about a submission, including subtask results.
 Configure IOI scoring settings for a problem.
 
 **Input:**
+
 ```json
 {
   "problem_id": 1,
@@ -117,6 +126,7 @@ Configure IOI scoring settings for a problem.
 Get the current IOI configuration for a problem.
 
 **Input:**
+
 ```json
 {
   "problem_id": 1
@@ -125,9 +135,11 @@ Get the current IOI configuration for a problem.
 
 ### `calculate_submission_score`
 
-Calculate and persist the IOI score for a submission. This function should be called after judging completes (typically via a hook).
+Calculate and persist the IOI score for a submission. This function should be
+called after judging completes (typically via a hook).
 
 **Input:**
+
 ```json
 {
   "submission_id": 1
@@ -135,6 +147,7 @@ Calculate and persist the IOI score for a submission. This function should be ca
 ```
 
 **Output:**
+
 ```json
 {
   "success": true,
@@ -160,13 +173,15 @@ Best for problems where partial progress within a subtask should be rewarded.
 
 ### GroupMin (All-or-Nothing)
 
-The subtask receives full points only if ALL test cases pass (verdict = "Accepted").
+The subtask receives full points only if ALL test cases pass (verdict =
+"Accepted").
 
 ```
 subtask_score = max_score if all_accepted else 0
 ```
 
-This is the most common method in IOI-style contests. Used when a subtask represents a specific complexity bound (e.g., N ≤ 1000).
+This is the most common method in IOI-style contests. Used when a subtask
+represents a specific complexity bound (e.g., N ≤ 1000).
 
 ### GroupMul (Product)
 
@@ -176,13 +191,15 @@ Score is calculated as the product of individual test case score ratios.
 subtask_score = max_score × ∏(test_case_score / expected_score)
 ```
 
-This method heavily penalizes any failing test case while still allowing partial credit.
+This method heavily penalizes any failing test case while still allowing partial
+credit.
 
 ## Final Score Methods
 
 ### BestSubmission
 
-The contestant's final score for a problem is the highest total score achieved in any single submission.
+The contestant's final score for a problem is the highest total score achieved
+in any single submission.
 
 ```
 final_score = max(submission_total_scores)
@@ -190,13 +207,15 @@ final_score = max(submission_total_scores)
 
 ### BestSubtaskSum
 
-For each subtask, take the best score across all submissions, then sum them up. This was used in IOI from 2010-2016.
+For each subtask, take the best score across all submissions, then sum them up.
+This was used in IOI from 2010-2016.
 
 ```
 final_score = sum(max(subtask_score across submissions) for each subtask)
 ```
 
-This allows contestants to combine the best subtask results from different submissions.
+This allows contestants to combine the best subtask results from different
+submissions.
 
 ## Building
 
@@ -243,9 +262,12 @@ The plugin integrates with the Broccoli server through host functions:
 
 ### Workflow
 
-1. **Problem Setup**: Contest admin configures each problem using `configure_problem`
-2. **Submission Judging**: The judge evaluates the submission and stores test case results
-3. **Score Calculation**: After judging, `calculate_submission_score` is called to:
+1. **Problem Setup**: Contest admin configures each problem using
+   `configure_problem`
+2. **Submission Judging**: The judge evaluates the submission and stores test
+   case results
+3. **Score Calculation**: After judging, `calculate_submission_score` is called
+   to:
    - Compute subtask scores based on scoring methods
    - Calculate total score
    - Write results back to `judge_result`

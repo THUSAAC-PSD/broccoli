@@ -3,8 +3,12 @@
  * Reusable utilities for building plugins
  */
 
+import type {
+  ComponentBundle,
+  PluginManifest,
+  SlotConfig,
+} from '@broccoli/sdk';
 import type { ReactNode } from 'react';
-import type { PluginManifest, ComponentBundle, SlotConfig } from '@broccoli/sdk';
 
 /**
  * Creates a simple plugin manifest
@@ -93,7 +97,10 @@ export const pluginStorage = {
 
   set: (pluginName: string, key: string, value: any) => {
     try {
-      localStorage.setItem(`plugin:${pluginName}:${key}`, JSON.stringify(value));
+      localStorage.setItem(
+        `plugin:${pluginName}:${key}`,
+        JSON.stringify(value),
+      );
       return true;
     } catch {
       return false;

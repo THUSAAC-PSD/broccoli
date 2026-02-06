@@ -1,10 +1,9 @@
-import {
-  SidebarProvider,
-  SidebarInset,
-} from '@/components/ui/sidebar';
-import { Sidebar } from './Sidebar';
 import { Slot } from '@broccoli/sdk/react';
+
 import { Navbar } from '@/components/Navbar';
+import { SidebarInset,SidebarProvider } from '@/components/ui/sidebar';
+
+import { Sidebar } from './Sidebar';
 
 interface AppLayoutProps {
   children: React.ReactNode;

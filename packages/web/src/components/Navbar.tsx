@@ -1,25 +1,26 @@
-import { Menu } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Slot } from '@broccoli/sdk/react';
+import { Menu } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
 import {
   NavigationMenu,
-  NavigationMenuList,
   NavigationMenuItem,
   NavigationMenuLink,
-} from "@/components/ui/navigation-menu"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Slot } from "@broccoli/sdk/react"
+  NavigationMenuList,
+} from '@/components/ui/navigation-menu';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 const navLinks = [
-  { text: "Contest Info", href: "#" },
-  { text: "Problems", href: "#" },
-  { text: "Submissions", href: "#" },
-  { text: "Ranking", href: "#" },
-]
+  { text: 'Contest Info', href: '#' },
+  { text: 'Problems', href: '#' },
+  { text: 'Submissions', href: '#' },
+  { text: 'Ranking', href: '#' },
+];
 
 const actions = [
-  { text: "Sign in", href: "#", isButton: false },
-  { text: "Sign up", href: "#", isButton: true },
-]
+  { text: 'Sign in', href: '#', isButton: false },
+  { text: 'Sign up', href: '#', isButton: true },
+];
 
 export function Navbar() {
   return (
@@ -59,7 +60,7 @@ export function Navbar() {
                 >
                   {action.text}
                 </a>
-              )
+              ),
             )}
             <Slot name="navbar.actions" as="div" />
             <Sheet>
@@ -75,7 +76,10 @@ export function Navbar() {
               </SheetTrigger>
               <SheetContent side="right">
                 <nav className="grid gap-6 text-lg font-medium">
-                  <a href="#" className="flex items-center gap-2 text-xl font-bold">
+                  <a
+                    href="#"
+                    className="flex items-center gap-2 text-xl font-bold"
+                  >
                     <span>Broccoli OJ</span>
                   </a>
                   {navLinks.map((link) => (
@@ -95,6 +99,5 @@ export function Navbar() {
         </div>
       </div>
     </header>
-  )
+  );
 }
-

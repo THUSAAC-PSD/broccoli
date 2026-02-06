@@ -1,4 +1,5 @@
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { ComponentBundle,PluginManifest } from '@broccoli/sdk';
+
 import { AnalyticsTracker } from './components/AnalyticsTracker';
 import { PerformanceMonitor } from './components/PerformanceMonitor';
 

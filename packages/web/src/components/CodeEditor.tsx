@@ -1,14 +1,15 @@
-import { useState, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import Editor from '@monaco-editor/react';
+import { ChevronDown, Maximize2, Minimize2,Play } from 'lucide-react';
+import { useRef,useState } from 'react';
+
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ChevronDown, Play, Maximize2, Minimize2 } from 'lucide-react';
-import Editor from '@monaco-editor/react';
 import { useTheme } from '@/hooks/use-theme';
 
 interface Language {
@@ -68,8 +69,15 @@ interface CodeEditorProps {
   onToggleFullscreen?: () => void;
 }
 
-export function CodeEditor({ onSubmit, onRun, isFullscreen, onToggleFullscreen }: CodeEditorProps) {
-  const [selectedLanguage, setSelectedLanguage] = useState<Language>(LANGUAGES[0]);
+export function CodeEditor({
+  onSubmit,
+  onRun,
+  isFullscreen,
+  onToggleFullscreen,
+}: CodeEditorProps) {
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>(
+    LANGUAGES[0],
+  );
   const [code, setCode] = useState(selectedLanguage.template);
   const editorRef = useRef<any>(null);
   const { theme } = useTheme();
