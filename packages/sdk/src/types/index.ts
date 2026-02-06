@@ -2,7 +2,7 @@
  * Core type definitions
  */
 
-import type { ComponentType, ReactNode } from 'react';
+import type { ElementType, ReactNode } from 'react';
 
 export type SlotPosition =
   | 'append'
@@ -12,7 +12,7 @@ export type SlotPosition =
   | 'after'
   | 'wrap';
 
-export interface SlotConfig {
+export interface SlotConfig<TContext = unknown> {
   name: string;
   position: SlotPosition;
   component: string;
@@ -26,11 +26,11 @@ export interface SlotConfig {
    * Condition function to determine if component should render.
    * Receives slot context as parameter.
    */
-  condition?: (context?: any) => boolean;
+  condition?: (context?: TContext) => boolean;
   /**
    * Props to pass to the component
    */
-  props?: Record<string, any>;
+  props?: Record<string, unknown>;
 }
 
 export interface PluginManifest {
@@ -39,7 +39,7 @@ export interface PluginManifest {
   description?: string;
   author?: string;
   slots?: SlotConfig[];
-  components?: Record<string, any>;
+  components?: ComponentBundle;
   /**
    * Plugin initialization function called when plugin is registered
    */
@@ -55,11 +55,11 @@ export interface PluginManifest {
 }
 
 export interface ComponentBundle {
-  [key: string]: ComponentType<any>;
+  [key: string]: ElementType;
 }
 
 export interface SlotRenderContext {
   slotName: string;
   children?: ReactNode;
-  props?: Record<string, any>;
+  props?: Record<string, unknown>;
 }
