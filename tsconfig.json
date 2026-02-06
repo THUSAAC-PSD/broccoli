@@ -4,6 +4,6 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["eslint.config.ts", "prettier.config.ts"],
+  "include": ["eslint.config.js", "prettier.config.ts"],
   "exclude": ["node_modules", "dist"]
 }
