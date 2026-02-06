@@ -2,11 +2,30 @@ import { PluginRegistryProvider } from '@broccoli/sdk/react';
 import './App.css';
 import { AppLayout } from './components/AppLayout';
 import { ProblemHeader } from './components/ProblemHeader';
+import { PluginLoader } from './components/PluginLoader';
 
+// Import plugins
+import * as ThemePlugin from './plugins/theme-plugin';
+import * as NotificationPlugin from './plugins/notification-plugin';
+import * as AnalyticsPlugin from './plugins/analytics-plugin';
+import * as AmazingButtonPlugin from './plugins/amazing-button';
+
+// Configure plugins to load
+const plugins = [
+  ThemePlugin,
+  NotificationPlugin,
+  AnalyticsPlugin,
+  AmazingButtonPlugin,
+];
 
 function App() {
   return (
     <PluginRegistryProvider>
+      <PluginLoader
+        plugins={plugins}
+        onLoad={() => console.log('All plugins loaded successfully')}
+        onError={(name, error) => console.error(`Failed to load ${name}:`, error)}
+      />
       <AppLayout>
         <ProblemHeader
           id="A"

@@ -1,9 +1,13 @@
-import { Button } from '@/components/ui/button';
+import { SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
+import { Sparkles } from 'lucide-react';
 
 export function AmazingButton() {
   return (
-    <Button variant="default" onClick={() => alert('Amazing!')}>
-      Amazing Button
-    </Button>
+    <SidebarMenuItem>
+      <SidebarMenuButton onClick={() => alert('Amazing!')}>
+        <Sparkles />
+        <span>Amazing Button</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
