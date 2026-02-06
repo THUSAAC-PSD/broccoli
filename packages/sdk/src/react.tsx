@@ -5,12 +5,13 @@
 
 import React, {
   createContext,
+  type ReactNode,
+  useCallback,
   useContext,
   useState,
-  useCallback,
-  type ReactNode,
 } from 'react';
-import type { PluginManifest, SlotConfig, ComponentBundle } from './types';
+
+import type { ComponentBundle, PluginManifest, SlotConfig } from './types';
 
 // Plugin Registry Context
 interface PluginRegistryContextValue {
@@ -25,7 +26,10 @@ interface PluginRegistryContextValue {
   enablePlugin: (pluginName: string) => void;
   disablePlugin: (pluginName: string) => void;
   isPluginEnabled: (pluginName: string) => boolean;
-  getSlots: (slotName: string, context?: any) => SlotConfig[];
+  getSlots: <TContext = unknown>(
+    slotName: string,
+    context?: TContext,
+  ) => SlotConfig<TContext>[];
 }
 
 const PluginRegistryContext = createContext<PluginRegistryContextValue | null>(
@@ -130,8 +134,11 @@ export function PluginRegistryProvider({ children }: { children: ReactNode }) {
   );
 
   const getSlots = useCallback(
-    (slotName: string, context?: any): SlotConfig[] => {
-      const slots: SlotConfig[] = [];
+    <TContext = unknown,>(
+      slotName: string,
+      context?: TContext,
+    ): SlotConfig<TContext>[] => {
+      const slots: SlotConfig<TContext>[] = [];
       plugins.forEach((plugin, pluginName) => {
         // Skip disabled plugins
         if (!enabledPlugins.has(pluginName)) return;
@@ -200,7 +207,7 @@ export function useEnabledPlugins() {
 }
 
 // Slot Component
-interface SlotProps {
+interface SlotProps<TContext = unknown> {
   name: string;
   as?: React.ElementType;
   className?: string;
@@ -208,11 +215,11 @@ interface SlotProps {
   /**
    * Context object passed to slot condition functions
    */
-  context?: any;
+  context?: TContext;
   /**
    * Additional props to pass to all slot components
    */
-  slotProps?: Record<string, any>;
+  slotProps?: Record<string, unknown>;
 }
 
 export function Slot({

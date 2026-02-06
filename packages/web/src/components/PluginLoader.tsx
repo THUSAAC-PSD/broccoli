@@ -1,3 +1,4 @@
+import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 import { usePluginRegistry } from '@broccoli/sdk/react';
 import { useEffect } from 'react';
 
@@ -24,8 +25,8 @@ import { useEffect } from 'react';
  */
 
 export interface PluginModule {
-  manifest: any;
-  components: any;
+  manifest: PluginManifest;
+  components: ComponentBundle;
 }
 
 export interface PluginLoaderProps {

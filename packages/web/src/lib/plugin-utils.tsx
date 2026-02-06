@@ -47,14 +47,14 @@ export function createWrapper(
 /**
  * Create a slot config with common defaults
  */
-export function createSlot(config: {
+export function createSlot<TContext = unknown>(config: {
   name: string;
   component: string;
-  position?: SlotConfig['position'];
+  position?: SlotConfig<TContext>['position'];
   priority?: number;
-  condition?: (context?: any) => boolean;
-  props?: Record<string, any>;
-}): SlotConfig {
+  condition?: (context?: TContext) => boolean;
+  props?: Record<string, unknown>;
+}): SlotConfig<TContext> {
   return {
     position: 'append',
     priority: 0,
@@ -95,7 +95,7 @@ export const pluginStorage = {
     }
   },
 
-  set: (pluginName: string, key: string, value: any) => {
+  set: (pluginName: string, key: string, value: unknown) => {
     try {
       localStorage.setItem(
         `plugin:${pluginName}:${key}`,
@@ -141,11 +141,11 @@ export const pluginStorage = {
  */
 export function createPluginLogger(pluginName: string) {
   return {
-    log: (...args: any[]) => console.log(`[${pluginName}]`, ...args),
-    warn: (...args: any[]) => console.warn(`[${pluginName}]`, ...args),
-    error: (...args: any[]) => console.error(`[${pluginName}]`, ...args),
-    info: (...args: any[]) => console.info(`[${pluginName}]`, ...args),
-    debug: (...args: any[]) => {
+    log: (...args: unknown[]) => console.log(`[${pluginName}]`, ...args),
+    warn: (...args: unknown[]) => console.warn(`[${pluginName}]`, ...args),
+    error: (...args: unknown[]) => console.error(`[${pluginName}]`, ...args),
+    info: (...args: unknown[]) => console.info(`[${pluginName}]`, ...args),
+    debug: (...args: unknown[]) => {
       if (isPluginDevMode()) {
         console.debug(`[${pluginName}]`, ...args);
       }

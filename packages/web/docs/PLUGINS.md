@@ -395,14 +395,14 @@ interface PluginManifest {
   enabled?: boolean;
 }
 
-interface SlotConfig {
+interface SlotConfig<TContext = unknown> {
   name: string;
   position: 'append' | 'prepend' | 'replace' | 'before' | 'after' | 'wrap';
   component: string;
   target?: string;
   priority?: number;
-  condition?: (context?: any) => boolean;
-  props?: Record<string, any>;
+  condition?: (context?: TContext) => boolean;
+  props?: Record<string, unknown>;
 }
 
 interface ComponentBundle {

@@ -1,6 +1,7 @@
 import Editor from '@monaco-editor/react';
-import { ChevronDown, Maximize2, Minimize2,Play } from 'lucide-react';
-import { useRef,useState } from 'react';
+import { ChevronDown, Maximize2, Minimize2, Play } from 'lucide-react';
+import type { editor } from 'monaco-editor';
+import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,7 +80,7 @@ export function CodeEditor({
     LANGUAGES[0],
   );
   const [code, setCode] = useState(selectedLanguage.template);
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const { theme } = useTheme();
 
   const handleLanguageChange = (language: Language) => {
@@ -99,7 +100,7 @@ export function CodeEditor({
     }
   };
 
-  const handleEditorDidMount = (editor: any) => {
+  const handleEditorDidMount = (editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
   };
 
