@@ -274,17 +274,15 @@ export function Slot({
     // Normal flow: prepend, before, children, after, append
     content = (
       <>
-        {prependSlots.map(renderSlot)}
         {beforeSlots.map(renderSlot)}
         {children}
         {afterSlots.map(renderSlot)}
-        {appendSlots.map(renderSlot)}
       </>
     );
   }
 
   // Apply wrap slots (from outermost to innermost)
-  wrapSlots.forEach((slot) => {
+  wrapSlots.reverse().forEach((slot) => {
     const WrapperComponent = components[slot.component];
     if (WrapperComponent) {
       const wrapperProps = {
@@ -296,7 +294,13 @@ export function Slot({
     }
   });
 
-  return <Component className={className}>{content}</Component>;
+  return (
+    <>
+      {prependSlots.map(renderSlot)}
+      <Component className={className}>{content}</Component>
+      {appendSlots.map(renderSlot)}
+    </>
+  );
 }
 
 // Hook to use plugin components
