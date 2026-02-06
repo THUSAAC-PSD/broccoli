@@ -73,6 +73,12 @@ async fn process_judge_result(db: &DatabaseConnection, result: JudgeResult) -> a
         return Ok(());
     }
 
+    let (error_code, error_message) = result
+        .error_info
+        .as_ref()
+        .map(|info| (Some(info.code.to_string()), Some(info.message.clone())))
+        .unwrap_or((None, None));
+
     let submission_update = submission::ActiveModel {
         id: Set(result.submission_id),
         status: Set(result.status),
@@ -81,7 +87,8 @@ async fn process_judge_result(db: &DatabaseConnection, result: JudgeResult) -> a
         time_used: Set(result.time_used),
         memory_used: Set(result.memory_used),
         compile_output: Set(result.compile_output.clone()),
-        error_message: Set(result.error_message.clone()),
+        error_code: Set(error_code),
+        error_message: Set(error_message),
         judged_at: Set(Some(Utc::now())),
         ..Default::default()
     };

@@ -56,7 +56,7 @@ pub fn handle_judge_job(job: JudgeJob) -> JudgeResult {
         time_used: Some(max_time),
         memory_used: Some(max_memory),
         compile_output: None,
-        error_message: None,
+        error_info: None,
         test_case_results,
     }
 }
