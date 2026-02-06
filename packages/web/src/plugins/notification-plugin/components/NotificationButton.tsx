@@ -1,6 +1,7 @@
 import { Bell } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { useState } from 'react';
+
+import { Button } from '@/components/ui/button';
 
 export function NotificationButton() {
   const [count] = useState(3); // TODO: 实现通知计数的动态获取

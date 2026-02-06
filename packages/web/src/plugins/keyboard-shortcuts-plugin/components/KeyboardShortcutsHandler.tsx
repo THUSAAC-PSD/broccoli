@@ -1,10 +1,12 @@
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode,useEffect } from 'react';
 
 interface KeyboardShortcutsHandlerProps {
   children: ReactNode;
 }
 
-export function KeyboardShortcutsHandler({ children }: KeyboardShortcutsHandlerProps) {
+export function KeyboardShortcutsHandler({
+  children,
+}: KeyboardShortcutsHandlerProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
@@ -21,7 +23,9 @@ export function KeyboardShortcutsHandler({ children }: KeyboardShortcutsHandlerP
         } else {
           // Fallback: find button with text "Submit"
           const buttons = Array.from(document.querySelectorAll('button'));
-          const submit = buttons.find((btn) => btn.textContent?.includes('Submit'));
+          const submit = buttons.find((btn) =>
+            btn.textContent?.includes('Submit'),
+          );
           if (submit) {
             submit.click();
           }
@@ -43,7 +47,9 @@ export function KeyboardShortcutsHandler({ children }: KeyboardShortcutsHandlerP
           const buttons = Array.from(document.querySelectorAll('button'));
           const toggle = buttons.find(
             (btn) =>
-              btn.querySelector('svg')?.classList.contains('lucide-maximize-2') ||
+              btn
+                .querySelector('svg')
+                ?.classList.contains('lucide-maximize-2') ||
               btn.querySelector('svg')?.classList.contains('lucide-minimize-2'),
           );
           if (toggle) {

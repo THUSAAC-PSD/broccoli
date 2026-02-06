@@ -1,4 +1,5 @@
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { ComponentBundle,PluginManifest } from '@broccoli/sdk';
+
 import { ThemeToggle } from './components/ThemeToggle';
 
 export const manifest: PluginManifest = {

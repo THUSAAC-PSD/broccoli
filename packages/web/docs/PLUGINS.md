@@ -2,7 +2,9 @@
 
 ## Overview
 
-The plugin system allows extending the frontend application by injecting React components into predefined slots throughout the UI. Plugins are modular, type-safe, and support dynamic loading/unloading.
+The plugin system allows extending the frontend application by injecting React
+components into predefined slots throughout the UI. Plugins are modular,
+type-safe, and support dynamic loading/unloading.
 
 ## Quick Start
 
@@ -111,18 +113,19 @@ Defines where and how to render a component.
 
 ## Slot Positions
 
-| Position | Behavior |
-|----------|----------|
-| `prepend` | Insert before existing content |
-| `append` | Insert after existing content (default) |
-| `before` | Insert immediately before slot children |
-| `after` | Insert immediately after slot children |
-| `replace` | Replace all slot content |
-| `wrap` | Wrap slot content with component |
+| Position  | Behavior                                |
+| --------- | --------------------------------------- |
+| `prepend` | Insert before existing content          |
+| `append`  | Insert after existing content (default) |
+| `before`  | Insert immediately before slot children |
+| `after`   | Insert immediately after slot children  |
+| `replace` | Replace all slot content                |
+| `wrap`    | Wrap slot content with component        |
 
 ### Position Examples
 
 **prepend/append:**
+
 ```
 slot: [existing content]
 prepend: [plugin] [existing content]
@@ -130,12 +133,14 @@ append: [existing content] [plugin]
 ```
 
 **replace:**
+
 ```
 slot: [existing content]
 replace: [plugin]
 ```
 
 **wrap:**
+
 ```tsx
 // Plugin component receives children prop
 export function Wrapper({ children }) {
@@ -148,6 +153,7 @@ export function Wrapper({ children }) {
 ## Available Slots
 
 ### Sidebar
+
 - `sidebar.header` - Top of sidebar
 - `sidebar.content.before` - Before main content
 - `sidebar.platform.menu` - Platform menu items
@@ -157,12 +163,14 @@ export function Wrapper({ children }) {
 - `sidebar.footer` - Bottom of sidebar
 
 ### Navbar
+
 - `navbar.brand` - Logo area
 - `navbar.menu` - Main menu items
 - `navbar.actions` - Action buttons (right side)
 - `navbar.mobile.menu` - Mobile menu
 
 ### App
+
 - `app.root` - Root wrapper (for providers)
 - `app.overlay` - Overlay layer (for modals)
 
@@ -170,7 +178,8 @@ export function Wrapper({ children }) {
 
 ### Priority Ordering
 
-Control render order when multiple plugins target the same slot. Higher priority renders first.
+Control render order when multiple plugins target the same slot. Higher priority
+renders first.
 
 ```typescript
 {
@@ -213,6 +222,7 @@ Use with context:
 Pass data to plugin components.
 
 **In slot config:**
+
 ```typescript
 {
   props: {
@@ -223,6 +233,7 @@ Pass data to plugin components.
 ```
 
 **In component:**
+
 ```tsx
 interface Props {
   variant: string;
@@ -250,7 +261,9 @@ export const manifest: PluginManifest = {
     console.log('Plugin destroyed');
     // Cleanup code here
   },
-  slots: [/* ... */],
+  slots: [
+    /* ... */
+  ],
 };
 ```
 
@@ -295,7 +308,9 @@ function PluginToggle({ pluginName }) {
 
   return (
     <button
-      onClick={() => enabled ? disablePlugin(pluginName) : enablePlugin(pluginName)}
+      onClick={() =>
+        enabled ? disablePlugin(pluginName) : enablePlugin(pluginName)
+      }
     >
       {enabled ? 'Disable' : 'Enable'}
     </button>
@@ -334,10 +349,10 @@ import { createPluginLogger } from '@/lib/plugin-utils';
 
 const logger = createPluginLogger('my-plugin');
 
-logger.log('Message');      // [my-plugin] Message
-logger.warn('Warning');     // [my-plugin] Warning
-logger.error('Error');      // [my-plugin] Error
-logger.debug('Debug');      // Only in dev mode
+logger.log('Message'); // [my-plugin] Message
+logger.warn('Warning'); // [my-plugin] Warning
+logger.error('Error'); // [my-plugin] Error
+logger.debug('Debug'); // Only in dev mode
 ```
 
 ### Helper Functions
@@ -349,8 +364,12 @@ import { createPlugin, createSlot } from '@/lib/plugin-utils';
 export const { manifest, components } = createPlugin({
   name: 'my-plugin',
   version: '1.0.0',
-  slots: [/* ... */],
-  components: {/* ... */},
+  slots: [
+    /* ... */
+  ],
+  components: {
+    /* ... */
+  },
 });
 
 // Create slot config

@@ -4,7 +4,13 @@
 
 import type { ComponentType, ReactNode } from 'react';
 
-export type SlotPosition = 'append' | 'prepend' | 'replace' | 'before' | 'after' | 'wrap';
+export type SlotPosition =
+  | 'append'
+  | 'prepend'
+  | 'replace'
+  | 'before'
+  | 'after'
+  | 'wrap';
 
 export interface SlotConfig {
   name: string;

@@ -1,5 +1,6 @@
 import { Activity } from 'lucide-react';
-import { SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
+
+import { SidebarMenuButton,SidebarMenuItem } from '@/components/ui/sidebar';
 
 export function PerformanceMonitor() {
   const showMetrics = () => {
@@ -15,7 +16,10 @@ export function PerformanceMonitor() {
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton onClick={showMetrics} tooltip="View performance metrics">
+      <SidebarMenuButton
+        onClick={showMetrics}
+        tooltip="View performance metrics"
+      >
         <Activity />
         <span>Performance</span>
       </SidebarMenuButton>

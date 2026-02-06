@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
 import { usePluginRegistry } from '@broccoli/sdk/react';
+import { useEffect } from 'react';
 
 /**
  * PluginLoader - Automatically loads and registers plugins

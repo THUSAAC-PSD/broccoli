@@ -1,5 +1,6 @@
-import { SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
 import { Sparkles } from 'lucide-react';
+
+import { SidebarMenuButton,SidebarMenuItem } from '@/components/ui/sidebar';
 
 export function AmazingButton() {
   return (

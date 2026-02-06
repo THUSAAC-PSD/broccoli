@@ -1,8 +1,14 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { AlertCircle,CheckCircle2, Clock, XCircle } from 'lucide-react';
 
-type TestCaseStatus = 'accepted' | 'wrong_answer' | 'time_limit' | 'runtime_error' | 'pending';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+type TestCaseStatus =
+  | 'accepted'
+  | 'wrong_answer'
+  | 'time_limit'
+  | 'runtime_error'
+  | 'pending';
 
 interface TestCase {
   id: number;
@@ -138,7 +144,9 @@ export function SubmissionResult({
                 </div>
                 <div className="text-right text-sm text-muted-foreground">
                   {testCase.time !== undefined && <div>{testCase.time}ms</div>}
-                  {testCase.memory !== undefined && <div>{testCase.memory}MB</div>}
+                  {testCase.memory !== undefined && (
+                    <div>{testCase.memory}MB</div>
+                  )}
                 </div>
               </div>
             );

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ProblemHeader } from '@/components/ProblemHeader';
-import { ProblemDescription } from '@/components/ProblemDescription';
+
 import { CodeEditor } from '@/components/CodeEditor';
+import { ProblemDescription } from '@/components/ProblemDescription';
+import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
 
 const MOCK_PROBLEM = {
@@ -28,7 +29,8 @@ const MOCK_PROBLEM = {
       explanation: '100 + 200 = 300',
     },
   ],
-  notes: 'Make sure to handle input/output correctly. Read two integers and output their sum.',
+  notes:
+    'Make sure to handle input/output correctly. Read two integers and output their sum.',
 };
 
 type SubmissionStatus = {
@@ -36,7 +38,12 @@ type SubmissionStatus = {
   verdict?: string;
   testCases?: Array<{
     id: number;
-    status: 'accepted' | 'wrong_answer' | 'time_limit' | 'runtime_error' | 'pending';
+    status:
+      | 'accepted'
+      | 'wrong_answer'
+      | 'time_limit'
+      | 'runtime_error'
+      | 'pending';
     time?: number;
     memory?: number;
     message?: string;
@@ -46,7 +53,8 @@ type SubmissionStatus = {
 };
 
 export function ProblemPage() {
-  const [submissionResult, setSubmissionResult] = useState<SubmissionStatus | null>(null);
+  const [submissionResult, setSubmissionResult] =
+    useState<SubmissionStatus | null>(null);
   const [isProblemFullscreen, setIsProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
 
@@ -114,7 +122,9 @@ export function ProblemPage() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">
         {!isCodeFullscreen && (
-          <div className={`flex flex-col gap-6 overflow-y-auto ${isProblemFullscreen ? 'col-span-2' : ''}`}>
+          <div
+            className={`flex flex-col gap-6 overflow-y-auto ${isProblemFullscreen ? 'col-span-2' : ''}`}
+          >
             <ProblemDescription
               description={MOCK_PROBLEM.description}
               inputFormat={MOCK_PROBLEM.inputFormat}
@@ -122,13 +132,17 @@ export function ProblemPage() {
               examples={MOCK_PROBLEM.examples}
               notes={MOCK_PROBLEM.notes}
               isFullscreen={isProblemFullscreen}
-              onToggleFullscreen={() => setIsProblemFullscreen(!isProblemFullscreen)}
+              onToggleFullscreen={() =>
+                setIsProblemFullscreen(!isProblemFullscreen)
+              }
             />
           </div>
         )}
 
         {!isProblemFullscreen && (
-          <div className={`flex flex-col gap-6 overflow-y-auto ${isCodeFullscreen ? 'col-span-2' : ''}`}>
+          <div
+            className={`flex flex-col gap-6 overflow-y-auto ${isCodeFullscreen ? 'col-span-2' : ''}`}
+          >
             <CodeEditor
               onSubmit={handleSubmit}
               onRun={handleRun}

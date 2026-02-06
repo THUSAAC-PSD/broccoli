@@ -1,6 +1,7 @@
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
-import { NotificationCenter } from './components/NotificationCenter';
+import type { ComponentBundle,PluginManifest } from '@broccoli/sdk';
+
 import { NotificationButton } from './components/NotificationButton';
+import { NotificationCenter } from './components/NotificationCenter';
 
 export const manifest: PluginManifest = {
   name: 'notification-plugin',

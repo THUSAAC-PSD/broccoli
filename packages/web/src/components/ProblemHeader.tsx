@@ -4,15 +4,15 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from '@/components/ui/card';
 
 interface ProblemHeaderProps {
-  id: string
-  title: string
-  type: string
-  io: string
-  timeLimit: string
-  memoryLimit: string
+  id: string;
+  title: string;
+  type: string;
+  io: string;
+  timeLimit: string;
+  memoryLimit: string;
 }
 
 export function ProblemHeader({
@@ -39,13 +39,14 @@ export function ProblemHeader({
           <span className="font-medium text-foreground">File IO:</span> {io}
         </div>
         <div>
-          <span className="font-medium text-foreground">Time Limit:</span> {timeLimit}
+          <span className="font-medium text-foreground">Time Limit:</span>{' '}
+          {timeLimit}
         </div>
         <div>
-          <span className="font-medium text-foreground">Memory Limit:</span> {memoryLimit}
+          <span className="font-medium text-foreground">Memory Limit:</span>{' '}
+          {memoryLimit}
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
-

@@ -3,7 +3,8 @@
  * This demonstrates how plugins work with the slot system
  */
 
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { ComponentBundle,PluginManifest } from '@broccoli/sdk';
+
 import { AmazingButton } from './components/AmazingButton';
 
 export const manifest: PluginManifest = {

@@ -1,4 +1,6 @@
-import { Home, Code2, Trophy, BookOpen, User, Settings } from 'lucide-react';
+import { Slot } from '@broccoli/sdk/react';
+import { BookOpen, Code2, Home, Settings,Trophy, User } from 'lucide-react';
+
 import {
   Sidebar as SidebarUI,
   SidebarContent,
@@ -12,7 +14,6 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
-import { Slot } from '@broccoli/sdk/react';
 
 const defaultMenuItems = [
   {
