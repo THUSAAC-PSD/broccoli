@@ -34,7 +34,9 @@ pub struct Model {
 
     #[sea_orm(column_type = "Text", nullable)]
     pub compile_output: Option<String>,
-    /// System error details. Only set when status is SystemError.
+    /// Machine-readable system error code. Only set when status is SystemError.
+    pub error_code: Option<String>,
+    /// Human-readable system error details. Only set when status is SystemError.
     #[sea_orm(column_type = "Text", nullable)]
     pub error_message: Option<String>,
 
