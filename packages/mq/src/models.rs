@@ -1,6 +1,8 @@
 use broccoli_queue::queue::BroccoliQueueBuilder;
 pub use broccoli_queue::{
-    brokers::broker::BrokerMessage, error::BroccoliError, queue::BroccoliQueue,
+    brokers::broker::BrokerMessage,
+    error::BroccoliError,
+    queue::{BroccoliQueue, ConsumeOptions},
 };
 
 use crate::error::MqError;
