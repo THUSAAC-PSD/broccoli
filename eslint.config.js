@@ -28,7 +28,7 @@ export default defineConfig([
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: true, // respects `tsconfig.json` in each package
+        projectService: true, // respects `tsconfig.json` in each package
       },
     },
     plugins: {
