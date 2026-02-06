@@ -1,9 +1,0 @@
-# IOI Plugin Manifest
-
-name = "ioi-plugin"
-version = "0.1.0"
-description = "IOI scoring system plugin - provides leaderboard and submission details"
-
-[server]
-entry = "target/wasm32-wasip1/debug/ioi_plugin.wasm"
-permissions = ["storage", "logger", "database"]
