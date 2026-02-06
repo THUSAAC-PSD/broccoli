@@ -14,7 +14,7 @@ import globals from 'globals';
 export default defineConfig([
   // Base config for all files
   {
-    ignores: ['dist', 'node_modules', 'coverage'],
+    ignores: ['**/dist/*', '**/node_modules/*', '**/coverage/*'],
   },
 
   // TypeScript files
