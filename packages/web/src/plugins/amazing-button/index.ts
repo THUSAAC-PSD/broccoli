@@ -11,8 +11,8 @@ export const manifest: PluginManifest = {
   version: '1.0.0',
   slots: [
     {
-      name: 'slots.header',
-      position: 'after',
+      name: 'sidebar.account.menu',
+      position: 'append',
       component: 'components/AmazingButton',
     },
   ],
