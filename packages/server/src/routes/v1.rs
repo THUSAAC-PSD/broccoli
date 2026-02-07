@@ -13,6 +13,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/problems", problem_routes(submission_max_size))
         .nest("/contests", contest_routes(submission_max_size))
         .nest("/submissions", submission_routes())
+        .nest("/dlq", dlq_routes())
 }
 
 fn auth_routes() -> OpenApiRouter<AppState> {
@@ -141,4 +142,15 @@ fn submission_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::submission::list_submissions))
         .routes(routes!(handlers::submission::get_submission))
         .routes(routes!(handlers::submission::rejudge_submission))
+}
+
+fn dlq_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::dlq::list_dlq_messages))
+        .routes(routes!(handlers::dlq::get_dlq_stats))
+        .routes(routes!(
+            handlers::dlq::get_dlq_message,
+            handlers::dlq::delete_dlq_message,
+        ))
+        .routes(routes!(handlers::dlq::retry_dlq_message))
 }
