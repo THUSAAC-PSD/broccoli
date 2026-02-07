@@ -176,6 +176,17 @@ pub mod routes {
     pub fn contest_problem_submissions(contest_id: i32, problem_id: i32) -> String {
         format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions")
     }
+
+    pub const DLQ: &str = "/api/v1/dlq";
+    pub const DLQ_STATS: &str = "/api/v1/dlq/stats";
+
+    pub fn dlq_message(id: i32) -> String {
+        format!("/api/v1/dlq/{id}")
+    }
+
+    pub fn dlq_retry(id: i32) -> String {
+        format!("/api/v1/dlq/{id}/retry")
+    }
 }
 
 /// A running test server.

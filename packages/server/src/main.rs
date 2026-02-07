@@ -10,7 +10,8 @@ use tower_http::cors::CorsLayer;
 use tracing::{Level, info, warn};
 
 use server::config::AppConfig;
-use server::consumers::consume_judge_results;
+use server::consumers::{consume_judge_results, consume_worker_dlq};
+use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
 use server::state::AppState;
 
@@ -52,10 +53,28 @@ async fn main() -> anyhow::Result<()> {
         let consumer_db = db.clone();
         let consumer_mq = Arc::clone(mq_arc);
         let result_queue = app_config.mq.result_queue_name.clone();
+        let dlq_config = app_config.mq.dlq.clone();
         tokio::spawn(async move {
-            consume_judge_results(consumer_db, consumer_mq, result_queue).await;
+            consume_judge_results(consumer_db, consumer_mq, result_queue, dlq_config).await;
         });
         info!("Judge result consumer started");
+
+        let dlq_consumer_db = db.clone();
+        let dlq_consumer_mq = Arc::clone(mq_arc);
+        let dlq_queue = app_config.mq.dlq_queue_name.clone();
+        tokio::spawn(async move {
+            consume_worker_dlq(dlq_consumer_db, dlq_consumer_mq, dlq_queue).await;
+        });
+        info!("Worker DLQ consumer started");
+    }
+
+    {
+        let detector_db = db.clone();
+        let detector_config = app_config.mq.dlq.clone();
+        tokio::spawn(async move {
+            run_stuck_job_detector(detector_db, detector_config).await;
+        });
+        info!("Stuck job detector started");
     }
 
     let state = AppState {

@@ -2,7 +2,7 @@ use sea_orm::*;
 use sea_query::{Index, PostgresQueryBuilder};
 use tracing::info;
 
-use crate::entity::{role, role_permission, submission};
+use crate::entity::{dead_letter_message, role, role_permission, submission};
 
 /// Default roles seeded on startup.
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
@@ -21,6 +21,7 @@ const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
     ("admin", "contest:delete"),
     ("admin", "user:manage"),
     ("admin", "plugin:load"),
+    ("admin", "dlq:manage"),
     // Problem setter
     ("problem_setter", "submission:submit"),
     ("problem_setter", "submission:view_all"),
@@ -116,6 +117,26 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
         Err(e) => {
             tracing::warn!("Failed to create index idx_submission_user_created: {}", e);
+        }
+    }
+
+    // Composite index for DLQ queries:
+    // list unresolved messages, filter by submission
+    let stmt = Index::create()
+        .if_not_exists()
+        .name("idx_dlq_resolved_created")
+        .table(dead_letter_message::Entity)
+        .col(dead_letter_message::Column::Resolved)
+        .col(dead_letter_message::Column::CreatedAt)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => {
+            info!("Ensured index idx_dlq_resolved_created exists");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to create index idx_dlq_resolved_created: {}", e);
         }
     }
 

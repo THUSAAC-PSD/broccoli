@@ -1,6 +1,7 @@
 pub mod config;
 pub mod consumers;
 pub mod database;
+pub mod dlq;
 pub mod entity;
 pub mod error;
 pub mod extractors;
@@ -36,6 +37,7 @@ use crate::state::AppState;
         (name = "Contest Problems", description = "Managing problems within contests"),
         (name = "Contest Participants", description = "Managing contest participants"),
         (name = "Plugins", description = "WASM plugin management"),
+        (name = "Dead Letter Queue", description = "Failed message management and retry"),
     ),
     modifiers(&SecurityAddon),
 )]
