@@ -1,3 +1,4 @@
+/* TODO: div with id `root` is removed now, consider replace by `html, body` */
 #root {
   max-width: 1280px;
   margin: 0 auto;
