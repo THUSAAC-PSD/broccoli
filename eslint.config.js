@@ -1,5 +1,5 @@
 import js from '@eslint/js';
-import { defineConfig, globalIgnores } from 'eslint/config';
+import { defineConfig } from 'eslint/config';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
 import importPlugin from 'eslint-plugin-import';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
@@ -13,7 +13,9 @@ import globals from 'globals';
 
 export default defineConfig([
   // Base config for all files
-  globalIgnores(['**/dist/*', '**/coverage/*', '**/routeTree.gen.ts']),
+  {
+    ignores: ['**/dist/*', '**/node_modules/*', '**/coverage/*'],
+  },
 
   // TypeScript files
   {
@@ -46,7 +48,7 @@ export default defineConfig([
 
   // Frontend-specific React config
   {
-    files: ['packages/web/**/*.{ts,tsx}'],
+    files: ['packages/frontend/**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
