@@ -11,12 +11,20 @@ import React, {
   useState,
 } from 'react';
 
-import type { ComponentBundle, PluginManifest, SlotConfig } from './types';
+import type {
+  ComponentBundle,
+  PluginManifest,
+  RouteConfig,
+  SlotConfig,
+} from './types';
 
 // Plugin Registry Context
 interface PluginRegistryContextValue {
   plugins: Map<string, PluginManifest>;
   components: ComponentBundle;
+  // TODO: consider appending plugin name to route config,
+  // e.g. RouteConfig & { pluginName: string }
+  routes: RouteConfig[];
   enabledPlugins: Set<string>;
   registerPlugin: (
     manifest: PluginManifest,
@@ -42,6 +50,7 @@ export function PluginRegistryProvider({ children }: { children: ReactNode }) {
   );
   const [components, setComponents] = useState<ComponentBundle>({});
   const [enabledPlugins, setEnabledPlugins] = useState<Set<string>>(new Set());
+  const [routes, setRoutes] = useState<RouteConfig[]>([]);
 
   const registerPlugin = useCallback(
     async (manifest: PluginManifest, pluginComponents: ComponentBundle) => {
@@ -61,10 +70,13 @@ export function PluginRegistryProvider({ children }: { children: ReactNode }) {
         return next;
       });
 
+      // TODO: Namespace components by plugin name to avoid conflicts
       setComponents((prev) => ({
         ...prev,
         ...pluginComponents,
       }));
+
+      setRoutes((prev) => [...prev, ...(manifest.routes ?? [])]);
 
       // Enable plugin by default if enabled is not explicitly false
       if (manifest.enabled !== false) {
@@ -168,6 +180,7 @@ export function PluginRegistryProvider({ children }: { children: ReactNode }) {
       value={{
         plugins,
         components,
+        routes,
         enabledPlugins,
         registerPlugin,
         unregisterPlugin,
