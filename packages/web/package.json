@@ -20,6 +20,8 @@
         "@radix-ui/react-slot": "^1.2.3",
         "@radix-ui/react-tabs": "^1.1.13",
         "@radix-ui/react-tooltip": "^1.2.8",
+        "@tanstack/react-router": "^1.159.3",
+        "@tanstack/react-router-devtools": "^1.159.3",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^0.546.0",
@@ -29,6 +31,7 @@
     },
     "devDependencies": {
         "@eslint/js": "^9.36.0",
+        "@tanstack/router-plugin": "^1.159.4",
         "@types/node": "^24.6.0",
         "@types/react": "^19.1.16",
         "@types/react-dom": "^19.1.9",
