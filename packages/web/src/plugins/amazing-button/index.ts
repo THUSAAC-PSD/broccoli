@@ -3,9 +3,10 @@
  * This demonstrates how plugins work with the slot system
  */
 
-import type { ComponentBundle,PluginManifest } from '@broccoli/sdk';
+import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 
 import { AmazingButton } from './components/AmazingButton';
+import { AmazingPage } from './pages/AmazingPage';
 
 export const manifest: PluginManifest = {
   name: 'amazing-button-plugin',
@@ -17,8 +18,15 @@ export const manifest: PluginManifest = {
       component: 'components/AmazingButton',
     },
   ],
+  routes: [
+    {
+      path: '/amazing',
+      component: 'pages/AmazingPage',
+    },
+  ],
 };
 
 export const components: ComponentBundle = {
   'components/AmazingButton': AmazingButton,
+  'pages/AmazingPage': AmazingPage,
 };
