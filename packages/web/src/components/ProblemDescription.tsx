@@ -2,6 +2,7 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Markdown } from '@/components/Markdown';
 
 interface Example {
   input: string;
@@ -50,23 +51,17 @@ export function ProblemDescription({
       <CardContent className="space-y-6">
         <section>
           <h3 className="text-base font-bold mb-3">Description</h3>
-          <div className="text-sm leading-relaxed whitespace-pre-wrap">
-            {description}
-          </div>
+          <Markdown>{description}</Markdown>
         </section>
 
         <section>
           <h3 className="text-base font-bold mb-3">Input</h3>
-          <div className="text-sm leading-relaxed whitespace-pre-wrap">
-            {inputFormat}
-          </div>
+          <Markdown>{inputFormat}</Markdown>
         </section>
 
         <section>
           <h3 className="text-base font-bold mb-3">Output</h3>
-          <div className="text-sm leading-relaxed whitespace-pre-wrap">
-            {outputFormat}
-          </div>
+          <Markdown>{outputFormat}</Markdown>
         </section>
 
         <section className="space-y-4">
@@ -104,8 +99,8 @@ export function ProblemDescription({
         {notes && (
           <section>
             <h3 className="text-base font-bold mb-3">Notes</h3>
-            <div className="text-sm leading-relaxed whitespace-pre-wrap p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg">
-              {notes}
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <Markdown>{notes}</Markdown>
             </div>
           </section>
         )}
