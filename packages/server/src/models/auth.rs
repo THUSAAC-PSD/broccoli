@@ -82,6 +82,9 @@ pub struct LoginResponse {
     /// JWT bearer token valid for 7 days.
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")]
     pub token: String,
+    /// ID of the authenticated user.
+    #[schema(example = 42)]
+    pub id: i32,
     /// Authenticated user's username.
     #[schema(example = "alice_wonder")]
     pub username: String,
