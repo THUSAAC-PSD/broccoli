@@ -13,7 +13,11 @@ import globals from 'globals';
 
 export default defineConfig([
   // Base config for all files
-  globalIgnores(['**/dist/*', '**/coverage/*']),
+  globalIgnores([
+    '**/dist/*',
+    '**/coverage/*',
+    'packages/web/src/lib/api/schema.d.ts',
+  ]),
 
   // TypeScript files
   {
