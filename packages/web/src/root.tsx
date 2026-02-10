@@ -6,6 +6,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
 import { PluginLoader } from '@/components/PluginLoader';
+import { AuthProvider } from '@/contexts/AuthProvider';
 
 // Import plugins
 import * as AmazingButtonPlugin from './plugins/amazing-button';
@@ -33,8 +34,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <PluginRegistryProvider>
-          <PluginLoader plugins={plugins} />
-          <AppLayout>{children}</AppLayout>
+          <AuthProvider>
+            <PluginLoader plugins={plugins} />
+            <AppLayout>{children}</AppLayout>
+          </AuthProvider>
         </PluginRegistryProvider>
         <ScrollRestoration />
         <Scripts />
