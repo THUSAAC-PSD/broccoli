@@ -16,7 +16,6 @@ pub mod utils;
 
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
-use utoipa_axum::router::OpenApiRouter;
 use utoipa_scalar::{Scalar, Servable as ScalarServable};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -28,6 +27,9 @@ use crate::state::AppState;
         title = "Broccoli Online Judge API",
         version = "1.0.0",
         description = "API for the Broccoli online judge system"
+    ),
+    servers(
+        (url = "/api/v1", description = "Version 1 API server")
     ),
     tags(
         (name = "Auth", description = "Authentication and user management"),
@@ -62,11 +64,10 @@ impl Modify for SecurityAddon {
 
 /// Build the application router.
 pub fn build_router(state: AppState) -> axum::Router {
-    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
-        .nest("/api", routes::api_routes(&state.config))
-        .split_for_parts();
+    let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
 
-    router
+    axum::Router::new()
+        .nest("/api", router)
         .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api.clone()))
         .merge(Scalar::with_url("/scalar", api))
