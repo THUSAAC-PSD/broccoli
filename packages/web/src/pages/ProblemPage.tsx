@@ -13,24 +13,24 @@ const MOCK_PROBLEM = {
   timeLimit: '1s',
   memoryLimit: '256 MB',
   description:
-    'Given two integers A and B, calculate their sum.\n\nThis is a simple problem to help you get familiar with the online judge system.',
+    'Given two integers $A$ and $B$, calculate their sum $S = A + B$.\n\nThis is a simple problem to help you get familiar with the online judge system.\n\n> **Hint:** This problem tests basic I/O operations.',
   inputFormat:
-    'The first line contains two integers A and B separated by a space.\n\nConstraints:\n- 1 ≤ A, B ≤ 1000',
-  outputFormat: 'Output a single integer representing the sum of A and B.',
+    'The first line contains two integers $A$ and $B$ $(1 \\leq A, B \\leq 10^9)$ separated by a space.',
+  outputFormat:
+    'Output a single integer $S$ representing the sum of $A$ and $B$.\n\nThe answer is guaranteed to fit in a **64-bit signed integer**.',
   examples: [
     {
       input: '1 2',
       output: '3',
-      explanation: '1 + 2 = 3',
+      explanation: '$1 + 2 = 3$',
     },
     {
       input: '100 200',
       output: '300',
-      explanation: '100 + 200 = 300',
     },
   ],
   notes:
-    'Make sure to handle input/output correctly. Read two integers and output their sum.',
+    'Be careful with **integer overflow**. Since $A, B \\leq 10^9$, their sum can be up to $2 \\times 10^9$, which exceeds the range of a 32-bit integer.\n\nUse `long long` in C++ or `int64` in Go:\n\n```cpp\nlong long a, b;\ncin >> a >> b;\ncout << a + b << endl;\n```',
 };
 
 type SubmissionStatus = {
