@@ -1,16 +1,16 @@
 import { 
-  AlertTriangle, 
-  Ban, 
-  FileQuestion, 
-  ServerCrash, 
-  Home, 
-  Construction, 
-  Lock, 
-  FileWarning, 
-  Timer, 
-  CloudOff, 
-  Activity, 
-  Coffee 
+  AlertTriangle,
+  Ban,
+  FileQuestion,
+  ServerCrash,
+  Home,
+  Construction,
+  Lock,
+  FileWarning,
+  Timer,
+  CloudOff,
+  Activity,
+  Coffee
 } from 'lucide-react';
 import React from 'react'; 
 import { Button } from '@/components/ui/button';
@@ -44,7 +44,7 @@ const ErrorConfig = {
         desc: 'The requested resource could not be found on the server.',
     },
     '408': {
-        icon: Timer, 
+        icon: Timer,
         title: '408 Request Timeout',
         desc: 'The server timed out waiting for the request.',
     },
@@ -74,7 +74,7 @@ const ErrorConfig = {
         desc: 'The server received an invalid response from the upstream server.',
     },
     '503': {
-        icon: ServerCrash, 
+        icon: ServerCrash,
         title: '503 Service Unavailable',
         desc: 'The server is currently unavailable (overloaded or down for maintenance).',
     },
