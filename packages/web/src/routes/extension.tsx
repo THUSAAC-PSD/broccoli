@@ -1,5 +1,6 @@
 import { usePluginRegistry } from '@broccoli/sdk/react';
 import { matchPath, useLocation } from 'react-router';
+import { ErrorCatcher } from '@/components/ErrorCatcher';
 
 /**
  * ExtensionPage
@@ -23,14 +24,7 @@ export default function ExtensionPage() {
 
   if (!matchedRoute) {
     // TODO: Render a proper 404 Not Found component
-    return (
-      <div className="p-8 text-center">
-        <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
-        <p className="text-muted-foreground">
-          The requested plugin route does not exist.
-        </p>
-      </div>
-    );
+    return (<ErrorCatcher code="404" />);
   }
 
   const Component = components[matchedRoute.component];
