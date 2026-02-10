@@ -115,6 +115,7 @@ pub async fn login(
 
     Ok(Json(LoginResponse {
         token,
+        id: user.id,
         username: user.username,
         role: user.role,
         permissions,
