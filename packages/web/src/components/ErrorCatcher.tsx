@@ -1,4 +1,17 @@
-import { Ban, FileQuestion, AlertTriangle, Construction, Home } from 'lucide-react'
+import { 
+  AlertTriangle, 
+  Ban, 
+  FileQuestion, 
+  ServerCrash, 
+  Home, 
+  Construction, 
+  Lock, 
+  FileWarning, 
+  Timer, 
+  CloudOff, 
+  Activity, 
+  Coffee 
+} from 'lucide-react';
 import React from 'react'; 
 import { Button } from '@/components/ui/button';
 
@@ -10,6 +23,16 @@ interface ErrorPageProps {
 }
 
 const ErrorConfig = {
+    '400': {
+        icon: FileWarning,
+        title: '400 Bad Request',
+        desc: 'The server could not understand the request due to invalid syntax.',
+    },
+    '401': {
+        icon: Lock,
+        title: '401 Unauthorized',
+        desc: 'You need to be logged in to access this resource.',
+    },
     '403': {
         icon: Ban,
         title: '403 Forbidden',
@@ -20,11 +43,46 @@ const ErrorConfig = {
         title: '404 Not Found',
         desc: 'The requested resource could not be found on the server.',
     },
+    '408': {
+        icon: Timer, 
+        title: '408 Request Timeout',
+        desc: 'The server timed out waiting for the request.',
+    },
+    '418': {
+        icon: Coffee,
+        title: '418 I\'m a teapot',
+        desc: 'The server refuses the attempt to brew coffee with a teapot.',
+    },
+    '429': {
+        icon: Activity,
+        title: '429 Too Many Requests',
+        desc: 'You have sent too many requests in a given amount of time. Please try again later.',
+    },
+    '500': {
+        icon: ServerCrash,
+        title: '500 Internal Server Error',
+        desc: 'Something went wrong on our end. Please try again later.',
+    },
     '501': {
         icon: Construction,
         title: '501 Not Implemented',
         desc: 'This functionality has not been implemented yet.',
     }, 
+    '502': {
+        icon: CloudOff,
+        title: '502 Bad Gateway',
+        desc: 'The server received an invalid response from the upstream server.',
+    },
+    '503': {
+        icon: ServerCrash, 
+        title: '503 Service Unavailable',
+        desc: 'The server is currently unavailable (overloaded or down for maintenance).',
+    },
+    '504': {
+        icon: Timer,
+        title: '504 Gateway Timeout',
+        desc: 'The server took too long to respond.',
+    },
     default: {
         icon: AlertTriangle,
         title: 'Unknown Error',
