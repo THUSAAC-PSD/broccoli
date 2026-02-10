@@ -24,8 +24,8 @@ const actions = [
 
 export function Navbar() {
   return (
-    <header className="sticky top-0 z-50 -mb-4 px-4 pb-4 -translate-y-8">
-      <div className="fade-bottom bg-background/15 absolute left-0 h-24 w-full backdrop-blur-lg" />
+    <header className="sticky top-8 z-50 -mb-4 px-4 pb-4 -translate-y-8">
+      <div className="fade-bottom bg-background/15 absolute left-0 h-16 w-full backdrop-blur-lg" />
       <div className="max-w-container relative mx-auto">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-6">
