@@ -76,7 +76,9 @@ export function PluginRegistryProvider({ children }: { children: ReactNode }) {
         ...pluginComponents,
       }));
 
-      setRoutes((prev) => [...prev, ...(manifest.routes ?? [])]);
+      if (manifest.routes) {
+        setRoutes((prev) => [...prev, ...(manifest.routes ?? [])]);
+      }
 
       // Enable plugin by default if enabled is not explicitly false
       if (manifest.enabled !== false) {
@@ -121,6 +123,13 @@ export function PluginRegistryProvider({ children }: { children: ReactNode }) {
           });
           return next;
         });
+      }
+
+      // Remove plugin routes
+      if (plugin.routes) {
+        setRoutes((prev) =>
+          prev.filter((route) => !plugin.routes?.includes(route)),
+        );
       }
     },
     [plugins],
