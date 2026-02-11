@@ -66,6 +66,25 @@ export const en: Record<string, string> = {
   'theme.dark': 'Dark Mode',
   'theme.light': 'Light Mode',
 
+  // Auth
+  'auth.loginTitle': 'Sign In',
+  'auth.registerTitle': 'Create Account',
+  'auth.username': 'Username',
+  'auth.password': 'Password',
+  'auth.confirmPassword': 'Confirm Password',
+  'auth.login': 'Sign In',
+  'auth.register': 'Sign Up',
+  'auth.noAccount': "Don't have an account?",
+  'auth.haveAccount': 'Already have an account?',
+  'auth.logout': 'Log out',
+  'auth.invalidCredentials': 'Invalid username or password.',
+  'auth.usernameTaken': 'Username is already taken.',
+  'auth.passwordMismatch': 'Passwords do not match.',
+  'auth.validationError': 'Please check your input and try again.',
+
+  // Sidebar (additional)
+  'sidebar.guest': 'Guest',
+
   // Language switcher
   'locale.switch': 'Language',
 };

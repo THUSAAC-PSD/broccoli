@@ -1,7 +1,15 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
-import { BookOpen, Code2, Home, Settings, Trophy, User } from 'lucide-react';
+import { BookOpen, ChevronUp, Code2, Home, LogOut, Settings, Trophy, User } from 'lucide-react';
 
+import { useAuth } from '@/contexts/auth-context';
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Sidebar as SidebarUI,
   SidebarContent,
@@ -30,6 +38,7 @@ const defaultUserItems = [
 
 export function Sidebar() {
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
 
   return (
     <SidebarUI collapsible="icon">
@@ -108,10 +117,29 @@ export function Sidebar() {
         <SidebarMenu>
           <Slot name="sidebar.footer" as="div" />
           <SidebarMenuItem>
-            <SidebarMenuButton>
-              <User className="mr-2 h-4 w-4" />
-              <span className="flex-1">John Doe</span>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton>
+                  <User className="mr-2 h-4 w-4" />
+                  <span className="flex-1">
+                    {user ? user.username : t('sidebar.guest')}
+                  </span>
+                  <ChevronUp className="ml-auto h-4 w-4" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" className="w-[--radix-dropdown-menu-trigger-width]">
+                {user ? (
+                  <DropdownMenuItem onClick={logout}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    {t('auth.logout')}
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem asChild>
+                    <a href="/login">{t('nav.signIn')}</a>
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

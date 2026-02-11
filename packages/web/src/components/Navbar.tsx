@@ -10,6 +10,7 @@ import {
   NavigationMenuList,
 } from '@/components/ui/navigation-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { useAuth } from '@/contexts/auth-context';
 
 const navLinks = [
   { textKey: 'nav.contestInfo', href: '#' },
@@ -18,13 +19,9 @@ const navLinks = [
   { textKey: 'nav.ranking', href: '#' },
 ];
 
-const actions = [
-  { textKey: 'nav.signIn', href: '#', isButton: false },
-  { textKey: 'nav.signUp', href: '#', isButton: true },
-];
-
 export function Navbar() {
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
 
   return (
     <header className="sticky top-8 z-50 -mb-4 px-4 pb-4 -translate-y-8">
@@ -50,20 +47,27 @@ export function Navbar() {
             </NavigationMenu>
           </div>
           <div className="flex items-center gap-4">
-            {actions.map((action, index) =>
-              action.isButton ? (
-                <Button key={index} variant="default" asChild>
-                  <a href={action.href}>{t(action.textKey)}</a>
+            {user ? (
+              <>
+                <span className="hidden text-sm md:block">
+                  {user.username}
+                </span>
+                <Button variant="outline" onClick={logout}>
+                  {t('auth.logout')}
                 </Button>
-              ) : (
+              </>
+            ) : (
+              <>
                 <a
-                  key={index}
-                  href={action.href}
+                  href="/login"
                   className="hidden text-sm md:block"
                 >
-                  {t(action.textKey)}
+                  {t('nav.signIn')}
                 </a>
-              ),
+                <Button variant="default" asChild>
+                  <a href="/register">{t('nav.signUp')}</a>
+                </Button>
+              </>
             )}
             <Slot name="navbar.actions" as="div" />
             <Sheet>
