@@ -76,6 +76,24 @@ export const manifest: PluginManifest = {
       'problems.empty': '暂无题目。',
       'problems.contestProblems': '比赛题目',
 
+      // Contests
+      'contests.title': '比赛',
+      'contests.titleColumn': '比赛',
+      'contests.status': '状态',
+      'contests.startTime': '开始',
+      'contests.endTime': '结束',
+      'contests.searchPlaceholder': '搜索比赛...',
+      'contests.empty': '暂无比赛。',
+      'contests.upcoming': '即将开始',
+      'contests.running': '进行中',
+      'contests.ended': '已结束',
+      'contests.inDays': '{{count}} 天后',
+      'contests.inHours': '{{count}} 小时后',
+      'contests.inMinutes': '{{count}} 分钟后',
+      'contests.daysAgo': '{{count}} 天前',
+      'contests.hoursAgo': '{{count}} 小时前',
+      'contests.minutesAgo': '{{count}} 分钟前',
+
       // Ranking
       'ranking.title': '排名',
       'ranking.user': '用户',

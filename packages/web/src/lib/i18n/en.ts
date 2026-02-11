@@ -67,6 +67,24 @@ export const en: Record<string, string> = {
   'problems.empty': 'No problems found.',
   'problems.contestProblems': 'Contest Problems',
 
+  // Contests
+  'contests.title': 'Contests',
+  'contests.titleColumn': 'Contest',
+  'contests.status': 'Status',
+  'contests.startTime': 'Start',
+  'contests.endTime': 'End',
+  'contests.searchPlaceholder': 'Search contests...',
+  'contests.empty': 'No contests found.',
+  'contests.upcoming': 'Upcoming',
+  'contests.running': 'Running',
+  'contests.ended': 'Ended',
+  'contests.inDays': 'in {{count}} days',
+  'contests.inHours': 'in {{count}} hours',
+  'contests.inMinutes': 'in {{count}} min',
+  'contests.daysAgo': '{{count}} days ago',
+  'contests.hoursAgo': '{{count}} hours ago',
+  'contests.minutesAgo': '{{count}} min ago',
+
   // Ranking
   'ranking.title': 'Ranking',
   'ranking.user': 'User',
