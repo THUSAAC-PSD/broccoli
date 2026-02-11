@@ -3185,26 +3185,26 @@ export interface operations {
     };
     listProblems: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @example 1 */
-                page: number | null;
+                page?: number | null;
                 /** @example 20 */
-                per_page: number | null;
+                per_page?: number | null;
                 /** @example sum */
-                search: string | null;
+                search?: string | null;
                 /**
                  * @description Sort field: `created_at` (default), `updated_at`, or `title`.
                  * @example created_at
                  */
-                sort_by: string | null;
+                sort_by?: string | null;
                 /**
                  * @description Sort direction: `asc` or `desc` (default).
                  * @example desc
                  */
-                sort_order: string | null;
+                sort_order?: string | null;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

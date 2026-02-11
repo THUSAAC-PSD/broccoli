@@ -61,6 +61,21 @@ export const manifest: PluginManifest = {
       'result.runtimeError': '运行错误',
       'result.pending': '等待中',
 
+      // Problems
+      'problems.title': '题目列表',
+      'problems.id': '#',
+      'problems.titleColumn': '标题',
+      'problems.label': '编号',
+      'problems.contest': '比赛',
+      'problems.due': '截止时间',
+      'problems.dueInDays': '{{count}} 天后',
+      'problems.dueInHours': '{{count}} 小时后',
+      'problems.dueInMinutes': '{{count}} 分钟后',
+      'problems.dueEnded': '已结束',
+      'problems.searchPlaceholder': '搜索题目...',
+      'problems.empty': '暂无题目。',
+      'problems.contestProblems': '比赛题目',
+
       // Ranking
       'ranking.title': '排名',
       'ranking.user': '用户',
