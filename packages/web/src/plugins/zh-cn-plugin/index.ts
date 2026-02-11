@@ -75,6 +75,25 @@ export const manifest: PluginManifest = {
       'theme.dark': '暗色模式',
       'theme.light': '亮色模式',
 
+      // Auth
+      'auth.loginTitle': '登录',
+      'auth.registerTitle': '创建账户',
+      'auth.username': '用户名',
+      'auth.password': '密码',
+      'auth.confirmPassword': '确认密码',
+      'auth.login': '登录',
+      'auth.register': '注册',
+      'auth.noAccount': '没有账户？',
+      'auth.haveAccount': '已有账户？',
+      'auth.logout': '退出登录',
+      'auth.invalidCredentials': '用户名或密码错误。',
+      'auth.usernameTaken': '用户名已被使用。',
+      'auth.passwordMismatch': '两次输入的密码不一致。',
+      'auth.validationError': '请检查输入后重试。',
+
+      // Sidebar (additional)
+      'sidebar.guest': '游客',
+
       // Language switcher
       'locale.switch': '语言',
 
