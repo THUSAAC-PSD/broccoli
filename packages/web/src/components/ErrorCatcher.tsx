@@ -12,7 +12,6 @@ import {
   Activity,
   Coffee
 } from 'lucide-react';
-import React from 'react'; 
 import { Button } from '@/components/ui/button';
 
 interface ErrorPageProps {
@@ -90,8 +89,9 @@ const ErrorConfig = {
     }
 }
 
-export function ErrorCatcher({ code, message, onRetry, onBack }: ErrorPageProps) {
-    const config = ErrorConfig[String(code)] || ErrorConfig['default'];
+export function ErrorCatcher({ code, message }: ErrorPageProps) {
+    const key = String(code) as keyof typeof ErrorConfig;
+    const config = ErrorConfig[key] || ErrorConfig['default'];
     const description = message || config.desc;
     const Icon = config.icon;
 
