@@ -26,7 +26,7 @@ import {
 
 const defaultMenuItems = [
   { titleKey: 'sidebar.dashboard', icon: Home, url: '#' },
-  { titleKey: 'sidebar.problems', icon: Code2, url: '#' },
+  { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
   { titleKey: 'sidebar.contests', icon: Trophy, url: '#' },
   { titleKey: 'sidebar.tutorials', icon: BookOpen, url: '#' },
 ];

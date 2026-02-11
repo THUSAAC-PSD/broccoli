@@ -52,6 +52,21 @@ export const en: Record<string, string> = {
   'result.runtimeError': 'Runtime Error',
   'result.pending': 'Pending',
 
+  // Problems
+  'problems.title': 'Problems',
+  'problems.id': '#',
+  'problems.titleColumn': 'Title',
+  'problems.label': 'Label',
+  'problems.contest': 'Contest',
+  'problems.due': 'Due',
+  'problems.dueInDays': 'in {{count}} days',
+  'problems.dueInHours': 'in {{count}} hours',
+  'problems.dueInMinutes': 'in {{count}} min',
+  'problems.dueEnded': 'Ended',
+  'problems.searchPlaceholder': 'Search problems...',
+  'problems.empty': 'No problems found.',
+  'problems.contestProblems': 'Contest Problems',
+
   // Ranking
   'ranking.title': 'Ranking',
   'ranking.user': 'User',

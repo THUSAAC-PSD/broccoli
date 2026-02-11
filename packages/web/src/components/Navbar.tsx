@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/auth-context';
 
 const navLinks = [
   { textKey: 'nav.contestInfo', href: '#' },
-  { textKey: 'nav.problems', href: '#' },
+  { textKey: 'nav.problems', href: '/problems' },
   { textKey: 'nav.submissions', href: '#' },
   { textKey: 'nav.ranking', href: '#' },
 ];
