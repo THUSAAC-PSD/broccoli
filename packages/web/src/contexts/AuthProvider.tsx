@@ -22,7 +22,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: data,
     });
 
-    if (error) throw error;
+    if (error) throw new Error(error.message);
+    if (!resData) throw new Error('Unexpected login response');
 
     localStorage.setItem(AUTH_TOKEN_KEY, resData.token);
     setUser({
