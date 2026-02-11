@@ -1,3 +1,7 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
+
 export function AmazingPage() {
-  return <div>Amazing Page!</div>;
+  const { t } = useTranslation();
+
+  return <div>{t('plugin.amazingButton.pageTitle')}</div>;
 }

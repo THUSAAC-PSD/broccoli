@@ -1,5 +1,6 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
-import { BookOpen, Code2, Home, Settings,Trophy, User } from 'lucide-react';
+import { BookOpen, Code2, Home, Settings, Trophy, User } from 'lucide-react';
 
 import {
   Sidebar as SidebarUI,
@@ -16,42 +17,20 @@ import {
 } from '@/components/ui/sidebar';
 
 const defaultMenuItems = [
-  {
-    title: 'Dashboard',
-    icon: Home,
-    url: '#',
-  },
-  {
-    title: 'Problems',
-    icon: Code2,
-    url: '#',
-  },
-  {
-    title: 'Contests',
-    icon: Trophy,
-    url: '#',
-  },
-  {
-    title: 'Tutorials',
-    icon: BookOpen,
-    url: '#',
-  },
+  { titleKey: 'sidebar.dashboard', icon: Home, url: '#' },
+  { titleKey: 'sidebar.problems', icon: Code2, url: '#' },
+  { titleKey: 'sidebar.contests', icon: Trophy, url: '#' },
+  { titleKey: 'sidebar.tutorials', icon: BookOpen, url: '#' },
 ];
 
 const defaultUserItems = [
-  {
-    title: 'Profile',
-    icon: User,
-    url: '#',
-  },
-  {
-    title: 'Settings',
-    icon: Settings,
-    url: '#',
-  },
+  { titleKey: 'sidebar.profile', icon: User, url: '#' },
+  { titleKey: 'sidebar.settings', icon: Settings, url: '#' },
 ];
 
 export function Sidebar() {
+  const { t } = useTranslation();
+
   return (
     <SidebarUI collapsible="icon">
       <SidebarHeader>
@@ -63,8 +42,8 @@ export function Sidebar() {
                   <Code2 className="size-4" />
                 </div>
                 <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-semibold">Broccoli OJ</span>
-                  <span className="text-xs">Online Judge</span>
+                  <span className="font-semibold">{t('app.name')}</span>
+                  <span className="text-xs">{t('app.tagline')}</span>
                 </div>
               </a>
             </SidebarMenuButton>
@@ -77,19 +56,22 @@ export function Sidebar() {
         <Slot name="sidebar.content.before" as="div" />
 
         <SidebarGroup>
-          <SidebarGroupLabel>Platform</SidebarGroupLabel>
+          <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {defaultMenuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <a href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {defaultMenuItems.map((item) => {
+                const title = t(item.titleKey);
+                return (
+                  <SidebarMenuItem key={item.titleKey}>
+                    <SidebarMenuButton asChild tooltip={title}>
+                      <a href={item.url}>
+                        <item.icon />
+                        <span>{title}</span>
+                      </a>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
               <Slot name="sidebar.platform.menu" as="div" />
             </SidebarMenu>
           </SidebarGroupContent>
@@ -98,19 +80,22 @@ export function Sidebar() {
         <Slot name="sidebar.groups" as="div" />
 
         <SidebarGroup>
-          <SidebarGroupLabel>Account</SidebarGroupLabel>
+          <SidebarGroupLabel>{t('sidebar.account')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {defaultUserItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <a href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {defaultUserItems.map((item) => {
+                const title = t(item.titleKey);
+                return (
+                  <SidebarMenuItem key={item.titleKey}>
+                    <SidebarMenuButton asChild tooltip={title}>
+                      <a href={item.url}>
+                        <item.icon />
+                        <span>{title}</span>
+                      </a>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
               <Slot name="sidebar.account.menu" as="div" />
             </SidebarMenu>
           </SidebarGroupContent>

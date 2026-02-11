@@ -1,3 +1,4 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { Menu } from 'lucide-react';
 
@@ -11,18 +12,20 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 const navLinks = [
-  { text: 'Contest Info', href: '#' },
-  { text: 'Problems', href: '#' },
-  { text: 'Submissions', href: '#' },
-  { text: 'Ranking', href: '#' },
+  { textKey: 'nav.contestInfo', href: '#' },
+  { textKey: 'nav.problems', href: '#' },
+  { textKey: 'nav.submissions', href: '#' },
+  { textKey: 'nav.ranking', href: '#' },
 ];
 
 const actions = [
-  { text: 'Sign in', href: '#', isButton: false },
-  { text: 'Sign up', href: '#', isButton: true },
+  { textKey: 'nav.signIn', href: '#', isButton: false },
+  { textKey: 'nav.signUp', href: '#', isButton: true },
 ];
 
 export function Navbar() {
+  const { t } = useTranslation();
+
   return (
     <header className="sticky top-8 z-50 -mb-4 px-4 pb-4 -translate-y-8">
       <div className="fade-bottom bg-background/15 absolute left-0 h-16 w-full backdrop-blur-lg" />
@@ -33,12 +36,12 @@ export function Navbar() {
             <NavigationMenu>
               <NavigationMenuList className="hidden md:flex">
                 {navLinks.map((link) => (
-                  <NavigationMenuItem key={link.text}>
+                  <NavigationMenuItem key={link.textKey}>
                     <NavigationMenuLink
                       href={link.href}
                       className="px-3 py-2 text-sm hover:text-primary"
                     >
-                      {link.text}
+                      {t(link.textKey)}
                     </NavigationMenuLink>
                   </NavigationMenuItem>
                 ))}
@@ -50,7 +53,7 @@ export function Navbar() {
             {actions.map((action, index) =>
               action.isButton ? (
                 <Button key={index} variant="default" asChild>
-                  <a href={action.href}>{action.text}</a>
+                  <a href={action.href}>{t(action.textKey)}</a>
                 </Button>
               ) : (
                 <a
@@ -58,7 +61,7 @@ export function Navbar() {
                   href={action.href}
                   className="hidden text-sm md:block"
                 >
-                  {action.text}
+                  {t(action.textKey)}
                 </a>
               ),
             )}
@@ -71,7 +74,7 @@ export function Navbar() {
                   className="shrink-0 md:hidden"
                 >
                   <Menu className="size-5" />
-                  <span className="sr-only">Toggle navigation menu</span>
+                  <span className="sr-only">{t('nav.toggleMenu')}</span>
                 </Button>
               </SheetTrigger>
               <SheetContent side="right">
@@ -80,15 +83,15 @@ export function Navbar() {
                     href="#"
                     className="flex items-center gap-2 text-xl font-bold"
                   >
-                    <span>Broccoli OJ</span>
+                    <span>{t('app.name')}</span>
                   </a>
                   {navLinks.map((link) => (
                     <a
-                      key={link.text}
+                      key={link.textKey}
                       href={link.href}
                       className="text-muted-foreground hover:text-foreground"
                     >
-                      {link.text}
+                      {t(link.textKey)}
                     </a>
                   ))}
                   <Slot name="navbar.mobile.menu" as="div" />
