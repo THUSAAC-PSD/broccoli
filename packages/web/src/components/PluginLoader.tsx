@@ -1,4 +1,5 @@
 import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
+import { useTranslation } from '@broccoli/sdk/i18n';
 import { usePluginRegistry } from '@broccoli/sdk/react';
 import { useEffect } from 'react';
 
@@ -46,6 +47,7 @@ export interface PluginLoaderProps {
 
 export function PluginLoader({ plugins, onLoad, onError }: PluginLoaderProps) {
   const { registerPlugin } = usePluginRegistry();
+  const { addTranslations } = useTranslation();
 
   useEffect(() => {
     const loadPlugins = async () => {
@@ -60,6 +62,10 @@ export function PluginLoader({ plugins, onLoad, onError }: PluginLoaderProps) {
           }
 
           await registerPlugin(plugin.manifest, plugin.components);
+
+          if (plugin.manifest.translations) {
+            addTranslations(plugin.manifest.translations);
+          }
         } catch (error) {
           const pluginName = plugin.manifest?.name || 'unknown';
           console.error(`Failed to load plugin ${pluginName}:`, error);
@@ -77,7 +83,7 @@ export function PluginLoader({ plugins, onLoad, onError }: PluginLoaderProps) {
     };
 
     loadPlugins();
-  }, [plugins, registerPlugin, onLoad, onError]);
+  }, [plugins, registerPlugin, addTranslations, onLoad, onError]);
 
   return null;
 }
@@ -97,6 +103,7 @@ export function PluginLoader({ plugins, onLoad, onError }: PluginLoaderProps) {
  */
 export function useDynamicPluginLoader() {
   const { registerPlugin, unregisterPlugin } = usePluginRegistry();
+  const { addTranslations, removeTranslations } = useTranslation();
 
   const loadPlugin = async (plugin: PluginModule) => {
     if (!plugin.manifest || !plugin.components) {
@@ -104,11 +111,17 @@ export function useDynamicPluginLoader() {
     }
 
     await registerPlugin(plugin.manifest, plugin.components);
+    if (plugin.manifest.translations) {
+      addTranslations(plugin.manifest.translations);
+    }
     return plugin.manifest.name;
   };
 
-  const unloadPlugin = async (pluginName: string) => {
+  const unloadPlugin = async (pluginName: string, translations?: Record<string, Record<string, string>>) => {
     await unregisterPlugin(pluginName);
+    if (translations) {
+      removeTranslations(translations);
+    }
   };
 
   return {

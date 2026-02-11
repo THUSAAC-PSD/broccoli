@@ -1,4 +1,5 @@
-import { AlertCircle,CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { useTranslation } from '@broccoli/sdk/i18n';
+import { AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,31 +30,31 @@ interface SubmissionResultProps {
 const STATUS_CONFIG = {
   accepted: {
     icon: CheckCircle2,
-    label: 'Accepted',
+    labelKey: 'result.accepted',
     color: 'text-green-500',
     bgColor: 'bg-green-500/10',
   },
   wrong_answer: {
     icon: XCircle,
-    label: 'Wrong Answer',
+    labelKey: 'result.wrongAnswer',
     color: 'text-red-500',
     bgColor: 'bg-red-500/10',
   },
   time_limit: {
     icon: Clock,
-    label: 'Time Limit',
+    labelKey: 'result.timeLimit',
     color: 'text-yellow-500',
     bgColor: 'bg-yellow-500/10',
   },
   runtime_error: {
     icon: AlertCircle,
-    label: 'Runtime Error',
+    labelKey: 'result.runtimeError',
     color: 'text-orange-500',
     bgColor: 'bg-orange-500/10',
   },
   pending: {
     icon: Clock,
-    label: 'Pending',
+    labelKey: 'result.pending',
     color: 'text-gray-500',
     bgColor: 'bg-gray-500/10',
   },
@@ -66,15 +67,17 @@ export function SubmissionResult({
   totalTime,
   totalMemory,
 }: SubmissionResultProps) {
+  const { t } = useTranslation();
+
   if (!status) {
     return (
       <Card className="h-full">
         <CardHeader>
-          <CardTitle>Result</CardTitle>
+          <CardTitle>{t('result.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center h-32 text-muted-foreground">
-            Submit your code to see results
+            {t('result.submitPrompt')}
           </div>
         </CardContent>
       </Card>
@@ -85,13 +88,13 @@ export function SubmissionResult({
     return (
       <Card className="h-full">
         <CardHeader>
-          <CardTitle>Result</CardTitle>
+          <CardTitle>{t('result.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center h-32">
             <div className="flex flex-col items-center gap-2">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              <p className="text-sm text-muted-foreground">Judging...</p>
+              <p className="text-sm text-muted-foreground">{t('result.judging')}</p>
             </div>
           </div>
         </CardContent>
@@ -103,7 +106,7 @@ export function SubmissionResult({
     <Card className="h-full">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Result</CardTitle>
+          <CardTitle>{t('result.title')}</CardTitle>
           {verdict && (
             <Badge
               variant={verdict === 'Accepted' ? 'default' : 'destructive'}
@@ -115,8 +118,12 @@ export function SubmissionResult({
         </div>
         {(totalTime !== undefined || totalMemory !== undefined) && (
           <div className="flex gap-4 text-sm text-muted-foreground mt-2">
-            {totalTime !== undefined && <div>Time: {totalTime}ms</div>}
-            {totalMemory !== undefined && <div>Memory: {totalMemory}MB</div>}
+            {totalTime !== undefined && (
+              <div>{t('result.time', { value: String(totalTime) })}</div>
+            )}
+            {totalMemory !== undefined && (
+              <div>{t('result.memory', { value: String(totalMemory) })}</div>
+            )}
           </div>
         )}
       </CardHeader>
@@ -134,7 +141,9 @@ export function SubmissionResult({
                 <div className="flex items-center gap-3">
                   <Icon className={`h-5 w-5 ${config.color}`} />
                   <div>
-                    <div className="font-medium">Test Case #{testCase.id}</div>
+                    <div className="font-medium">
+                      {t('result.testCase', { id: String(testCase.id) })}
+                    </div>
                     {testCase.message && (
                       <div className="text-xs text-muted-foreground mt-1">
                         {testCase.message}
@@ -153,7 +162,7 @@ export function SubmissionResult({
           })
         ) : (
           <div className="text-center text-muted-foreground py-8">
-            No test results available
+            {t('result.noResults')}
           </div>
         )}
       </CardContent>

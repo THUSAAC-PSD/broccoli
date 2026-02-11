@@ -23,6 +23,11 @@ export const manifest: PluginManifest = {
     },
   ],
   enabled: true,
+  translations: {
+    en: {
+      'plugin.notification.button': 'Notifications',
+    },
+  },
 };
 
 export const components: ComponentBundle = {

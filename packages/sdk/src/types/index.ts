@@ -76,6 +76,11 @@ export interface PluginManifest {
    * Whether the plugin is enabled by default
    */
   enabled?: boolean;
+  /**
+   * Translation strings keyed by locale, then by translation key.
+   * Example: { 'zh-CN': { 'nav.problems': '题目' } }
+   */
+  translations?: Record<string, Record<string, string>>;
   // TODO: Add isInitialized flag
 }
 

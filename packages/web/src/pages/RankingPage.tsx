@@ -1,3 +1,4 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
 import { Trophy } from 'lucide-react';
 
 import type { DataTableColumn } from '@/components/ui/data-table';
@@ -265,77 +266,84 @@ function RankBadge({ rank }: { rank: number }) {
 
 // --- Column definitions ---
 
-const standingsColumns: DataTableColumn<StandingRow>[] = [
-  {
-    accessorKey: 'rank',
-    header: '#',
-    size: 60,
-    sortKey: 'rank',
-    cell: ({ row }) => <RankBadge rank={row.original.rank} />,
-  },
-  {
-    accessorKey: 'username',
-    header: 'User',
-    sortKey: 'username',
-    cell: ({ row }) => (
-      <span className="font-medium">{row.original.username}</span>
-    ),
-  },
-  {
-    accessorKey: 'solved',
-    header: 'Solved',
-    size: 80,
-    sortKey: 'solved',
-    cell: ({ row }) => (
-      <span className="font-bold text-primary text-center block">
-        {row.original.solved}
-      </span>
-    ),
-  },
-  {
-    accessorKey: 'total_score',
-    header: 'Score',
-    size: 80,
-    sortKey: 'total_score',
-    cell: ({ row }) => (
-      <span className="font-semibold text-center block">
-        {row.original.total_score}
-      </span>
-    ),
-  },
-  {
-    accessorKey: 'penalty',
-    header: 'Penalty',
-    size: 90,
-    sortKey: 'penalty',
-    cell: ({ row }) => (
-      <span className="text-muted-foreground text-center block">
-        {row.original.penalty}
-      </span>
-    ),
-  },
-  ...PROBLEM_LABELS.map(
-    (label): DataTableColumn<StandingRow> => ({
-      id: `problem-${label}`,
-      header: label,
-      size: 70,
+function useStandingsColumns(): DataTableColumn<StandingRow>[] {
+  const { t } = useTranslation();
+
+  return [
+    {
+      accessorKey: 'rank',
+      header: '#',
+      size: 60,
+      sortKey: 'rank',
+      cell: ({ row }) => <RankBadge rank={row.original.rank} />,
+    },
+    {
+      accessorKey: 'username',
+      header: t('ranking.user'),
+      sortKey: 'username',
       cell: ({ row }) => (
-        <div className="text-center">
-          <ProblemCellContent result={row.original.problems[label]} />
-        </div>
+        <span className="font-medium">{row.original.username}</span>
       ),
-    }),
-  ),
-];
+    },
+    {
+      accessorKey: 'solved',
+      header: t('ranking.solved'),
+      size: 80,
+      sortKey: 'solved',
+      cell: ({ row }) => (
+        <span className="font-bold text-primary text-center block">
+          {row.original.solved}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'total_score',
+      header: t('ranking.score'),
+      size: 80,
+      sortKey: 'total_score',
+      cell: ({ row }) => (
+        <span className="font-semibold text-center block">
+          {row.original.total_score}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'penalty',
+      header: t('ranking.penalty'),
+      size: 90,
+      sortKey: 'penalty',
+      cell: ({ row }) => (
+        <span className="text-muted-foreground text-center block">
+          {row.original.penalty}
+        </span>
+      ),
+    },
+    ...PROBLEM_LABELS.map(
+      (label): DataTableColumn<StandingRow> => ({
+        id: `problem-${label}`,
+        header: label,
+        size: 70,
+        cell: ({ row }) => (
+          <div className="text-center">
+            <ProblemCellContent result={row.original.problems[label]} />
+          </div>
+        ),
+      }),
+    ),
+  ];
+}
 
 // --- Page ---
 
 export function RankingPage() {
+  const { t } = useTranslation();
+  const standingsColumns = useStandingsColumns();
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
         <Trophy className="h-6 w-6 text-amber-500" />
-        <h1 className="text-2xl font-bold">Ranking</h1>
+        <h1 className="text-2xl font-bold">{t('ranking.title')}</h1>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -348,11 +356,11 @@ export function RankingPage() {
         queryKey={['standings']}
         fetchFn={fetchStandings}
         searchable
-        searchPlaceholder="Search users..."
+        searchPlaceholder={t('ranking.searchPlaceholder')}
         defaultPerPage={10}
         defaultSortBy="rank"
         defaultSortOrder="asc"
-        emptyMessage="No participants found."
+        emptyMessage={t('ranking.empty')}
       />
     </div>
   );

@@ -1,3 +1,4 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
 import Editor from '@monaco-editor/react';
 import { ChevronDown, Maximize2, Minimize2, Play } from 'lucide-react';
 import type { editor } from 'monaco-editor';
@@ -76,6 +77,7 @@ export function CodeEditor({
   isFullscreen,
   onToggleFullscreen,
 }: CodeEditorProps) {
+  const { t } = useTranslation();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>(
     LANGUAGES[0],
   );
@@ -107,14 +109,14 @@ export function CodeEditor({
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle>Code</CardTitle>
+        <CardTitle>{t('editor.title')}</CardTitle>
         <div className="flex items-center gap-2">
           {onToggleFullscreen && (
             <Button
               variant="ghost"
               size="sm"
               onClick={onToggleFullscreen}
-              aria-label="Toggle fullscreen"
+              aria-label={t('editor.toggleFullscreen')}
             >
               {isFullscreen ? (
                 <Minimize2 className="h-4 w-4" />
@@ -167,9 +169,9 @@ export function CodeEditor({
         <div className="flex gap-2 justify-end">
           <Button variant="outline" onClick={handleRun}>
             <Play className="mr-2 h-4 w-4" />
-            Run
+            {t('editor.run')}
           </Button>
-          <Button onClick={handleSubmit}>Submit</Button>
+          <Button onClick={handleSubmit}>{t('editor.submit')}</Button>
         </div>
       </CardContent>
     </Card>

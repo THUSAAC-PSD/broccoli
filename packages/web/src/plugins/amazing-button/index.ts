@@ -24,6 +24,13 @@ export const manifest: PluginManifest = {
       component: 'pages/AmazingPage',
     },
   ],
+  translations: {
+    en: {
+      'plugin.amazingButton.label': 'Amazing Button',
+      'plugin.amazingButton.alert': 'Amazing!',
+      'plugin.amazingButton.pageTitle': 'Amazing Page!',
+    },
+  },
 };
 
 export const components: ComponentBundle = {
