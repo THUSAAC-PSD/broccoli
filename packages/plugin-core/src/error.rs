@@ -23,3 +23,15 @@ pub enum PluginError {
     #[error("Internal error: {0}")]
     Internal(String),
 }
+
+#[derive(Debug, Error)]
+pub enum AssetError {
+    #[error("Plugin has no [web] configuration")]
+    NoWebConfig,
+    #[error("Path traversal attempt detected")]
+    PathTraversal,
+    #[error("File not found")]
+    NotFound,
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+}

@@ -20,6 +20,7 @@ common = { path = "packages/common" }
 config = "0.15.19"
 extism = "1.13.0"
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
+mime_guess = "2.0.5"
 mq = { path = "packages/mq" }
 plugin-core = { path = "packages/plugin-core" }
 rand = "0.9"

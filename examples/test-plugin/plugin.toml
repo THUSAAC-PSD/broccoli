@@ -5,3 +5,7 @@ description = "A demo plugin"
 [server]
 entry = "main.wasm"
 permissions = ["logger", "storage", "sql"]
+
+[web]
+root = "app"
+entry = "index.js"

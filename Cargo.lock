@@ -4159,6 +4159,7 @@ dependencies = [
  "extism",
  "jsonwebtoken",
  "libc",
+ "mime_guess",
  "mq",
  "plugin-core",
  "reqwest",
