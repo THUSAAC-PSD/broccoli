@@ -11,72 +11,6 @@ import type { components } from '@/lib/api/schema';
 
 type ContestListItem = components['schemas']['ContestListItem'];
 
-// Mock data until backend is wired up
-const MOCK_CONTESTS: ContestListItem[] = [
-  {
-    id: 1,
-    title: 'Weekly Contest #1',
-    is_public: true,
-    start_time: '2026-02-10T14:00:00Z',
-    end_time: '2026-02-15T17:00:00Z',
-    show_compile_output: true,
-    show_participants_list: true,
-    submissions_visible: false,
-    created_at: '2026-01-20T10:00:00Z',
-    updated_at: '2026-01-20T10:30:00Z',
-  },
-  {
-    id: 2,
-    title: 'Monthly Challenge',
-    is_public: true,
-    start_time: '2026-02-01T00:00:00Z',
-    end_time: '2026-03-01T23:59:00Z',
-    show_compile_output: true,
-    show_participants_list: true,
-    submissions_visible: true,
-    created_at: '2026-01-25T08:00:00Z',
-    updated_at: '2026-01-25T08:30:00Z',
-  },
-  {
-    id: 3,
-    title: 'Algorithm Sprint',
-    is_public: true,
-    start_time: '2026-02-20T09:00:00Z',
-    end_time: '2026-02-20T12:00:00Z',
-    show_compile_output: false,
-    show_participants_list: false,
-    submissions_visible: false,
-    created_at: '2026-02-01T12:00:00Z',
-    updated_at: '2026-02-01T12:30:00Z',
-  },
-  {
-    id: 4,
-    title: 'Beginner Bootcamp',
-    is_public: true,
-    start_time: '2026-01-01T10:00:00Z',
-    end_time: '2026-02-01T10:00:00Z',
-    show_compile_output: true,
-    show_participants_list: true,
-    submissions_visible: true,
-    created_at: '2025-12-15T10:00:00Z',
-    updated_at: '2025-12-15T10:30:00Z',
-  },
-  {
-    id: 5,
-    title: 'Spring Championship 2026',
-    is_public: false,
-    start_time: '2026-03-15T08:00:00Z',
-    end_time: '2026-03-15T13:00:00Z',
-    show_compile_output: true,
-    show_participants_list: true,
-    submissions_visible: false,
-    created_at: '2026-02-10T14:00:00Z',
-    updated_at: '2026-02-10T14:30:00Z',
-  },
-];
-
-const USE_MOCK = true;
-
 function getContestStatus(
   startTime: string,
   endTime: string,
@@ -111,28 +45,6 @@ function formatRelativeTime(dateStr: string, t: (key: string, params?: Record<st
 }
 
 async function fetchContests(params: ServerTableParams) {
-  if (USE_MOCK) {
-    let items = [...MOCK_CONTESTS];
-    if (params.search) {
-      const q = params.search.toLowerCase();
-      items = items.filter((c) => c.title.toLowerCase().includes(q));
-    }
-    if (params.sort_by) {
-      const key = params.sort_by as keyof ContestListItem;
-      items.sort((a, b) => {
-        const av = a[key];
-        const bv = b[key];
-        if (av < bv) return params.sort_order === 'asc' ? -1 : 1;
-        if (av > bv) return params.sort_order === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-    return {
-      data: items,
-      pagination: { page: 1, per_page: 20, total: items.length, total_pages: 1 },
-    };
-  }
-
   const { data, error } = await api.GET('/contests', {
     params: {
       path: {
