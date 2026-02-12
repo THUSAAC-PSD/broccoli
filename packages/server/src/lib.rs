@@ -68,6 +68,10 @@ pub fn build_router(state: AppState) -> axum::Router {
 
     axum::Router::new()
         .nest("/api", router)
+        .route(
+            "/assets/{plugin_id}/{*file_path}",
+            axum::routing::get(handlers::assets::serve_plugin_asset),
+        )
         .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api.clone()))
         .merge(Scalar::with_url("/scalar", api))

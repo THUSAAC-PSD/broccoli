@@ -38,6 +38,10 @@ pub struct JudgerConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct WebConfig {
-    /// Path to the JS entry point
+    /// The root directory for the web assets, e.g., "dist" or "public".
+    pub root: String,
+
+    /// Path to the JS entry file relative to the web root, e.g., "index.js".
     pub entry: String,
+    // TODO: styles
 }
