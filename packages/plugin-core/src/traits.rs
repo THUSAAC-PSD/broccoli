@@ -1,23 +1,19 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
-
 use async_trait::async_trait;
-use extism::{Manifest, Plugin, PluginBuilder, Wasm};
+use extism::{Manifest, PluginBuilder, Wasm};
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::{info, instrument};
+use std::sync::Mutex;
+use tracing::{error, info, instrument, warn};
 
 use crate::config::PluginConfig;
 use crate::error::PluginError;
 use crate::host::HostFunctionRegistry;
-use crate::loader::PluginBundle;
 use crate::manifest::PluginManifest;
-
-pub type PluginMap = Arc<RwLock<HashMap<String, Mutex<Plugin>>>>;
+use crate::registry::{PluginEntry, PluginRegistry, PluginStatus};
 
 #[async_trait]
 pub trait PluginManager: Send + Sync {
     /// Returns a reference to the plugin registry.
-    fn get_registry(&self) -> &PluginMap;
+    fn get_registry(&self) -> &PluginRegistry;
 
     /// Returns a reference to the plugin config.
     fn get_config(&self) -> &PluginConfig;
@@ -25,49 +21,133 @@ pub trait PluginManager: Send + Sync {
     /// Returns a reference to the host function registry.
     fn get_host_functions(&self) -> &HostFunctionRegistry;
 
-    /// Resolves the appropriate entry point and permissions from the manifest.
+    /// Resolves the appropriate Wasm entry point and permissions from the manifest.
     fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)>;
 
-    #[instrument(skip(self), fields(plugin_id = %plugin_id))]
-    fn load_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
-        info!("Attempting to load plugin bundle...");
+    /// Scans the plugins directory and updates the registry with discovered plugins.
+    fn discover_plugins(&self) -> Result<(), PluginError> {
+        let plugins_dir = &self.get_config().plugins_dir;
 
-        let plugin_dir = self.get_config().plugins_dir.join(plugin_id);
-        let bundle = PluginBundle::load_from_dir(&plugin_dir)?;
+        if !plugins_dir.exists() || !plugins_dir.is_dir() {
+            return Err(PluginError::DiscoveryFailed(format!(
+                "Plugins directory '{}' does not exist or is not a directory",
+                plugins_dir.display()
+            )));
+        }
 
-        let (entry, permissions) = self
-            .resolve(&bundle.manifest)
-            .ok_or_else(|| PluginError::LoadFailed("No matching entry found in manifest".into()))?;
+        info!(
+            "Discovering plugins in directory: {}",
+            plugins_dir.display()
+        );
 
-        let wasm_path = bundle.root_dir.join(entry);
-        let wasm = Wasm::file(&wasm_path);
-        let manifest = Manifest::new([wasm]);
-
-        let host_functions = self.get_host_functions().resolve(plugin_id, &permissions);
-
-        let plugin = PluginBuilder::new(manifest)
-            .with_wasi(true)
-            .with_functions(host_functions)
-            .build()?;
-
+        let entries = std::fs::read_dir(plugins_dir).map_err(PluginError::Io)?;
         let mut registry = self
             .get_registry()
             .write()
             .map_err(|_| PluginError::Internal("Failed to acquire registry write lock".into()))?;
 
-        registry.insert(plugin_id.to_string(), Mutex::new(plugin));
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                PluginError::LoadFailed(format!("Failed to read plugin entry: {}", e))
+            })?;
+            if let Ok(file_type) = entry.file_type()
+                && file_type.is_dir()
+            {
+                let id = entry.file_name().to_string_lossy().to_string();
+                match PluginEntry::from_dir(&entry.path()) {
+                    Ok(plugin_entry) => {
+                        info!("Discovered plugin: {}", plugin_entry.manifest);
+                        if plugin_entry.manifest.is_hollow() {
+                            warn!(
+                                "Plugin '{}' is hollow. It might be misconfigured.",
+                                plugin_entry.id
+                            );
+                        }
+                        registry.insert(id, plugin_entry);
+                    }
+                    Err(e) => {
+                        error!("Failed to parse plugin '{}': {}", id, e);
+                    }
+                }
+            }
+        }
 
-        info!(
-            "Plugin '{}' (v{}) loaded successfully",
-            bundle.manifest.name, bundle.manifest.version
-        );
         Ok(())
     }
 
-    fn has_plugin(&self, plugin_id: &str) -> bool {
+    // Loads a plugin by its ID, initializing the Wasm runtime as needed.
+    #[instrument(skip(self), fields(plugin_id = %plugin_id))]
+    fn load_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let mut registry = self
+            .get_registry()
+            .write()
+            .map_err(|_| PluginError::Internal("Failed to acquire registry write lock".into()))?;
+
+        let plugin_entry = registry
+            .get_mut(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+
+        if plugin_entry.status == PluginStatus::Loaded {
+            return Ok(()); // Already loaded
+        }
+
+        let mut runtime = None;
+        if let Some((entry_point, permissions)) = self.resolve(&plugin_entry.manifest) {
+            let wasm_path = plugin_entry.root_dir.join(&entry_point);
+            if !wasm_path.exists() {
+                return Err(PluginError::LoadFailed(format!(
+                    "Wasm file not found at path: {}",
+                    wasm_path.display()
+                )));
+            }
+
+            let manifest = Manifest::new([Wasm::file(&wasm_path)]);
+            let host_functions = self.get_host_functions().resolve(plugin_id, &permissions);
+            let plugin = PluginBuilder::new(manifest)
+                .with_wasi(self.get_config().enable_wasi)
+                .with_functions(host_functions)
+                .build()?;
+
+            runtime = Some(Mutex::new(plugin));
+        }
+
+        plugin_entry.runtime = runtime;
+        plugin_entry.status = PluginStatus::Loaded;
+
+        info!("Plugin {} loaded successfully", plugin_entry.manifest);
+        Ok(())
+    }
+
+    /// Unloads a plugin by its ID, cleaning up the Wasm runtime and resources.
+    #[instrument(skip(self), fields(plugin_id = %plugin_id))]
+    fn unload_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let mut registry = self
+            .get_registry()
+            .write()
+            .map_err(|_| PluginError::Internal("Failed to acquire registry write lock".into()))?;
+
+        let plugin_entry = registry
+            .get_mut(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+
+        plugin_entry.runtime = None;
+        plugin_entry.status = PluginStatus::Discovered;
+
+        info!("Plugin {} unloaded successfully", plugin_entry.manifest);
+
+        Ok(())
+    }
+
+    /// Checks if a plugin is currently loaded.
+    fn is_plugin_loaded(&self, plugin_id: &str) -> bool {
         self.get_registry()
             .read()
-            .map(|r| r.contains_key(plugin_id))
+            .ok()
+            .and_then(|registry| {
+                registry
+                    .get(plugin_id)
+                    .map(|entry| entry.status == PluginStatus::Loaded)
+            })
             .unwrap_or(false)
     }
 
@@ -78,27 +158,40 @@ pub trait PluginManager: Send + Sync {
         func_name: &str,
         input: Vec<u8>,
     ) -> Result<Vec<u8>, PluginError> {
-        // Acquire read lock to find the plugin
         let registry = self
             .get_registry()
             .read()
             .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
 
-        let plugin_mutex = registry
+        let plugin_entry = registry
             .get(plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
-        // Acquire exclusive lock on the specific plugin instance for execution
-        let mut plugin = plugin_mutex
-            .lock()
-            .map_err(|_| PluginError::Internal("Failed to acquire plugin mutex".into()))?;
+        if plugin_entry.status != PluginStatus::Loaded {
+            return Err(PluginError::NotLoaded(plugin_id.to_string()));
+        }
 
-        // Execute the function in the Wasm module
-        let output: Vec<u8> = plugin
+        let mutex = plugin_entry
+            .runtime
+            .as_ref()
+            .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?;
+
+        let mut plugin = mutex.lock().map_err(|_| {
+            PluginError::Internal(format!(
+                "Failed to acquire runtime lock for plugin '{}'",
+                plugin_id
+            ))
+        })?;
+
+        let result = plugin
             .call(func_name, input)
-            .map_err(|e| PluginError::ExecutionFailed(e.to_string()))?;
+            .map_err(|e| PluginError::ExecutionFailed {
+                plugin_id: plugin_id.to_string(),
+                func_name: func_name.to_string(),
+                message: e.to_string(),
+            })?;
 
-        Ok(output)
+        Ok(result)
     }
 }
 

@@ -5,10 +5,11 @@ use std::time::Duration;
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
 use mq::{MqConfig as MqConnConfig, init_mq};
-use server::build_router;
+use plugin_core::traits::PluginManager;
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info, warn};
 
+use server::build_router;
 use server::config::AppConfig;
 use server::consumers::{consume_judge_results, consume_worker_dlq};
 use server::dlq::run_stuck_job_detector;
@@ -77,8 +78,10 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
+    let plugin_manager = ServerManager::new(app_config.plugin.clone(), db.clone());
+    plugin_manager.discover_plugins()?;
     let state = AppState {
-        plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
+        plugins: Arc::new(plugin_manager),
         db,
         config: app_config.clone(),
         mq,

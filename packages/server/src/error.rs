@@ -12,7 +12,8 @@ use serde::Serialize;
 pub struct ErrorBody {
     /// Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
     /// `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
-    /// `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `INTERNAL_ERROR`.
+    /// `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
+    /// `INTERNAL_ERROR`.
     #[schema(example = "VALIDATION_ERROR")]
     pub code: &'static str,
     /// Human-readable error description.
@@ -31,6 +32,7 @@ pub enum AppError {
     NotFound(String),
     Conflict(String),
     UsernameTaken,
+    PluginNotReady(String),
     /// Rate limit exceeded. Contains seconds until retry is allowed.
     RateLimited {
         retry_after: u64,
@@ -97,6 +99,13 @@ impl AppError {
                     message: "Username is already taken".into(),
                 },
             ),
+            AppError::PluginNotReady(msg) => (
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: "PLUGIN_NOT_READY",
+                    message: msg,
+                },
+            ),
             AppError::RateLimited { retry_after } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 ErrorBody {
@@ -147,7 +156,11 @@ impl From<PluginError> for AppError {
         match err {
             PluginError::NotFound(detail) => {
                 tracing::warn!("Plugin not found: {detail}");
-                AppError::NotFound("Plugin not found".into())
+                AppError::NotFound(format!("Plugin '{detail}' not found"))
+            }
+            PluginError::NotLoaded(_) | PluginError::NoRuntime(_) => {
+                tracing::warn!("Plugin not ready: {err}");
+                AppError::PluginNotReady(err.to_string())
             }
             PluginError::Serialization(e) => AppError::Validation(e.to_string()),
             other => AppError::Internal(other.to_string()),

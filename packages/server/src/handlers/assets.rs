@@ -3,7 +3,7 @@ use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use plugin_core::error::{AssetError, PluginError};
-use plugin_core::loader::PluginBundle;
+use plugin_core::registry::PluginEntry;
 use tracing::instrument;
 
 use crate::error::AppError;
@@ -17,7 +17,7 @@ pub async fn serve_plugin_asset(
     let plugin_dir = state.config.plugin.plugins_dir.join(&plugin_id);
 
     // Load bundle metadata to find the web root
-    let bundle = PluginBundle::load_from_dir(&plugin_dir).map_err(|e| match e {
+    let bundle = PluginEntry::from_dir(&plugin_dir).map_err(|e| match e {
         PluginError::NotFound(_) => AppError::NotFound(format!("Plugin '{}' not found", plugin_id)),
         PluginError::LoadFailed(msg) => {
             AppError::Internal(format!("Failed to load plugin: {}", msg))

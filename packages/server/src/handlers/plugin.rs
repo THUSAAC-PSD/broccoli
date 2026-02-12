@@ -57,6 +57,7 @@ pub async fn load_plugin(
     responses(
         (status = 200, description = "Plugin function result", body = serde_json::Value),
         (status = 400, description = "Invalid input (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 400, description = "Plugin not ready (PLUGIN_NOT_READY)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
     ),
