@@ -40,6 +40,8 @@ export const manifest: PluginManifest = {
       'problem.explanation': '解释',
       'problem.notes': '注意',
       'problem.toggleFullscreen': '切换全屏',
+      'problem.notFound': '未找到题目。',
+      'problem.loadError': '加载题目失败。',
 
       // Code editor
       'editor.title': '代码',
@@ -87,6 +89,12 @@ export const manifest: PluginManifest = {
       'contests.upcoming': '即将开始',
       'contests.running': '进行中',
       'contests.ended': '已结束',
+      'contests.description': '描述',
+      'contests.noDescription': '暂无描述。',
+      'contests.problems': '题目',
+      'contests.notFound': '未找到比赛。',
+      'contests.loadError': '加载比赛详情失败。',
+      'contests.loadProblemsError': '加载比赛题目失败。',
       'contests.inDays': '{{count}} 天后',
       'contests.inHours': '{{count}} 小时后',
       'contests.inMinutes': '{{count}} 分钟后',

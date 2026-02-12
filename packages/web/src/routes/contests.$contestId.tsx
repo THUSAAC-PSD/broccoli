@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router';
 
-export default function ContestProblemsLayout() {
+export default function ContestLayout() {
   return <Outlet />;
 }

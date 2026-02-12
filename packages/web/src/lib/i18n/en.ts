@@ -31,6 +31,8 @@ export const en: Record<string, string> = {
   'problem.explanation': 'Explanation',
   'problem.notes': 'Notes',
   'problem.toggleFullscreen': 'Toggle fullscreen',
+  'problem.notFound': 'Problem not found.',
+  'problem.loadError': 'Failed to load problem.',
 
   // Code editor
   'editor.title': 'Code',
@@ -78,6 +80,12 @@ export const en: Record<string, string> = {
   'contests.upcoming': 'Upcoming',
   'contests.running': 'Running',
   'contests.ended': 'Ended',
+  'contests.description': 'Description',
+  'contests.noDescription': 'No description provided.',
+  'contests.problems': 'Problems',
+  'contests.notFound': 'Contest not found.',
+  'contests.loadError': 'Failed to load contest details.',
+  'contests.loadProblemsError': 'Failed to load contest problems.',
   'contests.inDays': 'in {{count}} days',
   'contests.inHours': 'in {{count}} hours',
   'contests.inMinutes': 'in {{count}} min',
