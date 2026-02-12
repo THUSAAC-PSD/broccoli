@@ -5,11 +5,24 @@ pub enum PluginError {
     #[error("Plugin not found: {0}")]
     NotFound(String),
 
+    #[error("Plugin '{0}' is not loaded")]
+    NotLoaded(String),
+
+    #[error("Plugin '{0}' has no Wasm runtime (frontend-only or configuration mismatch)")]
+    NoRuntime(String),
+
     #[error("Plugin load failed: {0}")]
     LoadFailed(String),
 
-    #[error("Plugin execution failed: {0}")]
-    ExecutionFailed(String),
+    #[error("Plugin discovery failed: {0}")]
+    DiscoveryFailed(String),
+
+    #[error("Failed to call function '{func_name}' on plugin '{plugin_id}': {message}")]
+    ExecutionFailed {
+        plugin_id: String,
+        func_name: String,
+        message: String,
+    },
 
     #[error("Extism error: {0}")]
     Extism(#[from] extism::Error),

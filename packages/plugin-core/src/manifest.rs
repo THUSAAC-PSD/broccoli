@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -9,11 +11,23 @@ pub struct PluginManifest {
     /// Configuration for the Server environment
     pub server: Option<ServerConfig>,
 
-    /// Configuration for the Judger environment
-    pub judger: Option<JudgerConfig>,
+    /// Configuration for the Worker environment
+    pub worker: Option<WorkerConfig>,
 
     /// Configuration for the Web (Frontend) environment
     pub web: Option<WebConfig>,
+}
+
+impl PluginManifest {
+    pub fn is_hollow(&self) -> bool {
+        self.server.is_none() && self.worker.is_none() && self.web.is_none()
+    }
+}
+
+impl Display for PluginManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (v{})", self.name, self.version)
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -27,7 +41,7 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct JudgerConfig {
+pub struct WorkerConfig {
     /// Path to the Wasm file relative to the plugin root
     pub entry: String,
 

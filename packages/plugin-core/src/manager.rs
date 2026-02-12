@@ -1,14 +1,15 @@
-use crate::config::PluginConfig;
-use crate::traits::PluginMap;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-pub struct PluginBaseState {
+use crate::config::PluginConfig;
+use crate::registry::PluginRegistry;
+
+pub struct PluginManagerState {
     pub config: PluginConfig,
-    pub registry: PluginMap,
+    pub registry: PluginRegistry,
 }
 
-impl PluginBaseState {
+impl PluginManagerState {
     pub fn new(config: PluginConfig) -> Self {
         if !config.check_plugins_dir() {
             let _ = std::fs::create_dir_all(&config.plugins_dir);
