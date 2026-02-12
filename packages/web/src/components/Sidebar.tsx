@@ -1,6 +1,6 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
-import { BookOpen, ChevronUp, Code2, Home, LogOut, Settings, Trophy, User } from 'lucide-react';
+import { BookOpen, ChevronUp, Code2, Home, LogOut, Settings, Shield, Trophy, User } from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
 
@@ -81,6 +81,16 @@ export function Sidebar() {
                   </SidebarMenuItem>
                 );
               })}
+              {user?.role === 'admin' && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild tooltip={t('sidebar.admin')}>
+                    <a href="/admin">
+                      <Shield />
+                      <span>{t('sidebar.admin')}</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <Slot name="sidebar.platform.menu" as="div" />
             </SidebarMenu>
           </SidebarGroupContent>
