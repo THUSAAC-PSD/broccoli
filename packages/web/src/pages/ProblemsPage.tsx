@@ -13,93 +13,9 @@ import type { components } from '@/lib/api/schema';
 type ProblemListItem = components['schemas']['ProblemListItem'];
 type ContestProblemResponse = components['schemas']['ContestProblemResponse'];
 
-// Mock data until backend is wired up
-const MOCK_PROBLEMS: ProblemListItem[] = [
-  {
-    id: 1,
-    title: 'Two Sum',
-    time_limit: 1000,
-    memory_limit: 262144,
-    show_test_details: false,
-    created_at: '2025-09-01T08:00:00Z',
-    updated_at: '2025-09-01T08:30:00Z',
-  },
-  {
-    id: 2,
-    title: 'Add Two Numbers',
-    time_limit: 2000,
-    memory_limit: 262144,
-    show_test_details: false,
-    created_at: '2025-09-02T10:00:00Z',
-    updated_at: '2025-09-02T10:30:00Z',
-  },
-  {
-    id: 3,
-    title: 'Longest Substring Without Repeating Characters',
-    time_limit: 1000,
-    memory_limit: 262144,
-    show_test_details: true,
-    created_at: '2025-09-03T12:00:00Z',
-    updated_at: '2025-09-03T12:30:00Z',
-  },
-  {
-    id: 4,
-    title: 'Median of Two Sorted Arrays',
-    time_limit: 2000,
-    memory_limit: 524288,
-    show_test_details: false,
-    created_at: '2025-09-04T09:00:00Z',
-    updated_at: '2025-09-04T09:30:00Z',
-  },
-  {
-    id: 5,
-    title: 'Longest Palindromic Substring',
-    time_limit: 1000,
-    memory_limit: 262144,
-    show_test_details: true,
-    created_at: '2025-09-05T14:00:00Z',
-    updated_at: '2025-09-05T14:30:00Z',
-  },
-];
-
-// Mock contest mapping: problem_id -> contest info with end_time as due date
-const MOCK_CONTEST_MAP: Record<
-  number,
-  { id: number; name: string; endTime: string }
-> = {
-  1: { id: 1, name: 'Weekly Contest #1', endTime: '2026-02-15T17:00:00Z' },
-  2: { id: 1, name: 'Weekly Contest #1', endTime: '2026-02-15T17:00:00Z' },
-  3: { id: 2, name: 'Monthly Challenge', endTime: '2026-03-01T23:59:00Z' },
-  4: { id: 2, name: 'Monthly Challenge', endTime: '2026-03-01T23:59:00Z' },
-};
-
-const USE_MOCK = true;
-
 // --- Public problems (paginated via DataTable) ---
 
 async function fetchProblems(params: ServerTableParams) {
-  if (USE_MOCK) {
-    let items = [...MOCK_PROBLEMS];
-    if (params.search) {
-      const q = params.search.toLowerCase();
-      items = items.filter((p) => p.title.toLowerCase().includes(q));
-    }
-    if (params.sort_by) {
-      const key = params.sort_by as keyof ProblemListItem;
-      items.sort((a, b) => {
-        const av = a[key];
-        const bv = b[key];
-        if (av < bv) return params.sort_order === 'asc' ? -1 : 1;
-        if (av > bv) return params.sort_order === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-    return {
-      data: items,
-      pagination: { page: 1, per_page: 20, total: items.length, total_pages: 1 },
-    };
-  }
-
   const { data, error } = await api.GET('/problems', {
     params: {
       query: {
@@ -145,13 +61,7 @@ function useProblemsColumns(): DataTableColumn<ProblemListItem>[] {
       id: 'contest',
       header: t('problems.contest'),
       cell: ({ row }) => {
-        const contest = MOCK_CONTEST_MAP[row.original.id];
-        if (!contest) return <span className="text-muted-foreground">—</span>;
-        return (
-          <Link to={`/contests/${contest.id}`}>
-            <Badge variant="secondary">{contest.name}</Badge>
-          </Link>
-        );
+        return <span className="text-muted-foreground">—</span>;
       },
     },
     {
@@ -159,26 +69,7 @@ function useProblemsColumns(): DataTableColumn<ProblemListItem>[] {
       header: t('problems.due'),
       size: 160,
       cell: ({ row }) => {
-        const contest = MOCK_CONTEST_MAP[row.original.id];
-        if (!contest) return <span className="text-muted-foreground">—</span>;
-        const due = new Date(contest.endTime);
-        const now = new Date();
-        const diffMs = due.getTime() - now.getTime();
-        if (diffMs <= 0) {
-          return <span className="text-muted-foreground">{t('problems.dueEnded')}</span>;
-        }
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMins / 60);
-        const diffDays = Math.floor(diffHours / 24);
-        let label: string;
-        if (diffDays > 0) {
-          label = t('problems.dueInDays', { count: String(diffDays) });
-        } else if (diffHours > 0) {
-          label = t('problems.dueInHours', { count: String(diffHours) });
-        } else {
-          label = t('problems.dueInMinutes', { count: String(diffMins) });
-        }
-        return <span>{label}</span>;
+        return <span className="text-muted-foreground">—</span>;
       },
     },
   ];
