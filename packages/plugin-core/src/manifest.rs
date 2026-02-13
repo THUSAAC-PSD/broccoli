@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PluginManifest {
     pub name: String,
     pub version: String,
@@ -30,7 +30,7 @@ impl Display for PluginManifest {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
     /// Path to the Wasm file relative to the plugin root
     pub entry: String,
@@ -40,7 +40,7 @@ pub struct ServerConfig {
     pub permissions: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WorkerConfig {
     /// Path to the Wasm file relative to the plugin root
     pub entry: String,
@@ -50,7 +50,7 @@ pub struct WorkerConfig {
     pub permissions: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebConfig {
     /// The root directory for the web assets, e.g., "dist" or "public".
     pub root: String,

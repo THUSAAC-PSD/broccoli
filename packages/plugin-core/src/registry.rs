@@ -33,9 +33,8 @@ pub type PluginRegistry = Arc<RwLock<HashMap<String, PluginEntry>>>;
 #[derive(Debug, Clone, Serialize)]
 pub struct PluginInfo {
     pub id: String,
-    pub name: String,
-    pub version: String,
-    pub description: Option<String>,
+    #[serde(flatten)]
+    pub manifest: PluginManifest,
     pub status: PluginStatus,
 }
 
@@ -43,9 +42,7 @@ impl From<&PluginEntry> for PluginInfo {
     fn from(entry: &PluginEntry) -> Self {
         Self {
             id: entry.id.clone(),
-            name: entry.manifest.name.clone(),
-            version: entry.manifest.version.clone(),
-            description: entry.manifest.description.clone(),
+            manifest: entry.manifest.clone(),
             status: entry.status.clone(),
         }
     }
