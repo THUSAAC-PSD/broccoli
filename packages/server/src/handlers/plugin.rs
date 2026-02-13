@@ -2,45 +2,15 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use plugin_core::traits::PluginManagerExt;
+use plugin_core::{registry::PluginStatus, traits::PluginManagerExt};
 use serde_json::Value;
 use tracing::instrument;
 
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::models::plugin::ActivePluginResponse;
 use crate::state::AppState;
-
-#[utoipa::path(
-    post,
-    path = "/{id}/load",
-    tag = "Plugins",
-    operation_id = "loadPlugin",
-    summary = "Load a WASM plugin by ID",
-    description = "Loads a WASM plugin into the server runtime. Requires `plugin:load` permission. The plugin must have a valid `plugin.toml` manifest.",
-    params(("id" = String, Path, description = "Plugin ID")),
-    responses(
-        (status = 200, description = "Plugin loaded successfully", body = serde_json::Value),
-        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
-    ),
-    security(("jwt" = [])),
-)]
-#[instrument(skip(state, auth_user), fields(id))]
-pub async fn load_plugin(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<Value>, AppError> {
-    auth_user.require_permission("plugin:load")?;
-
-    state.plugins.load_plugin(&id)?;
-
-    Ok(Json(serde_json::json!({
-        "message": format!("Plugin '{}' loaded successfully", id)
-    })))
-}
 
 #[utoipa::path(
     post,
@@ -73,4 +43,31 @@ pub async fn call_plugin_func(
     let result: Value = state.plugins.call(&plugin_id, &func_name, input).await?;
 
     Ok(Json(result))
+}
+
+#[utoipa::path(
+    get,
+    path = "/active",
+    tag = "Plugins",
+    operation_id = "listActivePlugins",
+    summary = "List active plugins with web components",
+    description = "Returns a list of currently active (loaded) plugins that have web (frontend) components. This is used by the frontend to discover which plugins are available for rendering UI.",
+    responses(
+        (status = 200, description = "List of active plugins", body = Vec<ActivePluginResponse>),
+    ),
+)]
+#[instrument(skip(state))]
+pub async fn list_active_plugins(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ActivePluginResponse>>, AppError> {
+    let active_plugins = state
+        .plugins
+        .list_plugins()
+        .map_err(AppError::from)?
+        .into_iter()
+        .filter(|p| p.status == PluginStatus::Loaded && p.manifest.web.is_some())
+        .map(ActivePluginResponse::from)
+        .collect();
+
+    Ok(Json(active_plugins))
 }

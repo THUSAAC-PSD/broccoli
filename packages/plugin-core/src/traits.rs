@@ -8,7 +8,7 @@ use crate::config::PluginConfig;
 use crate::error::PluginError;
 use crate::host::HostFunctionRegistry;
 use crate::manifest::PluginManifest;
-use crate::registry::{PluginEntry, PluginRegistry, PluginStatus};
+use crate::registry::{PluginEntry, PluginInfo, PluginRegistry, PluginStatus};
 
 #[async_trait]
 pub trait PluginManager: Send + Sync {
@@ -139,16 +139,27 @@ pub trait PluginManager: Send + Sync {
     }
 
     /// Checks if a plugin is currently loaded.
-    fn is_plugin_loaded(&self, plugin_id: &str) -> bool {
-        self.get_registry()
+    fn is_plugin_loaded(&self, plugin_id: &str) -> Result<bool, PluginError> {
+        let registry = self
+            .get_registry()
             .read()
-            .ok()
-            .and_then(|registry| {
-                registry
-                    .get(plugin_id)
-                    .map(|entry| entry.status == PluginStatus::Loaded)
-            })
-            .unwrap_or(false)
+            .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
+
+        let plugin_entry = registry
+            .get(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+
+        Ok(plugin_entry.status == PluginStatus::Loaded)
+    }
+
+    /// Lists all plugins.
+    fn list_plugins(&self) -> Result<Vec<PluginInfo>, PluginError> {
+        let registry = self
+            .get_registry()
+            .read()
+            .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
+
+        Ok(registry.values().map(PluginInfo::from).collect())
     }
 
     /// Low-level execution using raw bytes.
