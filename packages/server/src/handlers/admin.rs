@@ -2,8 +2,10 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use sea_orm::*;
 use tracing::instrument;
 
+use crate::entity::plugin as plugin_entity;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::plugin::PluginDetailResponse;
@@ -89,6 +91,7 @@ pub async fn get_plugin_details(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Plugin already enabled (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -100,8 +103,21 @@ pub async fn enable_plugin(
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth_user.require_permission("plugin:enable")?;
 
-    // TODO: database operation
+    if state.plugins.is_plugin_loaded(&id)? {
+        return Err(AppError::Conflict(format!(
+            "Plugin '{}' is already enabled",
+            id
+        )));
+    }
+
     state.plugins.load_plugin(&id)?;
+
+    let plugin_model = plugin_entity::ActiveModel {
+        id: Unchanged(id.clone()),
+        is_enabled: Set(true),
+        updated_at: Set(chrono::Utc::now()),
+    };
+    plugin_model.update(&state.db).await?;
 
     Ok(Json(serde_json::json!({
         "message": format!("Plugin '{}' enabled successfully", id)
@@ -121,6 +137,7 @@ pub async fn enable_plugin(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Plugin already disabled (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -132,7 +149,21 @@ pub async fn disable_plugin(
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth_user.require_permission("plugin:disable")?;
 
+    if !state.plugins.is_plugin_loaded(&id)? {
+        return Err(AppError::Conflict(format!(
+            "Plugin '{}' is not currently enabled",
+            id
+        )));
+    }
+
     state.plugins.unload_plugin(&id)?;
+
+    let plugin_model = plugin_entity::ActiveModel {
+        id: Unchanged(id.clone()),
+        is_enabled: Set(false),
+        updated_at: Set(chrono::Utc::now()),
+    };
+    plugin_model.update(&state.db).await?;
 
     Ok(Json(serde_json::json!({
         "message": format!("Plugin '{}' disabled successfully", id)
