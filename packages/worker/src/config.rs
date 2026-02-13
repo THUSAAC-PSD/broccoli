@@ -12,6 +12,9 @@ pub struct WorkerConfig {
     /// Number of jobs to fetch per batch. Default: 10.
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+    /// Isolate executable path. Default: "isolate".
+    #[serde(default = "default_isolate_bin")]
+    pub isolate_bin: String,
 }
 
 fn default_worker_id() -> String {
@@ -20,12 +23,16 @@ fn default_worker_id() -> String {
 fn default_batch_size() -> usize {
     10
 }
+fn default_isolate_bin() -> String {
+    "isolate".into()
+}
 
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             id: default_worker_id(),
             batch_size: default_batch_size(),
+            isolate_bin: default_isolate_bin(),
         }
     }
 }
@@ -47,6 +54,7 @@ impl WorkerAppConfig {
         let s = Config::builder()
             .set_default("worker.id", "worker-1")?
             .set_default("worker.batch_size", 10_i64)?
+            .set_default("worker.isolate_bin", "isolate")?
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
             .set_default("mq.pool_size", 5_i64)?
