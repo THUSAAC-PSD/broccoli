@@ -162,6 +162,16 @@ pub trait PluginManager: Send + Sync {
         Ok(registry.values().map(PluginInfo::from).collect())
     }
 
+    /// Checks if a plugin exists in the registry.
+    fn has_plugin(&self, plugin_id: &str) -> Result<bool, PluginError> {
+        let registry = self
+            .get_registry()
+            .read()
+            .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
+
+        Ok(registry.contains_key(plugin_id))
+    }
+
     /// Low-level execution using raw bytes.
     async fn call_raw(
         &self,

@@ -5,7 +5,6 @@ use std::time::Duration;
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
 use mq::{MqConfig as MqConnConfig, init_mq};
-use plugin_core::traits::PluginManager;
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info, warn};
 
@@ -15,6 +14,7 @@ use server::consumers::{consume_judge_results, consume_worker_dlq};
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
 use server::state::AppState;
+use server::utils::plugin::sync_plugins;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -78,14 +78,13 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
-    let plugin_manager = ServerManager::new(app_config.plugin.clone(), db.clone());
-    plugin_manager.discover_plugins()?;
     let state = AppState {
-        plugins: Arc::new(plugin_manager),
+        plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
         db,
         config: app_config.clone(),
         mq,
     };
+    sync_plugins(&state).await?;
 
     let mut allow_origins = Vec::new();
     for origin in &app_config.server.cors.allow_origins {
