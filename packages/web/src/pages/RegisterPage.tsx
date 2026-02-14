@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
 
+import { api } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/auth-context';
-import { api } from '@/lib/api/client';
 
 export function RegisterPage() {
   const { t } = useTranslation();

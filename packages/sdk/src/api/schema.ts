@@ -4,6 +4,86 @@
  */
 
 export interface paths {
+    "/admin/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all discovered plugins
+         * @description Returns a list of all plugins that have been discovered on disk, along with their manifest information and current status. Requires `plugin:list` permission.
+         */
+        get: operations["listAllPlugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/plugins/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get details of a specific plugin
+         * @description Returns detailed information about a specific plugin, including its manifest and current status. Requires `plugin:list` permission.
+         */
+        get: operations["getPluginDetails"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/plugins/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable a plugin
+         * @description Disables a plugin by its ID. Requires `plugin:disable` permission.
+         */
+        post: operations["disablePlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/plugins/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable a plugin
+         * @description Enables a plugin by its ID. Requires `plugin:enable` permission.
+         */
+        post: operations["enablePlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -140,6 +220,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{id}/participants/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk-add participants to a contest
+         * @description Enrolls multiple users in a contest. Existing users are looked up by username; new users can be created with auto-generated or custom passwords. Requires `contest:manage` permission. Partial success model: missing usernames are reported in `not_found`, already-enrolled users in `already_enrolled`.
+         */
+        post: operations["bulkAddParticipants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{id}/participants/{user_id}": {
         parameters: {
             query?: never;
@@ -179,6 +279,26 @@ export interface paths {
          */
         post: operations["addContestProblem"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{id}/problems/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Bulk-remove problems from a contest
+         * @description Removes multiple problems from a contest in a single operation. Requires `contest:manage` permission. All provided problem IDs must be currently in the contest.
+         */
+        delete: operations["bulkDeleteContestProblems"];
         options?: never;
         head?: never;
         patch?: never;
@@ -312,6 +432,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dlq/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Bulk-delete (resolve) DLQ messages
+         * @description Marks multiple DLQ messages as resolved without retrying. Requires `dlq:manage` permission.
+         */
+        delete: operations["bulkDeleteDlq"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dlq/bulk-retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk-retry DLQ messages
+         * @description Re-enqueues multiple dead letter messages for processing. Supports either specific message IDs or filter-based selection. Only judge_job messages with a known submission_id are retryable. Requires `dlq:manage` permission.
+         */
+        post: operations["bulkRetryDlq"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dlq/stats": {
         parameters: {
             query?: never;
@@ -376,6 +536,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plugins/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active plugins with web components
+         * @description Returns a list of currently active (loaded) plugins that have web (frontend) components. This is used by the frontend to discover which plugins are available for rendering UI.
+         */
+        get: operations["listActivePlugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plugins/{id}/call/{func}": {
         parameters: {
             query?: never;
@@ -390,26 +570,6 @@ export interface paths {
          * @description Invokes a named function on a previously loaded plugin. The plugin must be loaded first via the load endpoint. Returns 404 if the plugin is not loaded.
          */
         post: operations["callPluginFunction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/plugins/{id}/load": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load a WASM plugin by ID
-         * @description Loads a WASM plugin into the server runtime. Requires `plugin:load` permission. The plugin must have a valid `plugin.toml` manifest.
-         */
-        post: operations["loadPlugin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -512,6 +672,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/problems/{id}/test-cases/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Bulk-delete test cases
+         * @description Deletes multiple test cases in a single operation. Requires `problem:edit` permission. Returns 409 CONFLICT if any test case has judge results, listing the offending IDs.
+         */
+        delete: operations["bulkDeleteTestCases"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/problems/{id}/test-cases/reorder": {
         parameters: {
             query?: never;
@@ -600,6 +780,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/submissions/bulk-rejudge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk rejudge submissions
+         * @description Re-queues submissions matching the given filters for rejudging. At least one filter must be provided. Max 10,000 matching submissions. Requires `submission:rejudge` permission.
+         */
+        post: operations["bulkRejudgeSubmissions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/submissions/{id}": {
         parameters: {
             query?: never;
@@ -644,6 +844,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Response model for listing active web plugins. */
+        ActivePluginResponse: {
+            /**
+             * @description Public URL to the plugin's frontend ESM entry point.
+             * @example /assets/plugin-123/index.js
+             */
+            entry: string;
+            /**
+             * @description Unique identifier for the plugin.
+             * @example plugin-123
+             */
+            id: string;
+            /**
+             * @description Plugin name.
+             * @example An Awesome Plugin
+             */
+            name: string;
+        };
         /** @description Request body for adding a problem to a contest. */
         AddContestProblemRequest: {
             /**
@@ -672,6 +890,190 @@ export interface components {
              * @example 7
              */
             user_id: number;
+        };
+        /** @description Request body for bulk-adding participants to a contest. */
+        BulkAddParticipantsRequest: {
+            /** @description Users to create (with optional passwords) and then enroll. */
+            create_users?: components["schemas"]["CreateUserEntry"][];
+            /** @description Existing usernames to enroll. Missing usernames reported in `not_found`. */
+            usernames?: string[];
+        };
+        /** @description Response from bulk-adding participants. */
+        BulkAddParticipantsResponse: {
+            /** @description Existing users successfully enrolled. */
+            added: components["schemas"]["BulkParticipantAdded"][];
+            /** @description Users already enrolled in the contest (skipped). */
+            already_enrolled: components["schemas"]["BulkParticipantAdded"][];
+            /** @description Newly created users enrolled (includes plaintext passwords). */
+            created: components["schemas"]["BulkParticipantCreated"][];
+            /** @description Usernames from `usernames` that were not found. */
+            not_found: string[];
+        };
+        /** @description Request body for bulk-deleting problems from a contest. */
+        BulkDeleteContestProblemsRequest: {
+            /**
+             * @description IDs of problems to remove from the contest. Max 1,000, no duplicates.
+             * @example [
+             *       5,
+             *       7,
+             *       9
+             *     ]
+             */
+            problem_ids: number[];
+        };
+        /** @description Response from bulk-deleting contest problems. */
+        BulkDeleteContestProblemsResponse: {
+            /**
+             * @description Number of problems removed from the contest.
+             * @example 3
+             */
+            removed: number;
+        };
+        /** @description Request body for bulk delete (resolve) of DLQ messages. */
+        BulkDeleteDlqRequest: {
+            /**
+             * @description IDs of DLQ messages to resolve. Max 1,000.
+             * @example [
+             *       5,
+             *       7,
+             *       9
+             *     ]
+             */
+            message_ids: number[];
+        };
+        /** @description Response from bulk delete (resolve) of DLQ messages. */
+        BulkDeleteDlqResponse: {
+            /**
+             * @description Number of messages resolved.
+             * @example 3
+             */
+            deleted: number;
+        };
+        /** @description Request body for bulk-deleting test cases. */
+        BulkDeleteTestCasesRequest: {
+            /**
+             * @description IDs of test cases to delete. Max 1,000, no duplicates, all must belong to the problem.
+             * @example [
+             *       5,
+             *       7,
+             *       9
+             *     ]
+             */
+            test_case_ids: number[];
+        };
+        /** @description Response from bulk-deleting test cases. */
+        BulkDeleteTestCasesResponse: {
+            /**
+             * @description Number of test cases deleted.
+             * @example 3
+             */
+            deleted: number;
+        };
+        /** @description A participant that was enrolled from an existing user. */
+        BulkParticipantAdded: {
+            /**
+             * Format: int32
+             * @example 5
+             */
+            user_id: number;
+            /** @example alice */
+            username: string;
+        };
+        /** @description A participant whose account was created and then enrolled. */
+        BulkParticipantCreated: {
+            /**
+             * @description The plaintext password (only returned once).
+             * @example aB3$kLm9xQ2z
+             */
+            password: string;
+            /**
+             * Format: int32
+             * @example 12
+             */
+            user_id: number;
+            /** @example charlie */
+            username: string;
+        };
+        /** @description Request body for bulk-rejudging submissions by filter. */
+        BulkRejudgeRequest: {
+            /**
+             * Format: int32
+             * @description Filter by contest ID.
+             * @example 2
+             */
+            contest_id?: number | null;
+            /**
+             * @description Filter by language.
+             * @example cpp
+             */
+            language?: string | null;
+            /**
+             * Format: int32
+             * @description Filter by problem ID.
+             * @example 5
+             */
+            problem_id?: number | null;
+            /**
+             * Format: int32
+             * @description Filter by user ID.
+             * @example 7
+             */
+            user_id?: number | null;
+            /**
+             * @description Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+             * @example WrongAnswer
+             */
+            verdict?: string | null;
+        };
+        /** @description Response from bulk rejudge. */
+        BulkRejudgeResponse: {
+            /**
+             * @description Number of submissions queued for rejudging.
+             * @example 1234
+             */
+            queued: number;
+        };
+        /**
+         * @description Request body for bulk retry of DLQ messages.
+         *
+         *     Exactly one of `message_ids` or the filter fields (`message_type`/`error_code`) must be provided.
+         */
+        BulkRetryDlqRequest: {
+            /** @description Filter: retry all unresolved messages with this error code. */
+            error_code?: string | null;
+            /** @description Specific message IDs to retry. Max 1,000. */
+            message_ids?: number[] | null;
+            /** @description Filter: retry all unresolved messages of this type. */
+            message_type?: string | null;
+        };
+        /** @description Response from bulk retry of DLQ messages. */
+        BulkRetryDlqResponse: {
+            /** @description Errors encountered for specific messages. */
+            errors: components["schemas"]["BulkRetryError"][];
+            /**
+             * @description Number of messages successfully retried.
+             * @example 2
+             */
+            retried: number;
+            /**
+             * @description Number of messages skipped (already resolved, non-retryable, etc.).
+             * @example 1
+             */
+            skipped: number;
+        };
+        /** @description Error encountered retrying a single DLQ message. */
+        BulkRetryError: {
+            /**
+             * @description Why this message could not be retried.
+             * @example Message not found
+             */
+            error: string;
+            /**
+             * Format: int32
+             * @description The DLQ message ID.
+             * @example 7
+             */
+            id: number;
         };
         /** @description Contest summary for list views (description omitted). */
         ContestListItem: {
@@ -939,6 +1341,19 @@ export interface components {
              */
             score: number;
         };
+        /** @description A single user to create and enroll. */
+        CreateUserEntry: {
+            /**
+             * @description Password for the new user (8-128 chars). Auto-generated if omitted.
+             * @example custom_pass123
+             */
+            password?: string | null;
+            /**
+             * @description Username for the new user (1-32 chars, alphanumeric + underscores).
+             * @example charlie
+             */
+            username: string;
+        };
         /** @description Paginated list of DLQ messages. */
         DlqListResponse: {
             data: components["schemas"]["DlqMessageResponse"][];
@@ -1074,7 +1489,8 @@ export interface components {
             /**
              * @description Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
              *     `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
-             *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `INTERNAL_ERROR`.
+             *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
+             *     `INTERNAL_ERROR`.
              * @example VALIDATION_ERROR
              */
             code: string;
@@ -1229,6 +1645,51 @@ export interface components {
              */
             total_pages: number;
         };
+        /** @description Detailed information about a plugin. */
+        PluginDetailResponse: {
+            /**
+             * @description Plugin description.
+             * @example This plugin does awesome things!
+             */
+            description?: string | null;
+            /**
+             * @description Indicates if the plugin has a server component.
+             * @example true
+             */
+            has_server: boolean;
+            /**
+             * @description Indicates if the plugin has a web (frontend) component.
+             * @example true
+             */
+            has_web: boolean;
+            /**
+             * @description Indicates if the plugin has a worker component.
+             * @example false
+             */
+            has_worker: boolean;
+            /**
+             * @description Unique identifier for the plugin.
+             * @example plugin-123
+             */
+            id: string;
+            /**
+             * @description Plugin name.
+             * @example An Awesome Plugin
+             */
+            name: string;
+            /** @description Plugin status. */
+            status: components["schemas"]["PluginStatusResponse"];
+            /**
+             * @description Plugin version.
+             * @example 1.0.0
+             */
+            version: string;
+        };
+        /**
+         * @description Plugin status for API responses, abstracting away error details.
+         * @enum {string}
+         */
+        PluginStatusResponse: "Discovered" | "Loaded" | "Failed";
         /** @description Problem summary for list views (content omitted). */
         ProblemListItem: {
             /**
@@ -1740,6 +2201,212 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAllPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of plugins retrieved successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginDetailResponse"][];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getPluginDetails: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin details retrieved successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginDetailResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    disablePlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin disabled successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin already disabled (CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    enablePlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin enabled successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin already enabled (CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     loginUser: {
         parameters: {
             query?: never;
@@ -1855,26 +2522,26 @@ export interface operations {
     };
     listContests: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @example 1 */
-                page: number | null;
+                page?: number;
                 /** @example 20 */
-                per_page: number | null;
+                per_page?: number;
                 /** @example weekly */
-                search: string | null;
+                search?: string;
                 /**
                  * @description Sort field: `created_at` (default), `updated_at`, `start_time`, or `title`.
                  * @example start_time
                  */
-                sort_by: string | null;
+                sort_by?: string;
                 /**
                  * @description Sort direction: `asc` or `desc` (default).
                  * @example asc
                  */
-                sort_order: string | null;
+                sort_order?: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -2215,6 +2882,69 @@ export interface operations {
             };
         };
     };
+    bulkAddParticipants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkAddParticipantsRequest"];
+            };
+        };
+        responses: {
+            /** @description Participants added */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkAddParticipantsResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     removeParticipant: {
         parameters: {
             query?: never;
@@ -2369,6 +3099,69 @@ export interface operations {
             };
             /** @description Problem already in contest (CONFLICT) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    bulkDeleteContestProblems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkDeleteContestProblemsRequest"];
+            };
+        };
+        responses: {
+            /** @description Problems removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDeleteContestProblemsResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found or problem IDs not in contest (NOT_FOUND) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2735,42 +3528,43 @@ export interface operations {
     };
     listContestSubmissions: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
+            query?: {
                 /** @example 1 */
-                page: number | null;
+                page?: number;
                 /** @example 20 */
-                per_page: number | null;
+                per_page?: number;
                 /**
                  * @description Filter by problem ID.
                  * @example 1
                  */
-                problem_id: number | null;
+                problem_id?: number;
                 /**
                  * @description Filter by user ID.
                  * @example 1
                  */
-                user_id: number | null;
+                user_id?: number;
                 /**
                  * @description Filter by language.
                  * @example cpp
                  */
-                language: string | null;
+                language?: string;
                 /** @description Filter by status. */
-                status: null | components["schemas"]["SubmissionStatus"];
+                status?: components["schemas"]["SubmissionStatus"];
                 /**
                  * @description Sort field: `created_at` (default), `status`.
                  * @example created_at
                  */
-                sort_by: string | null;
+                sort_by?: string;
                 /**
                  * @description Sort direction: `asc` or `desc` (default).
                  * @example desc
                  */
-                sort_order: string | null;
+                sort_order?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
             };
             cookie?: never;
         };
@@ -2816,30 +3610,30 @@ export interface operations {
     };
     listDlqMessages: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /**
                  * @description Filter by message type.
                  * @example judge_job
                  */
-                message_type: string | null;
+                message_type?: string;
                 /**
                  * @description Filter by resolved status.
                  * @example false
                  */
-                resolved: boolean | null;
+                resolved?: boolean;
                 /**
                  * @description Page number (1-indexed).
                  * @example 1
                  */
-                page: number | null;
+                page?: number;
                 /**
                  * @description Items per page (1-100, default 20).
                  * @example 20
                  */
-                per_page: number | null;
+                per_page?: number;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -2864,6 +3658,117 @@ export interface operations {
             };
             /** @description Forbidden (PERMISSION_DENIED) */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    bulkDeleteDlq: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkDeleteDlqRequest"];
+            };
+        };
+        responses: {
+            /** @description Messages resolved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDeleteDlqResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    bulkRetryDlq: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkRetryDlqRequest"];
+            };
+        };
+        responses: {
+            /** @description Bulk retry result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkRetryDlqResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description MQ unavailable (INTERNAL_ERROR) */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3077,6 +3982,26 @@ export interface operations {
             };
         };
     };
+    listActivePlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of active plugins */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivePluginResponse"][];
+                };
+            };
+        };
+    };
     callPluginFunction: {
         parameters: {
             query?: never;
@@ -3104,7 +4029,7 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Invalid input (VALIDATION_ERROR) */
+            /** @description Plugin not ready (PLUGIN_NOT_READY) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3133,75 +4058,25 @@ export interface operations {
             };
         };
     };
-    loadPlugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Plugin ID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Plugin loaded successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     listProblems: {
         parameters: {
             query?: {
                 /** @example 1 */
-                page?: number | null;
+                page?: number;
                 /** @example 20 */
-                per_page?: number | null;
+                per_page?: number;
                 /** @example sum */
-                search?: string | null;
+                search?: string;
                 /**
                  * @description Sort field: `created_at` (default), `updated_at`, or `title`.
                  * @example created_at
                  */
-                sort_by?: string | null;
+                sort_by?: string;
                 /**
                  * @description Sort direction: `asc` or `desc` (default).
                  * @example desc
                  */
-                sort_order?: string | null;
+                sort_order?: string;
             };
             header?: never;
             path?: never;
@@ -3644,6 +4519,78 @@ export interface operations {
             };
         };
     };
+    bulkDeleteTestCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Problem ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkDeleteTestCasesRequest"];
+            };
+        };
+        responses: {
+            /** @description Test cases deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDeleteTestCasesResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Problem not found or test case IDs not in problem (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Some test cases have judge results (CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     reorderTestCases: {
         parameters: {
             query?: never;
@@ -3947,41 +4894,41 @@ export interface operations {
     };
     listSubmissions: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @example 1 */
-                page: number | null;
+                page?: number;
                 /** @example 20 */
-                per_page: number | null;
+                per_page?: number;
                 /**
                  * @description Filter by problem ID.
                  * @example 1
                  */
-                problem_id: number | null;
+                problem_id?: number;
                 /**
                  * @description Filter by user ID.
                  * @example 1
                  */
-                user_id: number | null;
+                user_id?: number;
                 /**
                  * @description Filter by language.
                  * @example cpp
                  */
-                language: string | null;
+                language?: string;
                 /** @description Filter by status. */
-                status: null | components["schemas"]["SubmissionStatus"];
+                status?: components["schemas"]["SubmissionStatus"];
                 /**
                  * @description Sort field: `created_at` (default), `status`.
                  * @example created_at
                  */
-                sort_by: string | null;
+                sort_by?: string;
                 /**
                  * @description Sort direction: `asc` or `desc` (default).
                  * @example desc
                  */
-                sort_order: string | null;
+                sort_order?: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -4006,6 +4953,57 @@ export interface operations {
             };
             /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    bulkRejudgeSubmissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkRejudgeRequest"];
+            };
+        };
+        responses: {
+            /** @description Submissions re-queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkRejudgeResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

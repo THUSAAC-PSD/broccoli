@@ -1,4 +1,6 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { api } from '@broccoli/sdk/api';
+import type { ContestResponse, ContestProblemResponse } from '@broccoli/sdk/api';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
@@ -8,11 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Markdown } from '@/components/Markdown';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { api } from '@/lib/api/client';
-import type { components } from '@/lib/api/schema';
-
-type ContestResponse = components['schemas']['ContestResponse'];
-type ContestProblemResponse = components['schemas']['ContestProblemResponse'];
 
 function getContestStatus(
   startTime: string,

@@ -1,3 +1,5 @@
+import type { ProblemListItem, ContestProblemResponse } from '@broccoli/sdk/api';
+import { api } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Code2 } from 'lucide-react';
@@ -7,11 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
 import type { ServerTableParams } from '@/hooks/use-server-table';
-import { api } from '@/lib/api/client';
-import type { components } from '@/lib/api/schema';
-
-type ProblemListItem = components['schemas']['ProblemListItem'];
-type ContestProblemResponse = components['schemas']['ContestProblemResponse'];
 
 // --- Public problems (paginated via DataTable) ---
 
@@ -21,9 +18,9 @@ async function fetchProblems(params: ServerTableParams) {
       query: {
         page: params.page,
         per_page: params.per_page,
-        search: params.search ?? null,
-        sort_by: params.sort_by ?? null,
-        sort_order: params.sort_order ?? null,
+        search: params.search,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
       },
     },
   });

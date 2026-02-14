@@ -1,7 +1,5 @@
+import { api, AUTH_TOKEN_KEY } from '@broccoli/sdk/api';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-
-import { api } from '@/lib/api/client';
-import { AUTH_TOKEN_KEY } from '@/lib/api/config';
 
 import { AuthContext, type LoginRequest, type User } from './auth-context';
 
