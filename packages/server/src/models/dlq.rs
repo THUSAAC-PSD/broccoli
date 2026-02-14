@@ -11,6 +11,7 @@ use super::shared::{Pagination, validate_bulk_ids};
 
 /// Query parameters for listing DLQ messages.
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListDlqParams {
     /// Filter by message type.
     #[param(example = "judge_job")]

@@ -49,6 +49,7 @@ pub struct CreateSubmissionRequest {
 
 /// Query parameters for submission listing.
 #[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct SubmissionListQuery {
     #[param(example = 1)]
     pub page: Option<u64>,
