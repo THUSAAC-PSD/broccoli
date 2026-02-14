@@ -21,6 +21,12 @@ fn isolate_bin() -> String {
         .unwrap_or_else(|_| "isolate".to_string())
 }
 
+fn should_enable_cgroups() -> bool {
+    WorkerAppConfig::load()
+        .map(|cfg| cfg.worker.enable_cgroups)
+        .unwrap_or(false)
+}
+
 fn parse_box_id(id: Option<&str>) -> Result<String, SandboxError> {
     let raw = id.unwrap_or("0");
     raw.parse::<u32>()
@@ -89,6 +95,8 @@ fn add_resource_limit_args(
     command: &mut Command,
     limits: &ResourceLimits,
 ) -> Result<(), SandboxError> {
+    let cgroups_enabled = should_enable_cgroups();
+
     if let Some(time_limit) = limits.time_limit {
         command.arg(format!("--time={time_limit}"));
     }
@@ -99,7 +107,11 @@ fn add_resource_limit_args(
         command.arg(format!("--extra-time={extra_time}"));
     }
     if let Some(memory_limit) = limits.memory_limit {
-        command.arg(format!("--cg-mem={memory_limit}"));
+        if cgroups_enabled {
+            command.arg(format!("--cg-mem={memory_limit}"));
+        } else {
+            command.arg(format!("--mem={memory_limit}"));
+        }
     }
     if let Some(stack_limit) = limits.stack_limit {
         command.arg(format!("--stack={stack_limit}"));
@@ -127,13 +139,10 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
     })?;
 
     let mut raw = HashMap::<String, String>::new();
-    let mut oom_killed = false;
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once(':') {
             raw.insert(key.trim().to_string(), value.trim().to_string());
-        } else if line.trim() == "cg-oom-killed" {
-            oom_killed = true;
         }
     }
 
@@ -151,7 +160,8 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
         time_used: parse_f64("time"),
         wall_time_used: parse_f64("time-wall"),
         memory_used: parse_u32("cg-mem").or(parse_u32("max-rss")),
-        oom_killed,
+        cg_oom_killed: parse_i32("cg-oom-killed").map(|v| v != 0).unwrap_or(false),
+        killed: parse_i32("killed").map(|v| v != 0).unwrap_or(false),
         status: raw
             .get("status")
             .cloned()
@@ -172,7 +182,10 @@ impl SandboxManager for IsolateSandboxManager {
         if let Some(box_id) = id {
             command.arg(format!("--box-id={box_id}"));
         }
-        command.arg("--cg").arg("--init");
+        if should_enable_cgroups() {
+            command.arg("--cg");
+        }
+        command.arg("--init");
 
         for rule in &options.directory_rules {
             add_directory_rule_args(&mut command, rule);
@@ -205,15 +218,16 @@ impl SandboxManager for IsolateSandboxManager {
     async fn remove_sandbox(id: &str) -> Result<(), SandboxError> {
         let box_id = parse_box_id(Some(id))?;
 
-        let output = Command::new(isolate_bin())
-            .arg(format!("--box-id={box_id}"))
-            .arg("--cg")
-            .arg("--cleanup")
-            .output()
-            .await
-            .map_err(|err| {
-                SandboxError::Execution(format!("failed to execute isolate --cleanup: {err}"))
-            })?;
+        let mut command = Command::new(isolate_bin());
+        command.arg(format!("--box-id={box_id}"));
+        if should_enable_cgroups() {
+            command.arg("--cg");
+        }
+        command.arg("--cleanup");
+
+        let output = command.output().await.map_err(|err| {
+            SandboxError::Execution(format!("failed to execute isolate --cleanup: {err}"))
+        })?;
 
         if !output.status.success() {
             return Err(SandboxError::Execution(format!(
@@ -240,10 +254,11 @@ impl SandboxManager for IsolateSandboxManager {
         let meta_path = std::env::temp_dir().join(format!("broccoli-isolate-{box_id}.meta"));
 
         let mut command = Command::new(isolate_bin());
-        command
-            .arg(format!("--box-id={box_id}"))
-            .arg("--cg")
-            .arg(format!("--meta={}", meta_path.to_string_lossy()));
+        command.arg(format!("--box-id={box_id}"));
+        if should_enable_cgroups() {
+            command.arg("--cg");
+        }
+        command.arg(format!("--meta={}", meta_path.to_string_lossy()));
 
         if run_options.wait {
             command.arg("--wait");

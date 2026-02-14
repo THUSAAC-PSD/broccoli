@@ -15,6 +15,9 @@ pub struct WorkerConfig {
     /// Isolate executable path. Default: "isolate".
     #[serde(default = "default_isolate_bin")]
     pub isolate_bin: String,
+    /// Enable control groups (cgroup) mode for isolate. Default: false.
+    #[serde(default = "default_enable_cgroups")]
+    pub enable_cgroups: bool,
 }
 
 fn default_worker_id() -> String {
@@ -26,6 +29,9 @@ fn default_batch_size() -> usize {
 fn default_isolate_bin() -> String {
     "isolate".into()
 }
+fn default_enable_cgroups() -> bool {
+    true
+}
 
 impl Default for WorkerConfig {
     fn default() -> Self {
@@ -33,6 +39,7 @@ impl Default for WorkerConfig {
             id: default_worker_id(),
             batch_size: default_batch_size(),
             isolate_bin: default_isolate_bin(),
+            enable_cgroups: default_enable_cgroups(),
         }
     }
 }
@@ -55,6 +62,7 @@ impl WorkerAppConfig {
             .set_default("worker.id", "worker-1")?
             .set_default("worker.batch_size", 4_i64)?
             .set_default("worker.isolate_bin", "isolate")?
+            .set_default("worker.enable_cgroups", true)?
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
             .set_default("mq.pool_size", 5_i64)?
