@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { api } from '@broccoli/sdk/api';
+import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ export function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const apiClient = useApiClient();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -39,7 +40,7 @@ export function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      const { error: regError } = await api.POST('/auth/register', {
+      const { error: regError } = await apiClient.POST('/auth/register', {
         body: { username, password },
       });
 

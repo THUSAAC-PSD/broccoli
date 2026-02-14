@@ -93,3 +93,8 @@ export interface SlotRenderContext {
   children?: ReactNode;
   props?: Record<string, unknown>;
 }
+
+export interface PluginModule {
+  manifest: PluginManifest;
+  components: ComponentBundle;
+}

@@ -1,3 +1,4 @@
+import type { ApiClient } from '@broccoli/sdk/api';
 import {
   type ColumnDef,
   flexRender,
@@ -34,13 +35,16 @@ export type DataTableColumn<TData> = ColumnDef<TData, unknown> & {
 export interface DataTableProps<TData> {
   columns: DataTableColumn<TData>[];
   queryKey: string[];
-  fetchFn: (params: {
-    page: number;
-    per_page: number;
-    search?: string;
-    sort_by?: string;
-    sort_order?: 'asc' | 'desc';
-  }) => Promise<ServerTableResponse<TData>>;
+  fetchFn: (
+    api: ApiClient,
+    params: {
+      page: number;
+      per_page: number;
+      search?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+    },
+  ) => Promise<ServerTableResponse<TData>>;
   searchable?: boolean;
   searchPlaceholder?: string;
   defaultPerPage?: number;

@@ -1,5 +1,7 @@
-import { api, AUTH_TOKEN_KEY } from '@broccoli/sdk/api';
+import { useApiClient } from '@broccoli/sdk/api';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { appConfig } from '@/config';
 
 import { AuthContext, type LoginRequest, type User } from './auth-context';
 
@@ -9,38 +11,42 @@ import { AuthContext, type LoginRequest, type User } from './auth-context';
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const apiClient = useApiClient();
 
   const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(appConfig.api.authTokenKey);
     setUser(null);
   }, []);
 
-  const login = useCallback(async (data: LoginRequest) => {
-    const { data: resData, error } = await api.POST('/auth/login', {
-      body: data,
-    });
+  const login = useCallback(
+    async (data: LoginRequest) => {
+      const { data: resData, error } = await apiClient.POST('/auth/login', {
+        body: data,
+      });
 
-    if (error) throw new Error(error.message);
-    if (!resData) throw new Error('Unexpected login response');
+      if (error) throw new Error(error.message);
+      if (!resData) throw new Error('Unexpected login response');
 
-    localStorage.setItem(AUTH_TOKEN_KEY, resData.token);
-    setUser({
-      id: resData.id,
-      username: resData.username,
-      role: resData.role,
-      permissions: resData.permissions,
-    });
-  }, []);
+      localStorage.setItem(appConfig.api.authTokenKey, resData.token);
+      setUser({
+        id: resData.id,
+        username: resData.username,
+        role: resData.role,
+        permissions: resData.permissions,
+      });
+    },
+    [apiClient],
+  );
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem(AUTH_TOKEN_KEY);
+      const token = localStorage.getItem(appConfig.api.authTokenKey);
       if (!token) {
         setIsLoading(false);
         return;
       }
 
-      const { data: me } = await api.GET('/auth/me');
+      const { data: me } = await apiClient.GET('/auth/me');
 
       if (me) {
         setUser(me);
@@ -51,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     initAuth();
-  }, [logout]);
+  }, [apiClient, logout]);
 
   const value = useMemo(
     () => ({

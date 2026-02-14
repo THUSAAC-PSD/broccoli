@@ -1,17 +1,18 @@
 import './index.css';
 import './App.css';
 
+import { ApiClientProvider } from '@broccoli/sdk/api';
 import { I18nProvider } from '@broccoli/sdk/i18n';
-import { PluginRegistryProvider } from '@broccoli/sdk/react';
+import { PluginRegistryProvider } from '@broccoli/sdk/plugin';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
-import { PluginLoader } from '@/components/PluginLoader';
 import { AuthProvider } from '@/contexts/AuthProvider';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
+import { appConfig } from './config';
 // Import plugins
 import * as AmazingButtonPlugin from './plugins/amazing-button';
 import * as AnalyticsPlugin from './plugins/analytics-plugin';
@@ -44,14 +45,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <QueryClientProvider client={queryClient}>
-          <I18nProvider defaultLocale="en" defaultTranslations={{ en }}>
-            <PluginRegistryProvider>
+          <ApiClientProvider
+            baseUrl={appConfig.api.baseUrl}
+            authTokenKey={appConfig.api.authTokenKey}
+          >
+            <I18nProvider defaultLocale="en" defaultTranslations={{ en }}>
               <AuthProvider>
-                <PluginLoader plugins={plugins} />
-                <AppLayout>{children}</AppLayout>
+                <PluginRegistryProvider
+                  backendUrl={appConfig.plugin.backendUrl}
+                  pluginModules={plugins}
+                >
+                  <AppLayout>{children}</AppLayout>
+                </PluginRegistryProvider>
               </AuthProvider>
-            </PluginRegistryProvider>
-          </I18nProvider>
+            </I18nProvider>
+          </ApiClientProvider>
         </QueryClientProvider>
         <ScrollRestoration />
         <Scripts />

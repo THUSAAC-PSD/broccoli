@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
-import { api } from '@broccoli/sdk/api';
-import type { ProblemResponse } from '@broccoli/sdk/api';
+import { useApiClient } from '@broccoli/sdk/api';
+import type { ProblemResponse } from '@broccoli/sdk';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router';
@@ -42,6 +42,7 @@ export function ProblemDetailPage() {
     useState<SubmissionStatus | null>(null);
   const [isProblemFullscreen, setIsProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
+  const apiClient = useApiClient();
 
   const {
     data: problem,
@@ -51,7 +52,7 @@ export function ProblemDetailPage() {
     queryKey: ['problem', id],
     enabled: Number.isFinite(id),
     queryFn: async () => {
-      const { data, error } = await api.GET('/problems/{id}', {
+      const { data, error } = await apiClient.GET('/problems/{id}', {
         params: { path: { id } },
       });
       if (error) throw error;
