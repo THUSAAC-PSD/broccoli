@@ -10,6 +10,7 @@ max_age = 3600
 id = "worker-1"
 batch_size = 4
 isolate_bin = "isolate"
+enable_cgroups = true
 
 [database]
 url = "postgres://postgres:password@localhost:5432/broccoli"
