@@ -451,3 +451,285 @@ mod dlq_retry {
         assert_eq!(res.body["code"], "INTERNAL_ERROR");
     }
 }
+
+mod bulk_retry_dlq {
+    use super::*;
+
+    #[tokio::test]
+    async fn returns_error_when_mq_unavailable() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br1", "password123", "admin")
+            .await;
+
+        let dlq1 = create_dlq_entry(&app, 600, "judge_job", false).await;
+        let dlq2 = create_dlq_entry(&app, 601, "judge_job", false).await;
+
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_ids": [dlq1, dlq2]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 500);
+        assert_eq!(res.body["code"], "INTERNAL_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_empty_ids() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br2", "password123", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_ids": []}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_duplicate_ids() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br3", "password123", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_ids": [1, 1]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_when_both_modes_provided() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br4", "password123", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_ids": [1], "message_type": "judge_job"}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_when_neither_mode_provided() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br5", "password123", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(routes::DLQ_BULK_RETRY, &json!({}), &admin_token)
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_bulk_retry() {
+        let app = TestApp::spawn().await;
+        let contestant_token = app
+            .create_authenticated_user("contestant_br6", "password123")
+            .await;
+
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_ids": [1]}),
+                &contestant_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn filter_mode_returns_error_when_mq_unavailable() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br7", "password123", "admin")
+            .await;
+
+        // Even with a valid filter, MQ is unavailable so it returns 500
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_type": "judge_job"}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 500);
+        assert_eq!(res.body["code"], "INTERNAL_ERROR");
+    }
+}
+
+mod bulk_delete_dlq {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_bulk_delete_dlq_messages() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_bd1", "password123", "admin")
+            .await;
+
+        let dlq1 = create_dlq_entry(&app, 700, "judge_job", false).await;
+        let dlq2 = create_dlq_entry(&app, 701, "judge_job", false).await;
+        let dlq3 = create_dlq_entry(&app, 702, "judge_job", false).await;
+
+        let res = app
+            .delete_with_body_and_token(
+                routes::DLQ_BULK,
+                &json!({"message_ids": [dlq1, dlq2]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["deleted"], 2);
+
+        // Verify those two are now resolved
+        let msg1 = dead_letter_message::Entity::find_by_id(dlq1)
+            .one(&app.db)
+            .await
+            .expect("DB query failed")
+            .expect("msg1 should exist");
+        assert!(msg1.resolved);
+
+        let msg2 = dead_letter_message::Entity::find_by_id(dlq2)
+            .one(&app.db)
+            .await
+            .expect("DB query failed")
+            .expect("msg2 should exist");
+        assert!(msg2.resolved);
+
+        // dlq3 should still be unresolved
+        let msg3 = dead_letter_message::Entity::find_by_id(dlq3)
+            .one(&app.db)
+            .await
+            .expect("DB query failed")
+            .expect("msg3 should exist");
+        assert!(!msg3.resolved);
+    }
+
+    #[tokio::test]
+    async fn skips_already_resolved_messages() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_bd2", "password123", "admin")
+            .await;
+
+        let resolved_id = create_dlq_entry(&app, 710, "judge_job", true).await;
+        let unresolved_id = create_dlq_entry(&app, 711, "judge_job", false).await;
+
+        let res = app
+            .delete_with_body_and_token(
+                routes::DLQ_BULK,
+                &json!({"message_ids": [resolved_id, unresolved_id]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        // Only the unresolved one counts as newly deleted
+        assert_eq!(res.body["deleted"], 1);
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_empty_ids() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_bd3", "password123", "admin")
+            .await;
+
+        let res = app
+            .delete_with_body_and_token(routes::DLQ_BULK, &json!({"message_ids": []}), &admin_token)
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_duplicate_ids() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_bd4", "password123", "admin")
+            .await;
+
+        let res = app
+            .delete_with_body_and_token(
+                routes::DLQ_BULK,
+                &json!({"message_ids": [1, 1]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_zero_for_nonexistent_ids() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_bd5", "password123", "admin")
+            .await;
+
+        let res = app
+            .delete_with_body_and_token(
+                routes::DLQ_BULK,
+                &json!({"message_ids": [99998, 99999]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["deleted"], 0);
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_bulk_delete() {
+        let app = TestApp::spawn().await;
+        let contestant_token = app
+            .create_authenticated_user("contestant_bd6", "password123")
+            .await;
+
+        let res = app
+            .delete_with_body_and_token(
+                routes::DLQ_BULK,
+                &json!({"message_ids": [1]}),
+                &contestant_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+}

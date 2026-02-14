@@ -5,9 +5,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::{Duration, Utc};
-use common::SubmissionStatus;
 use common::judge_job::{JudgeFile, JudgeJob, TestCaseData};
 use common::worker::Task;
+use common::{SubmissionStatus, Verdict};
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::{debug, error, info, instrument, warn};
@@ -900,6 +900,168 @@ pub async fn list_contest_submissions(
             total_pages,
         },
     }))
+}
+
+/// Bulk rejudge submissions by filter.
+#[utoipa::path(
+    post,
+    path = "/bulk-rejudge",
+    tag = "Submissions",
+    operation_id = "bulkRejudgeSubmissions",
+    summary = "Bulk rejudge submissions",
+    description = "Re-queues submissions matching the given filters for rejudging. At least one filter must be provided. Max 10,000 matching submissions. Requires `submission:rejudge` permission.",
+    request_body = BulkRejudgeRequest,
+    responses(
+        (status = 200, description = "Submissions re-queued", body = BulkRejudgeResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload))]
+pub async fn bulk_rejudge_submissions(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<BulkRejudgeRequest>,
+) -> Result<Json<BulkRejudgeResponse>, AppError> {
+    auth_user.require_permission("submission:rejudge")?;
+    validate_bulk_rejudge(&payload)?;
+
+    let terminal_statuses = vec![
+        SubmissionStatus::Judged,
+        SubmissionStatus::CompilationError,
+        SubmissionStatus::SystemError,
+    ];
+    let mut base =
+        submission::Entity::find().filter(submission::Column::Status.is_in(terminal_statuses));
+
+    if let Some(pid) = payload.problem_id {
+        base = base.filter(submission::Column::ProblemId.eq(pid));
+    }
+    if let Some(cid) = payload.contest_id {
+        base = base.filter(submission::Column::ContestId.eq(Some(cid)));
+    }
+    if let Some(ref lang) = payload.language {
+        base = base.filter(submission::Column::Language.eq(lang.trim()));
+    }
+    if let Some(ref verdict_str) = payload.verdict {
+        let verdict: Verdict =
+            verdict_str
+                .parse()
+                .map_err(|e: common::submission_status::ParseVerdictError| {
+                    AppError::Validation(e.to_string())
+                })?;
+        base = base.filter(submission::Column::Verdict.eq(Some(verdict)));
+    }
+    if let Some(uid) = payload.user_id {
+        base = base.filter(submission::Column::UserId.eq(uid));
+    }
+
+    let total = base.clone().count(&state.db).await?;
+    if total > 10_000 {
+        return Err(AppError::Validation(format!(
+            "Too many matching submissions ({total}). Maximum is 10,000. Please narrow your filters."
+        )));
+    }
+
+    let all_ids: Vec<i32> = base
+        .select_only()
+        .column(submission::Column::Id)
+        .order_by_asc(submission::Column::Id)
+        .into_tuple()
+        .all(&state.db)
+        .await?;
+
+    if all_ids.is_empty() {
+        return Ok(Json(BulkRejudgeResponse { queued: 0 }));
+    }
+
+    const BATCH_SIZE: usize = 500;
+    let mut all_enqueue_data: Vec<(submission::Model, Vec<JudgeFile>)> = Vec::new();
+
+    for batch_ids in all_ids.chunks(BATCH_SIZE) {
+        let txn = state.db.begin().await?;
+
+        let batch_submissions = submission::Entity::find()
+            .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
+            .lock(LockType::Update)
+            .all(&txn)
+            .await?;
+
+        test_case_result::Entity::delete_many()
+            .filter(test_case_result::Column::SubmissionId.is_in(batch_ids.to_vec()))
+            .exec(&txn)
+            .await?;
+
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::Status,
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending),
+            )
+            .col_expr(
+                submission::Column::Verdict,
+                sea_orm::sea_query::Expr::value(Option::<Verdict>::None),
+            )
+            .col_expr(
+                submission::Column::CompileOutput,
+                sea_orm::sea_query::Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                submission::Column::ErrorMessage,
+                sea_orm::sea_query::Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                submission::Column::Score,
+                sea_orm::sea_query::Expr::value(Option::<i32>::None),
+            )
+            .col_expr(
+                submission::Column::TimeUsed,
+                sea_orm::sea_query::Expr::value(Option::<i32>::None),
+            )
+            .col_expr(
+                submission::Column::MemoryUsed,
+                sea_orm::sea_query::Expr::value(Option::<i32>::None),
+            )
+            .col_expr(
+                submission::Column::JudgedAt,
+                sea_orm::sea_query::Expr::value(Option::<chrono::DateTime<Utc>>::None),
+            )
+            .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
+            .exec(&txn)
+            .await?;
+
+        for sub in batch_submissions {
+            let files: Vec<JudgeFile> = files_from_json(&sub.files)
+                .into_iter()
+                .map(|f| JudgeFile {
+                    filename: f.filename,
+                    content: f.content,
+                })
+                .collect();
+            all_enqueue_data.push((sub, files));
+        }
+
+        txn.commit().await?;
+    }
+
+    let queued = all_enqueue_data.len();
+
+    for (sub, files) in &all_enqueue_data {
+        enqueue_judge_job(&state, sub, files.clone()).await;
+    }
+
+    info!(
+        user_id = auth_user.user_id,
+        queued,
+        problem_id = ?payload.problem_id,
+        contest_id = ?payload.contest_id,
+        language = ?payload.language,
+        verdict = ?payload.verdict,
+        "Bulk rejudge completed"
+    );
+
+    Ok(Json(BulkRejudgeResponse { queued }))
 }
 
 /// Body limit for submission requests.

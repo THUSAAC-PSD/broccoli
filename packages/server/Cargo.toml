@@ -14,6 +14,7 @@ config.workspace = true
 extism.workspace = true
 jsonwebtoken.workspace = true
 plugin-core.workspace = true
+rand.workspace = true
 sea-orm = { workspace = true, features = [
   "runtime-tokio-rustls",
   "sqlx-postgres",

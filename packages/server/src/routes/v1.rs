@@ -71,6 +71,7 @@ fn test_case_routes() -> OpenApiRouter<AppState> {
             handlers::problem::create_test_case,
         ))
         .routes(routes!(handlers::problem::reorder_test_cases))
+        .routes(routes!(handlers::problem::bulk_delete_test_cases))
         .routes(routes!(
             handlers::problem::get_test_case,
             handlers::problem::update_test_case,
@@ -119,6 +120,7 @@ fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState>
             handlers::contest::add_contest_problem,
         ))
         .routes(routes!(handlers::contest::reorder_contest_problems))
+        .routes(routes!(handlers::contest::bulk_delete_contest_problems))
         .routes(routes!(
             handlers::contest::update_contest_problem,
             handlers::contest::remove_contest_problem,
@@ -143,12 +145,14 @@ fn contest_participant_routes() -> OpenApiRouter<AppState> {
             handlers::contest::list_participants,
             handlers::contest::add_participant,
         ))
+        .routes(routes!(handlers::contest::bulk_add_participants))
         .routes(routes!(handlers::contest::remove_participant))
 }
 
 fn submission_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::submission::list_submissions))
+        .routes(routes!(handlers::submission::bulk_rejudge_submissions))
         .routes(routes!(handlers::submission::get_submission))
         .routes(routes!(handlers::submission::rejudge_submission))
 }
@@ -157,6 +161,8 @@ fn dlq_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::dlq::list_dlq_messages))
         .routes(routes!(handlers::dlq::get_dlq_stats))
+        .routes(routes!(handlers::dlq::bulk_retry_dlq))
+        .routes(routes!(handlers::dlq::bulk_delete_dlq))
         .routes(routes!(
             handlers::dlq::get_dlq_message,
             handlers::dlq::delete_dlq_message,

@@ -868,6 +868,125 @@ mod contest_submissions {
     }
 }
 
+mod bulk_rejudge {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_bulk_rejudge_by_problem_id() {
+        use common::{SubmissionStatus, Verdict};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        use server::entity::submission;
+
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_brj1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Rejudge Problem").await;
+
+        let sub1 = app
+            .create_submission(problem_id, &admin_token, "cpp", "int main() {}")
+            .await;
+        let sub2 = app
+            .create_submission(problem_id, &admin_token, "cpp", "int main() { return 0; }")
+            .await;
+
+        // Set both to terminal status via direct DB update
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::Status,
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Judged),
+            )
+            .col_expr(
+                submission::Column::Verdict,
+                sea_orm::sea_query::Expr::value(Some(Verdict::WrongAnswer)),
+            )
+            .filter(submission::Column::Id.is_in(vec![sub1, sub2]))
+            .exec(&app.db)
+            .await
+            .expect("update submission status");
+
+        let res = app
+            .post_with_token(
+                routes::SUBMISSIONS_BULK_REJUDGE,
+                &json!({"problem_id": problem_id}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["queued"], 2);
+
+        // Verify both submissions reset to Pending
+        let s1 = app
+            .get_with_token(&routes::submission(sub1), &admin_token)
+            .await;
+        assert_eq!(s1.body["status"], "Pending");
+
+        let s2 = app
+            .get_with_token(&routes::submission(sub2), &admin_token)
+            .await;
+        assert_eq!(s2.body["status"], "Pending");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_with_no_filters() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_brj2", "pass1234", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(routes::SUBMISSIONS_BULK_REJUDGE, &json!({}), &admin_token)
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_invalid_verdict() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_brj3", "pass1234", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(
+                routes::SUBMISSIONS_BULK_REJUDGE,
+                &json!({"problem_id": 1, "verdict": "NotARealVerdict"}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_bulk_rejudge() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_brj4", "pass1234", "admin")
+            .await;
+        let contestant_token = app
+            .create_authenticated_user("contestant_brj4", "pass1234")
+            .await;
+
+        let problem_id = app.create_problem(&admin_token, "Rejudge Problem").await;
+
+        let res = app
+            .post_with_token(
+                routes::SUBMISSIONS_BULK_REJUDGE,
+                &json!({"problem_id": problem_id}),
+                &contestant_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+}
+
 mod contest_submission_visibility {
     use super::*;
 
