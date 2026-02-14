@@ -1,5 +1,6 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface ServerTableParams {
   page: number;
@@ -23,7 +24,10 @@ export interface ServerTableResponse<T> {
 
 export interface UseServerTableOptions<T> {
   queryKey: string[];
-  fetchFn: (params: ServerTableParams) => Promise<ServerTableResponse<T>>;
+  fetchFn: (
+    apiClient: ApiClient,
+    params: ServerTableParams,
+  ) => Promise<ServerTableResponse<T>>;
   defaultPerPage?: number;
   defaultSortBy?: string;
   defaultSortOrder?: 'asc' | 'desc';
@@ -45,6 +49,7 @@ export function useServerTable<T>({
   const [sortBy, setSortBy] = useState(defaultSortBy);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(defaultSortOrder);
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const apiClient = useApiClient();
 
   useEffect(() => {
     debounceTimer.current = setTimeout(() => {
@@ -66,7 +71,7 @@ export function useServerTable<T>({
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [...queryKey, params],
-    queryFn: () => fetchFn(params),
+    queryFn: () => fetchFn(apiClient, params),
     placeholderData: keepPreviousData,
   });
 

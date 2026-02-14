@@ -6,8 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, Code2, Eye, EyeOff, List, MoreHorizontal, Pencil, Plus, Search, Shield, Trash2, Trophy } from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
-import { api } from '@broccoli/sdk/api';
-import type { ContestListItem, ProblemListItem, ContestProblemItem } from '@broccoli/sdk/api';
+import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
+import type { ContestListItem, ProblemListItem, ContestProblemItem } from '@broccoli/sdk';
 
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
@@ -94,8 +94,8 @@ function toLocalDatetimeValue(iso: string): string {
 
 // ── Data fetchers ──
 
-async function fetchContests(params: ServerTableParams) {
-  const { data, error } = await api.GET('/contests', {
+async function fetchContests(apiClient: ApiClient, params: ServerTableParams) {
+  const { data, error } = await apiClient.GET('/contests', {
     params: {
       query: {
         page: params.page,
@@ -110,8 +110,8 @@ async function fetchContests(params: ServerTableParams) {
   return { data: data.data, pagination: data.pagination };
 }
 
-async function fetchProblems(params: ServerTableParams) {
-  const { data, error } = await api.GET('/problems', {
+async function fetchProblems(apiClient: ApiClient, params: ServerTableParams) {
+  const { data, error } = await apiClient.GET('/problems', {
     params: {
       query: {
         page: params.page,
@@ -152,6 +152,7 @@ function ContestFormDialog({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const apiClient = useApiClient();
 
   useEffect(() => {
     if (!open) return;
@@ -159,7 +160,7 @@ function ContestFormDialog({
     if (contest) {
       // Need to fetch full contest for description
       setLoadingData(true);
-      api.GET('/contests/{id}', { params: { path: { id: contest.id } } }).then(({ data, error }) => {
+      apiClient.GET('/contests/{id}', { params: { path: { id: contest.id } } }).then(({ data, error }) => {
         setLoadingData(false);
         if (error || !data) return;
         setTitle(data.title);
@@ -181,7 +182,7 @@ function ContestFormDialog({
       setShowCompileOutput(true);
       setShowParticipantsList(true);
     }
-  }, [open, contest]);
+  }, [apiClient, open, contest]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -200,8 +201,8 @@ function ContestFormDialog({
     };
 
     const result = isEdit
-      ? await api.PATCH('/contests/{id}', { params: { path: { id: contest!.id } }, body })
-      : await api.POST('/contests', { body });
+      ? await apiClient.PATCH('/contests/{id}', { params: { path: { id: contest!.id } }, body })
+      : await apiClient.POST('/contests', { body });
 
     setLoading(false);
     if (result.error) {
@@ -298,13 +299,14 @@ function ProblemFormDialog({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const apiClient = useApiClient();
 
   useEffect(() => {
     if (!open) return;
     setMessage(null);
     if (problem) {
       setLoadingData(true);
-      api.GET('/problems/{id}', { params: { path: { id: problem.id } } }).then(({ data, error }) => {
+      apiClient.GET('/problems/{id}', { params: { path: { id: problem.id } } }).then(({ data, error }) => {
         setLoadingData(false);
         if (error || !data) return;
         setTitle(data.title);
@@ -320,7 +322,7 @@ function ProblemFormDialog({
       setMemoryLimit(262144);
       setShowTestDetails(false);
     }
-  }, [open, problem]);
+  }, [apiClient, open, problem]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -336,8 +338,8 @@ function ProblemFormDialog({
     };
 
     const result = isEdit
-      ? await api.PATCH('/problems/{id}', { params: { path: { id: problem!.id } }, body })
-      : await api.POST('/problems', { body });
+      ? await apiClient.PATCH('/problems/{id}', { params: { path: { id: problem!.id } }, body })
+      : await apiClient.POST('/problems', { body });
 
     setLoading(false);
     if (result.error) {
@@ -417,10 +419,11 @@ function ProblemPreviewDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const apiClient = useApiClient();
   const { data, isLoading } = useQuery({
     queryKey: ['problem-preview', problemId],
     queryFn: async () => {
-      const { data, error } = await api.GET('/problems/{id}', {
+      const { data, error } = await apiClient.GET('/problems/{id}', {
         params: { path: { id: problemId } },
       });
       if (error) throw error;
@@ -474,12 +477,13 @@ function ContestProblemsDialog({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const contestProblemsKey = ['contest-problems', contest.id];
+  const apiClient = useApiClient();
 
   // Fetch problems currently in this contest
   const { data: contestProblems = [], isLoading: loadingContestProblems } = useQuery({
     queryKey: contestProblemsKey,
     queryFn: async () => {
-      const { data, error } = await api.GET('/contests/{id}/problems', {
+      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contest.id } },
       });
       if (error) throw error;
@@ -492,7 +496,7 @@ function ContestProblemsDialog({
   const { data: allProblems = [], isLoading: loadingAllProblems } = useQuery({
     queryKey: ['all-problems-for-contest', contest.id],
     queryFn: async () => {
-      const { data, error } = await api.GET('/problems', {
+      const { data, error } = await apiClient.GET('/problems', {
         params: { query: { page: 1, per_page: 200 } },
       });
       if (error) throw error;
@@ -535,7 +539,7 @@ function ContestProblemsDialog({
     setAddingId(problemId);
     setErrorMsg('');
 
-    const { error: apiError } = await api.POST('/contests/{id}/problems', {
+    const { error: apiError } = await apiClient.POST('/contests/{id}/problems', {
       params: { path: { id: contest.id } },
       body: { problem_id: problemId, label: autoLabel },
     });
@@ -550,7 +554,7 @@ function ContestProblemsDialog({
 
   async function handleRemove(problemId: number) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
-    const { error: apiError } = await api.DELETE('/contests/{id}/problems/{problem_id}', {
+    const { error: apiError } = await apiClient.DELETE('/contests/{id}/problems/{problem_id}', {
       params: { path: { id: contest.id, problem_id: problemId } },
     });
     if (!apiError) {
@@ -882,6 +886,8 @@ export function AdminPage() {
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<ProblemListItem | undefined>();
 
+  const apiClient = useApiClient();
+
   function handleCreateContest() {
     setEditingContest(undefined);
     setContestDialogOpen(true);
@@ -899,7 +905,7 @@ export function AdminPage() {
 
   async function handleDeleteContest(contest: ContestListItem) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
-    const { error } = await api.DELETE('/contests/{id}', { params: { path: { id: contest.id } } });
+    const { error } = await apiClient.DELETE('/contests/{id}', { params: { path: { id: contest.id } } });
     if (!error) {
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });
     }
@@ -917,7 +923,7 @@ export function AdminPage() {
 
   async function handleDeleteProblem(problem: ProblemListItem) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
-    const { error } = await api.DELETE('/problems/{id}', { params: { path: { id: problem.id } } });
+    const { error } = await apiClient.DELETE('/problems/{id}', { params: { path: { id: problem.id } } });
     if (!error) {
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
     }

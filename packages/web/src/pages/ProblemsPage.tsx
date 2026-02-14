@@ -1,19 +1,18 @@
-import type { ProblemListItem, ContestProblemResponse } from '@broccoli/sdk/api';
-import { api } from '@broccoli/sdk/api';
+import type { ProblemListItem, ContestProblemResponse } from '@broccoli/sdk';
+import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Code2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 
-import { Badge } from '@/components/ui/badge';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
 // --- Public problems (paginated via DataTable) ---
 
-async function fetchProblems(params: ServerTableParams) {
-  const { data, error } = await api.GET('/problems', {
+async function fetchProblems(apiClient: ApiClient, params: ServerTableParams) {
+  const { data, error } = await apiClient.GET('/problems', {
     params: {
       query: {
         page: params.page,
@@ -77,11 +76,12 @@ function useProblemsColumns(): DataTableColumn<ProblemListItem>[] {
 function ContestProblemsTable({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const apiClient = useApiClient();
 
   const { data: problems = [], isLoading } = useQuery({
     queryKey: ['contest-problems', contestId],
     queryFn: async () => {
-      const { data, error } = await api.GET('/contests/{id}/problems', {
+      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId } },
       });
       if (error) throw error;

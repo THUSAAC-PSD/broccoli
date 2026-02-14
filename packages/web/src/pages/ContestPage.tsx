@@ -1,6 +1,5 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { api } from '@broccoli/sdk/api';
-import type { ContestResponse, ContestProblemResponse } from '@broccoli/sdk/api';
+import { type ContestResponse, type ContestProblemResponse, useApiClient } from '@broccoli/sdk/api';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
@@ -33,6 +32,7 @@ export function ContestPage() {
   const { t } = useTranslation();
   const { contestId } = useParams();
   const id = Number(contestId);
+  const apiClient = useApiClient();
 
   const {
     data: contest,
@@ -42,7 +42,7 @@ export function ContestPage() {
     queryKey: ['contest', id],
     enabled: Number.isFinite(id),
     queryFn: async () => {
-      const { data, error } = await api.GET('/contests/{id}', {
+      const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id } },
       });
       if (error) throw error;
@@ -58,7 +58,7 @@ export function ContestPage() {
     queryKey: ['contest-problems', id],
     enabled: Number.isFinite(id),
     queryFn: async () => {
-      const { data, error } = await api.GET('/contests/{id}/problems', {
+      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id } },
       });
       if (error) throw error;

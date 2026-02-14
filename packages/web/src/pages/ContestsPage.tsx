@@ -1,5 +1,5 @@
-import type { ContestListItem } from '@broccoli/sdk/api';
-import { api } from '@broccoli/sdk/api';
+import type { ContestListItem } from '@broccoli/sdk';
+import type { ApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Trophy } from 'lucide-react';
 import { Link } from 'react-router';
@@ -42,8 +42,8 @@ function formatRelativeTime(dateStr: string, t: (key: string, params?: Record<st
   return t('contests.minutesAgo', { count: String(mins) });
 }
 
-async function fetchContests(params: ServerTableParams) {
-  const { data, error } = await api.GET('/contests', {
+async function fetchContests(apiClient: ApiClient, params: ServerTableParams) {
+  const { data, error } = await apiClient.GET('/contests', {
     params: {
       query: {
         page: params.page,
