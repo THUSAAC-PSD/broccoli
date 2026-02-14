@@ -21,7 +21,7 @@ fn default_worker_id() -> String {
     "worker-1".into()
 }
 fn default_batch_size() -> usize {
-    10
+    4
 }
 fn default_isolate_bin() -> String {
     "isolate".into()
@@ -53,7 +53,7 @@ impl WorkerAppConfig {
 
         let s = Config::builder()
             .set_default("worker.id", "worker-1")?
-            .set_default("worker.batch_size", 10_i64)?
+            .set_default("worker.batch_size", 4_i64)?
             .set_default("worker.isolate_bin", "isolate")?
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
