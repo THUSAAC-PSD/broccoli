@@ -1456,3 +1456,210 @@ mod test_case_zip_upload {
         assert!(res.body["message"].as_str().unwrap().contains("Duplicate"));
     }
 }
+
+mod bulk_delete_test_cases {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_bulk_delete_test_cases() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_bulk1", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Bulk Delete TC").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+        let tc2 = app.create_test_case(pid, &token).await;
+        let tc3 = app.create_test_case(pid, &token).await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(pid),
+                &json!({"test_case_ids": [tc1, tc2]}),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["deleted"], 2);
+
+        // Verify only tc3 remains
+        let list = app.get_with_token(&routes::test_cases(pid), &token).await;
+        assert_eq!(list.status, 200);
+        let data = list.body.as_array().expect("response should be array");
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0]["id"], tc3);
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_empty_ids() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_bulk2", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Bulk Delete TC").await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(pid),
+                &json!({"test_case_ids": []}),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_duplicate_ids() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_bulk3", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Bulk Delete TC").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(pid),
+                &json!({"test_case_ids": [tc1, tc1]}),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_nonexistent_problem() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_bulk4", "password123", "admin")
+            .await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(99999),
+                &json!({"test_case_ids": [1]}),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn returns_not_found_for_ids_not_in_problem() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_bulk5", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Bulk Delete TC").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(pid),
+                &json!({"test_case_ids": [tc1, 99999]}),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn returns_conflict_when_test_cases_have_results() {
+        use common::{SubmissionStatus, Verdict};
+        use sea_orm::{ActiveModelTrait, Set};
+        use server::entity::{submission, test_case_result};
+
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_bulk6", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Bulk Delete TC").await;
+        let tc1 = app.create_test_case(pid, &token).await;
+        let tc2 = app.create_test_case(pid, &token).await;
+
+        let me = app.get_with_token(routes::ME, &token).await;
+        let user_id = me.id();
+        let now = chrono::Utc::now();
+
+        // Create a submission with judged results
+        let files = serde_json::json!([{"filename": "main.rs", "content": "fn main() {}"}]);
+        let sub = submission::ActiveModel {
+            files: Set(files),
+            language: Set("rust".into()),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(100)),
+            time_used: Set(Some(50)),
+            memory_used: Set(Some(1024)),
+            user_id: Set(user_id),
+            problem_id: Set(pid),
+            created_at: Set(now),
+            judged_at: Set(Some(now)),
+            ..Default::default()
+        };
+        let sub_model = sub.insert(&app.db).await.expect("insert submission");
+
+        // Create test case result linked to tc1
+        let tcr = test_case_result::ActiveModel {
+            submission_id: Set(sub_model.id),
+            test_case_id: Set(tc1),
+            verdict: Set(Verdict::Accepted),
+            score: Set(10),
+            time_used: Set(Some(50)),
+            memory_used: Set(Some(1024)),
+            created_at: Set(now),
+            ..Default::default()
+        };
+        tcr.insert(&app.db).await.expect("insert test case result");
+
+        // Try to bulk delete both — should fail with CONFLICT because tc1 has results
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(pid),
+                &json!({"test_case_ids": [tc1, tc2]}),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_bulk_delete_test_cases() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_bulk7", "password123", "admin")
+            .await;
+        let contestant_token = app
+            .create_authenticated_user("contestant_bulk7", "password123")
+            .await;
+
+        let pid = app.create_problem(&admin_token, "Bulk Delete TC").await;
+        let tc1 = app.create_test_case(pid, &admin_token).await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::test_cases_bulk(pid),
+                &json!({"test_case_ids": [tc1]}),
+                &contestant_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+}

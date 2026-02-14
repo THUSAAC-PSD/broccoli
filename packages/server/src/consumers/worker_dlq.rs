@@ -51,10 +51,7 @@ pub async fn consume_worker_dlq(db: DatabaseConnection, mq: Arc<Mq>, queue_name:
 
                         if let Err(e) = txn.commit().await {
                             error!(error = %e, "Failed to commit DLQ entry");
-                            return Err(mq::BroccoliError::Job(format!(
-                                "Commit failed: {}",
-                                e
-                            )));
+                            return Err(mq::BroccoliError::Job(format!("Commit failed: {}", e)));
                         }
                     }
 

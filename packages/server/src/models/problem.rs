@@ -6,7 +6,8 @@ use crate::error::AppError;
 
 pub use super::shared::{Pagination, escape_like};
 use super::shared::{
-    double_option, validate_optional_position, validate_reorder_ids, validate_title,
+    double_option, validate_bulk_ids, validate_optional_position, validate_reorder_ids,
+    validate_title,
 };
 
 /// Request body for creating a problem.
@@ -327,6 +328,26 @@ pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppE
 
 pub fn validate_reorder_test_cases(req: &ReorderTestCasesRequest) -> Result<(), AppError> {
     validate_reorder_ids(&req.test_case_ids, "test_case_id")
+}
+
+/// Request body for bulk-deleting test cases.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct BulkDeleteTestCasesRequest {
+    /// IDs of test cases to delete. Max 1,000, no duplicates, all must belong to the problem.
+    #[schema(example = json!([5, 7, 9]))]
+    pub test_case_ids: Vec<i32>,
+}
+
+/// Response from bulk-deleting test cases.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BulkDeleteTestCasesResponse {
+    /// Number of test cases deleted.
+    #[schema(example = 3)]
+    pub deleted: usize,
+}
+
+pub fn validate_bulk_delete_test_cases(req: &BulkDeleteTestCasesRequest) -> Result<(), AppError> {
+    validate_bulk_ids(&req.test_case_ids, "test_case_ids", 1000)
 }
 
 pub fn validate_update_test_case(req: &UpdateTestCaseRequest) -> Result<(), AppError> {

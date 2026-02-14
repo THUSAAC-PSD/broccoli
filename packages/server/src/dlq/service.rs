@@ -248,6 +248,29 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         })
     }
 
+    /// Resolve multiple DLQ messages at once. Returns the number of rows affected.
+    pub async fn resolve_many(&self, ids: &[i32], resolved_by: Option<i32>) -> Result<u64, DbErr> {
+        let result = dead_letter_message::Entity::update_many()
+            .col_expr(
+                dead_letter_message::Column::Resolved,
+                sea_orm::sea_query::Expr::value(true),
+            )
+            .col_expr(
+                dead_letter_message::Column::ResolvedAt,
+                sea_orm::sea_query::Expr::value(Utc::now()),
+            )
+            .col_expr(
+                dead_letter_message::Column::ResolvedBy,
+                sea_orm::sea_query::Expr::value(resolved_by),
+            )
+            .filter(dead_letter_message::Column::Id.is_in(ids.to_vec()))
+            .filter(dead_letter_message::Column::Resolved.eq(false))
+            .exec(self.conn)
+            .await?;
+
+        Ok(result.rows_affected)
+    }
+
     /// Check if a submission already has an unresolved DLQ entry.
     pub async fn has_unresolved_entry(&self, submission_id: i32) -> Result<bool, DbErr> {
         let count = dead_letter_message::Entity::find()

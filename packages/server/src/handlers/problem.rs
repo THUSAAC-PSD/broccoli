@@ -733,6 +733,95 @@ pub async fn reorder_test_cases(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Bulk-delete test cases for a problem.
+#[utoipa::path(
+    delete,
+    path = "/bulk",
+    tag = "Test Cases",
+    operation_id = "bulkDeleteTestCases",
+    summary = "Bulk-delete test cases",
+    description = "Deletes multiple test cases in a single operation. Requires `problem:edit` permission. Returns 409 CONFLICT if any test case has judge results, listing the offending IDs.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    request_body = BulkDeleteTestCasesRequest,
+    responses(
+        (status = 200, description = "Test cases deleted", body = BulkDeleteTestCasesResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found or test case IDs not in problem (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Some test cases have judge results (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload), fields(problem_id))]
+pub async fn bulk_delete_test_cases(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(problem_id): Path<i32>,
+    AppJson(payload): AppJson<BulkDeleteTestCasesRequest>,
+) -> Result<Json<BulkDeleteTestCasesResponse>, AppError> {
+    auth_user.require_permission("problem:edit")?;
+    validate_bulk_delete_test_cases(&payload)?;
+
+    let txn = state.db.begin().await?;
+    find_problem_for_update(&txn, problem_id).await?;
+
+    let existing_ids: Vec<i32> = test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(problem_id))
+        .filter(test_case::Column::Id.is_in(payload.test_case_ids.clone()))
+        .select_only()
+        .column(test_case::Column::Id)
+        .into_tuple::<i32>()
+        .all(&txn)
+        .await?;
+
+    let existing_set: std::collections::HashSet<i32> = existing_ids.into_iter().collect();
+    let missing: Vec<i32> = payload
+        .test_case_ids
+        .iter()
+        .filter(|id| !existing_set.contains(id))
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "Test case IDs not found in problem {problem_id}: {missing:?}"
+        )));
+    }
+
+    let ids_with_results: Vec<i32> = test_case_result::Entity::find()
+        .filter(test_case_result::Column::TestCaseId.is_in(payload.test_case_ids.clone()))
+        .select_only()
+        .column(test_case_result::Column::TestCaseId)
+        .distinct()
+        .into_tuple::<i32>()
+        .all(&txn)
+        .await?;
+
+    if !ids_with_results.is_empty() {
+        return Err(AppError::Conflict(format!(
+            "Cannot delete: test cases {ids_with_results:?} have judge results"
+        )));
+    }
+
+    let result = test_case::Entity::delete_many()
+        .filter(test_case::Column::Id.is_in(payload.test_case_ids))
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    tracing::info!(
+        problem_id,
+        deleted = result.rows_affected,
+        user_id = auth_user.user_id,
+        "Bulk deleted test cases"
+    );
+
+    Ok(Json(BulkDeleteTestCasesResponse {
+        deleted: result.rows_affected as usize,
+    }))
+}
+
 /// Body limit layer for test case JSON routes (32MB).
 pub fn test_case_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(32 * 1024 * 1024)

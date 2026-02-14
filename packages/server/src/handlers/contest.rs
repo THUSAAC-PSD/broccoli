@@ -859,6 +859,285 @@ pub async fn unregister_from_contest(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Bulk-delete problems from a contest.
+#[utoipa::path(
+    delete,
+    path = "/bulk",
+    tag = "Contest Problems",
+    operation_id = "bulkDeleteContestProblems",
+    summary = "Bulk-remove problems from a contest",
+    description = "Removes multiple problems from a contest in a single operation. Requires `contest:manage` permission. All provided problem IDs must be currently in the contest.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    request_body = BulkDeleteContestProblemsRequest,
+    responses(
+        (status = 200, description = "Problems removed", body = BulkDeleteContestProblemsResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest not found or problem IDs not in contest (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload), fields(contest_id))]
+pub async fn bulk_delete_contest_problems(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(contest_id): Path<i32>,
+    AppJson(payload): AppJson<BulkDeleteContestProblemsRequest>,
+) -> Result<Json<BulkDeleteContestProblemsResponse>, AppError> {
+    auth_user.require_permission("contest:manage")?;
+    validate_bulk_delete_contest_problems(&payload)?;
+
+    let txn = state.db.begin().await?;
+    find_contest_for_update(&txn, contest_id).await?;
+
+    let existing_ids: Vec<i32> = contest_problem::Entity::find()
+        .filter(contest_problem::Column::ContestId.eq(contest_id))
+        .filter(contest_problem::Column::ProblemId.is_in(payload.problem_ids.clone()))
+        .select_only()
+        .column(contest_problem::Column::ProblemId)
+        .into_tuple::<i32>()
+        .all(&txn)
+        .await?;
+
+    let existing_set: std::collections::HashSet<i32> = existing_ids.into_iter().collect();
+    let missing: Vec<i32> = payload
+        .problem_ids
+        .iter()
+        .filter(|id| !existing_set.contains(id))
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "Problem IDs not found in contest {contest_id}: {missing:?}"
+        )));
+    }
+
+    let result = contest_problem::Entity::delete_many()
+        .filter(contest_problem::Column::ContestId.eq(contest_id))
+        .filter(contest_problem::Column::ProblemId.is_in(payload.problem_ids))
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    tracing::info!(
+        contest_id,
+        removed = result.rows_affected,
+        user_id = auth_user.user_id,
+        "Bulk removed contest problems"
+    );
+
+    Ok(Json(BulkDeleteContestProblemsResponse {
+        removed: result.rows_affected as usize,
+    }))
+}
+
+/// Bulk-add participants to a contest, with optional account creation.
+#[utoipa::path(
+    post,
+    path = "/bulk",
+    tag = "Contest Participants",
+    operation_id = "bulkAddParticipants",
+    summary = "Bulk-add participants to a contest",
+    description = "Enrolls multiple users in a contest. Existing users are looked up by username; new users can be created with auto-generated or custom passwords. Requires `contest:manage` permission. Partial success model: missing usernames are reported in `not_found`, already-enrolled users in `already_enrolled`.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    request_body = BulkAddParticipantsRequest,
+    responses(
+        (status = 200, description = "Participants added", body = BulkAddParticipantsResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload), fields(contest_id))]
+pub async fn bulk_add_participants(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(contest_id): Path<i32>,
+    AppJson(payload): AppJson<BulkAddParticipantsRequest>,
+) -> Result<Json<BulkAddParticipantsResponse>, AppError> {
+    auth_user.require_permission("contest:manage")?;
+    validate_bulk_add_participants(&payload)?;
+
+    let mut hashed_entries: Vec<(String, String, String)> = Vec::new(); // (username, plaintext, hash)
+    if !payload.create_users.is_empty() {
+        let entries: Vec<(String, String)> = payload
+            .create_users
+            .iter()
+            .map(|e| {
+                let username = e.username.trim().to_string();
+                let plaintext = e
+                    .password
+                    .clone()
+                    .unwrap_or_else(|| crate::utils::password::generate_password(12));
+                (username, plaintext)
+            })
+            .collect();
+
+        hashed_entries = tokio::task::spawn_blocking(move || {
+            entries
+                .into_iter()
+                .map(|(username, plaintext)| {
+                    let hash = crate::utils::hash::hash_password(&plaintext)
+                        .map_err(|e| format!("Password hash error for '{username}': {e}"))?;
+                    Ok((username, plaintext, hash))
+                })
+                .collect::<Result<Vec<_>, String>>()
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Password hashing task failed: {e}")))?
+        .map_err(AppError::Internal)?;
+    }
+
+    let txn = state.db.begin().await?;
+    find_contest_for_update(&txn, contest_id).await?;
+
+    let mut added = Vec::new();
+    let mut created_response = Vec::new();
+    let mut already_enrolled = Vec::new();
+    let mut not_found = Vec::new();
+
+    let mut users_to_enroll: Vec<(i32, String)> = Vec::new();
+
+    for (username, plaintext, hash) in hashed_entries {
+        let new_user = user::ActiveModel {
+            username: Set(username.clone()),
+            password: Set(hash),
+            role: Set(crate::entity::role::DEFAULT_ROLE.to_string()),
+            created_at: Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+
+        match new_user.insert(&txn).await {
+            Ok(m) => {
+                created_response.push(BulkParticipantCreated {
+                    user_id: m.id,
+                    username: username.clone(),
+                    password: plaintext,
+                });
+                users_to_enroll.push((m.id, username));
+            }
+            Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
+                let existing = user::Entity::find()
+                    .filter(user::Column::Username.eq(&username))
+                    .one(&txn)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::Internal(format!(
+                            "User '{username}' caused UniqueConstraintViolation but not found"
+                        ))
+                    })?;
+                users_to_enroll.push((existing.id, username));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    if !payload.usernames.is_empty() {
+        let trimmed_usernames: Vec<String> = payload
+            .usernames
+            .iter()
+            .map(|u| u.trim().to_string())
+            .collect();
+
+        let found_users: Vec<user::Model> = user::Entity::find()
+            .filter(user::Column::Username.is_in(trimmed_usernames.clone()))
+            .all(&txn)
+            .await?;
+
+        let found_map: std::collections::HashMap<String, i32> = found_users
+            .iter()
+            .map(|u| (u.username.clone(), u.id))
+            .collect();
+
+        for name in &trimmed_usernames {
+            if let Some(&uid) = found_map.get(name) {
+                users_to_enroll.push((uid, name.clone()));
+            } else {
+                not_found.push(name.clone());
+            }
+        }
+    }
+
+    let user_ids_to_check: Vec<i32> = users_to_enroll.iter().map(|(id, _)| *id).collect();
+    let already_enrolled_ids: std::collections::HashSet<i32> = if !user_ids_to_check.is_empty() {
+        contest_user::Entity::find()
+            .filter(contest_user::Column::ContestId.eq(contest_id))
+            .filter(contest_user::Column::UserId.is_in(user_ids_to_check))
+            .select_only()
+            .column(contest_user::Column::UserId)
+            .into_tuple::<i32>()
+            .all(&txn)
+            .await?
+            .into_iter()
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let now = chrono::Utc::now();
+    let created_user_ids: std::collections::HashSet<i32> =
+        created_response.iter().map(|c| c.user_id).collect();
+
+    for (uid, name) in users_to_enroll {
+        if already_enrolled_ids.contains(&uid) {
+            if !created_user_ids.contains(&uid) {
+                already_enrolled.push(BulkParticipantAdded {
+                    user_id: uid,
+                    username: name,
+                });
+            }
+        } else {
+            let new_cu = contest_user::ActiveModel {
+                contest_id: Set(contest_id),
+                user_id: Set(uid),
+                registered_at: Set(now),
+            };
+            match new_cu.insert(&txn).await {
+                Ok(_) => {
+                    if !created_user_ids.contains(&uid) {
+                        added.push(BulkParticipantAdded {
+                            user_id: uid,
+                            username: name,
+                        });
+                    }
+                }
+                Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
+                    if !created_user_ids.contains(&uid) {
+                        already_enrolled.push(BulkParticipantAdded {
+                            user_id: uid,
+                            username: name,
+                        });
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    txn.commit().await?;
+
+    tracing::info!(
+        contest_id,
+        added = added.len(),
+        created = created_response.len(),
+        already_enrolled = already_enrolled.len(),
+        not_found = not_found.len(),
+        user_id = auth_user.user_id,
+        "Bulk added participants"
+    );
+
+    Ok(Json(BulkAddParticipantsResponse {
+        added,
+        created: created_response,
+        already_enrolled,
+        not_found,
+    }))
+}
+
 async fn check_contest_access<C: ConnectionTrait>(
     db: &C,
     auth_user: &AuthUser,

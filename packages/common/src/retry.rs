@@ -37,7 +37,9 @@ pub enum RetryDecision {
         attempt: u8,
         history: Vec<RetryAttempt>,
     },
-    Exhausted { history: Vec<RetryAttempt> },
+    Exhausted {
+        history: Vec<RetryAttempt>,
+    },
 }
 
 /// Internal state for a single message's retry tracking.
@@ -177,11 +179,10 @@ impl<'a> RetryCleanupGuard<'a> {
 
 impl Drop for RetryCleanupGuard<'_> {
     fn drop(&mut self) {
-        if !self.defused {
-            if let Ok(mut tracker) = self.tracker.try_lock() {
+        if !self.defused
+            && let Ok(mut tracker) = self.tracker.try_lock() {
                 tracker.clear(&self.job_id);
             }
-        }
     }
 }
 

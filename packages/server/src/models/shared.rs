@@ -77,3 +77,20 @@ pub fn validate_reorder_ids(ids: &[i32], name: &str) -> Result<(), AppError> {
     }
     Ok(())
 }
+
+/// Validate an ID list for bulk operations (non-empty, no duplicates, max length).
+pub fn validate_bulk_ids(ids: &[i32], name: &str, max: usize) -> Result<(), AppError> {
+    if ids.is_empty() {
+        return Err(AppError::Validation(format!("{name} must not be empty")));
+    }
+    if ids.len() > max {
+        return Err(AppError::Validation(format!("Too many {name}: max {max}")));
+    }
+    let mut seen = HashSet::new();
+    for &id in ids {
+        if !seen.insert(id) {
+            return Err(AppError::Validation(format!("Duplicate {name} ID: {id}")));
+        }
+    }
+    Ok(())
+}

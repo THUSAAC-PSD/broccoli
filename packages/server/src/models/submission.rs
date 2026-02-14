@@ -266,6 +266,55 @@ pub fn validate_submission_list_query(query: &SubmissionListQuery) -> Result<(),
     Ok(())
 }
 
+/// Request body for bulk-rejudging submissions by filter.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct BulkRejudgeRequest {
+    /// Filter by problem ID.
+    #[schema(example = 5)]
+    pub problem_id: Option<i32>,
+    /// Filter by contest ID.
+    #[schema(example = 2)]
+    pub contest_id: Option<i32>,
+    /// Filter by language.
+    #[schema(example = "cpp")]
+    pub language: Option<String>,
+    /// Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+    #[schema(example = "WrongAnswer")]
+    pub verdict: Option<String>,
+    /// Filter by user ID.
+    #[schema(example = 7)]
+    pub user_id: Option<i32>,
+}
+
+/// Response from bulk rejudge.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BulkRejudgeResponse {
+    /// Number of submissions queued for rejudging.
+    #[schema(example = 1234)]
+    pub queued: usize,
+}
+
+pub fn validate_bulk_rejudge(req: &BulkRejudgeRequest) -> Result<(), AppError> {
+    if req.problem_id.is_none()
+        && req.contest_id.is_none()
+        && req.language.is_none()
+        && req.verdict.is_none()
+        && req.user_id.is_none()
+    {
+        return Err(AppError::Validation(
+            "At least one filter field must be provided".into(),
+        ));
+    }
+
+    if let Some(ref verdict) = req.verdict {
+        verdict
+            .parse::<Verdict>()
+            .map_err(|e| AppError::Validation(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
 impl From<crate::entity::test_case_result::Model> for TestCaseResultResponse {
     fn from(m: crate::entity::test_case_result::Model) -> Self {
         Self {

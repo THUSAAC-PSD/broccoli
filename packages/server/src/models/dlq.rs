@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::dlq::DlqStats;
 use crate::entity::dead_letter_message;
+use crate::error::AppError;
 
-use super::shared::Pagination;
+use super::shared::{Pagination, validate_bulk_ids};
 
 /// Query parameters for listing DLQ messages.
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -180,4 +181,84 @@ pub struct DlqRetryResponse {
     /// Status message.
     #[schema(example = "Message requeued for processing")]
     pub message: String,
+}
+
+/// Request body for bulk retry of DLQ messages.
+///
+/// Exactly one of `message_ids` or the filter fields (`message_type`/`error_code`) must be provided.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct BulkRetryDlqRequest {
+    /// Specific message IDs to retry. Max 1,000.
+    pub message_ids: Option<Vec<i32>>,
+    /// Filter: retry all unresolved messages of this type.
+    pub message_type: Option<String>,
+    /// Filter: retry all unresolved messages with this error code.
+    pub error_code: Option<String>,
+}
+
+/// Response from bulk retry of DLQ messages.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BulkRetryDlqResponse {
+    /// Number of messages successfully retried.
+    #[schema(example = 2)]
+    pub retried: usize,
+    /// Number of messages skipped (already resolved, non-retryable, etc.).
+    #[schema(example = 1)]
+    pub skipped: usize,
+    /// Errors encountered for specific messages.
+    pub errors: Vec<BulkRetryError>,
+}
+
+/// Error encountered retrying a single DLQ message.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BulkRetryError {
+    /// The DLQ message ID.
+    #[schema(example = 7)]
+    pub id: i32,
+    /// Why this message could not be retried.
+    #[schema(example = "Message not found")]
+    pub error: String,
+}
+
+/// Request body for bulk delete (resolve) of DLQ messages.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct BulkDeleteDlqRequest {
+    /// IDs of DLQ messages to resolve. Max 1,000.
+    #[schema(example = json!([5, 7, 9]))]
+    pub message_ids: Vec<i32>,
+}
+
+/// Response from bulk delete (resolve) of DLQ messages.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BulkDeleteDlqResponse {
+    /// Number of messages resolved.
+    #[schema(example = 3)]
+    pub deleted: usize,
+}
+
+pub fn validate_bulk_retry_dlq(req: &BulkRetryDlqRequest) -> Result<(), AppError> {
+    let has_ids = req.message_ids.as_ref().is_some_and(|ids| !ids.is_empty());
+    let has_filter = req.message_type.is_some() || req.error_code.is_some();
+
+    if !has_ids && !has_filter {
+        return Err(AppError::Validation(
+            "Either 'message_ids' or filter fields ('message_type'/'error_code') must be provided"
+                .into(),
+        ));
+    }
+    if has_ids && has_filter {
+        return Err(AppError::Validation(
+            "Cannot combine 'message_ids' with filter fields".into(),
+        ));
+    }
+
+    if let Some(ref ids) = req.message_ids {
+        validate_bulk_ids(ids, "message_ids", 1000)?;
+    }
+
+    Ok(())
+}
+
+pub fn validate_bulk_delete_dlq(req: &BulkDeleteDlqRequest) -> Result<(), AppError> {
+    validate_bulk_ids(&req.message_ids, "message_ids", 1000)
 }

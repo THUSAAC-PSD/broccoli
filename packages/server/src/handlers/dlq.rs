@@ -5,17 +5,18 @@ use axum::{
     response::IntoResponse,
 };
 use common::{DlqMessageType, SubmissionStatus, judge_job::JudgeJob, worker::Task};
-use sea_orm::{ActiveModelTrait, Set, TransactionTrait};
-use tracing::{info, instrument};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    TransactionTrait,
+};
+use tracing::{info, instrument, warn};
 
-use crate::dlq::{ResolveResult, dlq_service};
-use crate::entity::submission;
+use crate::dlq::{DlqService, ResolveResult, dlq_service};
+use crate::entity::{dead_letter_message, submission};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
-use crate::models::dlq::{
-    DlqListResponse, DlqMessageDetailResponse, DlqMessageResponse, DlqRetryResponse,
-    DlqStatsResponse, ListDlqParams,
-};
+use crate::extractors::json::AppJson;
+use crate::models::dlq::*;
 use crate::models::shared::Pagination;
 use crate::state::AppState;
 
@@ -282,4 +283,229 @@ pub async fn delete_dlq_message(
             Ok(StatusCode::NO_CONTENT)
         }
     }
+}
+
+/// Bulk-retry DLQ messages.
+#[utoipa::path(
+    post,
+    path = "/bulk-retry",
+    tag = "Dead Letter Queue",
+    operation_id = "bulkRetryDlq",
+    summary = "Bulk-retry DLQ messages",
+    description = "Re-enqueues multiple dead letter messages for processing. Supports either specific message IDs or filter-based selection. Only judge_job messages with a known submission_id are retryable. Requires `dlq:manage` permission.",
+    request_body = BulkRetryDlqRequest,
+    responses(
+        (status = 200, description = "Bulk retry result", body = BulkRetryDlqResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 500, description = "MQ unavailable (INTERNAL_ERROR)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload))]
+pub async fn bulk_retry_dlq(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<BulkRetryDlqRequest>,
+) -> Result<Json<BulkRetryDlqResponse>, AppError> {
+    auth_user.require_permission("dlq:manage")?;
+    validate_bulk_retry_dlq(&payload)?;
+
+    let Some(ref mq) = state.mq else {
+        return Err(AppError::Internal("Message queue not available".into()));
+    };
+
+    let message_ids: Vec<i32> = if let Some(ref ids) = payload.message_ids {
+        ids.clone()
+    } else {
+        let mut query = dead_letter_message::Entity::find()
+            .filter(dead_letter_message::Column::Resolved.eq(false));
+
+        if let Some(ref mt) = payload.message_type {
+            query = query.filter(dead_letter_message::Column::MessageType.eq(mt.as_str()));
+        }
+        if let Some(ref ec) = payload.error_code {
+            query = query.filter(dead_letter_message::Column::ErrorCode.eq(ec.as_str()));
+        }
+
+        let ids: Vec<i32> = query
+            .select_only()
+            .column(dead_letter_message::Column::Id)
+            .order_by_asc(dead_letter_message::Column::CreatedAt)
+            .limit(10001)
+            .into_tuple::<i32>()
+            .all(&state.db)
+            .await?;
+
+        if ids.len() > 10_000 {
+            return Err(AppError::Validation(
+                "Filter matches more than 10,000 messages. Narrow your filters.".into(),
+            ));
+        }
+
+        ids
+    };
+
+    let txn = state.db.begin().await?;
+    let dlq = DlqService::new(&txn);
+
+    let mut retried = 0usize;
+    let mut skipped = 0usize;
+    let mut errors = Vec::new();
+    let mut tasks_to_publish: Vec<Task> = Vec::new();
+
+    for id in &message_ids {
+        let message = match dlq.get_by_id_for_update(*id).await {
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: "Message not found".into(),
+                });
+                continue;
+            }
+            Err(e) => {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: format!("DB error: {e}"),
+                });
+                continue;
+            }
+        };
+
+        if message.resolved {
+            skipped += 1;
+            continue;
+        }
+
+        if message.message_type != DlqMessageType::JudgeJob.as_str() {
+            skipped += 1;
+            continue;
+        }
+
+        let Some(submission_id) = message.submission_id else {
+            skipped += 1;
+            continue;
+        };
+
+        let job: JudgeJob = match serde_json::from_value(message.payload.clone()) {
+            Ok(j) => j,
+            Err(e) => {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: format!("Failed to deserialize payload: {e}"),
+                });
+                continue;
+            }
+        };
+
+        let submission_update = submission::ActiveModel {
+            id: Set(submission_id),
+            status: Set(SubmissionStatus::Pending),
+            error_code: Set(None),
+            error_message: Set(None),
+            ..Default::default()
+        };
+        if let Err(e) = submission_update.update(&txn).await {
+            errors.push(BulkRetryError {
+                id: *id,
+                error: format!("Failed to reset submission: {e}"),
+            });
+            continue;
+        }
+
+        match dlq.resolve(*id, Some(auth_user.user_id)).await {
+            Ok(ResolveResult::Resolved | ResolveResult::AlreadyResolved) => {}
+            Ok(ResolveResult::NotFound) => {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: "DLQ message disappeared during retry".into(),
+                });
+                continue;
+            }
+            Err(e) => {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: format!("Failed to resolve: {e}"),
+                });
+                continue;
+            }
+        }
+
+        tasks_to_publish.push(Task {
+            id: job.job_id.clone(),
+            task_type: "judge".into(),
+            payload: message.payload.clone(),
+        });
+
+        retried += 1;
+    }
+
+    txn.commit().await?;
+
+    for task in &tasks_to_publish {
+        if let Err(e) = mq
+            .publish(&state.config.mq.queue_name, None, task, None)
+            .await
+        {
+            warn!(task_id = %task.id, error = %e, "Failed to publish retried task to MQ");
+        }
+    }
+
+    info!(
+        retried,
+        skipped,
+        errors = errors.len(),
+        user_id = auth_user.user_id,
+        "Bulk retried DLQ messages"
+    );
+
+    Ok(Json(BulkRetryDlqResponse {
+        retried,
+        skipped,
+        errors,
+    }))
+}
+
+/// Bulk-delete (resolve) DLQ messages.
+#[utoipa::path(
+    delete,
+    path = "/bulk",
+    tag = "Dead Letter Queue",
+    operation_id = "bulkDeleteDlq",
+    summary = "Bulk-delete (resolve) DLQ messages",
+    description = "Marks multiple DLQ messages as resolved without retrying. Requires `dlq:manage` permission.",
+    request_body = BulkDeleteDlqRequest,
+    responses(
+        (status = 200, description = "Messages resolved", body = BulkDeleteDlqResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload))]
+pub async fn bulk_delete_dlq(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<BulkDeleteDlqRequest>,
+) -> Result<Json<BulkDeleteDlqResponse>, AppError> {
+    auth_user.require_permission("dlq:manage")?;
+    validate_bulk_delete_dlq(&payload)?;
+
+    let dlq = dlq_service(&state.db);
+    let rows_affected = dlq
+        .resolve_many(&payload.message_ids, Some(auth_user.user_id))
+        .await?;
+
+    info!(
+        deleted = rows_affected,
+        user_id = auth_user.user_id,
+        "Bulk resolved DLQ messages"
+    );
+
+    Ok(Json(BulkDeleteDlqResponse {
+        deleted: rows_affected as usize,
+    }))
 }

@@ -187,6 +187,22 @@ pub mod routes {
     pub fn dlq_retry(id: i32) -> String {
         format!("/api/v1/dlq/{id}/retry")
     }
+
+    pub fn test_cases_bulk(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/test-cases/bulk")
+    }
+
+    pub fn contest_problems_bulk(contest_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/problems/bulk")
+    }
+
+    pub fn contest_participants_bulk(contest_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/participants/bulk")
+    }
+
+    pub const DLQ_BULK_RETRY: &str = "/api/v1/dlq/bulk-retry";
+    pub const DLQ_BULK: &str = "/api/v1/dlq/bulk";
+    pub const SUBMISSIONS_BULK_REJUDGE: &str = "/api/v1/submissions/bulk-rejudge";
 }
 
 /// A running test server.
@@ -374,6 +390,24 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to send DELETE request");
+
+        TestResponse::from_response(res).await
+    }
+
+    pub async fn delete_with_body_and_token(
+        &self,
+        path: &str,
+        body: &Value,
+        token: &str,
+    ) -> TestResponse {
+        let res = self
+            .client
+            .delete(self.url(path))
+            .header("Authorization", format!("Bearer {token}"))
+            .json(body)
+            .send()
+            .await
+            .expect("Failed to send DELETE request with body");
 
         TestResponse::from_response(res).await
     }

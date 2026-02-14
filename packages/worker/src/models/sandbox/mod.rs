@@ -1,6 +1,5 @@
 pub mod error;
 pub mod isolate;
-pub use isolate::IsolateSandboxManager;
 
 use async_trait::async_trait;
 use error::SandboxError;
