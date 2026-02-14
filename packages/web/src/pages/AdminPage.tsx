@@ -6,8 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, Code2, Eye, EyeOff, List, MoreHorizontal, Pencil, Plus, Search, Shield, Trash2, Trophy } from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
-import { api } from '@/lib/api/client';
-import type { components } from '@/lib/api/schema';
+import { api } from '@broccoli/sdk/api';
+import type { ContestListItem, ProblemListItem, ContestProblemItem } from '@broccoli/sdk/api';
 
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
@@ -40,9 +40,6 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import type { ServerTableParams } from '@/hooks/use-server-table';
-
-type ContestListItem = components['schemas']['ContestListItem'];
-type ProblemListItem = components['schemas']['ProblemListItem'];
 
 // ── Helpers ──
 
@@ -100,12 +97,12 @@ function toLocalDatetimeValue(iso: string): string {
 async function fetchContests(params: ServerTableParams) {
   const { data, error } = await api.GET('/contests', {
     params: {
-      path: {
+      query: {
         page: params.page,
         per_page: params.per_page,
-        search: params.search ?? null,
-        sort_by: params.sort_by ?? null,
-        sort_order: params.sort_order ?? null,
+        search: params.search,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
       },
     },
   });
@@ -119,9 +116,9 @@ async function fetchProblems(params: ServerTableParams) {
       query: {
         page: params.page,
         per_page: params.per_page,
-        search: params.search ?? null,
-        sort_by: params.sort_by ?? null,
-        sort_order: params.sort_order ?? null,
+        search: params.search,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
       },
     },
   });
@@ -456,8 +453,6 @@ function ProblemPreviewDialog({
 }
 
 // ── Contest Problems Dialog ──
-
-type ContestProblemItem = components['schemas']['ContestProblemResponse'];
 
 function nextLabel(usedLabels: Set<string>): string {
   for (let i = 0; i < 26; i++) {

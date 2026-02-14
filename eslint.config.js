@@ -16,7 +16,7 @@ export default defineConfig([
   globalIgnores([
     '**/dist/*',
     '**/coverage/*',
-    'packages/web/src/lib/api/schema.d.ts',
+    'packages/sdk/src/api/schema.ts',
   ]),
 
   // TypeScript files

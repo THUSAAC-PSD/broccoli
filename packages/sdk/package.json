@@ -15,14 +15,18 @@
         "./i18n": {
             "types": "./dist/i18n.d.ts",
             "import": "./dist/i18n.js"
+        },
+        "./api": {
+            "types": "./dist/api.d.ts",
+            "import": "./dist/api.js"
         }
     },
     "files": [
         "dist"
     ],
     "scripts": {
-        "build": "tsup src/index.ts src/react.tsx src/i18n.tsx --format esm --dts",
-        "dev": "tsup src/index.ts src/react.tsx src/i18n.tsx --format esm --dts --watch"
+        "build": "tsup src/index.ts src/react.tsx src/i18n.tsx src/api.ts --format esm --dts",
+        "dev": "tsup src/index.ts src/react.tsx src/i18n.tsx src/api.ts --format esm --dts --watch"
     },
     "devDependencies": {
         "@types/react": "^19.1.16",
@@ -33,6 +37,7 @@
         "react": "^18.0.0 || ^19.0.0"
     },
     "dependencies": {
+        "openapi-fetch": "^0.16.0",
         "react": "^19.2.0"
     }
 }

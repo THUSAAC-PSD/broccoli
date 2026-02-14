@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { api } from '@broccoli/sdk/api';
+import type { ProblemResponse } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router';
@@ -10,10 +12,6 @@ import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { api } from '@/lib/api/client';
-import type { components } from '@/lib/api/schema';
-
-type ProblemResponse = components['schemas']['ProblemResponse'];
 
 type SubmissionStatus = {
   status: 'judging' | 'completed';

@@ -1,3 +1,5 @@
+import type { ContestListItem } from '@broccoli/sdk/api';
+import { api } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Trophy } from 'lucide-react';
 import { Link } from 'react-router';
@@ -6,10 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
 import type { ServerTableParams } from '@/hooks/use-server-table';
-import { api } from '@/lib/api/client';
-import type { components } from '@/lib/api/schema';
-
-type ContestListItem = components['schemas']['ContestListItem'];
 
 function getContestStatus(
   startTime: string,
@@ -47,12 +45,12 @@ function formatRelativeTime(dateStr: string, t: (key: string, params?: Record<st
 async function fetchContests(params: ServerTableParams) {
   const { data, error } = await api.GET('/contests', {
     params: {
-      path: {
+      query: {
         page: params.page,
         per_page: params.per_page,
-        search: params.search ?? null,
-        sort_by: params.sort_by ?? null,
-        sort_order: params.sort_order ?? null,
+        search: params.search,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
       },
     },
   });
