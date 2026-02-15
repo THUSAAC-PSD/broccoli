@@ -6,6 +6,16 @@ description = "A demo plugin"
 entry = "main.wasm"
 permissions = ["logger", "storage", "sql"]
 
+[[server.routes]]
+method = "POST"
+path = "/{name}/greet"
+handler = "greet"
+
+[[server.routes]]
+method = "POST"
+path = "/post-message"
+handler = "post_message"
+
 [web]
 root = "app"
 entry = "index.js"

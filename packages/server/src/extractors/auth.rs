@@ -1,4 +1,4 @@
-use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::{FromRef, FromRequestParts, OptionalFromRequestParts};
 use axum::http::request::Parts;
 
 use crate::error::AppError;
@@ -69,5 +69,24 @@ where
             role: claims.role,
             permissions: claims.permissions,
         })
+    }
+}
+
+impl<S> OptionalFromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+    AppState: axum::extract::FromRef<S>,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        match <Self as FromRequestParts<S>>::from_request_parts(parts, state).await {
+            Ok(user) => Ok(Some(user)),
+            Err(AppError::TokenMissing) | Err(AppError::TokenInvalid) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }

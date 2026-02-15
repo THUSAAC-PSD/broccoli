@@ -36,6 +36,7 @@ utoipa-scalar.workspace = true
 utoipa-swagger-ui.workspace = true
 zip.workspace = true
 mime_guess.workspace = true
+matchit.workspace = true
 
 [dev-dependencies]
 libc = "0.2"

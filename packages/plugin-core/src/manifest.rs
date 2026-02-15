@@ -38,6 +38,27 @@ pub struct ServerConfig {
     /// List of permissions requested by the plugin
     #[serde(default)]
     pub permissions: Vec<String>,
+
+    /// List of HTTP routes exposed by the plugin
+    #[serde(default)]
+    pub routes: Vec<ServerRouteConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ServerRouteConfig {
+    /// The HTTP method for the route, e.g., "GET", "POST", etc.
+    pub method: String,
+
+    /// The URL path for the route, e.g., "/problems/{id}/export".
+    pub path: String,
+
+    /// The handler function for this route.
+    pub handler: String,
+
+    /// The permission required to access this route, e.g., "problems:export".
+    /// If not specified, the route is public.
+    #[serde(default)]
+    pub permission: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

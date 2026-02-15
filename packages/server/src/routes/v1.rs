@@ -11,6 +11,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/auth", auth_routes())
         .nest("/admin", admin_routes())
         .nest("/plugins", plugin_routes())
+        .nest("/p", proxy_routes())
         .nest("/problems", problem_routes(submission_max_size))
         .nest("/contests", contest_routes(submission_max_size))
         .nest("/submissions", submission_routes())
@@ -36,6 +37,10 @@ fn plugin_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::plugin::call_plugin_func))
         .routes(routes!(handlers::plugin::list_active_plugins))
+}
+
+fn proxy_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(handlers::proxy::handle_plugin_request))
 }
 
 fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
