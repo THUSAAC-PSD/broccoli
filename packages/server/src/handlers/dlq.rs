@@ -194,6 +194,7 @@ pub async fn retry_dlq_message(
 
     let task = Task {
         id: job.job_id.clone(),
+        executor_name: "native".into(),
         task_type: "judge".into(),
         payload: message.payload.clone(),
     };
@@ -435,6 +436,7 @@ pub async fn bulk_retry_dlq(
 
         tasks_to_publish.push(Task {
             id: job.job_id.clone(),
+            executor_name: "native".into(),
             task_type: "judge".into(),
             payload: message.payload.clone(),
         });

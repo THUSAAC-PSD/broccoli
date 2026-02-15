@@ -1,4 +1,3 @@
-use common::judge_result::JudgeSystemErrorInfo;
 use thiserror::Error;
 
 /// Worker domain error with structured error codes.
@@ -20,6 +19,10 @@ pub enum WorkerError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// External error.
+    #[error("External error: {0}")]
+    External(String),
+
     /// Unexpected internal error.
     #[error("Internal error: {0}")]
     Internal(String),
@@ -33,13 +36,9 @@ impl WorkerError {
             Self::Mq(_) => "MQ_ERROR",
             Self::Sandbox(_) => "SANDBOX_ERROR",
             Self::Io(_) => "IO_ERROR",
+            Self::External(_) => "EXTERNAL_ERROR",
             Self::Internal(_) => "INTERNAL_ERROR",
         }
-    }
-
-    /// Converts this error into a SystemErrorInfo for result reporting.
-    pub fn into_error_info(self) -> JudgeSystemErrorInfo {
-        JudgeSystemErrorInfo::new(self.code(), self.to_string())
     }
 }
 
@@ -48,5 +47,3 @@ impl From<mq::error::MqError> for WorkerError {
         WorkerError::Mq(e.to_string())
     }
 }
-
-pub type Result<T> = std::result::Result<T, WorkerError>;

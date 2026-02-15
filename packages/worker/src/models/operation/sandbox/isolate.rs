@@ -154,6 +154,8 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
             .unwrap_or(0.0)
     };
 
+    // TODO: return ResourceLimit error when the program is killed due to resource limit
+
     Ok(ExecutionResult {
         exit_code: parse_i32("exitcode"),
         signal: parse_i32("exitsig"),
@@ -175,6 +177,7 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
 #[async_trait]
 impl SandboxManager for IsolateSandboxManager {
     async fn create_sandbox(
+        &mut self,
         id: Option<&str>,
         options: &SandboxOptions,
     ) -> Result<PathBuf, SandboxError> {
@@ -215,7 +218,7 @@ impl SandboxManager for IsolateSandboxManager {
         Ok(PathBuf::from(path_text))
     }
 
-    async fn remove_sandbox(id: &str) -> Result<(), SandboxError> {
+    async fn remove_sandbox(&mut self, id: &str) -> Result<(), SandboxError> {
         let box_id = parse_box_id(Some(id))?;
 
         let mut command = Command::new(isolate_bin());
@@ -240,6 +243,7 @@ impl SandboxManager for IsolateSandboxManager {
     }
 
     async fn execute(
+        &self,
         box_id: &str,
         argv: Vec<String>,
         run_options: &RunOptions,

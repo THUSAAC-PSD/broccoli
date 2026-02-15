@@ -10,6 +10,7 @@ pub struct WorkerConfig {
     #[serde(default = "default_worker_id")]
     pub id: String,
     /// Number of jobs to fetch per batch. Default: 10.
+    /// TODO: remove this
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
     /// Isolate executable path. Default: "isolate".
