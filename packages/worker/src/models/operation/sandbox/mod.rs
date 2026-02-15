@@ -62,13 +62,13 @@ pub struct RunOptions {
     pub stderr: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SandboxOptions {
     pub directory_rules: Vec<DirectoryRule>,
     pub env_rules: Vec<EnvRule>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
     pub exit_code: Option<i32>,
     pub signal: Option<i32>,
@@ -83,14 +83,34 @@ pub struct ExecutionResult {
     pub stderr: String,
 }
 
+impl Default for ExecutionResult {
+    fn default() -> Self {
+        Self {
+            exit_code: None,
+            signal: None,
+            time_used: 0.0,
+            wall_time_used: 0.0,
+            memory_used: None,
+            killed: false,
+            cg_oom_killed: false,
+            status: "UNKNOWN".to_string(),
+            message: String::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+        }
+    }
+}
+
 #[async_trait]
 pub trait SandboxManager {
     async fn create_sandbox(
+        &mut self,
         id: Option<&str>,
         options: &SandboxOptions,
     ) -> Result<PathBuf, SandboxError>;
-    async fn remove_sandbox(id: &str) -> Result<(), SandboxError>;
+    async fn remove_sandbox(&mut self, id: &str) -> Result<(), SandboxError>;
     async fn execute(
+        &self,
         box_id: &str,
         argv: Vec<String>,
         run_options: &RunOptions,

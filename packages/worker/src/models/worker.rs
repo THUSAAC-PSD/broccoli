@@ -1,114 +1,11 @@
-use anyhow::Result;
-use async_trait::async_trait;
 use common::hook::{Hook, HookRegistry};
 use common::worker::*;
-use plugin_core::traits::{PluginManager, PluginManagerExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-type TaskHandlerFn = Box<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
-
-pub struct NativeExecutor {
-    handlers: Arc<Mutex<HashMap<String, TaskHandlerFn>>>,
-}
-
-impl NativeExecutor {
-    pub fn new() -> Self {
-        Self {
-            handlers: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn register_handler<F>(&self, task_type: String, handler: F)
-    where
-        F: Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
-    {
-        self.handlers
-            .lock()
-            .unwrap()
-            .insert(task_type, Box::new(handler));
-    }
-}
-
-impl Default for NativeExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl Executor for NativeExecutor {
-    async fn execute(&self, task: Task) -> Result<TaskResult> {
-        let handlers = self.handlers.lock().unwrap();
-
-        if let Some(handler) = handlers.get(&task.task_type) {
-            match handler(task.payload) {
-                Ok(output) => Ok(TaskResult {
-                    task_id: task.id,
-                    success: true,
-                    output,
-                }),
-                Err(e) => Ok(TaskResult {
-                    task_id: task.id,
-                    success: false,
-                    output: serde_json::json!({ "error": e.to_string() }),
-                }),
-            }
-        } else {
-            Ok(TaskResult {
-                task_id: task.id,
-                success: false,
-                output: serde_json::json!({ "error": "Unknown task type" }),
-            })
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub struct WasmExecutor<M: PluginManager> {
-    plugin_manager: Arc<M>,
-    plugin_id: String,
-    function_name: String,
-}
-
-#[allow(dead_code)]
-impl<M: PluginManager> WasmExecutor<M> {
-    pub fn new(plugin_manager: Arc<M>, plugin_id: String) -> Self {
-        Self {
-            plugin_manager,
-            plugin_id,
-            function_name: "execute_task".to_string(),
-        }
-    }
-
-    pub fn with_function(plugin_manager: Arc<M>, plugin_id: String, function_name: String) -> Self {
-        Self {
-            plugin_manager,
-            plugin_id,
-            function_name,
-        }
-    }
-}
-
-#[async_trait]
-impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
-    async fn execute(&self, task: Task) -> Result<TaskResult> {
-        let task_id = task.id.clone();
-        match self
-            .plugin_manager
-            .call(&self.plugin_id, &self.function_name, task)
-            .await
-        {
-            Ok(result) => Ok(result),
-            Err(e) => Ok(TaskResult {
-                task_id,
-                success: false,
-                output: serde_json::json!({ "error": e.to_string() }),
-            }),
-        }
-    }
-}
+use crate::error::WorkerError;
+use crate::models::executor::NativeExecutor;
+use crate::models::operation::OperationTaskExecutor;
 
 pub struct Worker {
     executors: Arc<Mutex<HashMap<String, Arc<dyn Executor>>>>,
@@ -117,22 +14,37 @@ pub struct Worker {
 
 impl Worker {
     pub fn new() -> Self {
-        Self {
+        let worker = Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
             hook_registry: Arc::new(Mutex::new(HookRegistry::new(()))),
-        }
+        };
+
+        worker.register_executor("native", Arc::new(NativeExecutor::new()));
+        worker.register_executor("operation", Arc::new(OperationTaskExecutor::new()));
+        // TODO: WasmExecutor?
+        worker
     }
 
-    pub fn register_executor(&self, name: String, executor: Arc<dyn Executor>) {
-        self.executors.lock().unwrap().insert(name, executor);
+    pub fn register_executor(&self, name: &str, executor: Arc<dyn Executor>) {
+        self.executors
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), executor);
     }
 
     #[allow(dead_code)]
-    pub fn add_hook<H: Hook<TaskEvent, Context = ()> + 'static>(&self, hook: H) -> Result<()> {
-        self.hook_registry.lock().unwrap().add_hook(hook)
+    pub fn add_hook<H: Hook<TaskEvent, Context = ()> + 'static>(
+        &self,
+        hook: H,
+    ) -> Result<(), WorkerError> {
+        self.hook_registry
+            .lock()
+            .unwrap()
+            .add_hook(hook)
+            .map_err(|e| WorkerError::Internal(e.to_string()))
     }
 
-    pub async fn execute_task(&self, task: Task, executor_name: &str) -> Result<TaskResult> {
+    pub async fn execute_task(&self, task: Task) -> Result<TaskResult, WorkerError> {
         let hook_manager = { self.hook_registry.lock().unwrap().clone() };
 
         // TODO: take use of return value of trigger, e.g., modified event
@@ -142,9 +54,20 @@ impl Worker {
             .trigger(&TaskEvent::Started { task: task.clone() })
             .await;
 
-        let executor = self.executors.lock().unwrap().get(executor_name).cloned();
+        let executor = self
+            .executors
+            .lock()
+            .unwrap()
+            .get(&task.executor_name)
+            .cloned();
 
         let result = if let Some(executor) = executor {
+            if !executor.if_accept(&task.task_type) {
+                return Err(WorkerError::External(format!(
+                    "Executor '{}' does not accept task type '{}'",
+                    task.executor_name, task.task_type
+                )));
+            }
             match executor.execute(task.clone()).await {
                 Ok(result) => {
                     // Trigger task completed event
@@ -172,11 +95,11 @@ impl Worker {
                 }
             }
         } else {
-            TaskResult {
+            return Ok(TaskResult {
                 task_id: task.id,
                 success: false,
-                output: serde_json::json!({ "error": "Executor not found" }),
-            }
+                output: serde_json::json!({ "error": format!("No executor found for '{}'", task.executor_name) }),
+            });
         };
 
         Ok(result)

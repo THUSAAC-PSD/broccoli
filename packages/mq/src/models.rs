@@ -21,5 +21,4 @@ pub async fn init_mq(config: MqConfig) -> Result<MqQueue, MqError> {
         .pool_connections(config.pool_size)
         .build()
         .await
-        .map_err(MqError::from)
 }

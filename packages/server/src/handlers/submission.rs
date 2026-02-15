@@ -193,6 +193,7 @@ async fn enqueue_judge_job(
     let task = Task {
         id: job.job_id.clone(),
         task_type: "judge".into(),
+        executor_name: "native".into(),
         payload: match serde_json::to_value(&job) {
             Ok(v) => v,
             Err(e) => {

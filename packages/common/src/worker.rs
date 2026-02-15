@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct Task {
     pub id: String,
     pub task_type: String,
+    pub executor_name: String,
     pub payload: serde_json::Value,
 }
 
@@ -40,5 +41,6 @@ impl Event for TaskEvent {
 /// Worker use executor to run tasks
 #[async_trait]
 pub trait Executor: Send + Sync {
+    fn if_accept(&self, _task_type: &str) -> bool;
     async fn execute(&self, task: Task) -> Result<TaskResult>;
 }
