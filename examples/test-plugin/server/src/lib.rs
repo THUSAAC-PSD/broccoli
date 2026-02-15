@@ -1,6 +1,22 @@
+use std::collections::HashMap;
+
 use extism_pdk::{FnResult, host_fn, plugin_fn};
 use sea_query::*;
 use serde::{Deserialize, Serialize};
+
+// TODO: import from SDK
+#[derive(Deserialize)]
+struct PluginHttpRequest {
+    pub params: HashMap<String, String>,
+    pub body: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+struct PluginHttpResponse {
+    pub status: u16,
+    pub headers: Option<HashMap<String, String>>,
+    pub body: Option<serde_json::Value>,
+}
 
 #[derive(Deserialize)]
 struct DemoInput {
@@ -38,7 +54,14 @@ extern "ExtismHost" {
 
 #[plugin_fn]
 pub fn greet(input: String) -> FnResult<String> {
-    let args: DemoInput = serde_json::from_str(&input)?;
+    let req: PluginHttpRequest = serde_json::from_str(&input)?;
+    let args = DemoInput {
+        name: req
+            .params
+            .get("name")
+            .cloned()
+            .unwrap_or("World".to_string()),
+    };
 
     unsafe {
         log_info(format!("Guest is greeting user: {}", args.name))?;
@@ -66,12 +89,18 @@ pub fn greet(input: String) -> FnResult<String> {
         visit_count: count,
     };
 
-    Ok(serde_json::to_string(&output)?)
+    let resp = PluginHttpResponse {
+        status: 200,
+        headers: None,
+        body: Some(serde_json::to_value(output)?),
+    };
+    Ok(serde_json::to_string(&resp)?)
 }
 
 #[plugin_fn]
 pub fn post_message(input: String) -> FnResult<String> {
-    let args: PostMessageInput = serde_json::from_str(&input)?;
+    let req: PluginHttpRequest = serde_json::from_str(&input)?;
+    let args: PostMessageInput = serde_json::from_value(req.body.unwrap_or_default())?;
 
     let create_sql = Table::create()
         .table("plugin_messages")
@@ -125,5 +154,10 @@ pub fn post_message(input: String) -> FnResult<String> {
         total_messages: count,
     };
 
-    Ok(serde_json::to_string(&output)?)
+    let resp = PluginHttpResponse {
+        status: 200,
+        headers: None,
+        body: Some(serde_json::to_value(output)?),
+    };
+    Ok(serde_json::to_string(&resp)?)
 }

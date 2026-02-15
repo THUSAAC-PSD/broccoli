@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use extism::Plugin;
+use matchit::Router;
 use serde::Serialize;
 
 use crate::error::{AssetError, PluginError};
@@ -18,6 +19,17 @@ pub enum PluginStatus {
     Failed(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct RouteMatchInfo {
+    pub methods: HashMap<String, RouteMetaData>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteMetaData {
+    pub handler: String,
+    pub permission: Option<String>,
+}
+
 /// Represents an entry in the plugin registry.
 pub struct PluginEntry {
     pub id: String,
@@ -25,6 +37,7 @@ pub struct PluginEntry {
     pub manifest: PluginManifest,
     pub status: PluginStatus,
     pub runtime: Option<Mutex<Plugin>>,
+    pub router: Router<RouteMatchInfo>,
 }
 
 pub type PluginRegistry = Arc<RwLock<HashMap<String, PluginEntry>>>;
@@ -50,12 +63,38 @@ impl From<&PluginEntry> for PluginInfo {
 
 impl PluginEntry {
     pub fn new(id: String, root_dir: PathBuf, manifest: PluginManifest) -> Self {
+        let mut router = Router::new();
+
+        if let Some(server_config) = &manifest.server {
+            let mut path_map: HashMap<String, RouteMatchInfo> = HashMap::new();
+            for route in &server_config.routes {
+                let info = path_map
+                    .entry(route.path.clone())
+                    .or_insert(RouteMatchInfo {
+                        methods: HashMap::new(),
+                    });
+                info.methods.insert(
+                    route.method.to_uppercase(),
+                    RouteMetaData {
+                        handler: route.handler.clone(),
+                        permission: route.permission.clone(),
+                    },
+                );
+            }
+            for (path, info) in path_map {
+                router.insert(&path, info).unwrap_or_else(|e| {
+                    panic!("Failed to insert route '{}' into router: {}", path, e)
+                });
+            }
+        }
+
         Self {
             id,
             root_dir,
             manifest,
             status: PluginStatus::Discovered,
             runtime: None,
+            router,
         }
     }
 
@@ -81,13 +120,7 @@ impl PluginEntry {
         let manifest: PluginManifest = toml::from_str(&toml_content)
             .map_err(|e| PluginError::LoadFailed(format!("Invalid manifest syntax: {}", e)))?;
 
-        Ok(Self {
-            id,
-            root_dir: plugin_dir.to_path_buf(),
-            manifest,
-            status: PluginStatus::Discovered,
-            runtime: None,
-        })
+        Ok(Self::new(id, plugin_dir.to_path_buf(), manifest))
     }
 
     /// Resolves a web asset path based on the plugin's manifest configuration.
