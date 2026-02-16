@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use extism::Plugin;
+use extism::Pool;
 use matchit::Router;
 use serde::Serialize;
 
@@ -36,7 +36,7 @@ pub struct PluginEntry {
     pub root_dir: PathBuf,
     pub manifest: PluginManifest,
     pub status: PluginStatus,
-    pub runtime: Option<Mutex<Plugin>>,
+    pub runtime: Option<Pool>,
     pub router: Router<RouteMatchInfo>,
 }
 
