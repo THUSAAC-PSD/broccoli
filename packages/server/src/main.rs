@@ -1,9 +1,12 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
+use common::storage::BlobStore;
+use common::storage::filesystem::FilesystemBlobStore;
 use mq::{MqConfig as MqConnConfig, init_mq};
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info, warn};
@@ -78,11 +81,25 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
+    let blob_store: Arc<dyn BlobStore> = {
+        let blob_path = PathBuf::from(&app_config.storage.data_dir).join("blobs");
+        Arc::new(
+            FilesystemBlobStore::new(blob_path, app_config.storage.max_blob_size)
+                .await
+                .context("Failed to initialize blob storage")?,
+        )
+    };
+    info!(
+        "Blob storage initialized at {}/blobs",
+        app_config.storage.data_dir
+    );
+
     let state = AppState {
         plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
         db,
         config: app_config.clone(),
         mq,
+        blob_store,
     };
     sync_plugins(&state).await?;
 

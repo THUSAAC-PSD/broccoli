@@ -15,8 +15,11 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tokio::sync::OnceCell;
 
+use common::storage::BlobStore;
+use common::storage::filesystem::FilesystemBlobStore;
 use server::config::{
-    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig, SubmissionConfig,
+    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig, StorageConfig,
+    SubmissionConfig,
 };
 use server::entity::user;
 use server::manager::ServerManager;
@@ -203,6 +206,14 @@ pub mod routes {
     pub const DLQ_BULK_RETRY: &str = "/api/v1/dlq/bulk-retry";
     pub const DLQ_BULK: &str = "/api/v1/dlq/bulk";
     pub const SUBMISSIONS_BULK_REJUDGE: &str = "/api/v1/submissions/bulk-rejudge";
+
+    pub fn attachments(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/attachments")
+    }
+
+    pub fn attachment(problem_id: i32, ref_id: &str) -> String {
+        format!("/api/v1/problems/{problem_id}/attachments/{ref_id}")
+    }
 }
 
 /// A running test server.
@@ -210,6 +221,8 @@ pub struct TestApp {
     pub addr: SocketAddr,
     pub client: Client,
     pub db: DatabaseConnection,
+    /// Kept alive to prevent temp dir deletion during the test.
+    _blob_dir: tempfile::TempDir,
 }
 
 /// Path to the test fixtures directory.
@@ -253,6 +266,13 @@ impl TestApp {
             .await
             .expect("Failed to connect to test database");
 
+        let blob_dir = tempfile::tempdir().expect("Failed to create temp dir for blob storage");
+        let blob_store: Arc<dyn BlobStore> = Arc::new(
+            FilesystemBlobStore::new(blob_dir.path().join("blobs"), 128 * 1024 * 1024)
+                .await
+                .expect("Failed to init blob store"),
+        );
+
         let app_config = AppConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
@@ -273,6 +293,7 @@ impl TestApp {
                 ..Default::default()
             },
             submission: SubmissionConfig::default(),
+            storage: StorageConfig::default(),
             mq: MqAppConfig {
                 enabled: false,
                 ..Default::default()
@@ -284,6 +305,7 @@ impl TestApp {
             db: db.clone(),
             config: app_config,
             mq: None,
+            blob_store,
         };
 
         let app = server::build_router(state);
@@ -301,6 +323,7 @@ impl TestApp {
             addr,
             client: Client::new(),
             db,
+            _blob_dir: blob_dir,
         }
     }
 
@@ -569,6 +592,46 @@ impl TestApp {
             )
             .await;
         assert_eq!(res.status, 201, "register_for_contest failed: {}", res.text);
+    }
+
+    /// Upload an attachment with optional virtual path.
+    pub async fn upload_attachment(
+        &self,
+        problem_id: i32,
+        file_name: &str,
+        file_bytes: Vec<u8>,
+        path: Option<&str>,
+        token: &str,
+    ) -> TestResponse {
+        let part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(file_name.to_string())
+            .mime_str("application/octet-stream")
+            .expect("Failed to set MIME type");
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+        if let Some(p) = path {
+            form = form.text("path", p.to_string());
+        }
+
+        let res = self
+            .client
+            .post(self.url(&routes::attachments(problem_id)))
+            .header("Authorization", format!("Bearer {token}"))
+            .multipart(form)
+            .send()
+            .await
+            .expect("Failed to send attachment upload request");
+
+        TestResponse::from_response(res).await
+    }
+
+    /// Download raw bytes from a URL path.
+    pub async fn download_raw(&self, path: &str, token: &str) -> reqwest::Response {
+        self.client
+            .get(self.url(path))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .expect("Failed to send download request")
     }
 
     /// Register a user with a specific role, then log in and return the auth token.

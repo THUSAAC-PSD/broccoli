@@ -14,6 +14,7 @@ use crate::extractors::json::AppJson;
 use crate::models::contest::*;
 use crate::models::shared::{Pagination, escape_like};
 use crate::state::AppState;
+use crate::utils::contest::{check_contest_access, find_contest, find_contest_problem};
 
 #[utoipa::path(
     post,
@@ -1138,34 +1139,6 @@ pub async fn bulk_add_participants(
     }))
 }
 
-async fn check_contest_access<C: ConnectionTrait>(
-    db: &C,
-    auth_user: &AuthUser,
-    contest: &contest::Model,
-) -> Result<(), AppError> {
-    if auth_user.has_permission("contest:manage") {
-        return Ok(());
-    }
-    if contest.is_public {
-        return Ok(());
-    }
-    let is_participant = contest_user::Entity::find_by_id((contest.id, auth_user.user_id))
-        .one(db)
-        .await?
-        .is_some();
-    if is_participant {
-        return Ok(());
-    }
-    Err(AppError::NotFound("Contest not found".into()))
-}
-
-async fn find_contest<C: ConnectionTrait>(db: &C, id: i32) -> Result<contest::Model, AppError> {
-    contest::Entity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Contest not found".into()))
-}
-
 async fn find_contest_for_update(
     txn: &DatabaseTransaction,
     id: i32,
@@ -1176,17 +1149,6 @@ async fn find_contest_for_update(
         .one(txn)
         .await?
         .ok_or_else(|| AppError::NotFound("Contest not found".into()))
-}
-
-async fn find_contest_problem<C: ConnectionTrait>(
-    db: &C,
-    contest_id: i32,
-    problem_id: i32,
-) -> Result<contest_problem::Model, AppError> {
-    contest_problem::Entity::find_by_id((contest_id, problem_id))
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Contest problem not found".into()))
 }
 
 fn contest_problem_response(

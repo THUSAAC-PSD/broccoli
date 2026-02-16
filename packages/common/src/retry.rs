@@ -180,9 +180,10 @@ impl<'a> RetryCleanupGuard<'a> {
 impl Drop for RetryCleanupGuard<'_> {
     fn drop(&mut self) {
         if !self.defused
-            && let Ok(mut tracker) = self.tracker.try_lock() {
-                tracker.clear(&self.job_id);
-            }
+            && let Ok(mut tracker) = self.tracker.try_lock()
+        {
+            tracker.clear(&self.job_id);
+        }
     }
 }
 

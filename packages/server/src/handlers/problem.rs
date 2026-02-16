@@ -10,7 +10,7 @@ use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{contest_problem, problem, submission, test_case, test_case_result};
+use crate::entity::{blob_ref, contest_problem, problem, submission, test_case, test_case_result};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -287,6 +287,12 @@ pub async fn delete_problem(
             "Cannot delete problem associated with a contest".into(),
         ));
     }
+
+    blob_ref::Entity::delete_many()
+        .filter(blob_ref::Column::OwnerType.eq("problem"))
+        .filter(blob_ref::Column::OwnerId.eq(id.to_string()))
+        .exec(&txn)
+        .await?;
 
     test_case_result::Entity::delete_many()
         .filter(

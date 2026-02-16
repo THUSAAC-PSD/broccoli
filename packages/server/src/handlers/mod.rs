@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod assets;
+pub mod attachment;
 pub mod auth;
 pub mod contest;
 pub mod dlq;

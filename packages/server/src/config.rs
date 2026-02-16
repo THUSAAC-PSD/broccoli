@@ -36,6 +36,26 @@ pub struct SubmissionConfig {
     pub rate_limit_per_minute: u32,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct StorageConfig {
+    /// Storage backend type. One of: "filesystem".
+    pub backend: String,
+    /// Base directory for blob storage data.
+    pub data_dir: String,
+    /// Maximum size per blob in bytes. Default: 128MB.
+    pub max_blob_size: u64,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            backend: "filesystem".into(),
+            data_dir: "./data".into(),
+            max_blob_size: 128 * 1024 * 1024,
+        }
+    }
+}
+
 impl Default for SubmissionConfig {
     fn default() -> Self {
         Self {
@@ -53,6 +73,8 @@ pub struct AppConfig {
     pub plugin: plugin_core::config::PluginConfig,
     #[serde(default)]
     pub submission: SubmissionConfig,
+    #[serde(default)]
+    pub storage: StorageConfig,
     #[serde(default)]
     pub mq: MqAppConfig,
 }
