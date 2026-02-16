@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use extism::{Manifest, PluginBuilder, Wasm};
+use extism::{Manifest, PluginBuilder, Pool, Wasm};
 use serde::{Serialize, de::DeserializeOwned};
-use std::sync::Mutex;
+use std::time::Duration;
 use tracing::{error, info, instrument, warn};
 
 use crate::config::PluginConfig;
@@ -103,12 +103,15 @@ pub trait PluginManager: Send + Sync {
 
             let manifest = Manifest::new([Wasm::file(&wasm_path)]);
             let host_functions = self.get_host_functions().resolve(plugin_id, &permissions);
-            let plugin = PluginBuilder::new(manifest)
-                .with_wasi(self.get_config().enable_wasi)
-                .with_functions(host_functions)
-                .build()?;
+            let wasi = self.get_config().enable_wasi;
+            let pool = Pool::new(move || {
+                PluginBuilder::new(&manifest)
+                    .with_wasi(wasi)
+                    .with_functions(host_functions.clone())
+                    .build()
+            });
 
-            runtime = Some(Mutex::new(plugin));
+            runtime = Some(pool);
         }
 
         plugin_entry.runtime = runtime;
@@ -192,17 +195,25 @@ pub trait PluginManager: Send + Sync {
             return Err(PluginError::NotLoaded(plugin_id.to_string()));
         }
 
-        let mutex = plugin_entry
+        let pool = plugin_entry
             .runtime
             .as_ref()
             .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?;
 
-        let mut plugin = mutex.lock().map_err(|_| {
-            PluginError::Internal(format!(
-                "Failed to acquire runtime lock for plugin '{}'",
-                plugin_id
-            ))
-        })?;
+        let plugin = pool
+            .get(Duration::new(1, 0))
+            .map_err(|_| {
+                PluginError::Internal(format!(
+                    "Failed to acquire runtime instance for plugin '{}'",
+                    plugin_id
+                ))
+            })?
+            .ok_or_else(|| {
+                PluginError::Internal(format!(
+                    "Timeout while acquiring runtime instance for plugin '{}'",
+                    plugin_id
+                ))
+            })?;
 
         let result = plugin
             .call(func_name, input)
