@@ -6,6 +6,7 @@ pub mod judge_job;
 pub mod judge_result;
 pub mod mq;
 pub mod retry;
+pub mod storage;
 pub mod submission_status;
 pub mod worker;
 

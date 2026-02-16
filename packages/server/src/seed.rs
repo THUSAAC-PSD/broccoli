@@ -2,7 +2,7 @@ use sea_orm::*;
 use sea_query::{Index, PostgresQueryBuilder};
 use tracing::info;
 
-use crate::entity::{dead_letter_message, role, role_permission, submission};
+use crate::entity::{blob_ref, dead_letter_message, role, role_permission, submission};
 
 /// Default roles seeded on startup.
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
@@ -139,6 +139,49 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
         Err(e) => {
             tracing::warn!("Failed to create index idx_dlq_resolved_created: {}", e);
+        }
+    }
+
+    // Composite index for blob_ref upsert.
+    let stmt = Index::create()
+        .if_not_exists()
+        .unique()
+        .name("idx_blob_ref_owner_path_unique")
+        .table(blob_ref::Entity)
+        .col(blob_ref::Column::OwnerType)
+        .col(blob_ref::Column::OwnerId)
+        .col(blob_ref::Column::Path)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => {
+            info!("Ensured index idx_blob_ref_owner_path_unique exists");
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create index idx_blob_ref_owner_path_unique: {}",
+                e
+            );
+        }
+    }
+
+    // Composite index for listing blobs by owner.
+    let stmt = Index::create()
+        .if_not_exists()
+        .name("idx_blob_ref_owner")
+        .table(blob_ref::Entity)
+        .col(blob_ref::Column::OwnerType)
+        .col(blob_ref::Column::OwnerId)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => {
+            info!("Ensured index idx_blob_ref_owner exists");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to create index idx_blob_ref_owner: {}", e);
         }
     }
 

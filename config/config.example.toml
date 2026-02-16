@@ -35,6 +35,11 @@ retry_max_age_secs = 600
 [auth]
 jwt_secret = "generate-a-long-random-string-here"
 
+[storage]
+backend = "filesystem"
+data_dir = "./data"
+max_blob_size = 134217728  # 128MB
+
 [plugin]
 plugins_dir = "./plugins"
 enable_wasi = true

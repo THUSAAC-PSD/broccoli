@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use common::storage::StorageError;
 use plugin_core::error::PluginError;
 use sea_orm::DbErr;
 use serde::Serialize;
@@ -148,6 +149,17 @@ impl IntoResponse for AppError {
 impl From<DbErr> for AppError {
     fn from(err: DbErr) -> Self {
         AppError::Internal(err.to_string())
+    }
+}
+
+impl From<StorageError> for AppError {
+    fn from(err: StorageError) -> Self {
+        match err {
+            StorageError::NotFound(_) => AppError::NotFound(err.to_string()),
+            StorageError::SizeLimitExceeded { .. } => AppError::Validation(err.to_string()),
+            StorageError::InvalidHash(_) => AppError::Validation(err.to_string()),
+            StorageError::Io(_) => AppError::Internal(err.to_string()),
+        }
     }
 }
 

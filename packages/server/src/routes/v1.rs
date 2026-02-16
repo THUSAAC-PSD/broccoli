@@ -55,6 +55,7 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
             handlers::problem::delete_problem,
         ))
         .nest("/{id}/test-cases", test_case_routes())
+        .nest("/{id}/attachments", attachment_routes())
         .nest(
             "/{id}/submissions",
             problem_submission_routes(submission_max_size),
@@ -89,6 +90,21 @@ fn test_case_routes() -> OpenApiRouter<AppState> {
         .layer(handlers::problem::upload_body_limit());
 
     crud.merge(upload)
+}
+
+fn attachment_routes() -> OpenApiRouter<AppState> {
+    let read_delete = OpenApiRouter::new()
+        .routes(routes!(handlers::attachment::list_attachments))
+        .routes(routes!(
+            handlers::attachment::download_attachment,
+            handlers::attachment::delete_attachment,
+        ));
+
+    let upload = OpenApiRouter::new()
+        .routes(routes!(handlers::attachment::upload_attachment))
+        .layer(handlers::attachment::attachment_upload_body_limit());
+
+    read_delete.merge(upload)
 }
 
 fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {

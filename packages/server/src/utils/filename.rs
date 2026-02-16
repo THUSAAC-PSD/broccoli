@@ -13,6 +13,8 @@ pub enum FilenameError {
     NullByte,
     /// Filename starts with a dot (hidden file).
     Hidden,
+    /// Filename contains control characters (CR, LF, etc.).
+    ControlCharacter,
 }
 
 impl FilenameError {
@@ -24,6 +26,7 @@ impl FilenameError {
             Self::PathTraversal => "Invalid filename: '..' is not allowed",
             Self::NullByte => "Invalid filename: null bytes are not allowed",
             Self::Hidden => "Invalid filename: hidden files (starting with '.') are not allowed",
+            Self::ControlCharacter => "Invalid filename: control characters are not allowed",
         }
     }
 }
@@ -40,11 +43,17 @@ pub fn validate_flat_filename(filename: &str) -> Result<&str, FilenameError> {
         return Err(FilenameError::NullByte);
     }
 
+    // Reject ASCII control characters to prevent
+    // HTTP header injection (e.g. CRLF in Content-Disposition).
+    if trimmed.chars().any(|c| c.is_ascii_control()) {
+        return Err(FilenameError::ControlCharacter);
+    }
+
     if trimmed.contains('/') || trimmed.contains('\\') {
         return Err(FilenameError::ContainsPathSeparator);
     }
 
-    if trimmed == ".." || trimmed.contains("..") {
+    if trimmed == ".." {
         return Err(FilenameError::PathTraversal);
     }
 
@@ -85,6 +94,61 @@ pub fn split_dir_filename(path: &str) -> (&str, &str) {
         Some(pos) => (&path[..pos], &path[pos + 1..]),
         None => ("", path),
     }
+}
+
+/// Validates a virtual path for blob storage references.
+pub fn validate_virtual_path(path: &str) -> Result<String, &'static str> {
+    let trimmed = path.trim();
+
+    if trimmed.is_empty() {
+        return Err("Path cannot be empty");
+    }
+
+    if trimmed.len() > 512 {
+        return Err("Path exceeds maximum length of 512 characters");
+    }
+
+    if trimmed.contains('\0') {
+        return Err("Path must not contain null bytes");
+    }
+
+    if trimmed.contains('\\') {
+        return Err("Path must not contain backslashes");
+    }
+
+    if trimmed.starts_with('/') {
+        return Err("Path must not start with '/'");
+    }
+
+    if trimmed.ends_with('/') {
+        return Err("Path must not end with '/'");
+    }
+
+    if trimmed.contains("//") {
+        return Err("Path must not contain consecutive slashes");
+    }
+
+    if contains_path_traversal(trimmed) {
+        return Err("Path must not contain '..' traversal");
+    }
+
+    for segment in trimmed.split('/') {
+        if segment.is_empty() {
+            return Err("Path must not contain empty segments");
+        }
+        if segment.starts_with('.') {
+            return Err("Path segments must not start with '.'");
+        }
+    }
+
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+    {
+        return Err("Path contains invalid characters (allowed: a-zA-Z0-9, /, -, _, .)");
+    }
+
+    Ok(trimmed.to_string())
 }
 
 /// Checks if a directory path indicates a "sample" test case.
@@ -136,10 +200,12 @@ mod tests {
             validate_flat_filename(".."),
             Err(FilenameError::PathTraversal)
         ));
-        assert!(matches!(
-            validate_flat_filename("foo..bar"),
-            Err(FilenameError::PathTraversal)
-        ));
+    }
+
+    #[test]
+    fn validate_flat_filename_allows_double_dots_in_name() {
+        assert!(validate_flat_filename("foo..bar").is_ok());
+        assert!(validate_flat_filename("archive..tar.gz").is_ok());
     }
 
     #[test]
@@ -147,6 +213,18 @@ mod tests {
         assert!(matches!(
             validate_flat_filename("foo\0bar"),
             Err(FilenameError::NullByte)
+        ));
+    }
+
+    #[test]
+    fn validate_flat_filename_rejects_control_characters() {
+        assert!(matches!(
+            validate_flat_filename("file\r\nname.txt"),
+            Err(FilenameError::ControlCharacter)
+        ));
+        assert!(matches!(
+            validate_flat_filename("file\tname.txt"),
+            Err(FilenameError::ControlCharacter)
         ));
     }
 
@@ -195,5 +273,70 @@ mod tests {
         assert!(is_sample_directory("tests/sample"));
         assert!(!is_sample_directory("samples"));
         assert!(!is_sample_directory("main"));
+    }
+
+    #[test]
+    fn validate_virtual_path_accepts_valid_paths() {
+        assert!(validate_virtual_path("images/figure1.png").is_ok());
+        assert!(validate_virtual_path("statements/en.md").is_ok());
+        assert!(validate_virtual_path("file.txt").is_ok());
+        assert!(validate_virtual_path("a/b/c/d.txt").is_ok());
+        assert!(validate_virtual_path("my-file_v2.tar.gz").is_ok());
+        assert!(validate_virtual_path("  padded.txt  ").is_ok());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_empty() {
+        assert!(validate_virtual_path("").is_err());
+        assert!(validate_virtual_path("   ").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_traversal() {
+        assert!(validate_virtual_path("..").is_err());
+        assert!(validate_virtual_path("../etc/passwd").is_err());
+        assert!(validate_virtual_path("foo/../bar").is_err());
+        assert!(validate_virtual_path("foo/..").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_leading_trailing_slash() {
+        assert!(validate_virtual_path("/absolute").is_err());
+        assert!(validate_virtual_path("trailing/").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_consecutive_slashes() {
+        assert!(validate_virtual_path("foo//bar").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_backslash() {
+        assert!(validate_virtual_path("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_hidden_segments() {
+        assert!(validate_virtual_path(".hidden").is_err());
+        assert!(validate_virtual_path("dir/.hidden").is_err());
+        assert!(validate_virtual_path(".git/config").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_null_bytes() {
+        assert!(validate_virtual_path("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_unsafe_characters() {
+        assert!(validate_virtual_path("file name.txt").is_err()); // space
+        assert!(validate_virtual_path("file@name.txt").is_err()); // @
+        assert!(validate_virtual_path("dir/file#1.txt").is_err()); // #
+    }
+
+    #[test]
+    fn validate_virtual_path_rejects_too_long() {
+        let long_path = "a".repeat(513);
+        assert!(validate_virtual_path(&long_path).is_err());
     }
 }

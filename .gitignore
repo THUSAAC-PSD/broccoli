@@ -19,3 +19,5 @@ tmp/
 
 /plugins/*
 !/plugins/.gitkeep
+
+/data
