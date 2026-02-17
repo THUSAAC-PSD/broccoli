@@ -69,9 +69,7 @@ export function RankChart({ data, teams }: RankChartProps) {
               }}
               labelFormatter={(v) => `${v} min`}
             />
-            <Legend
-              wrapperStyle={{ fontSize: 12 }}
-            />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
             {teams.map((team, i) => (
               <Line
                 key={team}

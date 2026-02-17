@@ -1,6 +1,6 @@
 import { Activity } from 'lucide-react';
 
-import { SidebarMenuButton,SidebarMenuItem } from '@/components/ui/sidebar';
+import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 
 export function PerformanceMonitor() {
   const showMetrics = () => {

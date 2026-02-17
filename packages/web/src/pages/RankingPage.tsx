@@ -44,79 +44,273 @@ const PROBLEM_LABELS = ['A', 'B', 'C', 'D', 'E'];
 
 const ALL_STANDINGS: StandingRow[] = [
   {
-    rank: 1, user_id: 1, username: 'alice', solved: 5, penalty: 312, total_score: 500,
+    rank: 1,
+    user_id: 1,
+    username: 'alice',
+    solved: 5,
+    penalty: 312,
+    total_score: 500,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 8, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 25, score: 100 },
-      C: { verdict: 'Accepted', status: 'Judged', attempts: 2, time: 67, score: 100 },
-      D: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 110, score: 100 },
-      E: { verdict: 'Accepted', status: 'Judged', attempts: 3, time: 180, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 8,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 25,
+        score: 100,
+      },
+      C: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 2,
+        time: 67,
+        score: 100,
+      },
+      D: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 110,
+        score: 100,
+      },
+      E: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 3,
+        time: 180,
+        score: 100,
+      },
     },
   },
   {
-    rank: 2, user_id: 2, username: 'bob', solved: 4, penalty: 245, total_score: 400,
+    rank: 2,
+    user_id: 2,
+    username: 'bob',
+    solved: 4,
+    penalty: 245,
+    total_score: 400,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 5, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 2, time: 30, score: 100 },
-      C: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 55, score: 100 },
-      D: { verdict: 'Accepted', status: 'Judged', attempts: 4, time: 145, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 5,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 2,
+        time: 30,
+        score: 100,
+      },
+      C: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 55,
+        score: 100,
+      },
+      D: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 4,
+        time: 145,
+        score: 100,
+      },
       E: { verdict: 'WrongAnswer', status: 'Judged', attempts: 3, score: 0 },
     },
   },
   {
-    rank: 3, user_id: 3, username: 'charlie', solved: 4, penalty: 280, total_score: 400,
+    rank: 3,
+    user_id: 3,
+    username: 'charlie',
+    solved: 4,
+    penalty: 280,
+    total_score: 400,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 12, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 35, score: 100 },
-      C: { verdict: 'Accepted', status: 'Judged', attempts: 3, time: 90, score: 100 },
-      D: { verdict: 'Accepted', status: 'Judged', attempts: 2, time: 160, score: 100 },
-      E: { verdict: 'TimeLimitExceeded', status: 'Judged', attempts: 1, score: 0 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 12,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 35,
+        score: 100,
+      },
+      C: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 3,
+        time: 90,
+        score: 100,
+      },
+      D: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 2,
+        time: 160,
+        score: 100,
+      },
+      E: {
+        verdict: 'TimeLimitExceeded',
+        status: 'Judged',
+        attempts: 1,
+        score: 0,
+      },
     },
   },
   {
-    rank: 4, user_id: 4, username: 'diana', solved: 3, penalty: 178, total_score: 300,
+    rank: 4,
+    user_id: 4,
+    username: 'diana',
+    solved: 3,
+    penalty: 178,
+    total_score: 300,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 10, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 40, score: 100 },
-      C: { verdict: 'Accepted', status: 'Judged', attempts: 2, time: 108, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 10,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 40,
+        score: 100,
+      },
+      C: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 2,
+        time: 108,
+        score: 100,
+      },
       D: { verdict: 'RuntimeError', status: 'Judged', attempts: 5, score: 0 },
       E: { verdict: null, status: 'Pending', attempts: 0, score: null },
     },
   },
   {
-    rank: 5, user_id: 5, username: 'eve', solved: 3, penalty: 210, total_score: 300,
+    rank: 5,
+    user_id: 5,
+    username: 'eve',
+    solved: 3,
+    penalty: 210,
+    total_score: 300,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 2, time: 15, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 50, score: 100 },
-      C: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 125, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 2,
+        time: 15,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 50,
+        score: 100,
+      },
+      C: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 125,
+        score: 100,
+      },
       D: { verdict: 'WrongAnswer', status: 'Judged', attempts: 2, score: 0 },
       E: { verdict: null, status: 'Pending', attempts: 0, score: null },
     },
   },
   {
-    rank: 6, user_id: 6, username: 'frank', solved: 2, penalty: 95, total_score: 200,
+    rank: 6,
+    user_id: 6,
+    username: 'frank',
+    solved: 2,
+    penalty: 95,
+    total_score: 200,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 20, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 3, time: 75, score: 100 },
-      C: { verdict: 'MemoryLimitExceeded', status: 'Judged', attempts: 4, score: 0 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 20,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 3,
+        time: 75,
+        score: 100,
+      },
+      C: {
+        verdict: 'MemoryLimitExceeded',
+        status: 'Judged',
+        attempts: 4,
+        score: 0,
+      },
       D: { verdict: null, status: 'Pending', attempts: 0, score: null },
       E: { verdict: null, status: 'Pending', attempts: 0, score: null },
     },
   },
   {
-    rank: 7, user_id: 7, username: 'grace', solved: 2, penalty: 130, total_score: 200,
+    rank: 7,
+    user_id: 7,
+    username: 'grace',
+    solved: 2,
+    penalty: 130,
+    total_score: 200,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 18, score: 100 },
-      B: { verdict: 'Accepted', status: 'Judged', attempts: 2, time: 92, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 18,
+        score: 100,
+      },
+      B: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 2,
+        time: 92,
+        score: 100,
+      },
       C: { verdict: 'WrongAnswer', status: 'Judged', attempts: 2, score: 0 },
       D: { verdict: null, status: 'Pending', attempts: 0, score: null },
       E: { verdict: null, status: 'Pending', attempts: 0, score: null },
     },
   },
   {
-    rank: 8, user_id: 8, username: 'henry', solved: 1, penalty: 22, total_score: 100,
+    rank: 8,
+    user_id: 8,
+    username: 'henry',
+    solved: 1,
+    penalty: 22,
+    total_score: 100,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 1, time: 22, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 1,
+        time: 22,
+        score: 100,
+      },
       B: { verdict: null, status: 'CompilationError', attempts: 3, score: 0 },
       C: { verdict: null, status: 'Pending', attempts: 0, score: null },
       D: { verdict: null, status: 'Pending', attempts: 0, score: null },
@@ -124,9 +318,20 @@ const ALL_STANDINGS: StandingRow[] = [
     },
   },
   {
-    rank: 9, user_id: 9, username: 'iris', solved: 1, penalty: 45, total_score: 100,
+    rank: 9,
+    user_id: 9,
+    username: 'iris',
+    solved: 1,
+    penalty: 45,
+    total_score: 100,
     problems: {
-      A: { verdict: 'Accepted', status: 'Judged', attempts: 3, time: 45, score: 100 },
+      A: {
+        verdict: 'Accepted',
+        status: 'Judged',
+        attempts: 3,
+        time: 45,
+        score: 100,
+      },
       B: { verdict: 'WrongAnswer', status: 'Judged', attempts: 5, score: 0 },
       C: { verdict: null, status: 'Pending', attempts: 0, score: null },
       D: { verdict: null, status: 'Pending', attempts: 0, score: null },
@@ -134,7 +339,12 @@ const ALL_STANDINGS: StandingRow[] = [
     },
   },
   {
-    rank: 10, user_id: 10, username: 'jack', solved: 0, penalty: 0, total_score: 0,
+    rank: 10,
+    user_id: 10,
+    username: 'jack',
+    solved: 0,
+    penalty: 0,
+    total_score: 0,
     problems: {
       A: { verdict: 'WrongAnswer', status: 'Judged', attempts: 2, score: 0 },
       B: { verdict: null, status: 'Pending', attempts: 0, score: null },
@@ -160,7 +370,8 @@ async function fetchStandings(params: ServerTableParams) {
     const order = params.sort_order === 'desc' ? -1 : 1;
     filtered.sort((a, b) => {
       const key = params.sort_by as keyof StandingRow;
-      if (key === 'username') return order * a.username.localeCompare(b.username);
+      if (key === 'username')
+        return order * a.username.localeCompare(b.username);
       return order * ((a[key] as number) - (b[key] as number));
     });
   }
@@ -207,12 +418,17 @@ const DISTRIBUTION: DistributionEntry[] = [
 // --- Cell renderers ---
 
 const VERDICT_COLORS: Record<Verdict, string> = {
-  Accepted: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
+  Accepted:
+    'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
   WrongAnswer: 'bg-red-100 text-red-600 dark:bg-red-950/30 dark:text-red-400',
-  TimeLimitExceeded: 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400',
-  MemoryLimitExceeded: 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400',
-  RuntimeError: 'bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400',
-  SystemError: 'bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400',
+  TimeLimitExceeded:
+    'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400',
+  MemoryLimitExceeded:
+    'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400',
+  RuntimeError:
+    'bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400',
+  SystemError:
+    'bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400',
 };
 
 function ProblemCellContent({ result }: { result: ProblemResult }) {
@@ -241,7 +457,9 @@ function ProblemCellContent({ result }: { result: ProblemResult }) {
     : 'bg-muted text-muted-foreground';
 
   return (
-    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${colorClass}`}>
+    <span
+      className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${colorClass}`}
+    >
       -{result.attempts}
     </span>
   );
@@ -250,11 +468,7 @@ function ProblemCellContent({ result }: { result: ProblemResult }) {
 function RankBadge({ rank }: { rank: number }) {
   if (rank > 3) return <span>{rank}</span>;
   const colors =
-    rank === 1
-      ? 'bg-amber-400'
-      : rank === 2
-        ? 'bg-gray-400'
-        : 'bg-amber-700';
+    rank === 1 ? 'bg-amber-400' : rank === 2 ? 'bg-gray-400' : 'bg-amber-700';
   return (
     <span
       className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white ${colors}`}

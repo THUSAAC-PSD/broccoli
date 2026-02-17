@@ -36,7 +36,9 @@ export function ScoreDistribution({ data }: ScoreDistributionProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Problems Solved Distribution</CardTitle>
+        <CardTitle className="text-base">
+          Problems Solved Distribution
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -79,7 +81,9 @@ export function ScoreDistribution({ data }: ScoreDistributionProps) {
                 color: isDark ? '#f3f4f6' : '#111827',
               }}
               formatter={(value) => [`${value} teams`, 'Count']}
-              labelFormatter={(label) => `${label} problem${label === '1' ? '' : 's'} solved`}
+              labelFormatter={(label) =>
+                `${label} problem${label === '1' ? '' : 's'} solved`
+              }
             />
             <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={48}>
               {data.map((_, index) => (

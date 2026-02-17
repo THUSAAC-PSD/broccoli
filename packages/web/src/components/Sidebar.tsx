@@ -1,6 +1,16 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
-import { BookOpen, ChevronUp, Code2, Home, LogOut, Settings, Shield, Trophy, User } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronUp,
+  Code2,
+  Home,
+  LogOut,
+  Settings,
+  Shield,
+  Trophy,
+  User,
+} from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
 
@@ -137,7 +147,10 @@ export function Sidebar() {
                   <ChevronUp className="ml-auto h-4 w-4" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" className="w-[--radix-dropdown-menu-trigger-width]">
+              <DropdownMenuContent
+                side="top"
+                className="w-[--radix-dropdown-menu-trigger-width]"
+              >
                 {user ? (
                   <DropdownMenuItem onClick={logout}>
                     <LogOut className="mr-2 h-4 w-4" />

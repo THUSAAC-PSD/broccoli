@@ -53,7 +53,9 @@ export function ProblemDescription({
       </CardHeader>
       <CardContent className="space-y-6">
         <section>
-          <h3 className="text-base font-bold mb-3">{t('problem.description')}</h3>
+          <h3 className="text-base font-bold mb-3">
+            {t('problem.description')}
+          </h3>
           <Markdown>{description}</Markdown>
         </section>
 
@@ -91,7 +93,9 @@ export function ProblemDescription({
               </div>
               {example.explanation && (
                 <div className="px-4 py-3 bg-muted/30 text-sm border-t">
-                  <span className="font-medium">{t('problem.explanation')}: </span>
+                  <span className="font-medium">
+                    {t('problem.explanation')}:{' '}
+                  </span>
                   {example.explanation}
                 </div>
               )}

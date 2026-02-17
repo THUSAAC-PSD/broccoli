@@ -13,17 +13,24 @@ function getContestStatus(
   startTime: string,
   endTime: string,
   t: (key: string) => string,
-): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
+): {
+  label: string;
+  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+} {
   const now = new Date();
   const start = new Date(startTime);
   const end = new Date(endTime);
 
   if (now < start) return { label: t('contests.upcoming'), variant: 'outline' };
-  if (now >= start && now <= end) return { label: t('contests.running'), variant: 'default' };
+  if (now >= start && now <= end)
+    return { label: t('contests.running'), variant: 'default' };
   return { label: t('contests.ended'), variant: 'secondary' };
 }
 
-function formatRelativeTime(dateStr: string, t: (key: string, params?: Record<string, string>) => string): string {
+function formatRelativeTime(
+  dateStr: string,
+  t: (key: string, params?: Record<string, string>) => string,
+): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = date.getTime() - now.getTime();
