@@ -24,7 +24,8 @@ export const en: Record<string, string> = {
 
   // ErrorCatcher
   'error.title.400': '400 Bad Request',
-  'error.desc.400': 'The server could not understand the request due to invalid syntax.',
+  'error.desc.400':
+    'The server could not understand the request due to invalid syntax.',
   'error.title.401': '401 Unauthorized',
   'error.desc.401': 'You need to be logged in to access this resource.',
   'error.title.403': '403 Forbidden',
@@ -34,17 +35,21 @@ export const en: Record<string, string> = {
   'error.title.408': '408 Request Timeout',
   'error.desc.408': 'The server timed out waiting for the request.',
   'error.title.418': "418 I'm a teapot",
-  'error.desc.418': 'The server refuses the attempt to brew coffee with a teapot.',
+  'error.desc.418':
+    'The server refuses the attempt to brew coffee with a teapot.',
   'error.title.429': '429 Too Many Requests',
-  'error.desc.429': 'You have sent too many requests in a given amount of time. Please try again later.',
+  'error.desc.429':
+    'You have sent too many requests in a given amount of time. Please try again later.',
   'error.title.500': '500 Internal Server Error',
   'error.desc.500': 'Something went wrong on our end. Please try again later.',
   'error.title.501': '501 Not Implemented',
   'error.desc.501': 'This functionality has not been implemented yet.',
   'error.title.502': '502 Bad Gateway',
-  'error.desc.502': 'The server received an invalid response from the upstream server.',
+  'error.desc.502':
+    'The server received an invalid response from the upstream server.',
   'error.title.503': '503 Service Unavailable',
-  'error.desc.503': 'The server is currently unavailable (overloaded or down for maintenance).',
+  'error.desc.503':
+    'The server is currently unavailable (overloaded or down for maintenance).',
   'error.title.504': '504 Gateway Timeout',
   'error.desc.504': 'The server took too long to respond.',
   'error.title.default': 'Unknown Error',
@@ -164,7 +169,8 @@ export const en: Record<string, string> = {
   'admin.problems': 'Problems',
   'admin.subtitle': 'Manage contests, problems, and platform settings.',
   'admin.createContest': 'Create Contest',
-  'admin.createContestDesc': 'Set up a new programming contest with custom rules and timing.',
+  'admin.createContestDesc':
+    'Set up a new programming contest with custom rules and timing.',
   'admin.createProblem': 'Create Problem',
   'admin.createProblemDesc': 'Add a new problem to the problem bank.',
   'admin.createContestSuccess': 'Contest created successfully.',
@@ -177,7 +183,8 @@ export const en: Record<string, string> = {
   'admin.new': 'New',
   'admin.edit': 'Edit',
   'admin.delete': 'Delete',
-  'admin.deleteConfirm': 'Are you sure you want to delete this item? This action cannot be undone.',
+  'admin.deleteConfirm':
+    'Are you sure you want to delete this item? This action cannot be undone.',
   'admin.deleteSuccess': 'Deleted successfully.',
   'admin.editContest': 'Edit Contest',
   'admin.editProblem': 'Edit Problem',

@@ -846,7 +846,7 @@ mod test_case_listing {
         let pid = app.create_problem(&token, "Test Problem").await;
 
         // 200 multi-byte characters (each is 3 bytes in UTF-8)
-        let unicode_input: String = std::iter::repeat('あ').take(200).collect();
+        let unicode_input: String = "あ".repeat(200);
         app.post_with_token(
             &routes::test_cases(pid),
             &json!({

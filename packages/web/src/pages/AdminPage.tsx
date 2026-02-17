@@ -3,19 +3,33 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQueryClient } from '@tanstack/react-query';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Code2, Eye, EyeOff, List, MoreHorizontal, Pencil, Plus, Search, Shield, Trash2, Trophy } from 'lucide-react';
+import {
+  Check,
+  Code2,
+  Eye,
+  EyeOff,
+  List,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Shield,
+  Trash2,
+  Trophy,
+} from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
 import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
-import type { ContestListItem, ProblemListItem, ContestProblemItem } from '@broccoli/sdk';
+import type {
+  ContestListItem,
+  ProblemListItem,
+  ContestProblemItem,
+} from '@broccoli/sdk';
 
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
 import {
@@ -56,7 +70,9 @@ function SwitchField({
 }) {
   return (
     <div className="flex items-center justify-between rounded-lg border p-3">
-      <Label htmlFor={id} className="cursor-pointer">{label}</Label>
+      <Label htmlFor={id} className="cursor-pointer">
+        {label}
+      </Label>
       <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   );
@@ -151,7 +167,10 @@ function ContestFormDialog({
   const [showParticipantsList, setShowParticipantsList] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const apiClient = useApiClient();
 
   useEffect(() => {
@@ -160,18 +179,20 @@ function ContestFormDialog({
     if (contest) {
       // Need to fetch full contest for description
       setLoadingData(true);
-      apiClient.GET('/contests/{id}', { params: { path: { id: contest.id } } }).then(({ data, error }) => {
-        setLoadingData(false);
-        if (error || !data) return;
-        setTitle(data.title);
-        setDescription(data.description);
-        setStartTime(toLocalDatetimeValue(data.start_time));
-        setEndTime(toLocalDatetimeValue(data.end_time));
-        setIsPublic(data.is_public);
-        setSubmissionsVisible(data.submissions_visible);
-        setShowCompileOutput(data.show_compile_output);
-        setShowParticipantsList(data.show_participants_list);
-      });
+      apiClient
+        .GET('/contests/{id}', { params: { path: { id: contest.id } } })
+        .then(({ data, error }) => {
+          setLoadingData(false);
+          if (error || !data) return;
+          setTitle(data.title);
+          setDescription(data.description);
+          setStartTime(toLocalDatetimeValue(data.start_time));
+          setEndTime(toLocalDatetimeValue(data.end_time));
+          setIsPublic(data.is_public);
+          setSubmissionsVisible(data.submissions_visible);
+          setShowCompileOutput(data.show_compile_output);
+          setShowParticipantsList(data.show_participants_list);
+        });
     } else {
       setTitle('');
       setDescription('');
@@ -201,12 +222,18 @@ function ContestFormDialog({
     };
 
     const result = isEdit
-      ? await apiClient.PATCH('/contests/{id}', { params: { path: { id: contest!.id } }, body })
+      ? await apiClient.PATCH('/contests/{id}', {
+          params: { path: { id: contest!.id } },
+          body,
+        })
       : await apiClient.POST('/contests', { body });
 
     setLoading(false);
     if (result.error) {
-      setMessage({ type: 'error', text: isEdit ? t('admin.editError') : t('admin.createError') });
+      setMessage({
+        type: 'error',
+        text: isEdit ? t('admin.editError') : t('admin.createError'),
+      });
     } else {
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });
       onOpenChange(false);
@@ -217,56 +244,120 @@ function ContestFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? t('admin.editContest') : t('admin.createContest')}</DialogTitle>
-          <DialogDescription>{isEdit ? '' : t('admin.createContestDesc')}</DialogDescription>
+          <DialogTitle>
+            {isEdit ? t('admin.editContest') : t('admin.createContest')}
+          </DialogTitle>
+          <DialogDescription>
+            {isEdit ? '' : t('admin.createContestDesc')}
+          </DialogDescription>
         </DialogHeader>
 
         {loadingData ? (
-          <div className="py-8 text-center text-muted-foreground">Loading...</div>
+          <div className="py-8 text-center text-muted-foreground">
+            Loading...
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="contest-title">{t('admin.field.title')}</Label>
-              <Input id="contest-title" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={256} placeholder="Weekly Contest #42" />
+              <Input
+                id="contest-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+                maxLength={256}
+                placeholder="Weekly Contest #42"
+              />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="contest-description">{t('admin.field.description')}</Label>
-              <Textarea id="contest-description" value={description} onChange={(e) => setDescription(e.target.value)} required rows={4} placeholder="Contest description (Markdown supported)" />
+              <Label htmlFor="contest-description">
+                {t('admin.field.description')}
+              </Label>
+              <Textarea
+                id="contest-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                required
+                rows={4}
+                placeholder="Contest description (Markdown supported)"
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="contest-start">{t('admin.field.startTime')}</Label>
-                <Input id="contest-start" type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
+                <Label htmlFor="contest-start">
+                  {t('admin.field.startTime')}
+                </Label>
+                <Input
+                  id="contest-start"
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="contest-end">{t('admin.field.endTime')}</Label>
-                <Input id="contest-end" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
+                <Input
+                  id="contest-end"
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  required
+                />
               </div>
             </div>
 
             <Separator />
 
             <div className="space-y-3">
-              <Label className="text-sm text-muted-foreground">{t('admin.field.options')}</Label>
+              <Label className="text-sm text-muted-foreground">
+                {t('admin.field.options')}
+              </Label>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <SwitchField id="contest-public" label={t('admin.field.isPublic')} checked={isPublic} onCheckedChange={setIsPublic} />
-                <SwitchField id="contest-submissions" label={t('admin.field.submissionsVisible')} checked={submissionsVisible} onCheckedChange={setSubmissionsVisible} />
-                <SwitchField id="contest-compile" label={t('admin.field.showCompileOutput')} checked={showCompileOutput} onCheckedChange={setShowCompileOutput} />
-                <SwitchField id="contest-participants" label={t('admin.field.showParticipantsList')} checked={showParticipantsList} onCheckedChange={setShowParticipantsList} />
+                <SwitchField
+                  id="contest-public"
+                  label={t('admin.field.isPublic')}
+                  checked={isPublic}
+                  onCheckedChange={setIsPublic}
+                />
+                <SwitchField
+                  id="contest-submissions"
+                  label={t('admin.field.submissionsVisible')}
+                  checked={submissionsVisible}
+                  onCheckedChange={setSubmissionsVisible}
+                />
+                <SwitchField
+                  id="contest-compile"
+                  label={t('admin.field.showCompileOutput')}
+                  checked={showCompileOutput}
+                  onCheckedChange={setShowCompileOutput}
+                />
+                <SwitchField
+                  id="contest-participants"
+                  label={t('admin.field.showParticipantsList')}
+                  checked={showParticipantsList}
+                  onCheckedChange={setShowParticipantsList}
+                />
               </div>
             </div>
 
             {message && (
-              <div className={`rounded-md px-4 py-3 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}>
+              <div
+                className={`rounded-md px-4 py-3 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}
+              >
                 {message.text}
               </div>
             )}
 
             <DialogFooter>
               <Button type="submit" disabled={loading}>
-                {loading ? t('admin.saving') : isEdit ? t('admin.edit') : t('admin.createContest')}
+                {loading
+                  ? t('admin.saving')
+                  : isEdit
+                    ? t('admin.edit')
+                    : t('admin.createContest')}
               </Button>
             </DialogFooter>
           </form>
@@ -298,7 +389,10 @@ function ProblemFormDialog({
   const [showTestDetails, setShowTestDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const apiClient = useApiClient();
 
   useEffect(() => {
@@ -306,15 +400,17 @@ function ProblemFormDialog({
     setMessage(null);
     if (problem) {
       setLoadingData(true);
-      apiClient.GET('/problems/{id}', { params: { path: { id: problem.id } } }).then(({ data, error }) => {
-        setLoadingData(false);
-        if (error || !data) return;
-        setTitle(data.title);
-        setContent(data.content);
-        setTimeLimit(data.time_limit);
-        setMemoryLimit(data.memory_limit);
-        setShowTestDetails(data.show_test_details);
-      });
+      apiClient
+        .GET('/problems/{id}', { params: { path: { id: problem.id } } })
+        .then(({ data, error }) => {
+          setLoadingData(false);
+          if (error || !data) return;
+          setTitle(data.title);
+          setContent(data.content);
+          setTimeLimit(data.time_limit);
+          setMemoryLimit(data.memory_limit);
+          setShowTestDetails(data.show_test_details);
+        });
     } else {
       setTitle('');
       setContent('');
@@ -338,12 +434,18 @@ function ProblemFormDialog({
     };
 
     const result = isEdit
-      ? await apiClient.PATCH('/problems/{id}', { params: { path: { id: problem!.id } }, body })
+      ? await apiClient.PATCH('/problems/{id}', {
+          params: { path: { id: problem!.id } },
+          body,
+        })
       : await apiClient.POST('/problems', { body });
 
     setLoading(false);
     if (result.error) {
-      setMessage({ type: 'error', text: isEdit ? t('admin.editError') : t('admin.createError') });
+      setMessage({
+        type: 'error',
+        text: isEdit ? t('admin.editError') : t('admin.createError'),
+      });
     } else {
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
       onOpenChange(false);
@@ -354,51 +456,106 @@ function ProblemFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? t('admin.editProblem') : t('admin.createProblem')}</DialogTitle>
-          <DialogDescription>{isEdit ? '' : t('admin.createProblemDesc')}</DialogDescription>
+          <DialogTitle>
+            {isEdit ? t('admin.editProblem') : t('admin.createProblem')}
+          </DialogTitle>
+          <DialogDescription>
+            {isEdit ? '' : t('admin.createProblemDesc')}
+          </DialogDescription>
         </DialogHeader>
 
         {loadingData ? (
-          <div className="py-8 text-center text-muted-foreground">Loading...</div>
+          <div className="py-8 text-center text-muted-foreground">
+            Loading...
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="problem-title">{t('admin.field.title')}</Label>
-              <Input id="problem-title" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={256} placeholder="Two Sum" />
+              <Input
+                id="problem-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+                maxLength={256}
+                placeholder="Two Sum"
+              />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="problem-content">{t('admin.field.content')}</Label>
-              <Textarea id="problem-content" value={content} onChange={(e) => setContent(e.target.value)} required rows={8} placeholder="Problem statement (Markdown supported)" />
+              <Label htmlFor="problem-content">
+                {t('admin.field.content')}
+              </Label>
+              <Textarea
+                id="problem-content"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                required
+                rows={8}
+                placeholder="Problem statement (Markdown supported)"
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="problem-time">{t('admin.field.timeLimit')}</Label>
-                <Input id="problem-time" type="number" min={1} max={30000} value={timeLimit} onChange={(e) => setTimeLimit(Number(e.target.value))} required />
+                <Label htmlFor="problem-time">
+                  {t('admin.field.timeLimit')}
+                </Label>
+                <Input
+                  id="problem-time"
+                  type="number"
+                  min={1}
+                  max={30000}
+                  value={timeLimit}
+                  onChange={(e) => setTimeLimit(Number(e.target.value))}
+                  required
+                />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="problem-memory">{t('admin.field.memoryLimit')}</Label>
-                <Input id="problem-memory" type="number" min={1} max={1048576} value={memoryLimit} onChange={(e) => setMemoryLimit(Number(e.target.value))} required />
+                <Label htmlFor="problem-memory">
+                  {t('admin.field.memoryLimit')}
+                </Label>
+                <Input
+                  id="problem-memory"
+                  type="number"
+                  min={1}
+                  max={1048576}
+                  value={memoryLimit}
+                  onChange={(e) => setMemoryLimit(Number(e.target.value))}
+                  required
+                />
               </div>
             </div>
 
             <Separator />
 
             <div className="space-y-3">
-              <Label className="text-sm text-muted-foreground">{t('admin.field.options')}</Label>
-              <SwitchField id="problem-test-details" label={t('admin.field.showTestDetails')} checked={showTestDetails} onCheckedChange={setShowTestDetails} />
+              <Label className="text-sm text-muted-foreground">
+                {t('admin.field.options')}
+              </Label>
+              <SwitchField
+                id="problem-test-details"
+                label={t('admin.field.showTestDetails')}
+                checked={showTestDetails}
+                onCheckedChange={setShowTestDetails}
+              />
             </div>
 
             {message && (
-              <div className={`rounded-md px-4 py-3 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}>
+              <div
+                className={`rounded-md px-4 py-3 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}
+              >
                 {message.text}
               </div>
             )}
 
             <DialogFooter>
               <Button type="submit" disabled={loading}>
-                {loading ? t('admin.saving') : isEdit ? t('admin.edit') : t('admin.createProblem')}
+                {loading
+                  ? t('admin.saving')
+                  : isEdit
+                    ? t('admin.edit')
+                    : t('admin.createProblem')}
               </Button>
             </DialogFooter>
           </form>
@@ -436,7 +593,9 @@ function ProblemPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>{data ? `#${data.id} — ${data.title}` : 'Loading...'}</DialogTitle>
+          <DialogTitle>
+            {data ? `#${data.id} — ${data.title}` : 'Loading...'}
+          </DialogTitle>
           {data && (
             <DialogDescription>
               {data.time_limit}ms · {(data.memory_limit / 1024).toFixed(0)}MB
@@ -445,7 +604,9 @@ function ProblemPreviewDialog({
         </DialogHeader>
         <div className="overflow-y-auto flex-1 pr-2">
           {isLoading ? (
-            <div className="py-12 text-center text-muted-foreground">Loading...</div>
+            <div className="py-12 text-center text-muted-foreground">
+              Loading...
+            </div>
           ) : data ? (
             <Markdown>{data.content}</Markdown>
           ) : null}
@@ -480,17 +641,18 @@ function ContestProblemsDialog({
   const apiClient = useApiClient();
 
   // Fetch problems currently in this contest
-  const { data: contestProblems = [], isLoading: loadingContestProblems } = useQuery({
-    queryKey: contestProblemsKey,
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
-        params: { path: { id: contest.id } },
-      });
-      if (error) throw error;
-      return data;
-    },
-    enabled: open,
-  });
+  const { data: contestProblems = [], isLoading: loadingContestProblems } =
+    useQuery({
+      queryKey: contestProblemsKey,
+      queryFn: async () => {
+        const { data, error } = await apiClient.GET('/contests/{id}/problems', {
+          params: { path: { id: contest.id } },
+        });
+        if (error) throw error;
+        return data;
+      },
+      enabled: open,
+    });
 
   // Fetch all problems
   const { data: allProblems = [], isLoading: loadingAllProblems } = useQuery({
@@ -518,13 +680,20 @@ function ContestProblemsDialog({
     }
   }, [open]);
 
-  const addedProblemIds = new Set(contestProblems.map((p: ContestProblemItem) => p.problem_id));
-  const usedLabels = new Set(contestProblems.map((p: ContestProblemItem) => p.label));
+  const addedProblemIds = new Set(
+    contestProblems.map((p: ContestProblemItem) => p.problem_id),
+  );
+  const usedLabels = new Set(
+    contestProblems.map((p: ContestProblemItem) => p.label),
+  );
 
   // Filter by search, then sort: not-added first, then by id
   const filteredProblems = allProblems
-    .filter((p: ProblemListItem) =>
-      !search || p.title.toLowerCase().includes(search.toLowerCase()) || String(p.id).includes(search),
+    .filter(
+      (p: ProblemListItem) =>
+        !search ||
+        p.title.toLowerCase().includes(search.toLowerCase()) ||
+        String(p.id).includes(search),
     )
     .sort((a: ProblemListItem, b: ProblemListItem) => {
       const aAdded = addedProblemIds.has(a.id) ? 1 : 0;
@@ -539,10 +708,13 @@ function ContestProblemsDialog({
     setAddingId(problemId);
     setErrorMsg('');
 
-    const { error: apiError } = await apiClient.POST('/contests/{id}/problems', {
-      params: { path: { id: contest.id } },
-      body: { problem_id: problemId, label: autoLabel },
-    });
+    const { error: apiError } = await apiClient.POST(
+      '/contests/{id}/problems',
+      {
+        params: { path: { id: contest.id } },
+        body: { problem_id: problemId, label: autoLabel },
+      },
+    );
 
     setAddingId(null);
     if (apiError) {
@@ -554,9 +726,12 @@ function ContestProblemsDialog({
 
   async function handleRemove(problemId: number) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
-    const { error: apiError } = await apiClient.DELETE('/contests/{id}/problems/{problem_id}', {
-      params: { path: { id: contest.id, problem_id: problemId } },
-    });
+    const { error: apiError } = await apiClient.DELETE(
+      '/contests/{id}/problems/{problem_id}',
+      {
+        params: { path: { id: contest.id, problem_id: problemId } },
+      },
+    );
     if (!apiError) {
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
     }
@@ -578,14 +753,21 @@ function ContestProblemsDialog({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
-                  <th className="px-3 py-2 text-left font-medium text-foreground/80 w-16">{t('admin.field.label')}</th>
-                  <th className="px-3 py-2 text-left font-medium text-foreground/80">{t('admin.field.title')}</th>
+                  <th className="px-3 py-2 text-left font-medium text-foreground/80 w-16">
+                    {t('admin.field.label')}
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-foreground/80">
+                    {t('admin.field.title')}
+                  </th>
                   <th className="px-3 py-2 text-right font-medium text-foreground/80 w-20" />
                 </tr>
               </thead>
               <tbody>
                 {contestProblems.map((p: ContestProblemItem) => (
-                  <tr key={p.problem_id} className="border-b last:border-0 hover:bg-muted/30">
+                  <tr
+                    key={p.problem_id}
+                    className="border-b last:border-0 hover:bg-muted/30"
+                  >
                     <td className="px-3 py-2 font-medium">{p.label}</td>
                     <td className="px-3 py-2">{p.problem_title}</td>
                     <td className="px-3 py-2 text-right">
@@ -619,7 +801,9 @@ function ContestProblemsDialog({
 
         {/* Available problems */}
         <div className="space-y-2 min-h-0 flex flex-col">
-          <Label className="text-sm font-medium">{t('admin.availableProblems')}</Label>
+          <Label className="text-sm font-medium">
+            {t('admin.availableProblems')}
+          </Label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -630,24 +814,33 @@ function ContestProblemsDialog({
             />
           </div>
 
-          {errorMsg && (
-            <p className="text-sm text-destructive">{errorMsg}</p>
-          )}
+          {errorMsg && <p className="text-sm text-destructive">{errorMsg}</p>}
 
           <div className="overflow-y-auto max-h-64 rounded-md border">
             {isLoading ? (
-              <div className="py-8 text-center text-muted-foreground">Loading...</div>
+              <div className="py-8 text-center text-muted-foreground">
+                Loading...
+              </div>
             ) : filteredProblems.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">{t('problems.empty')}</div>
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                {t('problems.empty')}
+              </div>
             ) : (
               <table className="w-full text-sm">
                 <tbody>
                   {filteredProblems.map((p: ProblemListItem) => {
                     const isAdded = addedProblemIds.has(p.id);
-                    const contestProblem = contestProblems.find((cp: ContestProblemItem) => cp.problem_id === p.id);
+                    const contestProblem = contestProblems.find(
+                      (cp: ContestProblemItem) => cp.problem_id === p.id,
+                    );
                     return (
-                      <tr key={p.id} className={`border-b last:border-0 ${isAdded ? 'opacity-50' : 'hover:bg-muted/30'}`}>
-                        <td className="px-3 py-2 text-muted-foreground w-12">#{p.id}</td>
+                      <tr
+                        key={p.id}
+                        className={`border-b last:border-0 ${isAdded ? 'opacity-50' : 'hover:bg-muted/30'}`}
+                      >
+                        <td className="px-3 py-2 text-muted-foreground w-12">
+                          #{p.id}
+                        </td>
                         <td className="px-3 py-2">
                           <button
                             type="button"
@@ -672,7 +865,9 @@ function ContestProblemsDialog({
                               onClick={() => handleAdd(p.id)}
                             >
                               <Plus className="h-3 w-3 mr-1" />
-                              {addingId === p.id ? t('admin.adding') : t('admin.addProblem')}
+                              {addingId === p.id
+                                ? t('admin.adding')
+                                : t('admin.addProblem')}
                             </Button>
                           )}
                         </td>
@@ -689,7 +884,9 @@ function ContestProblemsDialog({
           <ProblemPreviewDialog
             problemId={previewProblemId}
             open={previewProblemId !== null}
-            onOpenChange={(v) => { if (!v) setPreviewProblemId(null); }}
+            onOpenChange={(v) => {
+              if (!v) setPreviewProblemId(null);
+            }}
           />
         )}
       </DialogContent>
@@ -728,7 +925,11 @@ function useContestColumns({
       header: t('contests.status'),
       size: 110,
       cell: ({ row }) => {
-        const { label, variant } = getContestStatus(row.original.start_time, row.original.end_time, t);
+        const { label, variant } = getContestStatus(
+          row.original.start_time,
+          row.original.end_time,
+          t,
+        );
         return <Badge variant={variant}>{label}</Badge>;
       },
     },
@@ -749,7 +950,9 @@ function useContestColumns({
       size: 180,
       sortKey: 'start_time',
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{formatDateTime(row.original.start_time)}</span>
+        <span className="text-muted-foreground">
+          {formatDateTime(row.original.start_time)}
+        </span>
       ),
     },
     {
@@ -757,7 +960,9 @@ function useContestColumns({
       header: t('contests.endTime'),
       size: 180,
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{formatDateTime(row.original.end_time)}</span>
+        <span className="text-muted-foreground">
+          {formatDateTime(row.original.end_time)}
+        </span>
       ),
     },
     {
@@ -781,7 +986,10 @@ function useContestColumns({
               {t('admin.edit')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(row.original)}>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => onDelete(row.original)}
+            >
               <Trash2 className="h-4 w-4" />
               {t('admin.delete')}
             </DropdownMenuItem>
@@ -819,7 +1027,9 @@ function useProblemColumns({
       header: t('admin.field.timeLimit'),
       size: 120,
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{row.original.time_limit}ms</span>
+        <span className="text-muted-foreground">
+          {row.original.time_limit}ms
+        </span>
       ),
     },
     {
@@ -827,7 +1037,9 @@ function useProblemColumns({
       header: t('admin.field.memoryLimit'),
       size: 120,
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{(row.original.memory_limit / 1024).toFixed(0)}MB</span>
+        <span className="text-muted-foreground">
+          {(row.original.memory_limit / 1024).toFixed(0)}MB
+        </span>
       ),
     },
     {
@@ -836,7 +1048,9 @@ function useProblemColumns({
       size: 180,
       sortKey: 'created_at',
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{formatDateTime(row.original.created_at)}</span>
+        <span className="text-muted-foreground">
+          {formatDateTime(row.original.created_at)}
+        </span>
       ),
     },
     {
@@ -856,7 +1070,10 @@ function useProblemColumns({
               {t('admin.edit')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(row.original)}>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => onDelete(row.original)}
+            >
               <Trash2 className="h-4 w-4" />
               {t('admin.delete')}
             </DropdownMenuItem>
@@ -876,15 +1093,22 @@ export function AdminPage() {
 
   // Contest dialog state
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
-  const [editingContest, setEditingContest] = useState<ContestListItem | undefined>();
+  const [editingContest, setEditingContest] = useState<
+    ContestListItem | undefined
+  >();
 
   // Contest problems dialog state
-  const [contestProblemsDialogOpen, setContestProblemsDialogOpen] = useState(false);
-  const [managingContest, setManagingContest] = useState<ContestListItem | undefined>();
+  const [contestProblemsDialogOpen, setContestProblemsDialogOpen] =
+    useState(false);
+  const [managingContest, setManagingContest] = useState<
+    ContestListItem | undefined
+  >();
 
   // Problem dialog state
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
-  const [editingProblem, setEditingProblem] = useState<ProblemListItem | undefined>();
+  const [editingProblem, setEditingProblem] = useState<
+    ProblemListItem | undefined
+  >();
 
   const apiClient = useApiClient();
 
@@ -905,7 +1129,9 @@ export function AdminPage() {
 
   async function handleDeleteContest(contest: ContestListItem) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
-    const { error } = await apiClient.DELETE('/contests/{id}', { params: { path: { id: contest.id } } });
+    const { error } = await apiClient.DELETE('/contests/{id}', {
+      params: { path: { id: contest.id } },
+    });
     if (!error) {
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });
     }
@@ -923,22 +1149,36 @@ export function AdminPage() {
 
   async function handleDeleteProblem(problem: ProblemListItem) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
-    const { error } = await apiClient.DELETE('/problems/{id}', { params: { path: { id: problem.id } } });
+    const { error } = await apiClient.DELETE('/problems/{id}', {
+      params: { path: { id: problem.id } },
+    });
     if (!error) {
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
     }
   }
 
-  const contestColumns = useContestColumns({ onEdit: handleEditContest, onDelete: handleDeleteContest, onManageProblems: handleManageProblems });
-  const problemColumns = useProblemColumns({ onEdit: handleEditProblem, onDelete: handleDeleteProblem });
+  const contestColumns = useContestColumns({
+    onEdit: handleEditContest,
+    onDelete: handleDeleteContest,
+    onManageProblems: handleManageProblems,
+  });
+  const problemColumns = useProblemColumns({
+    onEdit: handleEditProblem,
+    onDelete: handleDeleteProblem,
+  });
 
-  if (!user || (user.role !== 'admin' && !user.permissions.includes('contest:create'))) {
+  if (
+    !user ||
+    (user.role !== 'admin' && !user.permissions.includes('contest:create'))
+  ) {
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
             <Shield className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-destructive text-lg font-medium">{t('admin.unauthorized')}</p>
+            <p className="text-destructive text-lg font-medium">
+              {t('admin.unauthorized')}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -948,7 +1188,9 @@ export function AdminPage() {
   return (
     <div className="mx-auto max-w-5xl p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t('admin.title')}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {t('admin.title')}
+        </h1>
         <p className="text-muted-foreground">{t('admin.subtitle')}</p>
       </div>
 

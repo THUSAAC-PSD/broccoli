@@ -24,7 +24,7 @@ export default function ExtensionPage() {
 
   if (!matchedRoute) {
     // TODO: Render a proper 404 Not Found component
-    return (<ErrorCatcher code="404" />);
+    return <ErrorCatcher code="404" />;
   }
 
   const Component = components[matchedRoute.component];

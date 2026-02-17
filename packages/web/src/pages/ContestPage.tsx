@@ -1,5 +1,9 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { type ContestResponse, type ContestProblemResponse, useApiClient } from '@broccoli/sdk/api';
+import {
+  type ContestResponse,
+  type ContestProblemResponse,
+  useApiClient,
+} from '@broccoli/sdk/api';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
@@ -14,13 +18,17 @@ function getContestStatus(
   startTime: string,
   endTime: string,
   t: (key: string) => string,
-): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
+): {
+  label: string;
+  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+} {
   const now = new Date();
   const start = new Date(startTime);
   const end = new Date(endTime);
 
   if (now < start) return { label: t('contests.upcoming'), variant: 'outline' };
-  if (now >= start && now <= end) return { label: t('contests.running'), variant: 'default' };
+  if (now >= start && now <= end)
+    return { label: t('contests.running'), variant: 'default' };
   return { label: t('contests.ended'), variant: 'secondary' };
 }
 
@@ -133,7 +141,9 @@ export function ContestPage() {
                   {t('contests.description')}
                 </div>
                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <Markdown>{contest.description || t('contests.noDescription')}</Markdown>
+                  <Markdown>
+                    {contest.description || t('contests.noDescription')}
+                  </Markdown>
                 </div>
               </div>
             </>

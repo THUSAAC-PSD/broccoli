@@ -56,7 +56,7 @@ function useProblemsColumns(): DataTableColumn<ProblemListItem>[] {
     {
       id: 'contest',
       header: t('problems.contest'),
-      cell: ({ row }) => {
+      cell: () => {
         return <span className="text-muted-foreground">—</span>;
       },
     },
@@ -64,7 +64,7 @@ function useProblemsColumns(): DataTableColumn<ProblemListItem>[] {
       id: 'due',
       header: t('problems.due'),
       size: 160,
-      cell: ({ row }) => {
+      cell: () => {
         return <span className="text-muted-foreground">—</span>;
       },
     },

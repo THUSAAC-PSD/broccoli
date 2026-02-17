@@ -205,7 +205,8 @@ export function DataTable<TData>({
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b bg-muted/40">
                 {headerGroup.headers.map((header) => {
-                  const colDef = header.column.columnDef as DataTableColumn<TData>;
+                  const colDef = header.column
+                    .columnDef as DataTableColumn<TData>;
                   const isSortable = !!colDef.sortKey;
 
                   return (
@@ -216,7 +217,12 @@ export function DataTable<TData>({
                           ? 'cursor-pointer select-none hover:text-foreground transition-colors'
                           : ''
                       }`}
-                      style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
+                      style={{
+                        width:
+                          header.getSize() !== 150
+                            ? header.getSize()
+                            : undefined,
+                      }}
                       onClick={
                         isSortable
                           ? () => toggleSort(colDef.sortKey!)

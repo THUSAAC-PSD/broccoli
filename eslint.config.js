@@ -40,6 +40,10 @@ export default defineConfig([
       tsdoc: tsdoc,
     },
     rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       'simple-import-sort/imports': 'warn',
       'simple-import-sort/exports': 'warn',
       'import/newline-after-import': 'warn',

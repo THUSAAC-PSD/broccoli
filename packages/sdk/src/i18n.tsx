@@ -19,8 +19,12 @@ interface I18nContextValue {
   setLocale: (locale: string) => void;
   availableLocales: string[];
   t: (key: string, params?: Record<string, string>) => string;
-  addTranslations: (translations: Record<string, Record<string, string>>) => void;
-  removeTranslations: (translations: Record<string, Record<string, string>>) => void;
+  addTranslations: (
+    translations: Record<string, Record<string, string>>,
+  ) => void;
+  removeTranslations: (
+    translations: Record<string, Record<string, string>>,
+  ) => void;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -37,7 +41,8 @@ export function I18nProvider({
   defaultTranslations = {},
 }: I18nProviderProps) {
   const [locale, setLocale] = useState(defaultLocale);
-  const [translations, setTranslations] = useState<TranslationMap>(defaultTranslations);
+  const [translations, setTranslations] =
+    useState<TranslationMap>(defaultTranslations);
 
   const addTranslations = useCallback(
     (newTranslations: Record<string, Record<string, string>>) => {
@@ -71,11 +76,15 @@ export function I18nProvider({
     [],
   );
 
-  const availableLocales = useMemo(() => Object.keys(translations), [translations]);
+  const availableLocales = useMemo(
+    () => Object.keys(translations),
+    [translations],
+  );
 
   const t = useCallback(
     (key: string, params?: Record<string, string>): string => {
-      let value = translations[locale]?.[key] ?? translations['en']?.[key] ?? key;
+      let value =
+        translations[locale]?.[key] ?? translations['en']?.[key] ?? key;
       if (params) {
         for (const [param, replacement] of Object.entries(params)) {
           value = value.replace(`{{${param}}}`, replacement);
@@ -88,7 +97,14 @@ export function I18nProvider({
 
   return (
     <I18nContext.Provider
-      value={{ locale, setLocale, availableLocales, t, addTranslations, removeTranslations }}
+      value={{
+        locale,
+        setLocale,
+        availableLocales,
+        t,
+        addTranslations,
+        removeTranslations,
+      }}
     >
       {children}
     </I18nContext.Provider>

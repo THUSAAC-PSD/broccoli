@@ -1,4 +1,4 @@
-import type { ComponentBundle,PluginManifest } from '@broccoli/sdk';
+import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 
 import { NotificationButton } from './components/NotificationButton';
 import { NotificationCenter } from './components/NotificationCenter';

@@ -28,18 +28,26 @@ export function Markdown({ children, className }: MarkdownProps) {
             <h3 className="text-lg font-semibold mt-4 mb-1.5">{children}</h3>
           ),
           p: ({ children }: ComponentPropsWithoutRef<'p'>) => (
-            <p className="text-sm leading-relaxed mb-3 text-foreground/90">{children}</p>
+            <p className="text-sm leading-relaxed mb-3 text-foreground/90">
+              {children}
+            </p>
           ),
           ul: ({ children }: ComponentPropsWithoutRef<'ul'>) => (
-            <ul className="text-sm list-disc pl-6 mb-3 space-y-1 text-foreground/90">{children}</ul>
+            <ul className="text-sm list-disc pl-6 mb-3 space-y-1 text-foreground/90">
+              {children}
+            </ul>
           ),
           ol: ({ children }: ComponentPropsWithoutRef<'ol'>) => (
-            <ol className="text-sm list-decimal pl-6 mb-3 space-y-1 text-foreground/90">{children}</ol>
+            <ol className="text-sm list-decimal pl-6 mb-3 space-y-1 text-foreground/90">
+              {children}
+            </ol>
           ),
           li: ({ children }: ComponentPropsWithoutRef<'li'>) => (
             <li className="leading-relaxed">{children}</li>
           ),
-          blockquote: ({ children }: ComponentPropsWithoutRef<'blockquote'>) => (
+          blockquote: ({
+            children,
+          }: ComponentPropsWithoutRef<'blockquote'>) => (
             <blockquote className="border-l-[3px] border-foreground/20 pl-4 my-3 text-sm text-foreground/70 italic">
               {children}
             </blockquote>
@@ -56,7 +64,9 @@ export function Markdown({ children, className }: MarkdownProps) {
             </a>
           ),
           strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
-            <strong className="font-semibold text-foreground">{children}</strong>
+            <strong className="font-semibold text-foreground">
+              {children}
+            </strong>
           ),
           em: ({ children }: ComponentPropsWithoutRef<'em'>) => (
             <em className="italic">{children}</em>

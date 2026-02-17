@@ -50,6 +50,7 @@ pub struct JudgeJob {
 
 impl JudgeJob {
     /// Create a new judge job with a generated UUID.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         submission_id: i32,
         problem_id: i32,

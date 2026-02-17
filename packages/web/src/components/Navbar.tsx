@@ -49,19 +49,14 @@ export function Navbar() {
           <div className="flex items-center gap-4">
             {user ? (
               <>
-                <span className="hidden text-sm md:block">
-                  {user.username}
-                </span>
+                <span className="hidden text-sm md:block">{user.username}</span>
                 <Button variant="outline" onClick={logout}>
                   {t('auth.logout')}
                 </Button>
               </>
             ) : (
               <>
-                <a
-                  href="/login"
-                  className="hidden text-sm md:block"
-                >
+                <a href="/login" className="hidden text-sm md:block">
                   {t('nav.signIn')}
                 </a>
                 <Button variant="default" asChild>

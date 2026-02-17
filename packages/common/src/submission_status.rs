@@ -122,6 +122,7 @@ impl FromStr for SubmissionStatus {
 
 /// Execution verdict for a test case or submission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Default)]
 #[cfg_attr(
     feature = "sea-orm",
     derive(DeriveValueType),
@@ -139,6 +140,7 @@ pub enum Verdict {
     /// Program crashed or exited with non-zero code.
     RuntimeError,
     /// Internal judge error during test execution.
+    #[default]
     SystemError,
 }
 
@@ -186,12 +188,6 @@ impl Verdict {
 impl fmt::Display for Verdict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl Default for Verdict {
-    fn default() -> Self {
-        Self::Accepted
     }
 }
 

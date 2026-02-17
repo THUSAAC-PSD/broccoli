@@ -4,5113 +4,5125 @@
  */
 
 export interface paths {
-    "/admin/plugins": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List all discovered plugins
-         * @description Returns a list of all plugins that have been discovered on disk, along with their manifest information and current status. Requires `plugin:list` permission.
-         */
-        get: operations["listAllPlugins"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+  '/admin/plugins': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/admin/plugins/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get details of a specific plugin
-         * @description Returns detailed information about a specific plugin, including its manifest and current status. Requires `plugin:list` permission.
-         */
-        get: operations["getPluginDetails"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List all discovered plugins
+     * @description Returns a list of all plugins that have been discovered on disk, along with their manifest information and current status. Requires `plugin:list` permission.
+     */
+    get: operations['listAllPlugins'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/admin/plugins/{id}/disable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Disable a plugin
-         * @description Disables a plugin by its ID. Requires `plugin:disable` permission.
-         */
-        post: operations["disablePlugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get details of a specific plugin
+     * @description Returns detailed information about a specific plugin, including its manifest and current status. Requires `plugin:list` permission.
+     */
+    get: operations['getPluginDetails'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/{id}/disable': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/admin/plugins/{id}/enable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Enable a plugin
-         * @description Enables a plugin by its ID. Requires `plugin:enable` permission.
-         */
-        post: operations["enablePlugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Disable a plugin
+     * @description Disables a plugin by its ID. Requires `plugin:disable` permission.
+     */
+    post: operations['disablePlugin'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/{id}/enable': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Log in and obtain a JWT token
-         * @description Authenticates the user and returns a JWT token valid for 7 days, along with the user's role and permissions. Returns 401 INVALID_CREDENTIALS on wrong username or password.
-         */
-        post: operations["loginUser"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Enable a plugin
+     * @description Enables a plugin by its ID. Requires `plugin:enable` permission.
+     */
+    post: operations['enablePlugin'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/login': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get current authenticated user profile
-         * @description Returns the authenticated user's profile, including the role and permissions embedded in their JWT.
-         */
-        get: operations["getCurrentUser"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Log in and obtain a JWT token
+     * @description Authenticates the user and returns a JWT token valid for 7 days, along with the user's role and permissions. Returns 401 INVALID_CREDENTIALS on wrong username or password.
+     */
+    post: operations['loginUser'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/me': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/auth/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Register a new user account
-         * @description Creates a new user account with the provided credentials. No authentication required. Returns 409 USERNAME_TAKEN if the username is already in use.
-         */
-        post: operations["registerUser"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get current authenticated user profile
+     * @description Returns the authenticated user's profile, including the role and permissions embedded in their JWT.
+     */
+    get: operations['getCurrentUser'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/register': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List contests with pagination and search
-         * @description Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.
-         */
-        get: operations["listContests"];
-        put?: never;
-        /**
-         * Create a new contest
-         * @description Creates a new contest. Requires `contest:create` permission.
-         */
-        post: operations["createContest"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Register a new user account
+     * @description Creates a new user account with the provided credentials. No authentication required. Returns 409 USERNAME_TAKEN if the username is already in use.
+     */
+    post: operations['registerUser'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a contest by ID
-         * @description Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.
-         */
-        get: operations["getContest"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a contest by ID
-         * @description Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.
-         */
-        delete: operations["deleteContest"];
-        options?: never;
-        head?: never;
-        /**
-         * Update an existing contest
-         * @description Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.
-         */
-        patch: operations["updateContest"];
-        trace?: never;
+    /**
+     * List contests with pagination and search
+     * @description Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.
+     */
+    get: operations['listContests'];
+    put?: never;
+    /**
+     * Create a new contest
+     * @description Creates a new contest. Requires `contest:create` permission.
+     */
+    post: operations['createContest'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/participants": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List participants of a contest
-         * @description Returns all participants in the contest, ordered by registration time. Requires `contest:manage` permission if `show_participants_list` is false.
-         */
-        get: operations["listParticipants"];
-        put?: never;
-        /**
-         * Add a participant to a contest
-         * @description Adds a user to the contest as a participant (admin action). Requires `contest:manage` permission. Returns 409 if the user is already a participant.
-         */
-        post: operations["addParticipant"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get a contest by ID
+     * @description Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.
+     */
+    get: operations['getContest'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a contest by ID
+     * @description Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.
+     */
+    delete: operations['deleteContest'];
+    options?: never;
+    head?: never;
+    /**
+     * Update an existing contest
+     * @description Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.
+     */
+    patch: operations['updateContest'];
+    trace?: never;
+  };
+  '/contests/{id}/participants': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/participants/bulk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bulk-add participants to a contest
-         * @description Enrolls multiple users in a contest. Existing users are looked up by username; new users can be created with auto-generated or custom passwords. Requires `contest:manage` permission. Partial success model: missing usernames are reported in `not_found`, already-enrolled users in `already_enrolled`.
-         */
-        post: operations["bulkAddParticipants"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List participants of a contest
+     * @description Returns all participants in the contest, ordered by registration time. Requires `contest:manage` permission if `show_participants_list` is false.
+     */
+    get: operations['listParticipants'];
+    put?: never;
+    /**
+     * Add a participant to a contest
+     * @description Adds a user to the contest as a participant (admin action). Requires `contest:manage` permission. Returns 409 if the user is already a participant.
+     */
+    post: operations['addParticipant'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/participants/bulk': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/participants/{user_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a participant from a contest
-         * @description Removes a participant from the contest (admin action). Requires `contest:manage` permission.
-         */
-        delete: operations["removeParticipant"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Bulk-add participants to a contest
+     * @description Enrolls multiple users in a contest. Existing users are looked up by username; new users can be created with auto-generated or custom passwords. Requires `contest:manage` permission. Partial success model: missing usernames are reported in `not_found`, already-enrolled users in `already_enrolled`.
+     */
+    post: operations['bulkAddParticipants'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/participants/{user_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/problems": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List problems in a contest
-         * @description Returns all problems in the contest, ordered by position. Same visibility rules as getContest apply.
-         */
-        get: operations["listContestProblems"];
-        put?: never;
-        /**
-         * Add a problem to a contest
-         * @description Associates an existing problem with the contest under a given label. Requires `contest:manage` permission. Labels must be unique within the contest. Position is auto-assigned if omitted. Returns 409 if the problem ID or label is already present.
-         */
-        post: operations["addContestProblem"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Remove a participant from a contest
+     * @description Removes a participant from the contest (admin action). Requires `contest:manage` permission.
+     */
+    delete: operations['removeParticipant'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/problems': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/problems/bulk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Bulk-remove problems from a contest
-         * @description Removes multiple problems from a contest in a single operation. Requires `contest:manage` permission. All provided problem IDs must be currently in the contest.
-         */
-        delete: operations["bulkDeleteContestProblems"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List problems in a contest
+     * @description Returns all problems in the contest, ordered by position. Same visibility rules as getContest apply.
+     */
+    get: operations['listContestProblems'];
+    put?: never;
+    /**
+     * Add a problem to a contest
+     * @description Associates an existing problem with the contest under a given label. Requires `contest:manage` permission. Labels must be unique within the contest. Position is auto-assigned if omitted. Returns 409 if the problem ID or label is already present.
+     */
+    post: operations['addContestProblem'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/problems/bulk': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/problems/reorder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Reorder problems in a contest
-         * @description Replaces the ordering of all problems in a contest. Requires `contest:manage` permission. The ID array must contain exactly all problems currently in the contest. Positions are assigned by array index starting at 0.
-         */
-        put: operations["reorderContestProblems"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Bulk-remove problems from a contest
+     * @description Removes multiple problems from a contest in a single operation. Requires `contest:manage` permission. All provided problem IDs must be currently in the contest.
+     */
+    delete: operations['bulkDeleteContestProblems'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/problems/reorder': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/problems/{problem_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a problem from a contest
-         * @description Removes the association between a problem and the contest. Requires `contest:manage` permission. The problem itself is not deleted.
-         */
-        delete: operations["removeContestProblem"];
-        options?: never;
-        head?: never;
-        /**
-         * Update a contest problem's label or position
-         * @description Updates the label or position of a problem within a contest. Requires `contest:manage` permission. Returns 409 CONFLICT on duplicate labels.
-         */
-        patch: operations["updateContestProblem"];
-        trace?: never;
+    get?: never;
+    /**
+     * Reorder problems in a contest
+     * @description Replaces the ordering of all problems in a contest. Requires `contest:manage` permission. The ID array must contain exactly all problems currently in the contest. Positions are assigned by array index starting at 0.
+     */
+    put: operations['reorderContestProblems'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/problems/{problem_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/problems/{problem_id}/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Submit a solution to a contest problem
-         * @description Creates a new submission for a problem within a contest. The user must be a contest participant (or have `contest:manage` permission), and the contest must be active. Requires `submission:submit` permission.
-         */
-        post: operations["createContestSubmission"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Remove a problem from a contest
+     * @description Removes the association between a problem and the contest. Requires `contest:manage` permission. The problem itself is not deleted.
+     */
+    delete: operations['removeContestProblem'];
+    options?: never;
+    head?: never;
+    /**
+     * Update a contest problem's label or position
+     * @description Updates the label or position of a problem within a contest. Requires `contest:manage` permission. Returns 409 CONFLICT on duplicate labels.
+     */
+    patch: operations['updateContestProblem'];
+    trace?: never;
+  };
+  '/contests/{id}/problems/{problem_id}/submissions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Self-register for a public contest
-         * @description Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.
-         */
-        post: operations["registerForContest"];
-        /**
-         * Self-unregister from a contest
-         * @description Removes the authenticated user's registration from a contest. Returns 404 if the caller is not registered.
-         */
-        delete: operations["unregisterFromContest"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Submit a solution to a contest problem
+     * @description Creates a new submission for a problem within a contest. The user must be a contest participant (or have `contest:manage` permission), and the contest must be active. Requires `submission:submit` permission.
+     */
+    post: operations['createContestSubmission'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/register': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/contests/{id}/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List contest submissions
-         * @description Returns submissions for a contest.
-         */
-        get: operations["listContestSubmissions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Self-register for a public contest
+     * @description Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.
+     */
+    post: operations['registerForContest'];
+    /**
+     * Self-unregister from a contest
+     * @description Removes the authenticated user's registration from a contest. Returns 404 if the caller is not registered.
+     */
+    delete: operations['unregisterFromContest'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/submissions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/dlq": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List dead letter messages
-         * @description Returns a paginated list of dead letter messages. Requires `dlq:manage` permission.
-         */
-        get: operations["listDlqMessages"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List contest submissions
+     * @description Returns submissions for a contest.
+     */
+    get: operations['listContestSubmissions'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dlq': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/dlq/bulk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Bulk-delete (resolve) DLQ messages
-         * @description Marks multiple DLQ messages as resolved without retrying. Requires `dlq:manage` permission.
-         */
-        delete: operations["bulkDeleteDlq"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List dead letter messages
+     * @description Returns a paginated list of dead letter messages. Requires `dlq:manage` permission.
+     */
+    get: operations['listDlqMessages'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dlq/bulk': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/dlq/bulk-retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bulk-retry DLQ messages
-         * @description Re-enqueues multiple dead letter messages for processing. Supports either specific message IDs or filter-based selection. Only judge_job messages with a known submission_id are retryable. Requires `dlq:manage` permission.
-         */
-        post: operations["bulkRetryDlq"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Bulk-delete (resolve) DLQ messages
+     * @description Marks multiple DLQ messages as resolved without retrying. Requires `dlq:manage` permission.
+     */
+    delete: operations['bulkDeleteDlq'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dlq/bulk-retry': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/dlq/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get DLQ statistics
-         * @description Returns statistics about the dead letter queue. Requires `dlq:manage` permission.
-         */
-        get: operations["getDlqStats"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Bulk-retry DLQ messages
+     * @description Re-enqueues multiple dead letter messages for processing. Supports either specific message IDs or filter-based selection. Only judge_job messages with a known submission_id are retryable. Requires `dlq:manage` permission.
+     */
+    post: operations['bulkRetryDlq'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dlq/stats': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/dlq/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get DLQ message details
-         * @description Returns full details of a DLQ message including payload and retry history. Requires `dlq:manage` permission.
-         */
-        get: operations["getDlqMessage"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete (resolve) a DLQ message
-         * @description Marks a DLQ message as resolved without retrying. Use this to acknowledge messages that don't need to be reprocessed. Requires `dlq:manage` permission.
-         */
-        delete: operations["deleteDlqMessage"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get DLQ statistics
+     * @description Returns statistics about the dead letter queue. Requires `dlq:manage` permission.
+     */
+    get: operations['getDlqStats'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dlq/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/dlq/{id}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Retry a DLQ message
-         * @description Re-enqueues a dead letter message for processing. Only works for judge_job message type. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
-         */
-        post: operations["retryDlqMessage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get DLQ message details
+     * @description Returns full details of a DLQ message including payload and retry history. Requires `dlq:manage` permission.
+     */
+    get: operations['getDlqMessage'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete (resolve) a DLQ message
+     * @description Marks a DLQ message as resolved without retrying. Use this to acknowledge messages that don't need to be reprocessed. Requires `dlq:manage` permission.
+     */
+    delete: operations['deleteDlqMessage'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/dlq/{id}/retry': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/plugins/active": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List active plugins with web components
-         * @description Returns a list of currently active (loaded) plugins that have web (frontend) components. This is used by the frontend to discover which plugins are available for rendering UI.
-         */
-        get: operations["listActivePlugins"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Retry a DLQ message
+     * @description Re-enqueues a dead letter message for processing. Only works for judge_job message type. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
+     */
+    post: operations['retryDlqMessage'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/plugins/active': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/plugins/{id}/call/{func}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Call a function on a loaded plugin
-         * @description Invokes a named function on a previously loaded plugin. The plugin must be loaded first via the load endpoint. Returns 404 if the plugin is not loaded.
-         */
-        post: operations["callPluginFunction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List active plugins with web components
+     * @description Returns a list of currently active (loaded) plugins that have web (frontend) components. This is used by the frontend to discover which plugins are available for rendering UI.
+     */
+    get: operations['listActivePlugins'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/plugins/{id}/call/{func}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List problems with pagination and search
-         * @description Returns a paginated list of problems with optional search and sorting. Requires `problem:create` or `problem:edit` permission. Supports case-insensitive title search and sorting by `created_at` (default, desc), `updated_at`, or `title`. Problem content is omitted from list results.
-         */
-        get: operations["listProblems"];
-        put?: never;
-        /**
-         * Create a new problem
-         * @description Creates a new problem in the system. Requires `problem:create` permission.
-         */
-        post: operations["createProblem"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Call a function on a loaded plugin
+     * @description Invokes a named function on a previously loaded plugin. The plugin must be loaded first via the load endpoint. Returns 404 if the plugin is not loaded.
+     */
+    post: operations['callPluginFunction'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a problem by ID
-         * @description Returns the full details of a problem, including its Markdown content. Requires `problem:create` or `problem:edit` permission.
-         */
-        get: operations["getProblem"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a problem by ID
-         * @description Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.
-         */
-        delete: operations["deleteProblem"];
-        options?: never;
-        head?: never;
-        /**
-         * Update an existing problem
-         * @description Partially updates a problem using PATCH semantics — only provided fields are modified. Requires `problem:edit` permission. An empty payload returns the current resource unchanged.
-         */
-        patch: operations["updateProblem"];
-        trace?: never;
+    /**
+     * List problems with pagination and search
+     * @description Returns a paginated list of problems with optional search and sorting. Requires `problem:create` or `problem:edit` permission. Supports case-insensitive title search and sorting by `created_at` (default, desc), `updated_at`, or `title`. Problem content is omitted from list results.
+     */
+    get: operations['listProblems'];
+    put?: never;
+    /**
+     * Create a new problem
+     * @description Creates a new problem in the system. Requires `problem:create` permission.
+     */
+    post: operations['createProblem'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Submit a solution to a problem
-         * @description Creates a new submission for the specified problem. The submission will be queued for judging. Requires `submission:submit` permission.
-         */
-        post: operations["createSubmission"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get a problem by ID
+     * @description Returns the full details of a problem, including its Markdown content. Requires `problem:create` or `problem:edit` permission.
+     */
+    get: operations['getProblem'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a problem by ID
+     * @description Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.
+     */
+    delete: operations['deleteProblem'];
+    options?: never;
+    head?: never;
+    /**
+     * Update an existing problem
+     * @description Partially updates a problem using PATCH semantics — only provided fields are modified. Requires `problem:edit` permission. An empty payload returns the current resource unchanged.
+     */
+    patch: operations['updateProblem'];
+    trace?: never;
+  };
+  '/problems/{id}/submissions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}/test-cases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List test cases for a problem
-         * @description Returns all test cases for a problem, ordered by position. Requires `problem:create` or `problem:edit` permission. Input and output are truncated to 100-character previews.
-         */
-        get: operations["listTestCases"];
-        put?: never;
-        /**
-         * Create a test case for a problem
-         * @description Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 32 MB.
-         */
-        post: operations["createTestCase"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Submit a solution to a problem
+     * @description Creates a new submission for the specified problem. The submission will be queued for judging. Requires `submission:submit` permission.
+     */
+    post: operations['createSubmission'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/test-cases': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}/test-cases/bulk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Bulk-delete test cases
-         * @description Deletes multiple test cases in a single operation. Requires `problem:edit` permission. Returns 409 CONFLICT if any test case has judge results, listing the offending IDs.
-         */
-        delete: operations["bulkDeleteTestCases"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List test cases for a problem
+     * @description Returns all test cases for a problem, ordered by position. Requires `problem:create` or `problem:edit` permission. Input and output are truncated to 100-character previews.
+     */
+    get: operations['listTestCases'];
+    put?: never;
+    /**
+     * Create a test case for a problem
+     * @description Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 32 MB.
+     */
+    post: operations['createTestCase'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/test-cases/bulk': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}/test-cases/reorder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Reorder test cases for a problem
-         * @description Replaces the ordering of all test cases in a problem. Requires `problem:edit` permission. The ID array must contain exactly all test cases in the problem. Positions are assigned by array index starting at 0.
-         */
-        put: operations["reorderTestCases"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Bulk-delete test cases
+     * @description Deletes multiple test cases in a single operation. Requires `problem:edit` permission. Returns 409 CONFLICT if any test case has judge results, listing the offending IDs.
+     */
+    delete: operations['bulkDeleteTestCases'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/test-cases/reorder': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}/test-cases/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload test cases from a ZIP file
-         * @description Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
-         */
-        post: operations["uploadTestCases"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    /**
+     * Reorder test cases for a problem
+     * @description Replaces the ordering of all test cases in a problem. Requires `problem:edit` permission. The ID array must contain exactly all test cases in the problem. Positions are assigned by array index starting at 0.
+     */
+    put: operations['reorderTestCases'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/test-cases/upload': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/problems/{id}/test-cases/{tc_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a test case by ID
-         * @description Returns the full details of a test case, including complete input and expected_output. Requires `problem:create` or `problem:edit` permission. The test case must belong to the specified problem.
-         */
-        get: operations["getTestCase"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a test case
-         * @description Permanently deletes a test case. Requires `problem:edit` permission. Returns 409 CONFLICT if the test case has judge results.
-         */
-        delete: operations["deleteTestCase"];
-        options?: never;
-        head?: never;
-        /**
-         * Update a test case
-         * @description Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 32 MB.
-         */
-        patch: operations["updateTestCase"];
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Upload test cases from a ZIP file
+     * @description Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
+     */
+    post: operations['uploadTestCases'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/test-cases/{tc_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List submissions
-         * @description Returns a paginated list of submissions. Users see their own submissions; users with `submission:view_all` permission see all submissions.
-         */
-        get: operations["listSubmissions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get a test case by ID
+     * @description Returns the full details of a test case, including complete input and expected_output. Requires `problem:create` or `problem:edit` permission. The test case must belong to the specified problem.
+     */
+    get: operations['getTestCase'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a test case
+     * @description Permanently deletes a test case. Requires `problem:edit` permission. Returns 409 CONFLICT if the test case has judge results.
+     */
+    delete: operations['deleteTestCase'];
+    options?: never;
+    head?: never;
+    /**
+     * Update a test case
+     * @description Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 32 MB.
+     */
+    patch: operations['updateTestCase'];
+    trace?: never;
+  };
+  '/submissions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/submissions/bulk-rejudge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bulk rejudge submissions
-         * @description Re-queues submissions matching the given filters for rejudging. At least one filter must be provided. Max 10,000 matching submissions. Requires `submission:rejudge` permission.
-         */
-        post: operations["bulkRejudgeSubmissions"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * List submissions
+     * @description Returns a paginated list of submissions. Users see their own submissions; users with `submission:view_all` permission see all submissions.
+     */
+    get: operations['listSubmissions'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/submissions/bulk-rejudge': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/submissions/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get submission details
-         * @description Returns full details of a submission. Users can view their own submissions; users with `submission:view_all` permission can view any submission.
-         */
-        get: operations["getSubmission"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Bulk rejudge submissions
+     * @description Re-queues submissions matching the given filters for rejudging. At least one filter must be provided. Max 10,000 matching submissions. Requires `submission:rejudge` permission.
+     */
+    post: operations['bulkRejudgeSubmissions'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/submissions/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/submissions/{id}/rejudge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Rejudge a submission
-         * @description Re-queues the submission for judging. Requires `submission:rejudge` permission.
-         */
-        post: operations["rejudgeSubmission"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Get submission details
+     * @description Returns full details of a submission. Users can view their own submissions; users with `submission:view_all` permission can view any submission.
+     */
+    get: operations['getSubmission'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/submissions/{id}/rejudge': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    get?: never;
+    put?: never;
+    /**
+     * Rejudge a submission
+     * @description Re-queues the submission for judging. Requires `submission:rejudge` permission.
+     */
+    post: operations['rejudgeSubmission'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        /** @description Response model for listing active web plugins. */
-        ActivePluginResponse: {
-            /**
-             * @description Public URL to the plugin's frontend ESM entry point.
-             * @example /assets/plugin-123/index.js
-             */
-            entry: string;
-            /**
-             * @description Unique identifier for the plugin.
-             * @example plugin-123
-             */
-            id: string;
-            /**
-             * @description Plugin name.
-             * @example An Awesome Plugin
-             */
-            name: string;
-        };
-        /** @description Request body for adding a problem to a contest. */
-        AddContestProblemRequest: {
-            /**
-             * @description Short label for the problem within the contest (1-10 chars, must be unique).
-             * @example A
-             */
-            label: string;
-            /**
-             * Format: int32
-             * @description Display position (0-based). Auto-assigned if omitted.
-             * @example 0
-             */
-            position?: number | null;
-            /**
-             * Format: int32
-             * @description ID of the problem to associate.
-             * @example 1
-             */
-            problem_id: number;
-        };
-        /** @description Request body for adding a participant to a contest (admin action). */
-        AddParticipantRequest: {
-            /**
-             * Format: int32
-             * @description ID of the user to add.
-             * @example 7
-             */
-            user_id: number;
-        };
-        /** @description Request body for bulk-adding participants to a contest. */
-        BulkAddParticipantsRequest: {
-            /** @description Users to create (with optional passwords) and then enroll. */
-            create_users?: components["schemas"]["CreateUserEntry"][];
-            /** @description Existing usernames to enroll. Missing usernames reported in `not_found`. */
-            usernames?: string[];
-        };
-        /** @description Response from bulk-adding participants. */
-        BulkAddParticipantsResponse: {
-            /** @description Existing users successfully enrolled. */
-            added: components["schemas"]["BulkParticipantAdded"][];
-            /** @description Users already enrolled in the contest (skipped). */
-            already_enrolled: components["schemas"]["BulkParticipantAdded"][];
-            /** @description Newly created users enrolled (includes plaintext passwords). */
-            created: components["schemas"]["BulkParticipantCreated"][];
-            /** @description Usernames from `usernames` that were not found. */
-            not_found: string[];
-        };
-        /** @description Request body for bulk-deleting problems from a contest. */
-        BulkDeleteContestProblemsRequest: {
-            /**
-             * @description IDs of problems to remove from the contest. Max 1,000, no duplicates.
-             * @example [
-             *       5,
-             *       7,
-             *       9
-             *     ]
-             */
-            problem_ids: number[];
-        };
-        /** @description Response from bulk-deleting contest problems. */
-        BulkDeleteContestProblemsResponse: {
-            /**
-             * @description Number of problems removed from the contest.
-             * @example 3
-             */
-            removed: number;
-        };
-        /** @description Request body for bulk delete (resolve) of DLQ messages. */
-        BulkDeleteDlqRequest: {
-            /**
-             * @description IDs of DLQ messages to resolve. Max 1,000.
-             * @example [
-             *       5,
-             *       7,
-             *       9
-             *     ]
-             */
-            message_ids: number[];
-        };
-        /** @description Response from bulk delete (resolve) of DLQ messages. */
-        BulkDeleteDlqResponse: {
-            /**
-             * @description Number of messages resolved.
-             * @example 3
-             */
-            deleted: number;
-        };
-        /** @description Request body for bulk-deleting test cases. */
-        BulkDeleteTestCasesRequest: {
-            /**
-             * @description IDs of test cases to delete. Max 1,000, no duplicates, all must belong to the problem.
-             * @example [
-             *       5,
-             *       7,
-             *       9
-             *     ]
-             */
-            test_case_ids: number[];
-        };
-        /** @description Response from bulk-deleting test cases. */
-        BulkDeleteTestCasesResponse: {
-            /**
-             * @description Number of test cases deleted.
-             * @example 3
-             */
-            deleted: number;
-        };
-        /** @description A participant that was enrolled from an existing user. */
-        BulkParticipantAdded: {
-            /**
-             * Format: int32
-             * @example 5
-             */
-            user_id: number;
-            /** @example alice */
-            username: string;
-        };
-        /** @description A participant whose account was created and then enrolled. */
-        BulkParticipantCreated: {
-            /**
-             * @description The plaintext password (only returned once).
-             * @example aB3$kLm9xQ2z
-             */
-            password: string;
-            /**
-             * Format: int32
-             * @example 12
-             */
-            user_id: number;
-            /** @example charlie */
-            username: string;
-        };
-        /** @description Request body for bulk-rejudging submissions by filter. */
-        BulkRejudgeRequest: {
-            /**
-             * Format: int32
-             * @description Filter by contest ID.
-             * @example 2
-             */
-            contest_id?: number | null;
-            /**
-             * @description Filter by language.
-             * @example cpp
-             */
-            language?: string | null;
-            /**
-             * Format: int32
-             * @description Filter by problem ID.
-             * @example 5
-             */
-            problem_id?: number | null;
-            /**
-             * Format: int32
-             * @description Filter by user ID.
-             * @example 7
-             */
-            user_id?: number | null;
-            /**
-             * @description Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
-             * @example WrongAnswer
-             */
-            verdict?: string | null;
-        };
-        /** @description Response from bulk rejudge. */
-        BulkRejudgeResponse: {
-            /**
-             * @description Number of submissions queued for rejudging.
-             * @example 1234
-             */
-            queued: number;
-        };
-        /**
-         * @description Request body for bulk retry of DLQ messages.
-         *
-         *     Exactly one of `message_ids` or the filter fields (`message_type`/`error_code`) must be provided.
-         */
-        BulkRetryDlqRequest: {
-            /** @description Filter: retry all unresolved messages with this error code. */
-            error_code?: string | null;
-            /** @description Specific message IDs to retry. Max 1,000. */
-            message_ids?: number[] | null;
-            /** @description Filter: retry all unresolved messages of this type. */
-            message_type?: string | null;
-        };
-        /** @description Response from bulk retry of DLQ messages. */
-        BulkRetryDlqResponse: {
-            /** @description Errors encountered for specific messages. */
-            errors: components["schemas"]["BulkRetryError"][];
-            /**
-             * @description Number of messages successfully retried.
-             * @example 2
-             */
-            retried: number;
-            /**
-             * @description Number of messages skipped (already resolved, non-retryable, etc.).
-             * @example 1
-             */
-            skipped: number;
-        };
-        /** @description Error encountered retrying a single DLQ message. */
-        BulkRetryError: {
-            /**
-             * @description Why this message could not be retried.
-             * @example Message not found
-             */
-            error: string;
-            /**
-             * Format: int32
-             * @description The DLQ message ID.
-             * @example 7
-             */
-            id: number;
-        };
-        /** @description Contest summary for list views (description omitted). */
-        ContestListItem: {
-            /**
-             * Format: date-time
-             * @example 2025-09-25T10:00:00Z
-             */
-            created_at: string;
-            /**
-             * Format: date-time
-             * @example 2025-10-01T17:00:00Z
-             */
-            end_time: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /** @example true */
-            is_public: boolean;
-            /**
-             * @description Whether participants can see compile output during contest.
-             * @example true
-             */
-            show_compile_output: boolean;
-            /**
-             * @description Whether participants list is visible.
-             * @example true
-             */
-            show_participants_list: boolean;
-            /**
-             * Format: date-time
-             * @example 2025-10-01T14:00:00Z
-             */
-            start_time: string;
-            /**
-             * @description Whether participants can see each other's submissions.
-             * @example false
-             */
-            submissions_visible: boolean;
-            /** @example Weekly Contest #42 */
-            title: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-25T10:30:00Z
-             */
-            updated_at: string;
-        };
-        /** @description Paginated list of contests. */
-        ContestListResponse: {
-            data: components["schemas"]["ContestListItem"][];
-            pagination: components["schemas"]["Pagination"];
-        };
-        /** @description A participant in a contest. */
-        ContestParticipantResponse: {
-            /**
-             * Format: int32
-             * @example 1
-             */
-            contest_id: number;
-            /**
-             * Format: date-time
-             * @example 2025-09-30T12:00:00Z
-             */
-            registered_at: string;
-            /**
-             * Format: int32
-             * @example 7
-             */
-            user_id: number;
-            /** @example alice_wonder */
-            username: string;
-        };
-        /** @description A problem associated with a contest. */
-        ContestProblemResponse: {
-            /**
-             * Format: int32
-             * @example 1
-             */
-            contest_id: number;
-            /** @example A */
-            label: string;
-            /**
-             * Format: int32
-             * @example 0
-             */
-            position: number;
-            /**
-             * Format: int32
-             * @example 5
-             */
-            problem_id: number;
-            /** @example Two Sum */
-            problem_title: string;
-        };
-        /** @description Full contest details. */
-        ContestResponse: {
-            /**
-             * Format: date-time
-             * @example 2025-09-25T10:00:00Z
-             */
-            created_at: string;
-            /** @example Welcome to this week's contest. */
-            description: string;
-            /**
-             * Format: date-time
-             * @example 2025-10-01T17:00:00Z
-             */
-            end_time: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /** @example true */
-            is_public: boolean;
-            /**
-             * @description Whether participants can see compile output during contest.
-             * @example true
-             */
-            show_compile_output: boolean;
-            /**
-             * @description Whether participants list is visible.
-             * @example true
-             */
-            show_participants_list: boolean;
-            /**
-             * Format: date-time
-             * @example 2025-10-01T14:00:00Z
-             */
-            start_time: string;
-            /**
-             * @description Whether participants can see each other's submissions.
-             * @example false
-             */
-            submissions_visible: boolean;
-            /** @example Weekly Contest #42 */
-            title: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-25T10:30:00Z
-             */
-            updated_at: string;
-        };
-        /** @description Request body for creating a contest. */
-        CreateContestRequest: {
-            /**
-             * @description Contest description (non-empty, max 1 MB).
-             * @example Welcome to this week's programming contest.
-             */
-            description: string;
-            /**
-             * Format: date-time
-             * @description Contest end time (must be after start_time).
-             * @example 2025-10-01T17:00:00Z
-             */
-            end_time: string;
-            /**
-             * @description Whether the contest is visible to all users.
-             * @example true
-             */
-            is_public: boolean;
-            /**
-             * @description Whether participants can see compile output during contest (default: true).
-             * @example true
-             */
-            show_compile_output?: boolean | null;
-            /**
-             * @description Whether participants list is visible (default: true).
-             * @example true
-             */
-            show_participants_list?: boolean | null;
-            /**
-             * Format: date-time
-             * @description Contest start time (must be before end_time).
-             * @example 2025-10-01T14:00:00Z
-             */
-            start_time: string;
-            /**
-             * @description Whether participants can see each other's submissions.
-             * @example false
-             */
-            submissions_visible?: boolean | null;
-            /**
-             * @description Contest title (trimmed, 1-256 chars).
-             * @example Weekly Contest #42
-             */
-            title: string;
-        };
-        /** @description Request body for creating a problem. */
-        CreateProblemRequest: {
-            /**
-             * @description Problem statement in Markdown (non-empty, max 1 MB).
-             * @example Given an array of integers `nums` and an integer `target`...
-             */
-            content: string;
-            /**
-             * Format: int32
-             * @description Memory limit in kilobytes (1-1048576).
-             * @example 262144
-             */
-            memory_limit: number;
-            /**
-             * @description Whether contestants see full input/output for all test cases.
-             *     If omitted, defaults to false.
-             * @example false
-             */
-            show_test_details?: boolean | null;
-            /**
-             * Format: int32
-             * @description Execution time limit in milliseconds (1-30000).
-             * @example 1000
-             */
-            time_limit: number;
-            /**
-             * @description Problem title (trimmed, 1-256 chars).
-             * @example Two Sum
-             */
-            title: string;
-        };
-        /** @description Request body for creating a submission. */
-        CreateSubmissionRequest: {
-            /** @description Source files. At least one file required. */
-            files: components["schemas"]["SubmissionFileDto"][];
-            /**
-             * @description Programming language (e.g., "cpp", "java", "python").
-             * @example cpp
-             */
-            language: string;
-        };
-        /** @description Request body for creating a test case. */
-        CreateTestCaseRequest: {
-            /**
-             * @description Optional human-readable description (max 256 chars).
-             * @example Basic case
-             */
-            description?: string | null;
-            /**
-             * @description Expected output. May be empty for custom-checker problems.
-             * @example 0 1
-             */
-            expected_output: string;
-            /**
-             * @description Input data. May be empty for output-only or custom-checker problems.
-             * @example 4
-             *     2 7 11 15
-             *     9
-             */
-            input: string;
-            /**
-             * @description Whether this test case is visible to contestants.
-             * @example true
-             */
-            is_sample: boolean;
-            /**
-             * Format: int32
-             * @description Display position (0-based). Auto-assigned if omitted.
-             * @example 0
-             */
-            position?: number | null;
-            /**
-             * Format: int32
-             * @description Point value for this test case (0-10000).
-             * @example 10
-             */
-            score: number;
-        };
-        /** @description A single user to create and enroll. */
-        CreateUserEntry: {
-            /**
-             * @description Password for the new user (8-128 chars). Auto-generated if omitted.
-             * @example custom_pass123
-             */
-            password?: string | null;
-            /**
-             * @description Username for the new user (1-32 chars, alphanumeric + underscores).
-             * @example charlie
-             */
-            username: string;
-        };
-        /** @description Paginated list of DLQ messages. */
-        DlqListResponse: {
-            data: components["schemas"]["DlqMessageResponse"][];
-            pagination: components["schemas"]["Pagination"];
-        };
-        /** @description Full DLQ message details. */
-        DlqMessageDetailResponse: {
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:05:00Z
-             */
-            created_at: string;
-            /** @example MAX_RETRIES_EXCEEDED */
-            error_code: string;
-            /** @example Database connection timeout */
-            error_message: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:00:00Z
-             */
-            first_failed_at: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /** @example job-abc123 */
-            message_id: string;
-            /** @example judge_job */
-            message_type: string;
-            /** @description Full message payload for replay. */
-            payload: unknown;
-            /** @example false */
-            resolved: boolean;
-            /** Format: date-time */
-            resolved_at?: string | null;
-            /**
-             * Format: int32
-             * @description User ID who resolved this message (null for automatic resolution).
-             */
-            resolved_by?: number | null;
-            /**
-             * Format: int32
-             * @example 3
-             */
-            retry_count: number;
-            /** @description Retry history: array of {attempt, error, timestamp}. */
-            retry_history: unknown;
-            /**
-             * Format: int32
-             * @description Submission ID (null if unknown, e.g., deserialization failure).
-             * @example 42
-             */
-            submission_id?: number | null;
-        };
-        /** @description DLQ message summary for list views. */
-        DlqMessageResponse: {
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:05:00Z
-             */
-            created_at: string;
-            /** @example MAX_RETRIES_EXCEEDED */
-            error_code: string;
-            /** @example Database connection timeout */
-            error_message: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:00:00Z
-             */
-            first_failed_at: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /** @example job-abc123 */
-            message_id: string;
-            /** @example judge_job */
-            message_type: string;
-            /** @example false */
-            resolved: boolean;
-            /** Format: date-time */
-            resolved_at?: string | null;
-            /**
-             * Format: int32
-             * @description User ID who resolved this message (null for automatic resolution).
-             */
-            resolved_by?: number | null;
-            /**
-             * Format: int32
-             * @example 3
-             */
-            retry_count: number;
-            /**
-             * Format: int32
-             * @description Submission ID (null if unknown, e.g., deserialization failure).
-             * @example 42
-             */
-            submission_id?: number | null;
-        };
-        /** @description Response for retry action. */
-        DlqRetryResponse: {
-            /**
-             * @description Status message.
-             * @example Message requeued for processing
-             */
-            message: string;
-        };
-        /** @description DLQ statistics. */
-        DlqStatsResponse: {
-            /**
-             * Format: int64
-             * @description Total resolved messages.
-             * @example 42
-             */
-            total_resolved: number;
-            /**
-             * Format: int64
-             * @description Total unresolved (active) messages.
-             * @example 5
-             */
-            total_unresolved: number;
-            /** @description Unresolved count by error code. */
-            unresolved_by_error_code: {
-                [key: string]: number;
-            };
-            /** @description Unresolved count by message type. */
-            unresolved_by_message_type: components["schemas"]["MessageTypeCounts"];
-        };
-        /** @description Structured error response returned by all endpoints on failure. */
-        ErrorBody: {
-            /**
-             * @description Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
-             *     `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
-             *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
-             *     `INTERNAL_ERROR`.
-             * @example VALIDATION_ERROR
-             */
-            code: string;
-            /**
-             * @description Human-readable error description.
-             * @example Title must be 1-256 characters
-             */
-            message: string;
-        };
-        /** @description Judge result for a submission. */
-        JudgeResultResponse: {
-            /** @description Compiler output (stdout/stderr). */
-            compile_output?: string | null;
-            /** @description System error message (only for SystemError status). */
-            error_message?: string | null;
-            /**
-             * Format: date-time
-             * @description When judging completed.
-             */
-            judged_at?: string | null;
-            /**
-             * Format: int32
-             * @description Maximum memory used in kilobytes.
-             * @example 1024
-             */
-            memory_used?: number | null;
-            /**
-             * Format: int32
-             * @description Total score across all test cases.
-             * @example 100
-             */
-            score?: number | null;
-            /** @description Individual test case results. */
-            test_case_results: components["schemas"]["TestCaseResultResponse"][];
-            /**
-             * Format: int32
-             * @description Maximum time used in milliseconds.
-             * @example 50
-             */
-            time_used?: number | null;
-            verdict?: null | components["schemas"]["Verdict"];
-        };
-        /** @description Request body for user login. */
-        LoginRequest: {
-            /**
-             * @description Account password.
-             * @example s3cure_P@ss!
-             */
-            password: string;
-            /**
-             * @description Username of the account to log into.
-             * @example alice_wonder
-             */
-            username: string;
-        };
-        /** @description Successful login response. */
-        LoginResponse: {
-            /**
-             * Format: int32
-             * @description ID of the authenticated user.
-             * @example 42
-             */
-            id: number;
-            /**
-             * @description Permissions granted to the user.
-             * @example [
-             *       "submission:submit"
-             *     ]
-             */
-            permissions: string[];
-            /**
-             * @description User's role.
-             * @example contestant
-             */
-            role: string;
-            /**
-             * @description JWT bearer token valid for 7 days.
-             * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-             */
-            token: string;
-            /**
-             * @description Authenticated user's username.
-             * @example alice_wonder
-             */
-            username: string;
-        };
-        /** @description Current authenticated user's profile. */
-        MeResponse: {
-            /**
-             * Format: int32
-             * @description User ID.
-             * @example 42
-             */
-            id: number;
-            /**
-             * @description Permissions.
-             * @example [
-             *       "submission:submit"
-             *     ]
-             */
-            permissions: string[];
-            /**
-             * @description Role.
-             * @example contestant
-             */
-            role: string;
-            /**
-             * @description Username.
-             * @example alice_wonder
-             */
-            username: string;
-        };
-        /** @description Unresolved message counts by message type. */
-        MessageTypeCounts: {
-            /**
-             * Format: int64
-             * @description Number of unresolved judge_job messages.
-             * @example 3
-             */
-            judge_job: number;
-            /**
-             * Format: int64
-             * @description Number of unresolved judge_result messages.
-             * @example 2
-             */
-            judge_result: number;
-        };
-        /** @description Pagination metadata included in list responses. */
-        Pagination: {
-            /**
-             * Format: int64
-             * @description Current page number (1-based).
-             * @example 1
-             */
-            page: number;
-            /**
-             * Format: int64
-             * @description Number of items per page.
-             * @example 20
-             */
-            per_page: number;
-            /**
-             * Format: int64
-             * @description Total number of matching items across all pages.
-             * @example 47
-             */
-            total: number;
-            /**
-             * Format: int64
-             * @description Total number of pages.
-             * @example 3
-             */
-            total_pages: number;
-        };
-        /** @description Detailed information about a plugin. */
-        PluginDetailResponse: {
-            /**
-             * @description Plugin description.
-             * @example This plugin does awesome things!
-             */
-            description?: string | null;
-            /**
-             * @description Indicates if the plugin has a server component.
-             * @example true
-             */
-            has_server: boolean;
-            /**
-             * @description Indicates if the plugin has a web (frontend) component.
-             * @example true
-             */
-            has_web: boolean;
-            /**
-             * @description Indicates if the plugin has a worker component.
-             * @example false
-             */
-            has_worker: boolean;
-            /**
-             * @description Unique identifier for the plugin.
-             * @example plugin-123
-             */
-            id: string;
-            /**
-             * @description Plugin name.
-             * @example An Awesome Plugin
-             */
-            name: string;
-            /** @description Plugin status. */
-            status: components["schemas"]["PluginStatusResponse"];
-            /**
-             * @description Plugin version.
-             * @example 1.0.0
-             */
-            version: string;
-        };
-        /**
-         * @description Plugin status for API responses, abstracting away error details.
-         * @enum {string}
-         */
-        PluginStatusResponse: "Discovered" | "Loaded" | "Failed";
-        /** @description Problem summary for list views (content omitted). */
-        ProblemListItem: {
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:00:00Z
-             */
-            created_at: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /**
-             * Format: int32
-             * @example 262144
-             */
-            memory_limit: number;
-            /**
-             * @description Whether contestants see full input/output for all test cases.
-             * @example false
-             */
-            show_test_details: boolean;
-            /**
-             * Format: int32
-             * @example 1000
-             */
-            time_limit: number;
-            /** @example Two Sum */
-            title: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:30:00Z
-             */
-            updated_at: string;
-        };
-        /** @description Paginated list of problems. */
-        ProblemListResponse: {
-            data: components["schemas"]["ProblemListItem"][];
-            pagination: components["schemas"]["Pagination"];
-        };
-        /** @description Full problem details. */
-        ProblemResponse: {
-            /** @example Given an array of integers... */
-            content: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:00:00Z
-             */
-            created_at: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /**
-             * Format: int32
-             * @example 262144
-             */
-            memory_limit: number;
-            /**
-             * @description Whether contestants see full input/output for all test cases.
-             * @example false
-             */
-            show_test_details: boolean;
-            /**
-             * Format: int32
-             * @example 1000
-             */
-            time_limit: number;
-            /** @example Two Sum */
-            title: string;
-            /**
-             * Format: date-time
-             * @example 2025-09-01T08:30:00Z
-             */
-            updated_at: string;
-        };
-        /** @description Request body for user registration. */
-        RegisterRequest: {
-            /**
-             * @description Password (8-128 characters).
-             * @example s3cure_P@ss!
-             */
-            password: string;
-            /**
-             * @description Unique username (1-32 chars, alphanumeric and underscores).
-             * @example alice_wonder
-             */
-            username: string;
-        };
-        /** @description Successful registration response. */
-        RegisterResponse: {
-            /**
-             * Format: int32
-             * @description ID of the newly created user.
-             * @example 42
-             */
-            id: number;
-            /**
-             * @description Username of the newly created user.
-             * @example alice_wonder
-             */
-            username: string;
-        };
-        /** @description Request body for reordering problems in a contest. */
-        ReorderContestProblemsRequest: {
-            /**
-             * @description Ordered list of problem_ids. Positions assigned 0, 1, 2... by array index.
-             *     Must contain exactly the problem_ids currently in the contest.
-             * @example [
-             *       3,
-             *       1,
-             *       2
-             *     ]
-             */
-            problem_ids: number[];
-        };
-        /** @description Request body for reordering test cases. */
-        ReorderTestCasesRequest: {
-            /**
-             * @description Ordered list of test_case_ids. Positions assigned 0, 1, 2, ... by array index.
-             * @example [
-             *       3,
-             *       1,
-             *       2
-             *     ]
-             */
-            test_case_ids: number[];
-        };
-        /** @description A single file in a submission. */
-        SubmissionFileDto: {
-            /**
-             * @description Source code content.
-             * @example #include <iostream>
-             *     int main() { return 0; }
-             */
-            content: string;
-            /**
-             * @description Filename (e.g., "Main.java", "solution.cpp"). No path separators allowed.
-             * @example solution.cpp
-             */
-            filename: string;
-        };
-        /** @description Submission summary for list views (files omitted). */
-        SubmissionListItem: {
-            /**
-             * Format: int32
-             * @description Contest ID if this is a contest submission, null otherwise.
-             */
-            contest_id?: number | null;
-            /**
-             * Format: date-time
-             * @example 2025-10-01T14:30:00Z
-             */
-            created_at: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /** @example cpp */
-            language: string;
-            /**
-             * Format: int32
-             * @description Total memory used in KB if judged, null otherwise.
-             * @example 1024
-             */
-            memory_used?: number | null;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            problem_id: number;
-            /** @example Two Sum */
-            problem_title: string;
-            /**
-             * Format: int32
-             * @description Total score if judged, null otherwise.
-             * @example 100
-             */
-            score?: number | null;
-            status: components["schemas"]["SubmissionStatus"];
-            /**
-             * Format: int32
-             * @description Total time used in ms if judged, null otherwise.
-             * @example 50
-             */
-            time_used?: number | null;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            user_id: number;
-            /** @example alice */
-            username: string;
-            verdict?: null | components["schemas"]["Verdict"];
-        };
-        /** @description Paginated list of submissions. */
-        SubmissionListResponse: {
-            data: components["schemas"]["SubmissionListItem"][];
-            pagination: components["schemas"]["Pagination"];
-        };
-        /** @description Full submission details. */
-        SubmissionResponse: {
-            /**
-             * Format: int32
-             * @description Contest ID if this is a contest submission, null otherwise.
-             * @example 1
-             */
-            contest_id?: number | null;
-            /**
-             * Format: date-time
-             * @example 2025-10-01T14:30:00Z
-             */
-            created_at: string;
-            files: components["schemas"]["SubmissionFileDto"][];
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /** @example cpp */
-            language: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            problem_id: number;
-            /** @example Two Sum */
-            problem_title: string;
-            result?: null | components["schemas"]["JudgeResultResponse"];
-            status: components["schemas"]["SubmissionStatus"];
-            /**
-             * Format: int32
-             * @example 1
-             */
-            user_id: number;
-            /** @example alice */
-            username: string;
-        };
-        /**
-         * @description Status of a submission during the judging lifecycle.
-         * @enum {string}
-         */
-        SubmissionStatus: "Pending" | "Compiling" | "Running" | "Judged" | "CompilationError" | "SystemError";
-        /** @description Test case summary (input/output truncated to 100-char previews). */
-        TestCaseListItem: {
-            /**
-             * Format: date-time
-             * @example 2025-09-01T09:00:00Z
-             */
-            created_at: string;
-            /** @example Basic case */
-            description?: string | null;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /**
-             * @example 4
-             *     2 7 11 15
-             *     9
-             */
-            input_preview: string;
-            /** @example true */
-            is_sample: boolean;
-            /** @example 0 1 */
-            output_preview: string;
-            /**
-             * Format: int32
-             * @example 0
-             */
-            position: number;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            problem_id: number;
-            /**
-             * Format: int32
-             * @example 10
-             */
-            score: number;
-        };
-        /** @description Full test case details. */
-        TestCaseResponse: {
-            /**
-             * Format: date-time
-             * @example 2025-09-01T09:00:00Z
-             */
-            created_at: string;
-            /** @example Basic case */
-            description?: string | null;
-            /** @example 0 1 */
-            expected_output: string;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /**
-             * @example 4
-             *     2 7 11 15
-             *     9
-             */
-            input: string;
-            /** @example true */
-            is_sample: boolean;
-            /**
-             * Format: int32
-             * @example 0
-             */
-            position: number;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            problem_id: number;
-            /**
-             * Format: int32
-             * @example 10
-             */
-            score: number;
-        };
-        /** @description Result for a single test case. */
-        TestCaseResultResponse: {
-            /** @description Custom checker feedback. */
-            checker_output?: string | null;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            id: number;
-            /**
-             * Format: int32
-             * @description Memory used in kilobytes.
-             * @example 256
-             */
-            memory_used?: number | null;
-            /**
-             * Format: int32
-             * @example 10
-             */
-            score: number;
-            /** @description Program stderr. */
-            stderr?: string | null;
-            /** @description Program stdout. */
-            stdout?: string | null;
-            /**
-             * Format: int32
-             * @example 1
-             */
-            test_case_id: number;
-            /**
-             * Format: int32
-             * @description Time used in milliseconds.
-             * @example 5
-             */
-            time_used?: number | null;
-            verdict: components["schemas"]["Verdict"];
-        };
-        /** @description PATCH body for updating a contest problem's label or position. */
-        UpdateContestProblemRequest: {
-            /**
-             * @description Short label for the problem within the contest (1-10 chars, must be unique).
-             * @example B
-             */
-            label?: string | null;
-            /**
-             * Format: int32
-             * @description Display position (0-based).
-             * @example 1
-             */
-            position?: number | null;
-        };
-        /** @description PATCH body for updating a contest. Only provided fields are modified. */
-        UpdateContestRequest: {
-            /**
-             * @description Contest description (non-empty, max 1 MB).
-             * @example Updated description...
-             */
-            description?: string | null;
-            /**
-             * Format: date-time
-             * @description Contest end time (must be after start_time).
-             * @example 2025-10-01T18:00:00Z
-             */
-            end_time?: string | null;
-            /**
-             * @description Whether the contest is visible to all users.
-             * @example false
-             */
-            is_public?: boolean | null;
-            /**
-             * @description Whether participants can see compile output during contest.
-             * @example true
-             */
-            show_compile_output?: boolean | null;
-            /**
-             * @description Whether participants list is visible.
-             * @example true
-             */
-            show_participants_list?: boolean | null;
-            /**
-             * Format: date-time
-             * @description Contest start time (must be before end_time).
-             * @example 2025-10-01T13:00:00Z
-             */
-            start_time?: string | null;
-            /**
-             * @description Whether participants can see each other's submissions.
-             * @example true
-             */
-            submissions_visible?: boolean | null;
-            /**
-             * @description Contest title (trimmed, 1-256 chars).
-             * @example Weekly Contest #42 (Extended)
-             */
-            title?: string | null;
-        };
-        /** @description PATCH body for updating a problem. Only provided fields are modified. */
-        UpdateProblemRequest: {
-            /**
-             * @description Problem statement in Markdown (non-empty, max 1 MB).
-             * @example Updated problem statement...
-             */
-            content?: string | null;
-            /**
-             * Format: int32
-             * @description Memory limit in kilobytes (1-1048576).
-             * @example 524288
-             */
-            memory_limit?: number | null;
-            /**
-             * @description Whether contestants see full input/output for all test cases.
-             * @example true
-             */
-            show_test_details?: boolean | null;
-            /**
-             * Format: int32
-             * @description Execution time limit in milliseconds (1-30000).
-             * @example 2000
-             */
-            time_limit?: number | null;
-            /**
-             * @description Problem title (trimmed, 1-256 chars).
-             * @example Two Sum (Easy)
-             */
-            title?: string | null;
-        };
-        /** @description PATCH body for updating a test case. Only provided fields are modified. */
-        UpdateTestCaseRequest: {
-            /**
-             * @description Set to a string value to update, set to `null` to clear, or omit to leave unchanged.
-             * @example Updated edge case
-             */
-            description?: string | null;
-            /**
-             * @description Expected output. May be empty for custom-checker problems.
-             * @example 1 2
-             */
-            expected_output?: string | null;
-            /**
-             * @description Input data. May be empty for output-only or custom-checker problems.
-             * @example 5
-             *     1 2 3 4 5
-             *     3
-             */
-            input?: string | null;
-            /**
-             * @description Whether this test case is visible to contestants.
-             * @example false
-             */
-            is_sample?: boolean | null;
-            /**
-             * Format: int32
-             * @description Display position (0-based).
-             * @example 1
-             */
-            position?: number | null;
-            /**
-             * Format: int32
-             * @description Point value for this test case (0-10000).
-             * @example 20
-             */
-            score?: number | null;
-        };
-        /** @description Response from ZIP upload. */
-        UploadTestCasesResponse: {
-            /**
-             * @description Number of test cases created.
-             * @example 5
-             */
-            created: number;
-            test_cases: components["schemas"]["TestCaseListItem"][];
-        };
-        /**
-         * @description Execution verdict for a test case or submission.
-         * @enum {string}
-         */
-        Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError";
+  schemas: {
+    /** @description Response model for listing active web plugins. */
+    ActivePluginResponse: {
+      /**
+       * @description Public URL to the plugin's frontend ESM entry point.
+       * @example /assets/plugin-123/index.js
+       */
+      entry: string;
+      /**
+       * @description Unique identifier for the plugin.
+       * @example plugin-123
+       */
+      id: string;
+      /**
+       * @description Plugin name.
+       * @example An Awesome Plugin
+       */
+      name: string;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    /** @description Request body for adding a problem to a contest. */
+    AddContestProblemRequest: {
+      /**
+       * @description Short label for the problem within the contest (1-10 chars, must be unique).
+       * @example A
+       */
+      label: string;
+      /**
+       * Format: int32
+       * @description Display position (0-based). Auto-assigned if omitted.
+       * @example 0
+       */
+      position?: number | null;
+      /**
+       * Format: int32
+       * @description ID of the problem to associate.
+       * @example 1
+       */
+      problem_id: number;
+    };
+    /** @description Request body for adding a participant to a contest (admin action). */
+    AddParticipantRequest: {
+      /**
+       * Format: int32
+       * @description ID of the user to add.
+       * @example 7
+       */
+      user_id: number;
+    };
+    /** @description Request body for bulk-adding participants to a contest. */
+    BulkAddParticipantsRequest: {
+      /** @description Users to create (with optional passwords) and then enroll. */
+      create_users?: components['schemas']['CreateUserEntry'][];
+      /** @description Existing usernames to enroll. Missing usernames reported in `not_found`. */
+      usernames?: string[];
+    };
+    /** @description Response from bulk-adding participants. */
+    BulkAddParticipantsResponse: {
+      /** @description Existing users successfully enrolled. */
+      added: components['schemas']['BulkParticipantAdded'][];
+      /** @description Users already enrolled in the contest (skipped). */
+      already_enrolled: components['schemas']['BulkParticipantAdded'][];
+      /** @description Newly created users enrolled (includes plaintext passwords). */
+      created: components['schemas']['BulkParticipantCreated'][];
+      /** @description Usernames from `usernames` that were not found. */
+      not_found: string[];
+    };
+    /** @description Request body for bulk-deleting problems from a contest. */
+    BulkDeleteContestProblemsRequest: {
+      /**
+       * @description IDs of problems to remove from the contest. Max 1,000, no duplicates.
+       * @example [
+       *       5,
+       *       7,
+       *       9
+       *     ]
+       */
+      problem_ids: number[];
+    };
+    /** @description Response from bulk-deleting contest problems. */
+    BulkDeleteContestProblemsResponse: {
+      /**
+       * @description Number of problems removed from the contest.
+       * @example 3
+       */
+      removed: number;
+    };
+    /** @description Request body for bulk delete (resolve) of DLQ messages. */
+    BulkDeleteDlqRequest: {
+      /**
+       * @description IDs of DLQ messages to resolve. Max 1,000.
+       * @example [
+       *       5,
+       *       7,
+       *       9
+       *     ]
+       */
+      message_ids: number[];
+    };
+    /** @description Response from bulk delete (resolve) of DLQ messages. */
+    BulkDeleteDlqResponse: {
+      /**
+       * @description Number of messages resolved.
+       * @example 3
+       */
+      deleted: number;
+    };
+    /** @description Request body for bulk-deleting test cases. */
+    BulkDeleteTestCasesRequest: {
+      /**
+       * @description IDs of test cases to delete. Max 1,000, no duplicates, all must belong to the problem.
+       * @example [
+       *       5,
+       *       7,
+       *       9
+       *     ]
+       */
+      test_case_ids: number[];
+    };
+    /** @description Response from bulk-deleting test cases. */
+    BulkDeleteTestCasesResponse: {
+      /**
+       * @description Number of test cases deleted.
+       * @example 3
+       */
+      deleted: number;
+    };
+    /** @description A participant that was enrolled from an existing user. */
+    BulkParticipantAdded: {
+      /**
+       * Format: int32
+       * @example 5
+       */
+      user_id: number;
+      /** @example alice */
+      username: string;
+    };
+    /** @description A participant whose account was created and then enrolled. */
+    BulkParticipantCreated: {
+      /**
+       * @description The plaintext password (only returned once).
+       * @example aB3$kLm9xQ2z
+       */
+      password: string;
+      /**
+       * Format: int32
+       * @example 12
+       */
+      user_id: number;
+      /** @example charlie */
+      username: string;
+    };
+    /** @description Request body for bulk-rejudging submissions by filter. */
+    BulkRejudgeRequest: {
+      /**
+       * Format: int32
+       * @description Filter by contest ID.
+       * @example 2
+       */
+      contest_id?: number | null;
+      /**
+       * @description Filter by language.
+       * @example cpp
+       */
+      language?: string | null;
+      /**
+       * Format: int32
+       * @description Filter by problem ID.
+       * @example 5
+       */
+      problem_id?: number | null;
+      /**
+       * Format: int32
+       * @description Filter by user ID.
+       * @example 7
+       */
+      user_id?: number | null;
+      /**
+       * @description Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+       * @example WrongAnswer
+       */
+      verdict?: string | null;
+    };
+    /** @description Response from bulk rejudge. */
+    BulkRejudgeResponse: {
+      /**
+       * @description Number of submissions queued for rejudging.
+       * @example 1234
+       */
+      queued: number;
+    };
+    /**
+     * @description Request body for bulk retry of DLQ messages.
+     *
+     *     Exactly one of `message_ids` or the filter fields (`message_type`/`error_code`) must be provided.
+     */
+    BulkRetryDlqRequest: {
+      /** @description Filter: retry all unresolved messages with this error code. */
+      error_code?: string | null;
+      /** @description Specific message IDs to retry. Max 1,000. */
+      message_ids?: number[] | null;
+      /** @description Filter: retry all unresolved messages of this type. */
+      message_type?: string | null;
+    };
+    /** @description Response from bulk retry of DLQ messages. */
+    BulkRetryDlqResponse: {
+      /** @description Errors encountered for specific messages. */
+      errors: components['schemas']['BulkRetryError'][];
+      /**
+       * @description Number of messages successfully retried.
+       * @example 2
+       */
+      retried: number;
+      /**
+       * @description Number of messages skipped (already resolved, non-retryable, etc.).
+       * @example 1
+       */
+      skipped: number;
+    };
+    /** @description Error encountered retrying a single DLQ message. */
+    BulkRetryError: {
+      /**
+       * @description Why this message could not be retried.
+       * @example Message not found
+       */
+      error: string;
+      /**
+       * Format: int32
+       * @description The DLQ message ID.
+       * @example 7
+       */
+      id: number;
+    };
+    /** @description Contest summary for list views (description omitted). */
+    ContestListItem: {
+      /**
+       * Format: date-time
+       * @example 2025-09-25T10:00:00Z
+       */
+      created_at: string;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T17:00:00Z
+       */
+      end_time: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example true */
+      is_public: boolean;
+      /**
+       * @description Whether participants can see compile output during contest.
+       * @example true
+       */
+      show_compile_output: boolean;
+      /**
+       * @description Whether participants list is visible.
+       * @example true
+       */
+      show_participants_list: boolean;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:00:00Z
+       */
+      start_time: string;
+      /**
+       * @description Whether participants can see each other's submissions.
+       * @example false
+       */
+      submissions_visible: boolean;
+      /** @example Weekly Contest #42 */
+      title: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-25T10:30:00Z
+       */
+      updated_at: string;
+    };
+    /** @description Paginated list of contests. */
+    ContestListResponse: {
+      data: components['schemas']['ContestListItem'][];
+      pagination: components['schemas']['Pagination'];
+    };
+    /** @description A participant in a contest. */
+    ContestParticipantResponse: {
+      /**
+       * Format: int32
+       * @example 1
+       */
+      contest_id: number;
+      /**
+       * Format: date-time
+       * @example 2025-09-30T12:00:00Z
+       */
+      registered_at: string;
+      /**
+       * Format: int32
+       * @example 7
+       */
+      user_id: number;
+      /** @example alice_wonder */
+      username: string;
+    };
+    /** @description A problem associated with a contest. */
+    ContestProblemResponse: {
+      /**
+       * Format: int32
+       * @example 1
+       */
+      contest_id: number;
+      /** @example A */
+      label: string;
+      /**
+       * Format: int32
+       * @example 0
+       */
+      position: number;
+      /**
+       * Format: int32
+       * @example 5
+       */
+      problem_id: number;
+      /** @example Two Sum */
+      problem_title: string;
+    };
+    /** @description Full contest details. */
+    ContestResponse: {
+      /**
+       * Format: date-time
+       * @example 2025-09-25T10:00:00Z
+       */
+      created_at: string;
+      /** @example Welcome to this week's contest. */
+      description: string;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T17:00:00Z
+       */
+      end_time: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example true */
+      is_public: boolean;
+      /**
+       * @description Whether participants can see compile output during contest.
+       * @example true
+       */
+      show_compile_output: boolean;
+      /**
+       * @description Whether participants list is visible.
+       * @example true
+       */
+      show_participants_list: boolean;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:00:00Z
+       */
+      start_time: string;
+      /**
+       * @description Whether participants can see each other's submissions.
+       * @example false
+       */
+      submissions_visible: boolean;
+      /** @example Weekly Contest #42 */
+      title: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-25T10:30:00Z
+       */
+      updated_at: string;
+    };
+    /** @description Request body for creating a contest. */
+    CreateContestRequest: {
+      /**
+       * @description Contest description (non-empty, max 1 MB).
+       * @example Welcome to this week's programming contest.
+       */
+      description: string;
+      /**
+       * Format: date-time
+       * @description Contest end time (must be after start_time).
+       * @example 2025-10-01T17:00:00Z
+       */
+      end_time: string;
+      /**
+       * @description Whether the contest is visible to all users.
+       * @example true
+       */
+      is_public: boolean;
+      /**
+       * @description Whether participants can see compile output during contest (default: true).
+       * @example true
+       */
+      show_compile_output?: boolean | null;
+      /**
+       * @description Whether participants list is visible (default: true).
+       * @example true
+       */
+      show_participants_list?: boolean | null;
+      /**
+       * Format: date-time
+       * @description Contest start time (must be before end_time).
+       * @example 2025-10-01T14:00:00Z
+       */
+      start_time: string;
+      /**
+       * @description Whether participants can see each other's submissions.
+       * @example false
+       */
+      submissions_visible?: boolean | null;
+      /**
+       * @description Contest title (trimmed, 1-256 chars).
+       * @example Weekly Contest #42
+       */
+      title: string;
+    };
+    /** @description Request body for creating a problem. */
+    CreateProblemRequest: {
+      /**
+       * @description Problem statement in Markdown (non-empty, max 1 MB).
+       * @example Given an array of integers `nums` and an integer `target`...
+       */
+      content: string;
+      /**
+       * Format: int32
+       * @description Memory limit in kilobytes (1-1048576).
+       * @example 262144
+       */
+      memory_limit: number;
+      /**
+       * @description Whether contestants see full input/output for all test cases.
+       *     If omitted, defaults to false.
+       * @example false
+       */
+      show_test_details?: boolean | null;
+      /**
+       * Format: int32
+       * @description Execution time limit in milliseconds (1-30000).
+       * @example 1000
+       */
+      time_limit: number;
+      /**
+       * @description Problem title (trimmed, 1-256 chars).
+       * @example Two Sum
+       */
+      title: string;
+    };
+    /** @description Request body for creating a submission. */
+    CreateSubmissionRequest: {
+      /** @description Source files. At least one file required. */
+      files: components['schemas']['SubmissionFileDto'][];
+      /**
+       * @description Programming language (e.g., "cpp", "java", "python").
+       * @example cpp
+       */
+      language: string;
+    };
+    /** @description Request body for creating a test case. */
+    CreateTestCaseRequest: {
+      /**
+       * @description Optional human-readable description (max 256 chars).
+       * @example Basic case
+       */
+      description?: string | null;
+      /**
+       * @description Expected output. May be empty for custom-checker problems.
+       * @example 0 1
+       */
+      expected_output: string;
+      /**
+       * @description Input data. May be empty for output-only or custom-checker problems.
+       * @example 4
+       *     2 7 11 15
+       *     9
+       */
+      input: string;
+      /**
+       * @description Whether this test case is visible to contestants.
+       * @example true
+       */
+      is_sample: boolean;
+      /**
+       * Format: int32
+       * @description Display position (0-based). Auto-assigned if omitted.
+       * @example 0
+       */
+      position?: number | null;
+      /**
+       * Format: int32
+       * @description Point value for this test case (0-10000).
+       * @example 10
+       */
+      score: number;
+    };
+    /** @description A single user to create and enroll. */
+    CreateUserEntry: {
+      /**
+       * @description Password for the new user (8-128 chars). Auto-generated if omitted.
+       * @example custom_pass123
+       */
+      password?: string | null;
+      /**
+       * @description Username for the new user (1-32 chars, alphanumeric + underscores).
+       * @example charlie
+       */
+      username: string;
+    };
+    /** @description Paginated list of DLQ messages. */
+    DlqListResponse: {
+      data: components['schemas']['DlqMessageResponse'][];
+      pagination: components['schemas']['Pagination'];
+    };
+    /** @description Full DLQ message details. */
+    DlqMessageDetailResponse: {
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:05:00Z
+       */
+      created_at: string;
+      /** @example MAX_RETRIES_EXCEEDED */
+      error_code: string;
+      /** @example Database connection timeout */
+      error_message: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:00:00Z
+       */
+      first_failed_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example job-abc123 */
+      message_id: string;
+      /** @example judge_job */
+      message_type: string;
+      /** @description Full message payload for replay. */
+      payload: unknown;
+      /** @example false */
+      resolved: boolean;
+      /** Format: date-time */
+      resolved_at?: string | null;
+      /**
+       * Format: int32
+       * @description User ID who resolved this message (null for automatic resolution).
+       */
+      resolved_by?: number | null;
+      /**
+       * Format: int32
+       * @example 3
+       */
+      retry_count: number;
+      /** @description Retry history: array of {attempt, error, timestamp}. */
+      retry_history: unknown;
+      /**
+       * Format: int32
+       * @description Submission ID (null if unknown, e.g., deserialization failure).
+       * @example 42
+       */
+      submission_id?: number | null;
+    };
+    /** @description DLQ message summary for list views. */
+    DlqMessageResponse: {
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:05:00Z
+       */
+      created_at: string;
+      /** @example MAX_RETRIES_EXCEEDED */
+      error_code: string;
+      /** @example Database connection timeout */
+      error_message: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:00:00Z
+       */
+      first_failed_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example job-abc123 */
+      message_id: string;
+      /** @example judge_job */
+      message_type: string;
+      /** @example false */
+      resolved: boolean;
+      /** Format: date-time */
+      resolved_at?: string | null;
+      /**
+       * Format: int32
+       * @description User ID who resolved this message (null for automatic resolution).
+       */
+      resolved_by?: number | null;
+      /**
+       * Format: int32
+       * @example 3
+       */
+      retry_count: number;
+      /**
+       * Format: int32
+       * @description Submission ID (null if unknown, e.g., deserialization failure).
+       * @example 42
+       */
+      submission_id?: number | null;
+    };
+    /** @description Response for retry action. */
+    DlqRetryResponse: {
+      /**
+       * @description Status message.
+       * @example Message requeued for processing
+       */
+      message: string;
+    };
+    /** @description DLQ statistics. */
+    DlqStatsResponse: {
+      /**
+       * Format: int64
+       * @description Total resolved messages.
+       * @example 42
+       */
+      total_resolved: number;
+      /**
+       * Format: int64
+       * @description Total unresolved (active) messages.
+       * @example 5
+       */
+      total_unresolved: number;
+      /** @description Unresolved count by error code. */
+      unresolved_by_error_code: {
+        [key: string]: number;
+      };
+      /** @description Unresolved count by message type. */
+      unresolved_by_message_type: components['schemas']['MessageTypeCounts'];
+    };
+    /** @description Structured error response returned by all endpoints on failure. */
+    ErrorBody: {
+      /**
+       * @description Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
+       *     `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
+       *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
+       *     `INTERNAL_ERROR`.
+       * @example VALIDATION_ERROR
+       */
+      code: string;
+      /**
+       * @description Human-readable error description.
+       * @example Title must be 1-256 characters
+       */
+      message: string;
+    };
+    /** @description Judge result for a submission. */
+    JudgeResultResponse: {
+      /** @description Compiler output (stdout/stderr). */
+      compile_output?: string | null;
+      /** @description System error message (only for SystemError status). */
+      error_message?: string | null;
+      /**
+       * Format: date-time
+       * @description When judging completed.
+       */
+      judged_at?: string | null;
+      /**
+       * Format: int32
+       * @description Maximum memory used in kilobytes.
+       * @example 1024
+       */
+      memory_used?: number | null;
+      /**
+       * Format: int32
+       * @description Total score across all test cases.
+       * @example 100
+       */
+      score?: number | null;
+      /** @description Individual test case results. */
+      test_case_results: components['schemas']['TestCaseResultResponse'][];
+      /**
+       * Format: int32
+       * @description Maximum time used in milliseconds.
+       * @example 50
+       */
+      time_used?: number | null;
+      verdict?: null | components['schemas']['Verdict'];
+    };
+    /** @description Request body for user login. */
+    LoginRequest: {
+      /**
+       * @description Account password.
+       * @example s3cure_P@ss!
+       */
+      password: string;
+      /**
+       * @description Username of the account to log into.
+       * @example alice_wonder
+       */
+      username: string;
+    };
+    /** @description Successful login response. */
+    LoginResponse: {
+      /**
+       * Format: int32
+       * @description ID of the authenticated user.
+       * @example 42
+       */
+      id: number;
+      /**
+       * @description Permissions granted to the user.
+       * @example [
+       *       "submission:submit"
+       *     ]
+       */
+      permissions: string[];
+      /**
+       * @description User's role.
+       * @example contestant
+       */
+      role: string;
+      /**
+       * @description JWT bearer token valid for 7 days.
+       * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+       */
+      token: string;
+      /**
+       * @description Authenticated user's username.
+       * @example alice_wonder
+       */
+      username: string;
+    };
+    /** @description Current authenticated user's profile. */
+    MeResponse: {
+      /**
+       * Format: int32
+       * @description User ID.
+       * @example 42
+       */
+      id: number;
+      /**
+       * @description Permissions.
+       * @example [
+       *       "submission:submit"
+       *     ]
+       */
+      permissions: string[];
+      /**
+       * @description Role.
+       * @example contestant
+       */
+      role: string;
+      /**
+       * @description Username.
+       * @example alice_wonder
+       */
+      username: string;
+    };
+    /** @description Unresolved message counts by message type. */
+    MessageTypeCounts: {
+      /**
+       * Format: int64
+       * @description Number of unresolved judge_job messages.
+       * @example 3
+       */
+      judge_job: number;
+      /**
+       * Format: int64
+       * @description Number of unresolved judge_result messages.
+       * @example 2
+       */
+      judge_result: number;
+    };
+    /** @description Pagination metadata included in list responses. */
+    Pagination: {
+      /**
+       * Format: int64
+       * @description Current page number (1-based).
+       * @example 1
+       */
+      page: number;
+      /**
+       * Format: int64
+       * @description Number of items per page.
+       * @example 20
+       */
+      per_page: number;
+      /**
+       * Format: int64
+       * @description Total number of matching items across all pages.
+       * @example 47
+       */
+      total: number;
+      /**
+       * Format: int64
+       * @description Total number of pages.
+       * @example 3
+       */
+      total_pages: number;
+    };
+    /** @description Detailed information about a plugin. */
+    PluginDetailResponse: {
+      /**
+       * @description Plugin description.
+       * @example This plugin does awesome things!
+       */
+      description?: string | null;
+      /**
+       * @description Indicates if the plugin has a server component.
+       * @example true
+       */
+      has_server: boolean;
+      /**
+       * @description Indicates if the plugin has a web (frontend) component.
+       * @example true
+       */
+      has_web: boolean;
+      /**
+       * @description Indicates if the plugin has a worker component.
+       * @example false
+       */
+      has_worker: boolean;
+      /**
+       * @description Unique identifier for the plugin.
+       * @example plugin-123
+       */
+      id: string;
+      /**
+       * @description Plugin name.
+       * @example An Awesome Plugin
+       */
+      name: string;
+      /** @description Plugin status. */
+      status: components['schemas']['PluginStatusResponse'];
+      /**
+       * @description Plugin version.
+       * @example 1.0.0
+       */
+      version: string;
+    };
+    /**
+     * @description Plugin status for API responses, abstracting away error details.
+     * @enum {string}
+     */
+    PluginStatusResponse: 'Discovered' | 'Loaded' | 'Failed';
+    /** @description Problem summary for list views (content omitted). */
+    ProblemListItem: {
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:00:00Z
+       */
+      created_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /**
+       * Format: int32
+       * @example 262144
+       */
+      memory_limit: number;
+      /**
+       * @description Whether contestants see full input/output for all test cases.
+       * @example false
+       */
+      show_test_details: boolean;
+      /**
+       * Format: int32
+       * @example 1000
+       */
+      time_limit: number;
+      /** @example Two Sum */
+      title: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:30:00Z
+       */
+      updated_at: string;
+    };
+    /** @description Paginated list of problems. */
+    ProblemListResponse: {
+      data: components['schemas']['ProblemListItem'][];
+      pagination: components['schemas']['Pagination'];
+    };
+    /** @description Full problem details. */
+    ProblemResponse: {
+      /** @example Given an array of integers... */
+      content: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:00:00Z
+       */
+      created_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /**
+       * Format: int32
+       * @example 262144
+       */
+      memory_limit: number;
+      /**
+       * @description Whether contestants see full input/output for all test cases.
+       * @example false
+       */
+      show_test_details: boolean;
+      /**
+       * Format: int32
+       * @example 1000
+       */
+      time_limit: number;
+      /** @example Two Sum */
+      title: string;
+      /**
+       * Format: date-time
+       * @example 2025-09-01T08:30:00Z
+       */
+      updated_at: string;
+    };
+    /** @description Request body for user registration. */
+    RegisterRequest: {
+      /**
+       * @description Password (8-128 characters).
+       * @example s3cure_P@ss!
+       */
+      password: string;
+      /**
+       * @description Unique username (1-32 chars, alphanumeric and underscores).
+       * @example alice_wonder
+       */
+      username: string;
+    };
+    /** @description Successful registration response. */
+    RegisterResponse: {
+      /**
+       * Format: int32
+       * @description ID of the newly created user.
+       * @example 42
+       */
+      id: number;
+      /**
+       * @description Username of the newly created user.
+       * @example alice_wonder
+       */
+      username: string;
+    };
+    /** @description Request body for reordering problems in a contest. */
+    ReorderContestProblemsRequest: {
+      /**
+       * @description Ordered list of problem_ids. Positions assigned 0, 1, 2... by array index.
+       *     Must contain exactly the problem_ids currently in the contest.
+       * @example [
+       *       3,
+       *       1,
+       *       2
+       *     ]
+       */
+      problem_ids: number[];
+    };
+    /** @description Request body for reordering test cases. */
+    ReorderTestCasesRequest: {
+      /**
+       * @description Ordered list of test_case_ids. Positions assigned 0, 1, 2, ... by array index.
+       * @example [
+       *       3,
+       *       1,
+       *       2
+       *     ]
+       */
+      test_case_ids: number[];
+    };
+    /** @description A single file in a submission. */
+    SubmissionFileDto: {
+      /**
+       * @description Source code content.
+       * @example #include <iostream>
+       *     int main() { return 0; }
+       */
+      content: string;
+      /**
+       * @description Filename (e.g., "Main.java", "solution.cpp"). No path separators allowed.
+       * @example solution.cpp
+       */
+      filename: string;
+    };
+    /** @description Submission summary for list views (files omitted). */
+    SubmissionListItem: {
+      /**
+       * Format: int32
+       * @description Contest ID if this is a contest submission, null otherwise.
+       */
+      contest_id?: number | null;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:30:00Z
+       */
+      created_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example cpp */
+      language: string;
+      /**
+       * Format: int32
+       * @description Total memory used in KB if judged, null otherwise.
+       * @example 1024
+       */
+      memory_used?: number | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      problem_id: number;
+      /** @example Two Sum */
+      problem_title: string;
+      /**
+       * Format: int32
+       * @description Total score if judged, null otherwise.
+       * @example 100
+       */
+      score?: number | null;
+      status: components['schemas']['SubmissionStatus'];
+      /**
+       * Format: int32
+       * @description Total time used in ms if judged, null otherwise.
+       * @example 50
+       */
+      time_used?: number | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      user_id: number;
+      /** @example alice */
+      username: string;
+      verdict?: null | components['schemas']['Verdict'];
+    };
+    /** @description Paginated list of submissions. */
+    SubmissionListResponse: {
+      data: components['schemas']['SubmissionListItem'][];
+      pagination: components['schemas']['Pagination'];
+    };
+    /** @description Full submission details. */
+    SubmissionResponse: {
+      /**
+       * Format: int32
+       * @description Contest ID if this is a contest submission, null otherwise.
+       * @example 1
+       */
+      contest_id?: number | null;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:30:00Z
+       */
+      created_at: string;
+      files: components['schemas']['SubmissionFileDto'][];
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example cpp */
+      language: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      problem_id: number;
+      /** @example Two Sum */
+      problem_title: string;
+      result?: null | components['schemas']['JudgeResultResponse'];
+      status: components['schemas']['SubmissionStatus'];
+      /**
+       * Format: int32
+       * @example 1
+       */
+      user_id: number;
+      /** @example alice */
+      username: string;
+    };
+    /**
+     * @description Status of a submission during the judging lifecycle.
+     * @enum {string}
+     */
+    SubmissionStatus:
+      | 'Pending'
+      | 'Compiling'
+      | 'Running'
+      | 'Judged'
+      | 'CompilationError'
+      | 'SystemError';
+    /** @description Test case summary (input/output truncated to 100-char previews). */
+    TestCaseListItem: {
+      /**
+       * Format: date-time
+       * @example 2025-09-01T09:00:00Z
+       */
+      created_at: string;
+      /** @example Basic case */
+      description?: string | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /**
+       * @example 4
+       *     2 7 11 15
+       *     9
+       */
+      input_preview: string;
+      /** @example true */
+      is_sample: boolean;
+      /** @example 0 1 */
+      output_preview: string;
+      /**
+       * Format: int32
+       * @example 0
+       */
+      position: number;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      problem_id: number;
+      /**
+       * Format: int32
+       * @example 10
+       */
+      score: number;
+    };
+    /** @description Full test case details. */
+    TestCaseResponse: {
+      /**
+       * Format: date-time
+       * @example 2025-09-01T09:00:00Z
+       */
+      created_at: string;
+      /** @example Basic case */
+      description?: string | null;
+      /** @example 0 1 */
+      expected_output: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /**
+       * @example 4
+       *     2 7 11 15
+       *     9
+       */
+      input: string;
+      /** @example true */
+      is_sample: boolean;
+      /**
+       * Format: int32
+       * @example 0
+       */
+      position: number;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      problem_id: number;
+      /**
+       * Format: int32
+       * @example 10
+       */
+      score: number;
+    };
+    /** @description Result for a single test case. */
+    TestCaseResultResponse: {
+      /** @description Custom checker feedback. */
+      checker_output?: string | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /**
+       * Format: int32
+       * @description Memory used in kilobytes.
+       * @example 256
+       */
+      memory_used?: number | null;
+      /**
+       * Format: int32
+       * @example 10
+       */
+      score: number;
+      /** @description Program stderr. */
+      stderr?: string | null;
+      /** @description Program stdout. */
+      stdout?: string | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      test_case_id: number;
+      /**
+       * Format: int32
+       * @description Time used in milliseconds.
+       * @example 5
+       */
+      time_used?: number | null;
+      verdict: components['schemas']['Verdict'];
+    };
+    /** @description PATCH body for updating a contest problem's label or position. */
+    UpdateContestProblemRequest: {
+      /**
+       * @description Short label for the problem within the contest (1-10 chars, must be unique).
+       * @example B
+       */
+      label?: string | null;
+      /**
+       * Format: int32
+       * @description Display position (0-based).
+       * @example 1
+       */
+      position?: number | null;
+    };
+    /** @description PATCH body for updating a contest. Only provided fields are modified. */
+    UpdateContestRequest: {
+      /**
+       * @description Contest description (non-empty, max 1 MB).
+       * @example Updated description...
+       */
+      description?: string | null;
+      /**
+       * Format: date-time
+       * @description Contest end time (must be after start_time).
+       * @example 2025-10-01T18:00:00Z
+       */
+      end_time?: string | null;
+      /**
+       * @description Whether the contest is visible to all users.
+       * @example false
+       */
+      is_public?: boolean | null;
+      /**
+       * @description Whether participants can see compile output during contest.
+       * @example true
+       */
+      show_compile_output?: boolean | null;
+      /**
+       * @description Whether participants list is visible.
+       * @example true
+       */
+      show_participants_list?: boolean | null;
+      /**
+       * Format: date-time
+       * @description Contest start time (must be before end_time).
+       * @example 2025-10-01T13:00:00Z
+       */
+      start_time?: string | null;
+      /**
+       * @description Whether participants can see each other's submissions.
+       * @example true
+       */
+      submissions_visible?: boolean | null;
+      /**
+       * @description Contest title (trimmed, 1-256 chars).
+       * @example Weekly Contest #42 (Extended)
+       */
+      title?: string | null;
+    };
+    /** @description PATCH body for updating a problem. Only provided fields are modified. */
+    UpdateProblemRequest: {
+      /**
+       * @description Problem statement in Markdown (non-empty, max 1 MB).
+       * @example Updated problem statement...
+       */
+      content?: string | null;
+      /**
+       * Format: int32
+       * @description Memory limit in kilobytes (1-1048576).
+       * @example 524288
+       */
+      memory_limit?: number | null;
+      /**
+       * @description Whether contestants see full input/output for all test cases.
+       * @example true
+       */
+      show_test_details?: boolean | null;
+      /**
+       * Format: int32
+       * @description Execution time limit in milliseconds (1-30000).
+       * @example 2000
+       */
+      time_limit?: number | null;
+      /**
+       * @description Problem title (trimmed, 1-256 chars).
+       * @example Two Sum (Easy)
+       */
+      title?: string | null;
+    };
+    /** @description PATCH body for updating a test case. Only provided fields are modified. */
+    UpdateTestCaseRequest: {
+      /**
+       * @description Set to a string value to update, set to `null` to clear, or omit to leave unchanged.
+       * @example Updated edge case
+       */
+      description?: string | null;
+      /**
+       * @description Expected output. May be empty for custom-checker problems.
+       * @example 1 2
+       */
+      expected_output?: string | null;
+      /**
+       * @description Input data. May be empty for output-only or custom-checker problems.
+       * @example 5
+       *     1 2 3 4 5
+       *     3
+       */
+      input?: string | null;
+      /**
+       * @description Whether this test case is visible to contestants.
+       * @example false
+       */
+      is_sample?: boolean | null;
+      /**
+       * Format: int32
+       * @description Display position (0-based).
+       * @example 1
+       */
+      position?: number | null;
+      /**
+       * Format: int32
+       * @description Point value for this test case (0-10000).
+       * @example 20
+       */
+      score?: number | null;
+    };
+    /** @description Response from ZIP upload. */
+    UploadTestCasesResponse: {
+      /**
+       * @description Number of test cases created.
+       * @example 5
+       */
+      created: number;
+      test_cases: components['schemas']['TestCaseListItem'][];
+    };
+    /**
+     * @description Execution verdict for a test case or submission.
+     * @enum {string}
+     */
+    Verdict:
+      | 'Accepted'
+      | 'WrongAnswer'
+      | 'TimeLimitExceeded'
+      | 'MemoryLimitExceeded'
+      | 'RuntimeError'
+      | 'SystemError';
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    listAllPlugins: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of plugins retrieved successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PluginDetailResponse"][];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  listAllPlugins: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    getPluginDetails: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Plugin ID */
-                id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description List of plugins retrieved successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Plugin details retrieved successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PluginDetailResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['PluginDetailResponse'][];
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    disablePlugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Plugin ID */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Plugin disabled successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin already disabled (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  getPluginDetails: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+      };
+      cookie?: never;
     };
-    enablePlugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Plugin ID */
-                id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Plugin details retrieved successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Plugin enabled successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin already enabled (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['PluginDetailResponse'];
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    loginUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Login successful */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LoginResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Invalid credentials (INVALID_CREDENTIALS) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  disablePlugin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+      };
+      cookie?: never;
     };
-    getCurrentUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Plugin disabled successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Current user info */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MeResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': unknown;
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin already disabled (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    registerUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description User registered */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegisterResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Username taken (USERNAME_TAKEN) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  enablePlugin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+      };
+      cookie?: never;
     };
-    listContests: {
-        parameters: {
-            query?: {
-                /** @example 1 */
-                page?: number;
-                /** @example 20 */
-                per_page?: number;
-                /** @example weekly */
-                search?: string;
-                /**
-                 * @description Sort field: `created_at` (default), `updated_at`, `start_time`, or `title`.
-                 * @example start_time
-                 */
-                sort_by?: string;
-                /**
-                 * @description Sort direction: `asc` or `desc` (default).
-                 * @example asc
-                 */
-                sort_order?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Plugin enabled successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description List of contests */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestListResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': unknown;
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin already enabled (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    createContest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateContestRequest"];
-            };
-        };
-        responses: {
-            /** @description Contest created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  loginUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    getContest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Contest details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoginRequest'];
+      };
     };
-    deleteContest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Login successful */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Contest deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['LoginResponse'];
         };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Invalid credentials (INVALID_CREDENTIALS) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    updateContest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateContestRequest"];
-            };
-        };
-        responses: {
-            /** @description Contest updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  getCurrentUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    listParticipants: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Current user info */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description List of participants */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestParticipantResponse"][];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden when show_participants_list is false (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['MeResponse'];
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    addParticipant: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddParticipantRequest"];
-            };
-        };
-        responses: {
-            /** @description Participant added */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestParticipantResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest or user not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description User already a participant (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  registerUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    bulkAddParticipants: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkAddParticipantsRequest"];
-            };
-        };
-        responses: {
-            /** @description Participants added */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BulkAddParticipantsResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RegisterRequest'];
+      };
     };
-    removeParticipant: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-                /** @description User ID */
-                user_id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description User registered */
+      201: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Participant removed */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Participant not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['RegisterResponse'];
         };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Username taken (USERNAME_TAKEN) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    listContestProblems: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of contest problems */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestProblemResponse"][];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  listContests: {
+    parameters: {
+      query?: {
+        /** @example 1 */
+        page?: number;
+        /** @example 20 */
+        per_page?: number;
+        /** @example weekly */
+        search?: string;
+        /**
+         * @description Sort field: `created_at` (default), `updated_at`, `start_time`, or `title`.
+         * @example start_time
+         */
+        sort_by?: string;
+        /**
+         * @description Sort direction: `asc` or `desc` (default).
+         * @example asc
+         */
+        sort_order?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    addContestProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description List of contests */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddContestProblemRequest"];
-            };
+        content: {
+          'application/json': components['schemas']['ContestListResponse'];
         };
-        responses: {
-            /** @description Problem added to contest */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestProblemResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest or problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem already in contest (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    bulkDeleteContestProblems: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkDeleteContestProblemsRequest"];
-            };
-        };
-        responses: {
-            /** @description Problems removed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BulkDeleteContestProblemsResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found or problem IDs not in contest (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  createContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    reorderContestProblems: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReorderContestProblemsRequest"];
-            };
-        };
-        responses: {
-            /** @description Contest problems reordered */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateContestRequest'];
+      };
     };
-    removeContestProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-                /** @description Problem ID */
-                problem_id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Contest created */
+      201: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Problem removed from contest */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['ContestResponse'];
         };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    updateContestProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-                /** @description Problem ID */
-                problem_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateContestProblemRequest"];
-            };
-        };
-        responses: {
-            /** @description Contest problem updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestProblemResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Duplicate label in contest (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  getContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    createContestSubmission: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                contest_id: number;
-                /** @description Problem ID */
-                problem_id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Contest details */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateSubmissionRequest"];
-            };
+        content: {
+          'application/json': components['schemas']['ContestResponse'];
         };
-        responses: {
-            /** @description Submission created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest or problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Rate limit exceeded (RATE_LIMITED) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    registerForContest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Registered for contest */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Contest has ended (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Already registered (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  deleteContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    unregisterFromContest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Contest deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Unregistered from contest */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Not registered or contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    listContestSubmissions: {
-        parameters: {
-            query?: {
-                /** @example 1 */
-                page?: number;
-                /** @example 20 */
-                per_page?: number;
-                /**
-                 * @description Filter by problem ID.
-                 * @example 1
-                 */
-                problem_id?: number;
-                /**
-                 * @description Filter by user ID.
-                 * @example 1
-                 */
-                user_id?: number;
-                /**
-                 * @description Filter by language.
-                 * @example cpp
-                 */
-                language?: string;
-                /** @description Filter by status. */
-                status?: components["schemas"]["SubmissionStatus"];
-                /**
-                 * @description Sort field: `created_at` (default), `status`.
-                 * @example created_at
-                 */
-                sort_by?: string;
-                /**
-                 * @description Sort direction: `asc` or `desc` (default).
-                 * @example desc
-                 */
-                sort_order?: string;
-            };
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of submissions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionListResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  updateContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    listDlqMessages: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Filter by message type.
-                 * @example judge_job
-                 */
-                message_type?: string;
-                /**
-                 * @description Filter by resolved status.
-                 * @example false
-                 */
-                resolved?: boolean;
-                /**
-                 * @description Page number (1-indexed).
-                 * @example 1
-                 */
-                page?: number;
-                /**
-                 * @description Items per page (1-100, default 20).
-                 * @example 20
-                 */
-                per_page?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of DLQ messages */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DlqListResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateContestRequest'];
+      };
     };
-    bulkDeleteDlq: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Contest updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkDeleteDlqRequest"];
-            };
+        content: {
+          'application/json': components['schemas']['ContestResponse'];
         };
-        responses: {
-            /** @description Messages resolved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BulkDeleteDlqResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    bulkRetryDlq: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkRetryDlqRequest"];
-            };
-        };
-        responses: {
-            /** @description Bulk retry result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BulkRetryDlqResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description MQ unavailable (INTERNAL_ERROR) */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  listParticipants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    getDlqStats: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description List of participants */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description DLQ statistics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DlqStatsResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['ContestParticipantResponse'][];
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden when show_participants_list is false (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    getDlqMessage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description DLQ message ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description DLQ message details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DlqMessageDetailResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Message not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  addParticipant: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    deleteDlqMessage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description DLQ message ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Message resolved */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Message not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AddParticipantRequest'];
+      };
     };
-    retryDlqMessage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description DLQ message ID */
-                id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Participant added */
+      201: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Message requeued */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DlqRetryResponse"];
-                };
-            };
-            /** @description Cannot retry judge_result messages (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Message not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Message already resolved (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['ContestParticipantResponse'];
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or user not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description User already a participant (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    listActivePlugins: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of active plugins */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActivePluginResponse"][];
-                };
-            };
-        };
+  };
+  bulkAddParticipants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    callPluginFunction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Plugin ID */
-                id: string;
-                /** @description Function name to call */
-                func: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": unknown;
-            };
-        };
-        responses: {
-            /** @description Plugin function result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Plugin not ready (PLUGIN_NOT_READY) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkAddParticipantsRequest'];
+      };
     };
-    listProblems: {
-        parameters: {
-            query?: {
-                /** @example 1 */
-                page?: number;
-                /** @example 20 */
-                per_page?: number;
-                /** @example sum */
-                search?: string;
-                /**
-                 * @description Sort field: `created_at` (default), `updated_at`, or `title`.
-                 * @example created_at
-                 */
-                sort_by?: string;
-                /**
-                 * @description Sort direction: `asc` or `desc` (default).
-                 * @example desc
-                 */
-                sort_order?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Participants added */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description List of problems */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemListResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['BulkAddParticipantsResponse'];
         };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    createProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateProblemRequest"];
-            };
-        };
-        responses: {
-            /** @description Problem created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  removeParticipant: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description User ID */
+        user_id: number;
+      };
+      cookie?: never;
     };
-    getProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Participant removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Problem details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Participant not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    deleteProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Problem deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Cannot delete: has submissions or contest associations (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  listContestProblems: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    updateProblem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description List of contest problems */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateProblemRequest"];
-            };
+        content: {
+          'application/json': components['schemas']['ContestProblemResponse'][];
         };
-        responses: {
-            /** @description Problem updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    createSubmission: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateSubmissionRequest"];
-            };
-        };
-        responses: {
-            /** @description Submission created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Rate limit exceeded (RATE_LIMITED) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  addContestProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    listTestCases: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of test cases */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestCaseListItem"][];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AddContestProblemRequest'];
+      };
     };
-    createTestCase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Problem added to contest */
+      201: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateTestCaseRequest"];
-            };
+        content: {
+          'application/json': components['schemas']['ContestProblemResponse'];
         };
-        responses: {
-            /** @description Test case created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestCaseResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem already in contest (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    bulkDeleteTestCases: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkDeleteTestCasesRequest"];
-            };
-        };
-        responses: {
-            /** @description Test cases deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BulkDeleteTestCasesResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found or test case IDs not in problem (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Some test cases have judge results (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  bulkDeleteContestProblems: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    reorderTestCases: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReorderTestCasesRequest"];
-            };
-        };
-        responses: {
-            /** @description Test cases reordered */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkDeleteContestProblemsRequest'];
+      };
     };
-    uploadTestCases: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Problems removed */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        /** @description ZIP file containing test cases (.in/.ans or .in/.out pairs) */
-        requestBody?: {
-            content: {
-                "multipart/form-data": unknown;
-            };
+        content: {
+          'application/json': components['schemas']['BulkDeleteContestProblemsResponse'];
         };
-        responses: {
-            /** @description Test cases uploaded */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadTestCasesResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Problem not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found or problem IDs not in contest (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    getTestCase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-                /** @description Test case ID */
-                tc_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Test case details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestCaseResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Test case not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  reorderContestProblems: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
     };
-    deleteTestCase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-                /** @description Test case ID */
-                tc_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Test case deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Test case not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Cannot delete: has judge results (CONFLICT) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReorderContestProblemsRequest'];
+      };
     };
-    updateTestCase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Problem ID */
-                id: number;
-                /** @description Test case ID */
-                tc_id: number;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Contest problems reordered */
+      204: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateTestCaseRequest"];
-            };
+        content?: never;
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
         };
-        responses: {
-            /** @description Test case updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestCaseResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Test case not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
         };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    listSubmissions: {
-        parameters: {
-            query?: {
-                /** @example 1 */
-                page?: number;
-                /** @example 20 */
-                per_page?: number;
-                /**
-                 * @description Filter by problem ID.
-                 * @example 1
-                 */
-                problem_id?: number;
-                /**
-                 * @description Filter by user ID.
-                 * @example 1
-                 */
-                user_id?: number;
-                /**
-                 * @description Filter by language.
-                 * @example cpp
-                 */
-                language?: string;
-                /** @description Filter by status. */
-                status?: components["schemas"]["SubmissionStatus"];
-                /**
-                 * @description Sort field: `created_at` (default), `status`.
-                 * @example created_at
-                 */
-                sort_by?: string;
-                /**
-                 * @description Sort direction: `asc` or `desc` (default).
-                 * @example desc
-                 */
-                sort_order?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of submissions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionListResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  removeContestProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
     };
-    bulkRejudgeSubmissions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Problem removed from contest */
+      204: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkRejudgeRequest"];
-            };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
         };
-        responses: {
-            /** @description Submissions re-queued */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BulkRejudgeResponse"];
-                };
-            };
-            /** @description Validation error (VALIDATION_ERROR) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
         };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
-    getSubmission: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Submission ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Submission details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Submission not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+  };
+  updateContestProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
     };
-    rejudgeSubmission: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Submission ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Submission re-queued */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmissionResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Forbidden (PERMISSION_DENIED) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Submission not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateContestProblemRequest'];
+      };
     };
+    responses: {
+      /** @description Contest problem updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ContestProblemResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Duplicate label in contest (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  createContestSubmission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        contest_id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateSubmissionRequest'];
+      };
+    };
+    responses: {
+      /** @description Submission created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limit exceeded (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  registerForContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Registered for contest */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Contest has ended (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Already registered (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  unregisterFromContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Unregistered from contest */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Not registered or contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listContestSubmissions: {
+    parameters: {
+      query?: {
+        /** @example 1 */
+        page?: number;
+        /** @example 20 */
+        per_page?: number;
+        /**
+         * @description Filter by problem ID.
+         * @example 1
+         */
+        problem_id?: number;
+        /**
+         * @description Filter by user ID.
+         * @example 1
+         */
+        user_id?: number;
+        /**
+         * @description Filter by language.
+         * @example cpp
+         */
+        language?: string;
+        /** @description Filter by status. */
+        status?: components['schemas']['SubmissionStatus'];
+        /**
+         * @description Sort field: `created_at` (default), `status`.
+         * @example created_at
+         */
+        sort_by?: string;
+        /**
+         * @description Sort direction: `asc` or `desc` (default).
+         * @example desc
+         */
+        sort_order?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of submissions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionListResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listDlqMessages: {
+    parameters: {
+      query?: {
+        /**
+         * @description Filter by message type.
+         * @example judge_job
+         */
+        message_type?: string;
+        /**
+         * @description Filter by resolved status.
+         * @example false
+         */
+        resolved?: boolean;
+        /**
+         * @description Page number (1-indexed).
+         * @example 1
+         */
+        page?: number;
+        /**
+         * @description Items per page (1-100, default 20).
+         * @example 20
+         */
+        per_page?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of DLQ messages */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DlqListResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  bulkDeleteDlq: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkDeleteDlqRequest'];
+      };
+    };
+    responses: {
+      /** @description Messages resolved */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BulkDeleteDlqResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  bulkRetryDlq: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkRetryDlqRequest'];
+      };
+    };
+    responses: {
+      /** @description Bulk retry result */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BulkRetryDlqResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description MQ unavailable (INTERNAL_ERROR) */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getDlqStats: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description DLQ statistics */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DlqStatsResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getDlqMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description DLQ message ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description DLQ message details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DlqMessageDetailResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Message not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteDlqMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description DLQ message ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Message resolved */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Message not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  retryDlqMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description DLQ message ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Message requeued */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DlqRetryResponse'];
+        };
+      };
+      /** @description Cannot retry judge_result messages (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Message not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Message already resolved (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listActivePlugins: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of active plugins */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ActivePluginResponse'][];
+        };
+      };
+    };
+  };
+  callPluginFunction: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+        /** @description Function name to call */
+        func: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': unknown;
+      };
+    };
+    responses: {
+      /** @description Plugin function result */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Plugin not ready (PLUGIN_NOT_READY) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listProblems: {
+    parameters: {
+      query?: {
+        /** @example 1 */
+        page?: number;
+        /** @example 20 */
+        per_page?: number;
+        /** @example sum */
+        search?: string;
+        /**
+         * @description Sort field: `created_at` (default), `updated_at`, or `title`.
+         * @example created_at
+         */
+        sort_by?: string;
+        /**
+         * @description Sort direction: `asc` or `desc` (default).
+         * @example desc
+         */
+        sort_order?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of problems */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemListResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  createProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateProblemRequest'];
+      };
+    };
+    responses: {
+      /** @description Problem created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Problem details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Problem deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Cannot delete: has submissions or contest associations (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  updateProblem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateProblemRequest'];
+      };
+    };
+    responses: {
+      /** @description Problem updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  createSubmission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateSubmissionRequest'];
+      };
+    };
+    responses: {
+      /** @description Submission created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limit exceeded (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listTestCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of test cases */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TestCaseListItem'][];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  createTestCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateTestCaseRequest'];
+      };
+    };
+    responses: {
+      /** @description Test case created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TestCaseResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  bulkDeleteTestCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkDeleteTestCasesRequest'];
+      };
+    };
+    responses: {
+      /** @description Test cases deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BulkDeleteTestCasesResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found or test case IDs not in problem (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Some test cases have judge results (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  reorderTestCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReorderTestCasesRequest'];
+      };
+    };
+    responses: {
+      /** @description Test cases reordered */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  uploadTestCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /** @description ZIP file containing test cases (.in/.ans or .in/.out pairs) */
+    requestBody?: {
+      content: {
+        'multipart/form-data': unknown;
+      };
+    };
+    responses: {
+      /** @description Test cases uploaded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UploadTestCasesResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getTestCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Test case ID */
+        tc_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Test case details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TestCaseResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Test case not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteTestCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Test case ID */
+        tc_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Test case deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Test case not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Cannot delete: has judge results (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  updateTestCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Test case ID */
+        tc_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateTestCaseRequest'];
+      };
+    };
+    responses: {
+      /** @description Test case updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TestCaseResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Test case not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listSubmissions: {
+    parameters: {
+      query?: {
+        /** @example 1 */
+        page?: number;
+        /** @example 20 */
+        per_page?: number;
+        /**
+         * @description Filter by problem ID.
+         * @example 1
+         */
+        problem_id?: number;
+        /**
+         * @description Filter by user ID.
+         * @example 1
+         */
+        user_id?: number;
+        /**
+         * @description Filter by language.
+         * @example cpp
+         */
+        language?: string;
+        /** @description Filter by status. */
+        status?: components['schemas']['SubmissionStatus'];
+        /**
+         * @description Sort field: `created_at` (default), `status`.
+         * @example created_at
+         */
+        sort_by?: string;
+        /**
+         * @description Sort direction: `asc` or `desc` (default).
+         * @example desc
+         */
+        sort_order?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of submissions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionListResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  bulkRejudgeSubmissions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkRejudgeRequest'];
+      };
+    };
+    responses: {
+      /** @description Submissions re-queued */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BulkRejudgeResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getSubmission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Submission ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Submission details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Submission not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  rejudgeSubmission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Submission ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Submission re-queued */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Submission not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
 }

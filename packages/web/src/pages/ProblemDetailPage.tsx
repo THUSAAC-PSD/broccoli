@@ -18,7 +18,12 @@ type SubmissionStatus = {
   verdict?: string;
   testCases?: Array<{
     id: number;
-    status: 'accepted' | 'wrong_answer' | 'time_limit' | 'runtime_error' | 'pending';
+    status:
+      | 'accepted'
+      | 'wrong_answer'
+      | 'time_limit'
+      | 'runtime_error'
+      | 'pending';
     time?: number;
     memory?: number;
     message?: string;
@@ -40,7 +45,7 @@ export function ProblemDetailPage() {
 
   const [submissionResult, setSubmissionResult] =
     useState<SubmissionStatus | null>(null);
-  const [isProblemFullscreen, setIsProblemFullscreen] = useState(false);
+  const [isProblemFullscreen, _setIsProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
   const apiClient = useApiClient();
 
