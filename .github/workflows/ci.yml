@@ -40,6 +40,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
+      - name: Documentation
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

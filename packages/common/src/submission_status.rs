@@ -121,8 +121,9 @@ impl FromStr for SubmissionStatus {
 }
 
 /// Execution verdict for a test case or submission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-#[derive(Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema, Default,
+)]
 #[cfg_attr(
     feature = "sea-orm",
     derive(DeriveValueType),
