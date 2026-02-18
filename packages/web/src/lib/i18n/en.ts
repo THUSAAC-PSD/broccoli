@@ -217,6 +217,24 @@ export const en: Record<string, string> = {
   'admin.field.createdAt': 'Created',
   'admin.loading': 'Loading...',
 
+  // Dashboard
+  'dashboard.title': 'Dashboard',
+  'dashboard.welcome': 'Welcome to Broccoli OJ',
+  'dashboard.welcomeDescription':
+    'Sign in to track your submissions and participate in contests.',
+  'dashboard.contests': 'Contests',
+  'dashboard.problems': 'Recent Problems',
+  'dashboard.recentSubmissions': 'Recent Submissions',
+  'dashboard.recentSubmissionsDescription': 'Your latest submission activity.',
+  'dashboard.viewAll': 'View all',
+  'dashboard.noContests': 'No contests available.',
+  'dashboard.noProblems': 'No problems available.',
+  'dashboard.noSubmissions': 'No submissions yet. Start solving problems!',
+  'dashboard.problem': 'Problem',
+  'dashboard.language': 'Language',
+  'dashboard.verdict': 'Verdict',
+  'dashboard.submitted': 'Submitted',
+
   // Language switcher
   'locale.switch': 'Language',
 };

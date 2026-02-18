@@ -1,37 +1,16 @@
 import { useState } from 'react';
 
+import { useApiClient } from '@broccoli/sdk/api';
+import type { ProblemResponse } from '@broccoli/sdk';
+import { useTranslation } from '@broccoli/sdk/i18n';
+import { useQuery } from '@tanstack/react-query';
+
 import { CodeEditor } from '@/components/CodeEditor';
-import { ProblemDescription } from '@/components/ProblemDescription';
+import { Markdown } from '@/components/Markdown';
 import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
-
-const MOCK_PROBLEM = {
-  id: 'A',
-  title: 'A + B Problem',
-  type: 'Default',
-  io: 'Standard Input / Output',
-  timeLimit: '1s',
-  memoryLimit: '256 MB',
-  description:
-    'Given two integers $A$ and $B$, calculate their sum $S = A + B$.\n\nThis is a simple problem to help you get familiar with the online judge system.\n\n> **Hint:** This problem tests basic I/O operations.',
-  inputFormat:
-    'The first line contains two integers $A$ and $B$ $(1 \\leq A, B \\leq 10^9)$ separated by a space.',
-  outputFormat:
-    'Output a single integer $S$ representing the sum of $A$ and $B$.\n\nThe answer is guaranteed to fit in a **64-bit signed integer**.',
-  examples: [
-    {
-      input: '1 2',
-      output: '3',
-      explanation: '$1 + 2 = 3$',
-    },
-    {
-      input: '100 200',
-      output: '300',
-    },
-  ],
-  notes:
-    'Be careful with **integer overflow**. Since $A, B \\leq 10^9$, their sum can be up to $2 \\times 10^9$, which exceeds the range of a 32-bit integer.\n\nUse `long long` in C++ or `int64` in Go:\n\n```cpp\nlong long a, b;\ncin >> a >> b;\ncout << a + b << endl;\n```',
-};
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type SubmissionStatus = {
   status: 'judging' | 'completed';
@@ -52,11 +31,40 @@ type SubmissionStatus = {
   totalMemory?: number;
 };
 
-export function ProblemPage() {
+function formatMemoryLimit(kb: number) {
+  if (!Number.isFinite(kb)) return '';
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+}
+
+interface ProblemPageProps {
+  problemId: number;
+}
+
+export function ProblemPage({ problemId }: ProblemPageProps) {
+  const { t } = useTranslation();
+  const apiClient = useApiClient();
+
   const [submissionResult, setSubmissionResult] =
     useState<SubmissionStatus | null>(null);
-  const [isProblemFullscreen, setIsProblemFullscreen] = useState(false);
+  const [isProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
+
+  const {
+    data: problem,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ['problem', problemId],
+    enabled: Number.isFinite(problemId),
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/problems/{id}', {
+        params: { path: { id: problemId } },
+      });
+      if (error) throw error;
+      return data as ProblemResponse;
+    },
+  });
 
   const handleSubmit = (code: string, language: string) => {
     console.log('Submitting code:', { code, language });
@@ -107,16 +115,20 @@ export function ProblemPage() {
     }, 1500);
   };
 
+  const headerId = problem ? String(problem.id) : '—';
+  const timeLimit = problem ? `${problem.time_limit} ms` : '—';
+  const memoryLimit = problem ? formatMemoryLimit(problem.memory_limit) : '—';
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 pb-0">
         <ProblemHeader
-          id={MOCK_PROBLEM.id}
-          title={MOCK_PROBLEM.title}
-          type={MOCK_PROBLEM.type}
-          io={MOCK_PROBLEM.io}
-          timeLimit={MOCK_PROBLEM.timeLimit}
-          memoryLimit={MOCK_PROBLEM.memoryLimit}
+          id={headerId}
+          title={problem?.title ?? t('problem.title')}
+          type="Default"
+          io="Standard Input / Output"
+          timeLimit={timeLimit}
+          memoryLimit={memoryLimit}
         />
       </div>
 
@@ -125,17 +137,28 @@ export function ProblemPage() {
           <div
             className={`flex flex-col gap-6 overflow-y-auto ${isProblemFullscreen ? 'col-span-2' : ''}`}
           >
-            <ProblemDescription
-              description={MOCK_PROBLEM.description}
-              inputFormat={MOCK_PROBLEM.inputFormat}
-              outputFormat={MOCK_PROBLEM.outputFormat}
-              examples={MOCK_PROBLEM.examples}
-              notes={MOCK_PROBLEM.notes}
-              isFullscreen={isProblemFullscreen}
-              onToggleFullscreen={() =>
-                setIsProblemFullscreen(!isProblemFullscreen)
-              }
-            />
+            <Card className="h-full overflow-y-auto">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                <CardTitle>{t('problem.description')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-5 w-64" />
+                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-24 w-full" />
+                  </div>
+                ) : error ? (
+                  <div className="text-sm text-destructive">
+                    {t('problem.loadError')}
+                  </div>
+                ) : problem ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <Markdown>{problem.content}</Markdown>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
           </div>
         )}
 

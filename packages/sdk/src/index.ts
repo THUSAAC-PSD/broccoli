@@ -24,3 +24,4 @@ export type ProblemResponse = components['schemas']['ProblemResponse'];
 
 export type Verdict = components['schemas']['Verdict'];
 export type SubmissionStatus = components['schemas']['SubmissionStatus'];
+export type SubmissionListItem = components['schemas']['SubmissionListItem'];
