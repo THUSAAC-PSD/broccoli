@@ -10,12 +10,22 @@
     "format": "NODE_OPTIONS=--experimental-strip-types pnpm prettier --write \"{.,packages/**}/*.{ts,tsx,css,scss,html,md}\"",
     "format:check": "NODE_OPTIONS=--experimental-strip-types pnpm prettier --check \"{.,packages/**}/*.{ts,tsx,css,scss,html,md}\"",
     "lint": "pnpm eslint .",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "prepare": "husky"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.29.1+sha512.48dae233635a645768a3028d19545cacc1688639eeb1f3734e42d6d6b971afbf22aa1ac9af52a173d9c3a20c15857cfa400f19994d79a2f626fcc73fccda9bbc",
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "NODE_OPTIONS=--experimental-strip-types prettier --write"
+    ],
+    "*.{css,scss,html,md}": [
+      "NODE_OPTIONS=--experimental-strip-types prettier --write"
+    ]
+  },
   "devDependencies": {
     "@eslint/js": "^9.38.0",
     "eslint": "^9.38.0",
@@ -28,6 +38,8 @@
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "eslint-plugin-tsdoc": "^0.4.0",
     "globals": "^16.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.6.2",
     "typescript-eslint": "^8.46.1"

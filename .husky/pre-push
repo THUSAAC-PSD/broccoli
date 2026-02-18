@@ -1,0 +1,2 @@
+echo "Running cargo clippy..."
+cargo clippy --workspace --all-targets --locked
