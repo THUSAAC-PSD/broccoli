@@ -215,6 +215,7 @@ export const en: Record<string, string> = {
   'admin.field.showTestDetails': 'Show Test Details',
   'admin.field.options': 'Options',
   'admin.field.createdAt': 'Created',
+  'admin.loading': 'Loading...',
 
   // Language switcher
   'locale.switch': 'Language',
