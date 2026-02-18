@@ -15,6 +15,7 @@ export interface PluginRegistryContextValue {
   // TODO: consider appending plugin name to route config,
   // e.g. RouteConfig & { pluginName: string }
   routes: RouteConfig[];
+  isLoading: boolean;
   loadPluginFromManifest: (
     manifest: PluginManifest,
     components: ComponentBundle,

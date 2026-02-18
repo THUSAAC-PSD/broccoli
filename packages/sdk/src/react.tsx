@@ -3,12 +3,56 @@
  * React-specific exports and hooks
  */
 
-import React, { type ReactNode } from 'react';
+import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import { usePluginRegistry } from '@/plugin/use-plugin-registry';
 import type { SlotConfig } from '@/types';
 
-// Slot Component
+export { usePluginRegistry };
+
+// ── Plugin Error Boundary ──
+
+interface PluginErrorBoundaryProps {
+  pluginName: string;
+  componentName: string;
+  children: ReactNode;
+}
+
+interface PluginErrorBoundaryState {
+  hasError: boolean;
+}
+
+class PluginErrorBoundary extends Component<
+  PluginErrorBoundaryProps,
+  PluginErrorBoundaryState
+> {
+  constructor(props: PluginErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): PluginErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error(
+      `[${this.props.pluginName}] component error in ${this.props.componentName}:`,
+      error,
+      errorInfo,
+    );
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return null;
+    }
+    return this.props.children;
+  }
+}
+
+// ── Slot Component ──
+
 interface SlotProps<TContext = unknown> {
   name: string;
   as?: React.ElementType;
@@ -34,7 +78,7 @@ export function Slot({
 }: SlotProps) {
   const { getSlots, components } = usePluginRegistry();
   const slots = getSlots(name, context);
-  const Component = as;
+  const Container = as;
 
   // Render slots based on their position
   const renderSlot = (slot: SlotConfig, index: number) => {
@@ -51,10 +95,13 @@ export function Slot({
     };
 
     return (
-      <SlotComponent
+      <PluginErrorBoundary
         key={`${slot.name}-${slot.component}-${index}`}
-        {...componentProps}
-      />
+        pluginName={slot._pluginName ?? 'unknown'}
+        componentName={slot.component}
+      >
+        <SlotComponent {...componentProps} />
+      </PluginErrorBoundary>
     );
   };
 
@@ -92,14 +139,21 @@ export function Slot({
         ...slot.props,
         children: content,
       };
-      content = <WrapperComponent {...wrapperProps} />;
+      content = (
+        <PluginErrorBoundary
+          pluginName={slot._pluginName ?? 'unknown'}
+          componentName={slot.component}
+        >
+          <WrapperComponent {...wrapperProps} />
+        </PluginErrorBoundary>
+      );
     }
   });
 
   return (
     <>
       {prependSlots.map(renderSlot)}
-      <Component className={className}>{content}</Component>
+      <Container className={className}>{content}</Container>
       {appendSlots.map(renderSlot)}
     </>
   );

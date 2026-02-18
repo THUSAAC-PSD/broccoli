@@ -30,9 +30,15 @@ export function PluginRegistryProvider({
   );
   const [components, setComponents] = useState<ComponentBundle>({});
   const [routes, setRoutes] = useState<RouteConfig[]>([]);
+  const [localLoaded, setLocalLoaded] = useState(false);
+  const [remoteLoaded, setRemoteLoaded] = useState(false);
+
+  const isLoading = !localLoaded || !remoteLoaded;
 
   const pluginsRef = useRef(plugins);
   pluginsRef.current = plugins;
+
+  const componentOwnersRef = useRef<Map<string, string>>(new Map());
 
   const { addTranslations, removeTranslations } = useTranslation();
   const apiClient = useApiClient();
@@ -60,7 +66,18 @@ export function PluginRegistryProvider({
         return next;
       });
 
-      // TODO: Namespace components by plugin name to avoid conflicts
+      // Check for component namespace collisions before merging
+      for (const key of Object.keys(pluginComponents)) {
+        const existingOwner = componentOwnersRef.current.get(key);
+        if (existingOwner && existingOwner !== manifest.name) {
+          console.warn(
+            `Component key '${key}' from plugin '${manifest.name}' ` +
+              `overwrites existing component from plugin '${existingOwner}'.`,
+          );
+        }
+        componentOwnersRef.current.set(key, manifest.name);
+      }
+
       setComponents((prev) => ({
         ...prev,
         ...pluginComponents,
@@ -86,8 +103,12 @@ export function PluginRegistryProvider({
 
   const loadPluginFromUrl = useCallback(
     async (url: string) => {
-      const pluginModule: PluginModule = await import(/* @vite-ignore */ url);
-      await loadPluginFromModule(pluginModule);
+      try {
+        const pluginModule: PluginModule = await import(/* @vite-ignore */ url);
+        await loadPluginFromModule(pluginModule);
+      } catch (error) {
+        console.error(`Failed to load plugin from ${url}:`, error);
+      }
     },
     [loadPluginFromModule],
   );
@@ -100,13 +121,18 @@ export function PluginRegistryProvider({
       return;
     }
 
-    await Promise.all(
+    const results = await Promise.allSettled(
       pluginList.map(async (pluginInfo) => {
         await loadPluginFromUrl(`${backendUrl}${pluginInfo.entry}`);
       }),
     );
 
-    console.log(`Loaded ${pluginList.length} plugins.`);
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn(
+        `${failed.length}/${pluginList.length} plugins failed to load.`,
+      );
+    }
   }, [apiClient, backendUrl, loadPluginFromUrl]);
 
   const unloadPlugin = useCallback(
@@ -136,6 +162,7 @@ export function PluginRegistryProvider({
           const next = { ...prev };
           Object.keys(manifest.components || {}).forEach((key) => {
             delete next[key];
+            componentOwnersRef.current.delete(key);
           });
           return next;
         });
@@ -166,15 +193,13 @@ export function PluginRegistryProvider({
         if (!plugins.has(pluginName)) return;
 
         if (plugin.slots) {
-          const matchingSlots = plugin.slots.filter((slot) => {
-            // Check slot name matches
-            if (slot.name !== slotName) return false;
-
-            // Check condition if provided
-            if (slot.condition && !slot.condition(context)) return false;
-
-            return true;
-          });
+          const matchingSlots = plugin.slots
+            .filter((slot) => {
+              if (slot.name !== slotName) return false;
+              if (slot.condition && !slot.condition(context)) return false;
+              return true;
+            })
+            .map((slot) => ({ ...slot, _pluginName: pluginName }));
           slots.push(...matchingSlots);
         }
       });
@@ -185,6 +210,7 @@ export function PluginRegistryProvider({
     [plugins],
   );
 
+  // Load local plugin modules on mount
   useEffect(() => {
     const loadInitialPlugins = async () => {
       await Promise.all(
@@ -192,6 +218,7 @@ export function PluginRegistryProvider({
           await loadPluginFromModule(module);
         }),
       );
+      setLocalLoaded(true);
     };
     loadInitialPlugins();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,7 +226,11 @@ export function PluginRegistryProvider({
 
   // Load active plugins from backend on mount
   useEffect(() => {
-    loadAllPlugins();
+    const load = async () => {
+      await loadAllPlugins();
+      setRemoteLoaded(true);
+    };
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -209,6 +240,7 @@ export function PluginRegistryProvider({
         plugins,
         components,
         routes,
+        isLoading,
         loadPluginFromManifest,
         loadPluginFromModule,
         loadPluginFromUrl,

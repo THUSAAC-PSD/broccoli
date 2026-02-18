@@ -1,6 +1,8 @@
 import { usePluginRegistry } from '@broccoli/sdk/react';
 import { matchPath, useLocation } from 'react-router';
+
 import { ErrorCatcher } from '@/components/ErrorCatcher';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /**
  * ExtensionPage
@@ -8,10 +10,18 @@ import { ErrorCatcher } from '@/components/ErrorCatcher';
  * It matches the current URL against registered plugin routes.
  */
 export default function ExtensionPage() {
-  const { routes, components } = usePluginRegistry();
+  const { routes, components, isLoading } = usePluginRegistry();
   const location = useLocation();
 
-  // TODO: Show a spinner or skeleton if plugins are still loading
+  // Show loading state while plugins are still being loaded
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6 p-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   // Find the first route that matches the current pathname
   // We use matchPath to support parameters like /contest/:id
@@ -23,7 +33,6 @@ export default function ExtensionPage() {
   );
 
   if (!matchedRoute) {
-    // TODO: Render a proper 404 Not Found component
     return <ErrorCatcher code="404" />;
   }
 
@@ -41,7 +50,6 @@ export default function ExtensionPage() {
     );
   }
 
-  // Render the plugin page
   // TODO: pass route metadata
   return <Component />;
 }
