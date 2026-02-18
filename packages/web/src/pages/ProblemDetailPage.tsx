@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useApiClient } from '@broccoli/sdk/api';
 import type { ProblemResponse } from '@broccoli/sdk';
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router';
 
@@ -135,6 +136,7 @@ export function ProblemDetailPage() {
           timeLimit={timeLimit}
           memoryLimit={memoryLimit}
         />
+        <Slot name="problem-detail.header" as="div" />
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">
@@ -184,6 +186,7 @@ export function ProblemDetailPage() {
               totalTime={submissionResult?.totalTime}
               totalMemory={submissionResult?.totalMemory}
             />
+            <Slot name="problem-detail.sidebar" as="div" />
           </div>
         )}
       </div>
