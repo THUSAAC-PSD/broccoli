@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '@/api/use-api-client';
 import { useTranslation } from '@/i18n';
@@ -31,12 +31,15 @@ export function PluginRegistryProvider({
   const [components, setComponents] = useState<ComponentBundle>({});
   const [routes, setRoutes] = useState<RouteConfig[]>([]);
 
+  const pluginsRef = useRef(plugins);
+  pluginsRef.current = plugins;
+
   const { addTranslations, removeTranslations } = useTranslation();
   const apiClient = useApiClient();
 
   const loadPluginFromManifest = useCallback(
     async (manifest: PluginManifest, pluginComponents: ComponentBundle) => {
-      if (plugins.has(manifest.name)) {
+      if (pluginsRef.current.has(manifest.name)) {
         console.warn(`Plugin '${manifest.name}' is already loaded`);
         return;
       }
@@ -71,7 +74,7 @@ export function PluginRegistryProvider({
         addTranslations(manifest.translations);
       }
     },
-    [plugins],
+    [addTranslations],
   );
 
   const loadPluginFromModule = useCallback(
@@ -93,7 +96,8 @@ export function PluginRegistryProvider({
     const { data: pluginList, error } = await apiClient.GET('/plugins/active');
 
     if (error) {
-      throw new Error(`Failed to fetch active plugins: ${error}`);
+      console.warn(`Failed to fetch active plugins:`, error);
+      return;
     }
 
     await Promise.all(
@@ -107,7 +111,7 @@ export function PluginRegistryProvider({
 
   const unloadPlugin = useCallback(
     async (pluginId: string) => {
-      const manifest = plugins.get(pluginId);
+      const manifest = pluginsRef.current.get(pluginId);
       if (!manifest) return;
 
       // Call onDestroy if provided
@@ -148,7 +152,7 @@ export function PluginRegistryProvider({
         removeTranslations(manifest.translations);
       }
     },
-    [plugins],
+    [removeTranslations],
   );
 
   const getSlots = useCallback(
@@ -190,12 +194,14 @@ export function PluginRegistryProvider({
       );
     };
     loadInitialPlugins();
-  }, [pluginModules, loadPluginFromModule]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load active plugins from backend on mount
   useEffect(() => {
     loadAllPlugins();
-  }, [loadAllPlugins]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <PluginRegistryContext

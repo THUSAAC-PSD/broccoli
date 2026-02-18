@@ -10,4 +10,18 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-router',
+      '@monaco-editor/react',
+      'monaco-editor',
+      'react-markdown',
+      'katex',
+      'rehype-katex',
+      'remark-gfm',
+      'remark-math',
+    ],
+  },
 });
