@@ -1,6 +1,7 @@
 import type { ProblemListItem, ContestProblemResponse } from '@broccoli/sdk';
 import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Code2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
@@ -151,6 +152,8 @@ export function ProblemsPage({ contestId }: { contestId?: number }) {
         <Code2 className="h-6 w-6 text-primary" />
         <h1 className="text-2xl font-bold">{title}</h1>
       </div>
+
+      <Slot name="problem-list.toolbar" as="div" />
 
       {contestId ? (
         <ContestProblemsTable contestId={contestId} />

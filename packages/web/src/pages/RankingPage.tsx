@@ -1,14 +1,11 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { Slot } from '@broccoli/sdk/react';
 import { Trophy } from 'lucide-react';
 
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 import type { components } from '@/lib/api/schema';
-import { RankChart } from '@/plugins/ranking-charts-plugin/components/RankChart';
-import type { ScoreSnapshot } from '@/plugins/ranking-charts-plugin/components/RankChart';
-import { ScoreDistribution } from '@/plugins/ranking-charts-plugin/components/ScoreDistribution';
-import type { DistributionEntry } from '@/plugins/ranking-charts-plugin/components/ScoreDistribution';
 
 // --- Types aligned with API schemas ---
 
@@ -394,7 +391,7 @@ async function fetchStandings(params: ServerTableParams) {
 // Chart data
 const TOP_USERS = ALL_STANDINGS.slice(0, 5).map((s) => s.username);
 
-const SCORE_OVER_TIME: ScoreSnapshot[] = [
+const SCORE_OVER_TIME = [
   { time: 0, alice: 0, bob: 0, charlie: 0, diana: 0, eve: 0 },
   { time: 10, alice: 1, bob: 1, charlie: 0, diana: 1, eve: 0 },
   { time: 30, alice: 2, bob: 1, charlie: 1, diana: 1, eve: 0 },
@@ -406,7 +403,7 @@ const SCORE_OVER_TIME: ScoreSnapshot[] = [
   { time: 180, alice: 5, bob: 4, charlie: 4, diana: 3, eve: 3 },
 ];
 
-const DISTRIBUTION: DistributionEntry[] = [
+const DISTRIBUTION = [
   { solved: '0', count: 1 },
   { solved: '1', count: 2 },
   { solved: '2', count: 2 },
@@ -560,10 +557,16 @@ export function RankingPage() {
         <h1 className="text-2xl font-bold">{t('ranking.title')}</h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RankChart data={SCORE_OVER_TIME} teams={TOP_USERS} />
-        <ScoreDistribution data={DISTRIBUTION} />
-      </div>
+      <Slot name="ranking.header" as="div" />
+
+      <Slot
+        name="ranking.charts"
+        slotProps={{
+          data: SCORE_OVER_TIME,
+          teams: TOP_USERS,
+          distribution: DISTRIBUTION,
+        }}
+      />
 
       <DataTable
         columns={standingsColumns}

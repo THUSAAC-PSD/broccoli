@@ -4,6 +4,7 @@ import {
   type ContestProblemResponse,
   useApiClient,
 } from '@broccoli/sdk/api';
+import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
@@ -94,6 +95,8 @@ export function ContestPage() {
           {contest?.title ?? t('contests.title')}
         </h1>
       </div>
+
+      <Slot name="contest-detail.header" as="div" />
 
       <Card>
         <CardHeader>
@@ -203,6 +206,8 @@ export function ContestPage() {
           )}
         </CardContent>
       </Card>
+
+      <Slot name="contest-detail.scoreboard" as="div" />
     </div>
   );
 }
