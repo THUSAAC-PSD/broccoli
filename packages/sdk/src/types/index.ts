@@ -31,6 +31,8 @@ export interface SlotConfig<TContext = unknown> {
    * Props to pass to the component
    */
   props?: Record<string, unknown>;
+  /** @internal Populated by getSlots — the plugin that owns this slot */
+  _pluginName?: string;
 }
 
 export interface RouteConfig {
