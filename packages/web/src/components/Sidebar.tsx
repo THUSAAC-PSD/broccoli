@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/sidebar';
 
 const defaultMenuItems = [
-  { titleKey: 'sidebar.dashboard', icon: Home, url: '#' },
+  { titleKey: 'sidebar.dashboard', icon: Home, url: '/' },
   { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
   { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
   { titleKey: 'sidebar.tutorials', icon: BookOpen, url: '#' },
