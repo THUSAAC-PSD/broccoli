@@ -1,0 +1,7 @@
+npx lint-staged
+
+cargo fmt --all
+RUST_CHANGED=$(git diff --name-only -- "*.rs")
+if [ -n "$RUST_CHANGED" ]; then
+  git add $RUST_CHANGED
+fi
