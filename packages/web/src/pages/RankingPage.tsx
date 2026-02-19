@@ -1,3 +1,5 @@
+import type { SubmissionStatus, Verdict } from '@broccoli/sdk';
+import type { ApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { Trophy } from 'lucide-react';
@@ -5,12 +7,8 @@ import { Trophy } from 'lucide-react';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
 import type { ServerTableParams } from '@/hooks/use-server-table';
-import type { components } from '@/lib/api/schema';
 
 // --- Types aligned with API schemas ---
-
-type Verdict = components['schemas']['Verdict'];
-type SubmissionStatus = components['schemas']['SubmissionStatus'];
 
 /** Per-problem result for a participant, computed from submissions */
 interface ProblemResult {
@@ -353,7 +351,10 @@ const ALL_STANDINGS: StandingRow[] = [
 ];
 
 // Mock server-side fetch
-async function fetchStandings(params: ServerTableParams) {
+async function fetchStandings(
+  _apiClient: ApiClient,
+  params: ServerTableParams,
+) {
   await new Promise((r) => setTimeout(r, 300));
 
   let filtered = [...ALL_STANDINGS];
