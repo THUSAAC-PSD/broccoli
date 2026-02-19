@@ -6,7 +6,7 @@ fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
     json!({
         "title": title,
         "description": "A contest description in **Markdown**.",
-        "start_time": "2099-01-01T00:00:00Z",
+        "start_time": "2020-01-01T00:00:00Z",
         "end_time": "2099-01-02T00:00:00Z",
         "is_public": is_public,
     })
@@ -1079,6 +1079,92 @@ mod contest_problems {
             .await;
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn admin_can_list_problems_before_contest_starts() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let body = json!({
+            "title": "Future Contest",
+            "description": "desc",
+            "start_time": "2099-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": true,
+        });
+        let contest_id = app
+            .post_with_token(routes::CONTESTS, &body, &admin)
+            .await
+            .id();
+        let p1 = app.create_problem(&admin, "P1").await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .get_with_token(&routes::contest_problems(contest_id), &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body.as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn participant_cannot_list_problems_before_contest_starts() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let body = json!({
+            "title": "Future Contest",
+            "description": "desc",
+            "start_time": "2099-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": true,
+        });
+        let contest_id = app
+            .post_with_token(routes::CONTESTS, &body, &admin)
+            .await
+            .id();
+
+        let res = app
+            .get_with_token(&routes::contest_problems(contest_id), &user)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn participant_can_list_problems_after_contest_starts() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        // Default valid_contest_body uses past start_time (already started)
+        let contest_id = create_contest_as_admin(&app, &admin, "Active", true).await;
+        let p1 = app.create_problem(&admin, "P1").await;
+        app.post_with_token(
+            &routes::contest_problems(contest_id),
+            &json!({"problem_id": p1, "label": "A"}),
+            &admin,
+        )
+        .await;
+
+        let res = app
+            .get_with_token(&routes::contest_problems(contest_id), &user)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body.as_array().unwrap().len(), 1);
     }
 }
 

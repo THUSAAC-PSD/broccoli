@@ -14,7 +14,9 @@ use crate::extractors::json::AppJson;
 use crate::models::contest::*;
 use crate::models::shared::{Pagination, escape_like};
 use crate::state::AppState;
-use crate::utils::contest::{check_contest_access, find_contest, find_contest_problem};
+use crate::utils::contest::{
+    check_contest_access, find_contest, find_contest_problem, require_contest_started,
+};
 
 #[utoipa::path(
     post,
@@ -420,6 +422,7 @@ pub async fn list_contest_problems(
 ) -> Result<Json<Vec<ContestProblemResponse>>, AppError> {
     let contest_model = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest_model).await?;
+    require_contest_started(&auth_user, &contest_model)?;
 
     let rows = contest_problem::Entity::find()
         .filter(contest_problem::Column::ContestId.eq(contest_id))

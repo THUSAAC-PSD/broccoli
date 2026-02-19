@@ -16,6 +16,7 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::models::problem::*;
 use crate::state::AppState;
+use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{is_sample_directory, split_dir_filename};
 
 #[utoipa::path(
@@ -156,12 +157,11 @@ pub async fn list_problems(
     tag = "Problems",
     operation_id = "getProblem",
     summary = "Get a problem by ID",
-    description = "Returns the full details of a problem, including its Markdown content. Requires `problem:create` or `problem:edit` permission.",
+    description = "Returns the full details of a problem, including its Markdown content and sample test cases. Accessible to users with `problem:create`/`problem:edit` permission, or to participants of any active (started) contest that includes this problem.",
     params(("id" = i32, Path, description = "Problem ID")),
     responses(
         (status = 200, description = "Problem details", body = ProblemResponse),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
@@ -172,10 +172,11 @@ pub async fn get_problem(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<ProblemResponse>, AppError> {
-    auth_user.require_any_permission(&["problem:create", "problem:edit"])?;
+    require_problem_read_access(&state.db, &auth_user, id).await?;
 
     let model = find_problem(&state.db, id).await?;
-    Ok(Json(model.into()))
+    let samples = load_sample_test_cases(&state.db, id).await?;
+    Ok(Json(ProblemResponse::with_samples(model, samples)))
 }
 
 #[utoipa::path(
@@ -208,7 +209,8 @@ pub async fn update_problem(
 
     if payload == UpdateProblemRequest::default() {
         let existing = find_problem(&state.db, id).await?;
-        return Ok(Json(existing.into()));
+        let samples = load_sample_test_cases(&state.db, id).await?;
+        return Ok(Json(ProblemResponse::with_samples(existing, samples)));
     }
 
     let txn = state.db.begin().await?;
@@ -236,7 +238,8 @@ pub async fn update_problem(
     let model = active.update(&txn).await?;
     txn.commit().await?;
 
-    Ok(Json(model.into()))
+    let samples = load_sample_test_cases(&state.db, id).await?;
+    Ok(Json(ProblemResponse::with_samples(model, samples)))
 }
 
 #[utoipa::path(
@@ -843,6 +846,29 @@ async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Mo
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))
+}
+
+async fn load_sample_test_cases<C: ConnectionTrait>(
+    db: &C,
+    problem_id: i32,
+) -> Result<Vec<SampleTestCase>, AppError> {
+    let rows = test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(problem_id))
+        .filter(test_case::Column::IsSample.eq(true))
+        .order_by_asc(test_case::Column::Position)
+        .all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|tc| SampleTestCase {
+            id: tc.id,
+            input: tc.input,
+            expected_output: tc.expected_output,
+            score: tc.score,
+            description: tc.description,
+            position: tc.position,
+        })
+        .collect())
 }
 
 async fn find_problem_for_update(

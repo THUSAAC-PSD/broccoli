@@ -1663,3 +1663,157 @@ mod bulk_delete_test_cases {
         assert_eq!(res.body["code"], "PERMISSION_DENIED");
     }
 }
+
+mod problem_contest_access {
+    use super::*;
+
+    #[tokio::test]
+    async fn contestant_can_view_problem_via_active_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_pca1", "password123", "admin")
+            .await;
+        let contestant = app
+            .create_authenticated_user("contestant_pca1", "password123")
+            .await;
+
+        // Create problem + active public contest containing it
+        let pid = app.create_problem(&admin, "Contest Problem").await;
+        let cid = app
+            .create_contest(&admin, "Active Contest", true, true)
+            .await;
+        app.add_problem_to_contest(cid, pid, &admin).await;
+
+        let res = app.get_with_token(&routes::problem(pid), &contestant).await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["id"], pid);
+        assert!(res.body["content"].is_string());
+        assert!(res.body["samples"].is_array());
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_view_problem_before_contest_starts() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_pca2", "password123", "admin")
+            .await;
+        let contestant = app
+            .create_authenticated_user("contestant_pca2", "password123")
+            .await;
+
+        let pid = app.create_problem(&admin, "Future Problem").await;
+
+        // Create a future contest (not started yet)
+        let body = json!({
+            "title": "Future Contest",
+            "description": "desc",
+            "start_time": "2099-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": true,
+        });
+        let cid = app
+            .post_with_token(routes::CONTESTS, &body, &admin)
+            .await
+            .id();
+        app.add_problem_to_contest(cid, pid, &admin).await;
+
+        let res = app.get_with_token(&routes::problem(pid), &contestant).await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn non_participant_cannot_view_problem_via_private_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_pca3", "password123", "admin")
+            .await;
+        let outsider = app
+            .create_authenticated_user("outsider_pca3", "password123")
+            .await;
+
+        let pid = app.create_problem(&admin, "Private Problem").await;
+        // Private contest — outsider is NOT a participant
+        let cid = app
+            .create_contest(&admin, "Private Contest", false, true)
+            .await;
+        app.add_problem_to_contest(cid, pid, &admin).await;
+
+        let res = app.get_with_token(&routes::problem(pid), &outsider).await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn problem_response_includes_only_sample_test_cases() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_pca4", "password123", "admin")
+            .await;
+        let contestant = app
+            .create_authenticated_user("contestant_pca4", "password123")
+            .await;
+
+        let pid = app.create_problem(&admin, "Samples Problem").await;
+
+        // Create a sample test case
+        let sample_res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "sample input",
+                    "expected_output": "sample output",
+                    "score": 10,
+                    "is_sample": true,
+                }),
+                &admin,
+            )
+            .await;
+        assert_eq!(sample_res.status, 201);
+
+        // Create a non-sample test case
+        let hidden_res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "hidden input",
+                    "expected_output": "hidden output",
+                    "score": 90,
+                    "is_sample": false,
+                }),
+                &admin,
+            )
+            .await;
+        assert_eq!(hidden_res.status, 201);
+
+        // Put problem in an active public contest
+        let cid = app
+            .create_contest(&admin, "Samples Contest", true, true)
+            .await;
+        app.add_problem_to_contest(cid, pid, &admin).await;
+
+        let res = app.get_with_token(&routes::problem(pid), &contestant).await;
+        assert_eq!(res.status, 200);
+
+        let samples = res.body["samples"].as_array().expect("samples array");
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0]["input"], "sample input");
+        assert_eq!(samples[0]["expected_output"], "sample output");
+        assert_eq!(samples[0]["score"], 10);
+    }
+
+    #[tokio::test]
+    async fn admin_can_view_problem_before_contest_starts() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_pca5", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&admin, "Admin View Problem").await;
+
+        // Problem is not in any contest — admin can still view via problem:create/edit perms
+        let res = app.get_with_token(&routes::problem(pid), &admin).await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["id"], pid);
+    }
+}
