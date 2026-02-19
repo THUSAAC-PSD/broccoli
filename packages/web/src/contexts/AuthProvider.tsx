@@ -1,9 +1,9 @@
+import type { LoginRequest, User } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { appConfig } from '@/config';
-
-import { AuthContext, type LoginRequest, type User } from './auth-context';
+import { AuthContext } from '@/contexts/auth-context';
 
 /**
  * AuthProvider component that manages user session state.

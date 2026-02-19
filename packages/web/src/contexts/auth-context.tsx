@@ -1,9 +1,5 @@
+import type { LoginRequest, User } from '@broccoli/sdk';
 import { createContext, use } from 'react';
-
-import type { components } from '@/lib/api/schema';
-
-export type User = components['schemas']['MeResponse'];
-export type LoginRequest = components['schemas']['LoginRequest'];
 
 export interface AuthContextValue {
   user: User | null;

@@ -1,17 +1,14 @@
+import type { ContestProblemResponse, ContestResponse } from '@broccoli/sdk';
+import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
-import {
-  type ContestResponse,
-  type ContestProblemResponse,
-  useApiClient,
-} from '@broccoli/sdk/api';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
+import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Markdown } from '@/components/Markdown';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 
