@@ -67,10 +67,40 @@ pub struct ProblemResponse {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
+    /// Sample test cases (is_sample = true).
+    pub samples: Vec<SampleTestCase>,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
     pub updated_at: DateTime<Utc>,
+}
+
+/// A sample test case included in problem detail responses.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct SampleTestCase {
+    #[schema(example = 1)]
+    pub id: i32,
+    #[schema(example = "4\n2 7 11 15\n9")]
+    pub input: String,
+    #[schema(example = "0 1")]
+    pub expected_output: String,
+    #[schema(example = 10)]
+    pub score: i32,
+    #[schema(example = "Basic case")]
+    pub description: Option<String>,
+    #[schema(example = 0)]
+    pub position: i32,
+}
+
+impl ProblemResponse {
+    pub fn with_samples(
+        model: crate::entity::problem::Model,
+        samples: Vec<SampleTestCase>,
+    ) -> Self {
+        let mut resp = Self::from(model);
+        resp.samples = samples;
+        resp
+    }
 }
 
 /// Problem summary for list views (content omitted).
@@ -237,6 +267,7 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
             show_test_details: m.show_test_details,
+            samples: vec![],
             created_at: m.created_at,
             updated_at: m.updated_at,
         }

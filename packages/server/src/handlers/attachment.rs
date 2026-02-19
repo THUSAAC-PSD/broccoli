@@ -11,12 +11,12 @@ use tokio_util::io::ReaderStream;
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::entity::{blob_object, blob_ref, problem};
+use crate::entity::{blob_object, blob_ref};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
-use crate::utils::contest::can_access_problem_via_contest;
+use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 
 pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
@@ -52,7 +52,10 @@ pub async fn upload_attachment(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    find_problem(&state.db, problem_id).await?;
+    crate::entity::problem::Entity::find_by_id(problem_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
 
     let mut file_result: Option<(ContentHash, i64)> = None;
     let mut file_name: Option<String> = None;
@@ -286,28 +289,6 @@ pub async fn delete_attachment(
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-async fn require_problem_read_access<C: sea_orm::ConnectionTrait>(
-    db: &C,
-    auth_user: &AuthUser,
-    problem_id: i32,
-) -> Result<(), AppError> {
-    if auth_user.has_permission("problem:create") || auth_user.has_permission("problem:edit") {
-        find_problem(db, problem_id).await?;
-        return Ok(());
-    }
-    can_access_problem_via_contest(db, auth_user.user_id, problem_id).await
-}
-
-async fn find_problem<C: sea_orm::ConnectionTrait>(
-    db: &C,
-    id: i32,
-) -> Result<problem::Model, AppError> {
-    problem::Entity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Problem not found".into()))
 }
 
 /// Query all blob_refs for a problem, ordered by creation time.
