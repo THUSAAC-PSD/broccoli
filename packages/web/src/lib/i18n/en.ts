@@ -87,6 +87,17 @@ export const en: Record<string, string> = {
   'result.timeLimit': 'Time Limit',
   'result.runtimeError': 'Runtime Error',
   'result.pending': 'Pending',
+  'result.compiling': 'Compiling...',
+  'result.running': 'Running...',
+  'result.compilationError': 'Compilation Error',
+  'result.systemError': 'System Error',
+  'result.memoryLimit': 'Memory Limit',
+  'result.submitError': 'Failed to submit. Please try again.',
+  'result.compileOutput': 'Compile Output',
+  'result.input': 'Input',
+  'result.expectedOutput': 'Expected Output',
+  'result.stdout': 'Your Output',
+  'result.stderr': 'Stderr',
 
   // Problems
   'problems.title': 'Problems',
@@ -216,6 +227,23 @@ export const en: Record<string, string> = {
   'admin.field.options': 'Options',
   'admin.field.createdAt': 'Created',
   'admin.loading': 'Loading...',
+
+  // Test Cases (admin)
+  'admin.manageTestCases': 'Manage Test Cases',
+  'admin.testCases.title': 'Test Cases',
+  'admin.testCases.empty': 'No test cases yet. Create one to get started.',
+  'admin.testCases.create': 'Create Test Case',
+  'admin.testCases.createDesc': 'Add a new test case to this problem.',
+  'admin.testCases.edit': 'Edit Test Case',
+  'admin.testCases.sample': 'Sample',
+  'admin.testCases.deleteError':
+    'Failed to delete test case. It may have judge results.',
+  'admin.testCases.field.input': 'Input',
+  'admin.testCases.field.expectedOutput': 'Expected Output',
+  'admin.testCases.field.score': 'Score',
+  'admin.testCases.field.sample': 'Sample',
+  'admin.testCases.field.description': 'Description',
+  'admin.testCases.field.isSample': 'Sample Test Case',
 
   // Dashboard
   'dashboard.title': 'Dashboard',

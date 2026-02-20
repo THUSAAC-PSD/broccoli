@@ -4,7 +4,7 @@ import { useTranslation } from '@broccoli/sdk/i18n';
 import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
 import type { ProblemListItem } from '@broccoli/sdk';
 import { useQueryClient } from '@tanstack/react-query';
-import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
 import { SwitchField, formatDateTime } from './helpers';
+import { TestCasesDialog } from './TestCasesDialog';
 
 // ── Data fetcher ──
 
@@ -256,9 +257,11 @@ export function ProblemFormDialog({
 export function useProblemColumns({
   onEdit,
   onDelete,
+  onManageTestCases,
 }: {
   onEdit: (problem: ProblemListItem) => void;
   onDelete: (problem: ProblemListItem) => void;
+  onManageTestCases: (problem: ProblemListItem) => void;
 }): DataTableColumn<ProblemListItem>[] {
   const { t } = useTranslation();
   return [
@@ -314,6 +317,10 @@ export function useProblemColumns({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onManageTestCases(row.original)}>
+              <List className="h-4 w-4" />
+              {t('admin.manageTestCases')}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -344,6 +351,10 @@ export function AdminProblemsTab() {
   const [editingProblem, setEditingProblem] = useState<
     ProblemListItem | undefined
   >();
+  const [testCasesDialogOpen, setTestCasesDialogOpen] = useState(false);
+  const [managingProblem, setManagingProblem] = useState<
+    ProblemListItem | undefined
+  >();
 
   function handleCreateProblem() {
     setEditingProblem(undefined);
@@ -353,6 +364,11 @@ export function AdminProblemsTab() {
   function handleEditProblem(problem: ProblemListItem) {
     setEditingProblem(problem);
     setProblemDialogOpen(true);
+  }
+
+  function handleManageTestCases(problem: ProblemListItem) {
+    setManagingProblem(problem);
+    setTestCasesDialogOpen(true);
   }
 
   async function handleDeleteProblem(problem: ProblemListItem) {
@@ -368,6 +384,7 @@ export function AdminProblemsTab() {
   const columns = useProblemColumns({
     onEdit: handleEditProblem,
     onDelete: handleDeleteProblem,
+    onManageTestCases: handleManageTestCases,
   });
 
   return (
@@ -394,6 +411,13 @@ export function AdminProblemsTab() {
         open={problemDialogOpen}
         onOpenChange={setProblemDialogOpen}
       />
+      {managingProblem && (
+        <TestCasesDialog
+          problem={managingProblem}
+          open={testCasesDialogOpen}
+          onOpenChange={setTestCasesDialogOpen}
+        />
+      )}
     </>
   );
 }

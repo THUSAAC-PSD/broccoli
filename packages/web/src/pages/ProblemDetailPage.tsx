@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
-import { useApiClient } from '@broccoli/sdk/api';
 import type { ProblemResponse } from '@broccoli/sdk';
+import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
@@ -13,25 +13,7 @@ import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-
-type SubmissionStatus = {
-  status: 'judging' | 'completed';
-  verdict?: string;
-  testCases?: Array<{
-    id: number;
-    status:
-      | 'accepted'
-      | 'wrong_answer'
-      | 'time_limit'
-      | 'runtime_error'
-      | 'pending';
-    time?: number;
-    memory?: number;
-    message?: string;
-  }>;
-  totalTime?: number;
-  totalMemory?: number;
-};
+import { useSubmission } from '@/hooks/use-submission';
 
 function formatMemoryLimit(kb: number) {
   if (!Number.isFinite(kb)) return '';
@@ -41,12 +23,11 @@ function formatMemoryLimit(kb: number) {
 
 export function ProblemDetailPage() {
   const { t } = useTranslation();
-  const { problemId } = useParams();
+  const { problemId, contestId } = useParams();
   const id = Number(problemId);
+  const cId = contestId ? Number(contestId) : undefined;
 
-  const [submissionResult, setSubmissionResult] =
-    useState<SubmissionStatus | null>(null);
-  const [isProblemFullscreen, _setIsProblemFullscreen] = useState(false);
+  const [isProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
   const apiClient = useApiClient();
 
@@ -66,52 +47,12 @@ export function ProblemDetailPage() {
     },
   });
 
-  const handleSubmit = (code: string, language: string) => {
-    console.log('Submitting code:', { code, language });
-
-    setSubmissionResult({
-      status: 'judging',
-    });
-
-    setTimeout(() => {
-      setSubmissionResult({
-        status: 'completed',
-        verdict: 'Accepted',
-        totalTime: 15,
-        totalMemory: 2.4,
-        testCases: [
-          { id: 1, status: 'accepted', time: 5, memory: 1.2 },
-          { id: 2, status: 'accepted', time: 10, memory: 1.2 },
-        ],
-      });
-    }, 2000);
-  };
-
-  const handleRun = (code: string, language: string) => {
-    console.log('Running code:', { code, language });
-
-    setSubmissionResult({
-      status: 'judging',
-    });
-
-    setTimeout(() => {
-      setSubmissionResult({
-        status: 'completed',
-        verdict: 'Custom Test Passed',
-        totalTime: 8,
-        totalMemory: 1.5,
-        testCases: [
-          {
-            id: 1,
-            status: 'accepted',
-            time: 8,
-            memory: 1.5,
-            message: 'Custom test case passed',
-          },
-        ],
-      });
-    }, 1500);
-  };
+  const {
+    submission,
+    isSubmitting,
+    error: submitError,
+    submit,
+  } = useSubmission({ problemId: id, contestId: cId });
 
   if (!problemId || Number.isNaN(id)) {
     return (
@@ -174,17 +115,16 @@ export function ProblemDetailPage() {
             className={`flex flex-col gap-6 overflow-y-auto ${isCodeFullscreen ? 'col-span-2' : ''}`}
           >
             <CodeEditor
-              onSubmit={handleSubmit}
-              onRun={handleRun}
+              onSubmit={submit}
+              onRun={submit}
               isFullscreen={isCodeFullscreen}
               onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
+              storageKey={cId ? `contest-${cId}-problem-${id}` : `problem-${id}`}
             />
             <SubmissionResult
-              status={submissionResult?.status}
-              verdict={submissionResult?.verdict}
-              testCases={submissionResult?.testCases}
-              totalTime={submissionResult?.totalTime}
-              totalMemory={submissionResult?.totalMemory}
+              submission={submission}
+              isSubmitting={isSubmitting}
+              error={submitError}
             />
             <Slot name="problem-detail.sidebar" as="div" />
           </div>

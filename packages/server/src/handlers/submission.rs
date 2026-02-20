@@ -353,7 +353,7 @@ async fn build_submission_response(
             test_results
                 .into_iter()
                 .map(|(result, tc)| {
-                    let is_sample = tc.is_some_and(|t| t.is_sample);
+                    let is_sample = tc.as_ref().is_some_and(|t| t.is_sample);
                     let show_output = has_view_all || is_sample;
                     TestCaseResultResponse {
                         id: result.id,
@@ -362,6 +362,16 @@ async fn build_submission_response(
                         time_used: result.time_used,
                         memory_used: result.memory_used,
                         test_case_id: result.test_case_id,
+                        input: if show_output {
+                            tc.as_ref().map(|t| t.input.clone())
+                        } else {
+                            None
+                        },
+                        expected_output: if show_output {
+                            tc.as_ref().map(|t| t.expected_output.clone())
+                        } else {
+                            None
+                        },
                         stdout: if show_output { result.stdout } else { None },
                         stderr: if show_output { result.stderr } else { None },
                         checker_output: if show_output {

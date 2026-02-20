@@ -180,6 +180,10 @@ pub struct TestCaseResultResponse {
     pub memory_used: Option<i32>,
     #[schema(example = 1)]
     pub test_case_id: i32,
+    /// Test case input (only visible for sample test cases or when user has view_all permission).
+    pub input: Option<String>,
+    /// Expected output (only visible for sample test cases or when user has view_all permission).
+    pub expected_output: Option<String>,
     /// Program stdout.
     pub stdout: Option<String>,
     /// Program stderr.
@@ -325,6 +329,8 @@ impl From<crate::entity::test_case_result::Model> for TestCaseResultResponse {
             time_used: m.time_used,
             memory_used: m.memory_used,
             test_case_id: m.test_case_id,
+            input: None,
+            expected_output: None,
             stdout: m.stdout,
             stderr: m.stderr,
             checker_output: m.checker_output,

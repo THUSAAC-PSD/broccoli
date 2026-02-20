@@ -25,6 +25,14 @@ export type ProblemResponse = components['schemas']['ProblemResponse'];
 export type Verdict = components['schemas']['Verdict'];
 export type SubmissionStatus = components['schemas']['SubmissionStatus'];
 export type SubmissionListItem = components['schemas']['SubmissionListItem'];
+export type SubmissionResponse = components['schemas']['SubmissionResponse'];
+export type JudgeResultResponse =
+  components['schemas']['JudgeResultResponse'];
+export type TestCaseResultResponse =
+  components['schemas']['TestCaseResultResponse'];
+
+export type TestCaseListItem = components['schemas']['TestCaseListItem'];
+export type TestCaseResponse = components['schemas']['TestCaseResponse'];
 
 export type User = components['schemas']['MeResponse'];
 export type LoginRequest = components['schemas']['LoginRequest'];

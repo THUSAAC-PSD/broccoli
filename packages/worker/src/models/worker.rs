@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::error::WorkerError;
 use crate::models::executor::NativeExecutor;
+use crate::models::judge::handle_judge;
 use crate::models::operation::OperationTaskExecutor;
 
 pub struct Worker {
@@ -19,7 +20,9 @@ impl Worker {
             hook_registry: Arc::new(Mutex::new(HookRegistry::new(()))),
         };
 
-        worker.register_executor("native", Arc::new(NativeExecutor::new()));
+        let native = NativeExecutor::new();
+        native.register_handler("judge".into(), handle_judge);
+        worker.register_executor("native", Arc::new(native));
         worker.register_executor("operation", Arc::new(OperationTaskExecutor::new()));
         // TODO: WasmExecutor?
         worker
