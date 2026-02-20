@@ -2025,11 +2025,15 @@ export interface components {
     TestCaseResultResponse: {
       /** @description Custom checker feedback. */
       checker_output?: string | null;
+      /** @description Expected output (only visible for sample test cases or when user has view_all permission). */
+      expected_output?: string | null;
       /**
        * Format: int32
        * @example 1
        */
       id: number;
+      /** @description Test case input (only visible for sample test cases or when user has view_all permission). */
+      input?: string | null;
       /**
        * Format: int32
        * @description Memory used in kilobytes.

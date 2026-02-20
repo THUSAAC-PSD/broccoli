@@ -3,7 +3,7 @@ import { Slot } from '@broccoli/sdk/react';
 import Editor from '@monaco-editor/react';
 import { ChevronDown, Maximize2, Minimize2, Play } from 'lucide-react';
 import type { editor } from 'monaco-editor';
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,6 +70,15 @@ interface CodeEditorProps {
   onRun?: (code: string, language: string) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  /** Unique key for persisting code to localStorage (e.g. problem ID). */
+  storageKey?: string;
+}
+
+function getStorageKeys(storageKey: string) {
+  return {
+    code: `broccoli-editor-${storageKey}-code`,
+    lang: `broccoli-editor-${storageKey}-lang`,
+  };
 }
 
 export function CodeEditor({
@@ -77,19 +86,44 @@ export function CodeEditor({
   onRun,
   isFullscreen,
   onToggleFullscreen,
+  storageKey,
 }: CodeEditorProps) {
   const { t } = useTranslation();
-  const [selectedLanguage, setSelectedLanguage] = useState<Language>(
-    LANGUAGES[0],
-  );
-  const [code, setCode] = useState(selectedLanguage.template);
+
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>(() => {
+    if (storageKey) {
+      const saved = localStorage.getItem(getStorageKeys(storageKey).lang);
+      if (saved) {
+        const found = LANGUAGES.find((l) => l.id === saved);
+        if (found) return found;
+      }
+    }
+    return LANGUAGES[0];
+  });
+
+  const [code, setCode] = useState(() => {
+    if (storageKey) {
+      const saved = localStorage.getItem(getStorageKeys(storageKey).code);
+      if (saved != null) return saved;
+    }
+    return selectedLanguage.template;
+  });
+
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const { theme } = useTheme();
 
-  const handleLanguageChange = (language: Language) => {
+  // Auto-save to localStorage
+  useEffect(() => {
+    if (!storageKey) return;
+    const keys = getStorageKeys(storageKey);
+    localStorage.setItem(keys.code, code);
+    localStorage.setItem(keys.lang, selectedLanguage.id);
+  }, [storageKey, code, selectedLanguage]);
+
+  const handleLanguageChange = useCallback((language: Language) => {
     setSelectedLanguage(language);
     setCode(language.template);
-  };
+  }, []);
 
   const handleSubmit = () => {
     if (onSubmit) {
@@ -148,7 +182,7 @@ export function CodeEditor({
         </div>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col gap-4 p-0 px-6 pb-6">
-        <div className="flex-1 border rounded-lg overflow-hidden">
+        <div className="flex-1 min-h-[400px] border rounded-lg overflow-hidden">
           <Editor
             height="100%"
             language={selectedLanguage.monacoLanguage}

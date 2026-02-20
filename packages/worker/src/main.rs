@@ -139,15 +139,22 @@ async fn process_task(
 
     let result = worker.execute_task(task.clone()).await?;
 
-    mq.publish(result_queue, None, &result, None)
-        .await
-        .map_err(|e| WorkerError::Mq(e.to_string()))?;
+    // Judge tasks: publish the inner JudgeResult directly (server consumer expects it)
+    // Other tasks: publish the full TaskResult wrapper
+    if task.task_type == "judge" {
+        mq.publish(result_queue, None, &result.output, None)
+            .await
+            .map_err(|e| WorkerError::Mq(e.to_string()))?;
+    } else {
+        mq.publish(result_queue, None, &result, None)
+            .await
+            .map_err(|e| WorkerError::Mq(e.to_string()))?;
+    }
 
     info!(
         job_id = %task.id,
         task_result_id = %result.task_id,
         success = result.success,
-        output = %result.output,
         result_queue = %result_queue,
         "Task finished"
     );
