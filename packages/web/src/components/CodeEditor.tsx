@@ -146,7 +146,11 @@ export function CodeEditor({
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
         <CardTitle>{t('editor.title')}</CardTitle>
         <div className="flex items-center gap-2">
-          <Slot name="problem-detail.editor.toolbar" as="div" className="flex items-center gap-2" />
+          <Slot
+            name="problem-detail.editor.toolbar"
+            as="div"
+            className="flex items-center gap-2"
+          />
           {onToggleFullscreen && (
             <Button
               variant="ghost"

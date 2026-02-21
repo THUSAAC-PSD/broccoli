@@ -44,12 +44,9 @@ export function TestCasesDialog({
   const { data: testCases = [], isLoading } = useQuery({
     queryKey: testCasesKey,
     queryFn: async () => {
-      const { data, error } = await apiClient.GET(
-        '/problems/{id}/test-cases',
-        {
-          params: { path: { id: problem.id } },
-        },
-      );
+      const { data, error } = await apiClient.GET('/problems/{id}/test-cases', {
+        params: { path: { id: problem.id } },
+      });
       if (error) throw error;
       return data;
     },

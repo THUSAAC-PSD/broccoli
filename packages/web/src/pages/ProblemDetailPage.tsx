@@ -119,7 +119,9 @@ export function ProblemDetailPage() {
               onRun={submit}
               isFullscreen={isCodeFullscreen}
               onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
-              storageKey={cId ? `contest-${cId}-problem-${id}` : `problem-${id}`}
+              storageKey={
+                cId ? `contest-${cId}-problem-${id}` : `problem-${id}`
+              }
             />
             <SubmissionResult
               submission={submission}

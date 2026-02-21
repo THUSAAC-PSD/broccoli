@@ -100,8 +100,8 @@ pub mod routes {
     pub const ME: &str = "/api/v1/auth/me";
     pub const PROBLEMS: &str = "/api/v1/problems";
 
-    pub fn plugin_load(id: &str) -> String {
-        format!("/api/v1/plugins/{id}/load")
+    pub fn plugin_enable(id: &str) -> String {
+        format!("/api/v1/admin/plugins/{id}/enable")
     }
 
     pub fn plugin_call(id: &str, func: &str) -> String {
