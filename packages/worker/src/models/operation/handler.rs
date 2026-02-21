@@ -23,15 +23,6 @@ impl EnvironmentList {
     }
 }
 
-/// Task execution state for dependency tracking
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TaskState {
-    Pending,
-    Running,
-    Completed,
-    Failed,
-}
-
 pub struct OperationHandler<M: SandboxManager> {
     sandbox_manager: M,
 }

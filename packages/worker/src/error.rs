@@ -13,6 +13,7 @@ pub enum WorkerError {
 
     /// Sandbox setup or isolation failure.
     #[error("Sandbox error: {0}")]
+    #[allow(dead_code)]
     Sandbox(String),
 
     /// File system operation failed.
@@ -30,6 +31,7 @@ pub enum WorkerError {
 
 impl WorkerError {
     /// Returns the machine-readable error code for this error.
+    #[allow(dead_code)]
     pub fn code(&self) -> &'static str {
         match self {
             Self::Config(_) => "INTERNAL_ERROR",

@@ -17,6 +17,7 @@ export default defineConfig([
     '**/dist/*',
     '**/coverage/*',
     'packages/sdk/src/api/schema.ts',
+    'packages/web/.react-router/**',
   ]),
 
   // TypeScript files
@@ -54,7 +55,7 @@ export default defineConfig([
 
   // Frontend-specific React config
   {
-    files: ['packages/web/**/*.{ts,tsx}'],
+    files: ['packages/web/**/*.{ts,tsx}', 'packages/sdk/**/*.tsx'],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
