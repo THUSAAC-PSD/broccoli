@@ -74,7 +74,14 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
     let mut worst_verdict = Verdict::Accepted;
 
     for tc in &job.test_cases {
-        let tc_result = run_test_case(&executable, &tc.input, &tc.expected_output, tc.score, wall_timeout, time_limit);
+        let tc_result = run_test_case(
+            &executable,
+            &tc.input,
+            &tc.expected_output,
+            tc.score,
+            wall_timeout,
+            time_limit,
+        );
         let tc_judge = TestCaseJudgeResult {
             test_case_id: tc.id,
             verdict: tc_result.verdict,
@@ -121,8 +128,7 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
 // --- Helpers ---
 
 fn tempdir(job: &JudgeJob) -> Result<String> {
-    let dir = std::env::temp_dir()
-        .join(format!("broccoli-judge-{}", job.submission_id));
+    let dir = std::env::temp_dir().join(format!("broccoli-judge-{}", job.submission_id));
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create temp dir: {}", dir.display()))?;
 
@@ -160,7 +166,10 @@ fn compile(job: &JudgeJob, tmp_dir: &str) -> Result<String, CompileError> {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                return Err(CompileError::CompilationFailed(format!("{}{}", stderr, stdout)));
+                return Err(CompileError::CompilationFailed(format!(
+                    "{}{}",
+                    stderr, stdout
+                )));
             }
             Ok(exe_path)
         }
@@ -172,7 +181,10 @@ fn compile(job: &JudgeJob, tmp_dir: &str) -> Result<String, CompileError> {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                return Err(CompileError::CompilationFailed(format!("{}{}", stderr, stdout)));
+                return Err(CompileError::CompilationFailed(format!(
+                    "{}{}",
+                    stderr, stdout
+                )));
             }
             Ok(exe_path)
         }

@@ -12,6 +12,7 @@ pub struct WorkerConfig {
     /// Number of jobs to fetch per batch. Default: 10.
     /// TODO: remove this
     #[serde(default = "default_batch_size")]
+    #[allow(dead_code)]
     pub batch_size: usize,
     /// Isolate executable path. Default: "isolate".
     #[serde(default = "default_isolate_bin")]
