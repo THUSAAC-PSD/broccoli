@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
-import type { ContestListItem, ContestProblemItem, ProblemListItem } from '@broccoli/sdk';
+import type {
+  ContestListItem,
+  ContestProblemItem,
+  ProblemListItem,
+} from '@broccoli/sdk';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -800,4 +804,3 @@ export function AdminContestsTab() {
     </>
   );
 }
-

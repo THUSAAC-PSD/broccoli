@@ -111,7 +111,9 @@ export function useSubmission({
           const res = await apiClient.POST(
             '/contests/{id}/problems/{problem_id}/submissions',
             {
-              params: { path: { contest_id: contestId, problem_id: problemId } },
+              params: {
+                path: { contest_id: contestId, problem_id: problemId },
+              },
               body,
             },
           );

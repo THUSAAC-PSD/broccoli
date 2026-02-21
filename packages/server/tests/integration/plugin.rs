@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::common::{TestApp, routes};
 
-mod load_plugin {
+mod enable_plugin {
     use super::*;
 
     #[tokio::test]
@@ -10,7 +10,7 @@ mod load_plugin {
         let app = TestApp::spawn().await;
 
         let res = app
-            .post_without_token(&routes::plugin_load("echo-plugin"), &json!({}))
+            .post_without_token(&routes::plugin_enable("echo-plugin"), &json!({}))
             .await;
 
         assert_eq!(res.status, 401);
@@ -18,14 +18,14 @@ mod load_plugin {
     }
 
     #[tokio::test]
-    async fn contestant_without_plugin_load_permission_is_rejected() {
+    async fn contestant_without_plugin_enable_permission_is_rejected() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("alice", "securepass", "contestant")
             .await;
 
         let res = app
-            .post_with_token(&routes::plugin_load("echo-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("echo-plugin"), &json!({}), &token)
             .await;
 
         assert_eq!(res.status, 403);
@@ -33,47 +33,47 @@ mod load_plugin {
     }
 
     #[tokio::test]
-    async fn admin_can_load_a_valid_plugin() {
+    async fn admin_can_enable_a_valid_plugin() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
 
         let res = app
-            .post_with_token(&routes::plugin_load("echo-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("echo-plugin"), &json!({}), &token)
             .await;
 
         assert_eq!(res.status, 200);
     }
 
     #[tokio::test]
-    async fn loading_same_plugin_twice_succeeds() {
+    async fn enabling_same_plugin_twice_returns_conflict() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
 
         let res = app
-            .post_with_token(&routes::plugin_load("echo-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("echo-plugin"), &json!({}), &token)
             .await;
         assert_eq!(res.status, 200);
 
-        // Loading again should not fail
+        // Enabling again should return conflict
         let res = app
-            .post_with_token(&routes::plugin_load("echo-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("echo-plugin"), &json!({}), &token)
             .await;
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 409);
     }
 
     #[tokio::test]
-    async fn loading_nonexistent_plugin_returns_not_found() {
+    async fn enabling_nonexistent_plugin_returns_not_found() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
 
         let res = app
-            .post_with_token(&routes::plugin_load("no-such-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("no-such-plugin"), &json!({}), &token)
             .await;
 
         assert_eq!(res.status, 404);
@@ -103,9 +103,9 @@ mod call_plugin {
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
 
-        // Load the plugin first
+        // Enable the plugin first
         let res = app
-            .post_with_token(&routes::plugin_load("echo-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("echo-plugin"), &json!({}), &token)
             .await;
         assert_eq!(res.status, 200);
 
@@ -126,13 +126,13 @@ mod call_plugin {
     async fn contestant_can_call_loaded_plugin_function() {
         let app = TestApp::spawn().await;
 
-        // Admin loads the plugin
+        // Admin enables the plugin
         let admin_token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
         let res = app
             .post_with_token(
-                &routes::plugin_load("echo-plugin"),
+                &routes::plugin_enable("echo-plugin"),
                 &json!({}),
                 &admin_token,
             )
@@ -181,9 +181,9 @@ mod call_plugin {
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
 
-        // Load the plugin first
+        // Enable the plugin first
         let res = app
-            .post_with_token(&routes::plugin_load("echo-plugin"), &json!({}), &token)
+            .post_with_token(&routes::plugin_enable("echo-plugin"), &json!({}), &token)
             .await;
         assert_eq!(res.status, 200);
 

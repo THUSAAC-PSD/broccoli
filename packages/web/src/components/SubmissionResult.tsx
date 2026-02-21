@@ -267,7 +267,10 @@ function TestCaseRow({
           )}
         </div>
       </div>
-      {(testCase.input || testCase.expected_output || testCase.stdout || testCase.stderr) && (
+      {(testCase.input ||
+        testCase.expected_output ||
+        testCase.stdout ||
+        testCase.stderr) && (
         <div className="px-3 pb-3 space-y-2">
           {testCase.input && (
             <div>

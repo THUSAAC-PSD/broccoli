@@ -62,7 +62,10 @@ function formatRelativeTime(
 function getVerdictBadge(
   verdict: Verdict | null | undefined,
   status: SubmissionStatus,
-): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
+): {
+  label: string;
+  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+} {
   if (status === 'Pending' || status === 'Compiling' || status === 'Running') {
     return { label: status, variant: 'outline' };
   }
@@ -108,7 +111,12 @@ export function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests', {
         params: {
-          query: { page: 1, per_page: 5, sort_by: 'start_time', sort_order: 'desc' },
+          query: {
+            page: 1,
+            per_page: 5,
+            sort_by: 'start_time',
+            sort_order: 'desc',
+          },
         },
       });
       if (error) throw error;
@@ -121,7 +129,12 @@ export function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/problems', {
         params: {
-          query: { page: 1, per_page: 5, sort_by: 'created_at', sort_order: 'desc' },
+          query: {
+            page: 1,
+            per_page: 5,
+            sort_by: 'created_at',
+            sort_order: 'desc',
+          },
         },
       });
       if (error) throw error;
@@ -135,7 +148,12 @@ export function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/submissions', {
         params: {
-          query: { page: 1, per_page: 5, sort_by: 'created_at', sort_order: 'desc' },
+          query: {
+            page: 1,
+            per_page: 5,
+            sort_by: 'created_at',
+            sort_order: 'desc',
+          },
         },
       });
       if (error) throw error;
