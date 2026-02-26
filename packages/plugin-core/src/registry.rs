@@ -130,6 +130,9 @@ impl PluginEntry {
         let web_root = self.root_dir.join(&web_config.root);
         let asset_path = web_root.join(relative_path);
 
+        // TODO: Path traversal is actually prevented by axum's Path extractor,
+        // consider removing this check in the future.
+
         // Prevent path traversal attacks
         let canonical_web_root = web_root.canonicalize().map_err(AssetError::Io)?;
         let canonical_asset_path = asset_path

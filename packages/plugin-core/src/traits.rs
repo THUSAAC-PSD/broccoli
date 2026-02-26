@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::{error, info, instrument, warn};
 
 use crate::config::PluginConfig;
-use crate::error::PluginError;
+use crate::error::{AssetError, PluginError};
 use crate::host::HostFunctionRegistry;
 use crate::manifest::PluginManifest;
 use crate::registry::{PluginEntry, PluginInfo, PluginRegistry, PluginStatus};
@@ -173,6 +173,20 @@ pub trait PluginManager: Send + Sync {
             .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
 
         Ok(registry.contains_key(plugin_id))
+    }
+
+    fn resolve_plugin_asset(
+        &self,
+        plugin_id: &str,
+        asset_path: &str,
+    ) -> Result<std::path::PathBuf, AssetError> {
+        let registry = self
+            .get_registry()
+            .read()
+            .map_err(|_| AssetError::Internal("Failed to acquire registry read lock".into()))?;
+
+        let plugin_entry = registry.get(plugin_id).ok_or(AssetError::NotFound)?;
+        plugin_entry.resolve_web_asset(asset_path)
     }
 
     /// Low-level execution using raw bytes.

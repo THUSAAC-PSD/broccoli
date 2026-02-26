@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use common::storage::StorageError;
-use plugin_core::error::PluginError;
+use plugin_core::error::{AssetError, PluginError};
 use sea_orm::DbErr;
 use serde::Serialize;
 
@@ -174,8 +174,19 @@ impl From<PluginError> for AppError {
                 tracing::warn!("Plugin not ready: {err}");
                 AppError::PluginNotReady(err.to_string())
             }
-            PluginError::Serialization(e) => AppError::Validation(e.to_string()),
-            other => AppError::Internal(other.to_string()),
+            PluginError::Serialization(_) => AppError::Validation(err.to_string()),
+            _ => AppError::Internal(err.to_string()),
+        }
+    }
+}
+
+impl From<AssetError> for AppError {
+    fn from(err: AssetError) -> Self {
+        match err {
+            AssetError::NotFound => AppError::NotFound("Asset not found".into()),
+            AssetError::NoWebConfig => AppError::NotFound("Plugin does not have web assets".into()),
+            AssetError::PathTraversal => AppError::PermissionDenied,
+            AssetError::Io(_) | AssetError::Internal(_) => AppError::Internal(err.to_string()),
         }
     }
 }
