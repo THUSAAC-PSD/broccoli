@@ -5,12 +5,14 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { useParams } from 'react-router';
 
 import { CodeEditor } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
 import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSubmission } from '@/hooks/use-submission';
@@ -27,7 +29,7 @@ export function ProblemDetailPage() {
   const id = Number(problemId);
   const cId = contestId ? Number(contestId) : undefined;
 
-  const [isProblemFullscreen] = useState(false);
+  const [isProblemFullscreen, setIsProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
   const apiClient = useApiClient();
 
@@ -88,6 +90,18 @@ export function ProblemDetailPage() {
             <Card className="h-full overflow-y-auto">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                 <CardTitle>{t('problem.description')}</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsProblemFullscreen(!isProblemFullscreen)}
+                  title={t('problem.toggleFullscreen')}
+                >
+                  {isProblemFullscreen ? (
+                    <Minimize2 className="h-4 w-4" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4" />
+                  )}
+                </Button>
               </CardHeader>
               <CardContent>
                 {isLoading ? (
