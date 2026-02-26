@@ -1,5 +1,6 @@
 import { Bell } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 
@@ -8,12 +9,14 @@ export function NotificationButton() {
 
   return (
     <Button variant="ghost" size="icon" className="relative">
-      <Bell className="h-5 w-5" />
-      {count > 0 && (
-        <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white">
-          {count}
-        </span>
-      )}
+      <Link to="/QA">
+        <Bell className="h-5 w-5" />
+        {count > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white">
+            {count}
+          </span>
+        )}
+      </Link>
     </Button>
   );
 }
