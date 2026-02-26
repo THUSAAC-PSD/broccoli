@@ -261,6 +261,21 @@ export const en: Record<string, string> = {
   'dashboard.verdict': 'Verdict',
   'dashboard.submitted': 'Submitted',
 
+  // Plugins management
+  'plugins.title': 'Plugins',
+  'plugins.subtitle': 'Manage and configure installed plugins',
+  'plugins.loadError': 'Failed to load plugins',
+  'plugins.empty': 'No plugins discovered',
+  'plugins.status.loaded': 'Loaded',
+  'plugins.status.failed': 'Failed',
+  'plugins.status.discovered': 'Discovered',
+  'plugins.enable': 'Enable plugin',
+  'plugins.disable': 'Disable plugin',
+  'plugins.component.server': 'Server',
+  'plugins.component.web': 'Web',
+  'plugins.component.worker': 'Worker',
+  'sidebar.plugins': 'Plugins',
+
   // Language switcher
   'locale.switch': 'Language',
 };

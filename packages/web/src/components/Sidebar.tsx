@@ -9,6 +9,7 @@ import {
   FileText,
   Home,
   LogOut,
+  Puzzle,
   Trophy,
   User,
 } from 'lucide-react';
@@ -43,6 +44,7 @@ const defaultMenuItems = [
 const adminMenuItems = [
   { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
   { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
+  { titleKey: 'sidebar.plugins', icon: Puzzle, url: '/plugins' },
 ];
 
 function ContestProblemsGroup() {

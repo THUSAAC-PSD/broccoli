@@ -21,6 +21,7 @@ export const manifest: PluginManifest = {
       'sidebar.tutorials': '教程',
       'sidebar.profile': '个人资料',
       'sidebar.settings': '设置',
+      'sidebar.plugins': '插件',
 
       // Navbar
       'nav.contestInfo': '比赛信息',
@@ -217,6 +218,20 @@ export const manifest: PluginManifest = {
       'admin.field.showTestDetails': '显示测试详情',
       'admin.field.options': '选项',
       'admin.field.createdAt': '创建时间',
+
+      // Plugins management
+      'plugins.title': '插件管理',
+      'plugins.subtitle': '管理和配置已安装的插件',
+      'plugins.loadError': '加载插件失败',
+      'plugins.empty': '未发现任何插件',
+      'plugins.status.loaded': '已加载',
+      'plugins.status.failed': '失败',
+      'plugins.status.discovered': '已发现',
+      'plugins.enable': '启用插件',
+      'plugins.disable': '禁用插件',
+      'plugins.component.server': '后端',
+      'plugins.component.web': '前端',
+      'plugins.component.worker': '评测机',
 
       // Language switcher
       'locale.switch': '语言',
