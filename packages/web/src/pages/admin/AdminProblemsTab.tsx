@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
-
+import type { ContestProblemResponse, ProblemListItem } from '@broccoli/sdk';
+import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
-import type { ProblemListItem } from '@broccoli/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
@@ -30,7 +29,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
-import { SwitchField, formatDateTime } from './helpers';
+import { formatDateTime, SwitchField } from './helpers';
 import { TestCasesDialog } from './TestCasesDialog';
 
 // ── Data fetcher ──
@@ -52,6 +51,35 @@ export async function fetchProblems(
   });
   if (error) throw error;
   return { data: data.data, pagination: data.pagination };
+}
+
+async function fetchContestProblems(
+  apiClient: ApiClient,
+  params: ServerTableParams & { contestId: number },
+) {
+  const { data, error } = await apiClient.GET('/contests/{id}/problems', {
+    params: {
+      path: { id: params.contestId },
+    },
+  });
+
+  if (error) throw error;
+
+  const normalizedData = data.map((p: ContestProblemResponse) => ({
+    ...p,
+    id: p.problem_id,
+    title: p.problem_title,
+  })) as unknown as ProblemListItem[];
+
+  return {
+    data: normalizedData,
+    pagination: {
+      page: 1,
+      per_page: normalizedData.length,
+      total: normalizedData.length,
+      total_pages: 1,
+    },
+  };
 }
 
 // ── Problem Form Dialog ──
@@ -342,7 +370,7 @@ export function useProblemColumns({
 
 // ── Problems Tab ──
 
-export function AdminProblemsTab() {
+export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
@@ -392,7 +420,12 @@ export function AdminProblemsTab() {
       <DataTable
         columns={columns}
         queryKey={['admin-problems']}
-        fetchFn={fetchProblems}
+        fetchFn={(api, params) => {
+          if (contestId) {
+            return fetchContestProblems(api, { ...params, contestId });
+          }
+          return fetchProblems(api, params);
+        }}
         searchable
         searchPlaceholder={t('problems.searchPlaceholder')}
         defaultPerPage={20}
