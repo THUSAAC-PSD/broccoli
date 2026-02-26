@@ -9,15 +9,11 @@ import {
   FileText,
   Home,
   LogOut,
-  Settings,
   Shield,
   Trophy,
   User,
 } from 'lucide-react';
 import { Link } from 'react-router';
-
-import { useAuth } from '@/contexts/auth-context';
-import { useContest } from '@/contexts/contest-context';
 
 import {
   DropdownMenu,
@@ -38,13 +34,14 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
+import { useAuth } from '@/contexts/auth-context';
+import { useContest } from '@/contexts/contest-context';
 
 const defaultMenuItems = [
   { titleKey: 'sidebar.dashboard', icon: Home, url: '/' },
   { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
   { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
 ];
-
 
 function ContestProblemsGroup() {
   const { t } = useTranslation();
@@ -63,16 +60,21 @@ function ContestProblemsGroup() {
     },
   });
 
-  if (!contestId || problems.length === 0) return null;
+  if (!contestId || problems.length === 0) return <></>;
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>{contestTitle ?? t('contests.problems')}</SidebarGroupLabel>
+      <SidebarGroupLabel>
+        {contestTitle ?? t('contests.problems')}
+      </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
           {problems.map((p) => (
             <SidebarMenuItem key={p.problem_id}>
-              <SidebarMenuButton asChild tooltip={`${p.label}. ${p.problem_title}`}>
+              <SidebarMenuButton
+                asChild
+                tooltip={`${p.label}. ${p.problem_title}`}
+              >
                 <Link to={`/contests/${contestId}/problems/${p.problem_id}`}>
                   <FileText />
                   <span>
