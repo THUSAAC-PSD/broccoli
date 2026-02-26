@@ -48,7 +48,7 @@ impl OperationHandler {
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 
             // Create sandbox
-            let sandbox_options = SandboxOptions::default();
+            let sandbox_options = env_config.conf.clone();
             let sandbox_path = self
                 .create_sandbox(&box_id, &sandbox_options)
                 .await
