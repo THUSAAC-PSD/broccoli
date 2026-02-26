@@ -250,13 +250,10 @@ export const en: Record<string, string> = {
   'dashboard.welcome': 'Welcome to Broccoli OJ',
   'dashboard.welcomeDescription':
     'Sign in to track your submissions and participate in contests.',
-  'dashboard.contests': 'Contests',
-  'dashboard.problems': 'Recent Problems',
-  'dashboard.recentSubmissions': 'Recent Submissions',
-  'dashboard.recentSubmissionsDescription': 'Your latest submission activity.',
-  'dashboard.viewAll': 'View all',
-  'dashboard.noContests': 'No contests available.',
-  'dashboard.noProblems': 'No problems available.',
+  'dashboard.selectContest': 'Select Contest',
+  'dashboard.selectContestDesc':
+    'You are enrolled in multiple contests. Please select one.',
+  'dashboard.noActiveContest': 'You are not enrolled in any contest.',
   'dashboard.noSubmissions': 'No submissions yet. Start solving problems!',
   'dashboard.problem': 'Problem',
   'dashboard.language': 'Language',

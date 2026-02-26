@@ -1,27 +1,36 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { Menu } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
-import {
-  NavigationMenu,
-  NavigationMenuItem,
-  NavigationMenuLink,
-  NavigationMenuList,
-} from '@/components/ui/navigation-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/contexts/auth-context';
+import { useContest, type DashboardTab } from '@/contexts/contest-context';
 
-const navLinks = [
+const defaultNavLinks = [
   { textKey: 'nav.contestInfo', href: '#' },
   { textKey: 'nav.problems', href: '/problems' },
   { textKey: 'nav.submissions', href: '#' },
   { textKey: 'nav.ranking', href: '#' },
 ];
 
+const contestTabs: { textKey: string; tab: DashboardTab }[] = [
+  { textKey: 'nav.problems', tab: 'problems' },
+  { textKey: 'nav.submissions', tab: 'submissions' },
+  { textKey: 'nav.ranking', tab: 'ranking' },
+];
+
 export function Navbar() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
+  const { contestId, contestTitle, activeTab, setActiveTab } = useContest();
+  const navigate = useNavigate();
+
+  const handleTabClick = (tab: DashboardTab) => {
+    setActiveTab(tab);
+    navigate('/');
+  };
 
   return (
     <header className="sticky top-8 z-50 -mb-4 px-4 pb-4 -translate-y-8">
@@ -30,21 +39,41 @@ export function Navbar() {
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-6">
             <Slot name="navbar.brand" as="div" />
-            <NavigationMenu>
-              <NavigationMenuList className="hidden md:flex">
-                {navLinks.map((link) => (
-                  <NavigationMenuItem key={link.textKey}>
-                    <NavigationMenuLink
-                      href={link.href}
-                      className="px-3 py-2 text-sm hover:text-primary"
+            <nav className="hidden md:flex items-center">
+              {contestId ? (
+                <>
+                  {contestTitle && (
+                    <span className="px-3 py-2 text-sm font-semibold">
+                      {contestTitle}
+                    </span>
+                  )}
+                  {contestTabs.map((item) => (
+                    <button
+                      key={item.tab}
+                      onClick={() => handleTabClick(item.tab)}
+                      className={`px-3 py-2 text-sm transition-colors cursor-pointer ${
+                        activeTab === item.tab
+                          ? 'text-primary font-medium'
+                          : 'text-muted-foreground hover:text-primary'
+                      }`}
                     >
-                      {t(link.textKey)}
-                    </NavigationMenuLink>
-                  </NavigationMenuItem>
-                ))}
-                <Slot name="navbar.menu" as="div" />
-              </NavigationMenuList>
-            </NavigationMenu>
+                      {t(item.textKey)}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                defaultNavLinks.map((link) => (
+                  <Link
+                    key={link.textKey}
+                    to={link.href}
+                    className="px-3 py-2 text-sm hover:text-primary"
+                  >
+                    {t(link.textKey)}
+                  </Link>
+                ))
+              )}
+              <Slot name="navbar.menu" as="div" />
+            </nav>
           </div>
           <div className="flex items-center gap-4">
             {user ? (
@@ -56,11 +85,11 @@ export function Navbar() {
               </>
             ) : (
               <>
-                <a href="/login" className="hidden text-sm md:block">
+                <Link to="/login" className="hidden text-sm md:block">
                   {t('nav.signIn')}
-                </a>
+                </Link>
                 <Button variant="default" asChild>
-                  <a href="/register">{t('nav.signUp')}</a>
+                  <Link to="/register">{t('nav.signUp')}</Link>
                 </Button>
               </>
             )}
@@ -78,21 +107,35 @@ export function Navbar() {
               </SheetTrigger>
               <SheetContent side="right">
                 <nav className="grid gap-6 text-lg font-medium">
-                  <a
-                    href="#"
+                  <Link
+                    to="/"
                     className="flex items-center gap-2 text-xl font-bold"
                   >
                     <span>{t('app.name')}</span>
-                  </a>
-                  {navLinks.map((link) => (
-                    <a
-                      key={link.textKey}
-                      href={link.href}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      {t(link.textKey)}
-                    </a>
-                  ))}
+                  </Link>
+                  {contestId
+                    ? contestTabs.map((item) => (
+                        <button
+                          key={item.tab}
+                          onClick={() => handleTabClick(item.tab)}
+                          className={`text-left cursor-pointer ${
+                            activeTab === item.tab
+                              ? 'text-foreground font-medium'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {t(item.textKey)}
+                        </button>
+                      ))
+                    : defaultNavLinks.map((link) => (
+                        <Link
+                          key={link.textKey}
+                          to={link.href}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          {t(link.textKey)}
+                        </Link>
+                      ))}
                   <Slot name="navbar.mobile.menu" as="div" />
                 </nav>
               </SheetContent>
