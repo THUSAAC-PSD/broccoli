@@ -35,6 +35,7 @@ use crate::state::AppState;
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Forbidden", body = ErrorBody),
         (status = 404, description = "Plugin or Route not found", body = ErrorBody),
+        (status = 405, description = "Method Not Allowed", body = ErrorBody),
     ),
     security(("jwt" = []))
 )]
@@ -53,6 +54,7 @@ pub async fn handle_plugin_request(
     } else {
         format!("/{}", sub_path)
     };
+    let normalized_path = normalized_path.trim_end_matches('/').to_string();
 
     info!(
         "Received request for plugin '{}', path '{}'",
@@ -82,7 +84,7 @@ pub async fn handle_plugin_request(
             .get(&method.to_string())
             .ok_or_else(|| {
                 warn!("HTTP method {} not allowed for this route", method);
-                AppError::NotFound("Route not found".into())
+                AppError::MethodNotAllowed
             })?;
 
         (

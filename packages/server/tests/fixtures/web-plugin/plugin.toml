@@ -1,0 +1,7 @@
+name = "web-plugin"
+version = "0.1.0"
+description = "Minimal test fixture web plugin"
+
+[web]
+root = "app"
+entry = "index.js"

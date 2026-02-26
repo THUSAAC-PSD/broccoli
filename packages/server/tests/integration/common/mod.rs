@@ -24,6 +24,7 @@ use server::config::{
 use server::entity::user;
 use server::manager::ServerManager;
 use server::state::AppState;
+use server::utils::plugin::sync_plugins;
 
 /// PostgreSQL container shared across all tests in this binary.
 static SHARED_PG: OnceCell<(ContainerAsync<Postgres>, u16)> = OnceCell::const_new();
@@ -99,13 +100,34 @@ pub mod routes {
     pub const LOGIN: &str = "/api/v1/auth/login";
     pub const ME: &str = "/api/v1/auth/me";
     pub const PROBLEMS: &str = "/api/v1/problems";
+    pub const ACTIVE_PLUGINS: &str = "/api/v1/plugins/active";
+    pub const ADMIN_LIST_PLUGINS: &str = "/api/v1/admin/plugins";
 
-    pub fn plugin_enable(id: &str) -> String {
+    pub fn admin_plugin_details(id: &str) -> String {
+        format!("/api/v1/admin/plugins/{id}")
+    }
+
+    pub fn admin_plugin_enable(id: &str) -> String {
         format!("/api/v1/admin/plugins/{id}/enable")
     }
 
-    pub fn plugin_call(id: &str, func: &str) -> String {
-        format!("/api/v1/plugins/{id}/call/{func}")
+    pub fn admin_plugin_disable(id: &str) -> String {
+        format!("/api/v1/admin/plugins/{id}/disable")
+    }
+
+    pub fn plugin_proxy(id: &str, path: &str) -> String {
+        let path = path.trim_start_matches('/');
+        format!("/api/v1/p/{id}/{path}")
+    }
+
+    pub fn plugin_proxy_with_query(id: &str, path: &str, query: &str) -> String {
+        let path = path.trim_start_matches('/');
+        format!("/api/v1/p/{id}/{path}/?{query}")
+    }
+
+    pub fn plugin_asset(id: &str, path: &str) -> String {
+        let path = path.trim_start_matches('/');
+        format!("/assets/{id}/{path}")
     }
 
     pub fn problem(id: i32) -> String {
@@ -233,6 +255,8 @@ fn fixtures_dir() -> PathBuf {
 /// Parsed HTTP response for test assertions.
 pub struct TestResponse {
     pub status: u16,
+    /// Headers from the response.
+    pub headers: reqwest::header::HeaderMap,
     /// Raw response body as text.
     pub text: String,
     /// Parsed JSON body, or `Null` if the response is not valid JSON.
@@ -307,6 +331,7 @@ impl TestApp {
             mq: None,
             blob_store,
         };
+        sync_plugins(&state).await.expect("Failed to sync plugins");
 
         let app = server::build_router(state);
 
@@ -676,9 +701,15 @@ impl TestApp {
 impl TestResponse {
     pub async fn from_response(res: reqwest::Response) -> Self {
         let status = res.status().as_u16();
+        let headers = res.headers().clone();
         let text = res.text().await.unwrap_or_default();
         let body = serde_json::from_str(&text).unwrap_or(Value::Null);
-        Self { status, text, body }
+        Self {
+            status,
+            headers,
+            text,
+            body,
+        }
     }
 
     pub fn id(&self) -> i32 {
