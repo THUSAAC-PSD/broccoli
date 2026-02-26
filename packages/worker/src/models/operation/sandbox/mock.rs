@@ -1,11 +1,14 @@
 use super::error::SandboxError;
-use super::{ExecutionResult, RunOptions, SandboxManager, SandboxOptions};
+use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager, SandboxOptions};
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::process::ExitStatusExt;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use tokio::fs;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
@@ -47,6 +50,168 @@ impl MockSandboxManager {
             "mock sandbox not found for box id: {box_id}"
         )))
     }
+
+    fn open_stdin(path: &PathBuf) -> Result<std::fs::File, SandboxError> {
+        if Self::is_fifo(path) {
+            return OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .map_err(|err| {
+                    SandboxError::Execution(format!(
+                        "failed to open stdin pipe {}: {err}",
+                        path.display()
+                    ))
+                });
+        }
+
+        std::fs::File::open(path).map_err(|err| {
+            SandboxError::Execution(format!(
+                "failed to open stdin file {}: {err}",
+                path.display()
+            ))
+        })
+    }
+
+    fn open_stdout_stderr(
+        path: &PathBuf,
+        stream_name: &str,
+    ) -> Result<std::fs::File, SandboxError> {
+        if Self::is_fifo(path) {
+            return OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .map_err(|err| {
+                    SandboxError::Execution(format!(
+                        "failed to open {stream_name} pipe {}: {err}",
+                        path.display()
+                    ))
+                });
+        }
+
+        std::fs::File::create(path).map_err(|err| {
+            SandboxError::Execution(format!(
+                "failed to create {stream_name} file {}: {err}",
+                path.display()
+            ))
+        })
+    }
+
+    fn is_fifo(path: &PathBuf) -> bool {
+        std::fs::metadata(path)
+            .map(|m| m.file_type().is_fifo())
+            .unwrap_or(false)
+    }
+
+    fn resolve_inside_path(base: &Path, inside: &Path) -> Result<PathBuf, SandboxError> {
+        let mut resolved = base.to_path_buf();
+        for component in inside.components() {
+            match component {
+                Component::RootDir | Component::CurDir => {}
+                Component::Normal(part) => resolved.push(part),
+                Component::ParentDir => {
+                    return Err(SandboxError::Initialization(format!(
+                        "invalid inside_path with parent traversal: {}",
+                        inside.display()
+                    )));
+                }
+                Component::Prefix(_) => {
+                    return Err(SandboxError::Initialization(format!(
+                        "unsupported inside_path prefix: {}",
+                        inside.display()
+                    )));
+                }
+            }
+        }
+        Ok(resolved)
+    }
+
+    async fn remove_existing_target(path: &Path) -> Result<(), SandboxError> {
+        if !fs::try_exists(path).await.map_err(|err| {
+            SandboxError::Initialization(format!("failed to inspect mapped path: {err}"))
+        })? {
+            return Ok(());
+        }
+
+        let metadata = fs::symlink_metadata(path).await.map_err(|err| {
+            SandboxError::Initialization(format!("failed to inspect mapped metadata: {err}"))
+        })?;
+
+        if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+            fs::remove_dir_all(path).await.map_err(|err| {
+                SandboxError::Initialization(format!("failed to remove mapped directory: {err}"))
+            })
+        } else {
+            fs::remove_file(path).await.map_err(|err| {
+                SandboxError::Initialization(format!("failed to remove mapped file: {err}"))
+            })
+        }
+    }
+
+    async fn apply_directory_rule(
+        sandbox_path: &Path,
+        rule: &DirectoryRule,
+    ) -> Result<(), SandboxError> {
+        let inside_path = Self::resolve_inside_path(sandbox_path, &rule.inside_path)?;
+
+        if let Some(parent) = inside_path.parent() {
+            fs::create_dir_all(parent).await.map_err(|err| {
+                SandboxError::Initialization(format!(
+                    "failed to create parent directory for mapping {}: {err}",
+                    parent.display()
+                ))
+            })?;
+        }
+
+        match &rule.outside_path {
+            Some(outside_path) => {
+                if !fs::try_exists(outside_path).await.map_err(|err| {
+                    SandboxError::Initialization(format!(
+                        "failed to inspect outside_path {}: {err}",
+                        outside_path.display()
+                    ))
+                })? {
+                    fs::create_dir_all(outside_path).await.map_err(|err| {
+                        SandboxError::Initialization(format!(
+                            "failed to create outside_path {}: {err}",
+                            outside_path.display()
+                        ))
+                    })?;
+                }
+
+                Self::remove_existing_target(&inside_path).await?;
+
+                std::os::unix::fs::symlink(outside_path, &inside_path).map_err(|err| {
+                    SandboxError::Initialization(format!(
+                        "failed to create mock directory mapping {} -> {}: {err}",
+                        inside_path.display(),
+                        outside_path.display()
+                    ))
+                })?;
+            }
+            None => {
+                fs::create_dir_all(&inside_path).await.map_err(|err| {
+                    SandboxError::Initialization(format!(
+                        "failed to create inside_path {}: {err}",
+                        inside_path.display()
+                    ))
+                })?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn apply_directory_rules(
+        sandbox_path: &Path,
+        options: &SandboxOptions,
+    ) -> Result<(), SandboxError> {
+        for rule in &options.directory_rules {
+            Self::apply_directory_rule(sandbox_path, rule).await?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -54,7 +219,7 @@ impl SandboxManager for MockSandboxManager {
     async fn create_sandbox(
         &mut self,
         id: Option<&str>,
-        _options: &SandboxOptions,
+        options: &SandboxOptions,
     ) -> Result<PathBuf, SandboxError> {
         let box_id = id.unwrap_or("0").to_string();
         if box_id.is_empty() {
@@ -85,6 +250,8 @@ impl SandboxManager for MockSandboxManager {
                     "failed to create mock sandbox directory: {err}"
                 ))
             })?;
+
+        Self::apply_directory_rules(&sandbox_path, options).await?;
 
         self.sandboxes
             .write()
@@ -132,12 +299,7 @@ impl SandboxManager for MockSandboxManager {
         command.current_dir(&sandbox_path);
 
         if let Some(stdin_path) = &run_options.stdin {
-            let stdin_file = std::fs::File::open(stdin_path).map_err(|err| {
-                SandboxError::Execution(format!(
-                    "failed to open stdin file {}: {err}",
-                    stdin_path.display()
-                ))
-            })?;
+            let stdin_file = Self::open_stdin(stdin_path)?;
             command.stdin(Stdio::from(stdin_file));
         }
 
@@ -150,12 +312,7 @@ impl SandboxManager for MockSandboxManager {
                     ))
                 })?;
             }
-            let stdout_file = std::fs::File::create(stdout_path).map_err(|err| {
-                SandboxError::Execution(format!(
-                    "failed to create stdout file {}: {err}",
-                    stdout_path.display()
-                ))
-            })?;
+            let stdout_file = Self::open_stdout_stderr(stdout_path, "stdout")?;
             command.stdout(Stdio::from(stdout_file));
         } else {
             command.stdout(Stdio::piped());
@@ -170,35 +327,41 @@ impl SandboxManager for MockSandboxManager {
                     ))
                 })?;
             }
-            let stderr_file = std::fs::File::create(stderr_path).map_err(|err| {
-                SandboxError::Execution(format!(
-                    "failed to create stderr file {}: {err}",
-                    stderr_path.display()
-                ))
-            })?;
+            let stderr_file = Self::open_stdout_stderr(stderr_path, "stderr")?;
             command.stderr(Stdio::from(stderr_file));
         } else {
             command.stderr(Stdio::piped());
         }
 
         let start = Instant::now();
-        let output = command.output().await.map_err(|err| {
-            SandboxError::Execution(format!("failed to execute in mock sandbox: {err}"))
+        let child = command.spawn().map_err(|err| {
+            SandboxError::Execution(format!("failed to spawn mock sandbox process: {err}"))
+        })?;
+        let output = child.wait_with_output().await.map_err(|err| {
+            SandboxError::Execution(format!("failed to wait mock sandbox process: {err}"))
         })?;
         let elapsed = start.elapsed().as_secs_f64();
 
         let stdout = if let Some(path) = &run_options.stdout {
-            tokio::fs::read_to_string(path)
-                .await
-                .unwrap_or_else(|_| String::new())
+            if Self::is_fifo(path) {
+                String::new()
+            } else {
+                tokio::fs::read_to_string(path)
+                    .await
+                    .unwrap_or_else(|_| String::new())
+            }
         } else {
             String::from_utf8_lossy(&output.stdout).to_string()
         };
 
         let stderr = if let Some(path) = &run_options.stderr {
-            tokio::fs::read_to_string(path)
-                .await
-                .unwrap_or_else(|_| String::new())
+            if Self::is_fifo(path) {
+                String::new()
+            } else {
+                tokio::fs::read_to_string(path)
+                    .await
+                    .unwrap_or_else(|_| String::new())
+            }
         } else {
             String::from_utf8_lossy(&output.stderr).to_string()
         };
