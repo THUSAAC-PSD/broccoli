@@ -1,9 +1,13 @@
+import type { ContestProblemResponse } from '@broccoli/sdk';
+import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
+import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
   ChevronUp,
   Code2,
+  FileText,
   Home,
   LogOut,
   Settings,
@@ -11,8 +15,10 @@ import {
   Trophy,
   User,
 } from 'lucide-react';
+import { Link } from 'react-router';
 
 import { useAuth } from '@/contexts/auth-context';
+import { useContest } from '@/contexts/contest-context';
 
 import {
   DropdownMenu,
@@ -45,6 +51,48 @@ const defaultUserItems = [
   { titleKey: 'sidebar.profile', icon: User, url: '#' },
   { titleKey: 'sidebar.settings', icon: Settings, url: '#' },
 ];
+
+function ContestProblemsGroup() {
+  const { t } = useTranslation();
+  const { contestId, contestTitle } = useContest();
+  const apiClient = useApiClient();
+
+  const { data: problems = [] } = useQuery({
+    queryKey: ['contest-problems', contestId],
+    enabled: !!contestId,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
+        params: { path: { id: contestId! } },
+      });
+      if (error) throw error;
+      return data as ContestProblemResponse[];
+    },
+  });
+
+  if (!contestId || problems.length === 0) return null;
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>{contestTitle ?? t('contests.problems')}</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {problems.map((p) => (
+            <SidebarMenuItem key={p.problem_id}>
+              <SidebarMenuButton asChild tooltip={`${p.label}. ${p.problem_title}`}>
+                <Link to={`/contests/${contestId}/problems/${p.problem_id}`}>
+                  <FileText />
+                  <span>
+                    {p.label}. {p.problem_title}
+                  </span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
 
 export function Sidebar() {
   const { t } = useTranslation();
@@ -105,6 +153,8 @@ export function Sidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        <ContestProblemsGroup />
 
         <Slot name="sidebar.groups" as="div" />
 

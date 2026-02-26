@@ -9,6 +9,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
 import { AuthProvider } from '@/contexts/AuthProvider';
+import { ContestProvider } from '@/contexts/contest-context';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
@@ -51,12 +52,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             <I18nProvider defaultLocale="en" defaultTranslations={{ en }}>
               <AuthProvider>
-                <PluginRegistryProvider
-                  backendUrl={appConfig.plugin.backendUrl}
-                  pluginModules={plugins}
-                >
-                  <AppLayout>{children}</AppLayout>
-                </PluginRegistryProvider>
+                <ContestProvider>
+                  <PluginRegistryProvider
+                    backendUrl={appConfig.plugin.backendUrl}
+                    pluginModules={plugins}
+                  >
+                    <AppLayout>{children}</AppLayout>
+                  </PluginRegistryProvider>
+                </ContestProvider>
               </AuthProvider>
             </I18nProvider>
           </ApiClientProvider>
