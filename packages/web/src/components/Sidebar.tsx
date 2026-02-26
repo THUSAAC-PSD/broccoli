@@ -4,7 +4,6 @@ import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  BookOpen,
   ChevronUp,
   Code2,
   FileText,
@@ -44,13 +43,8 @@ const defaultMenuItems = [
   { titleKey: 'sidebar.dashboard', icon: Home, url: '/' },
   { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
   { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
-  { titleKey: 'sidebar.tutorials', icon: BookOpen, url: '#' },
 ];
 
-const defaultUserItems = [
-  { titleKey: 'sidebar.profile', icon: User, url: '#' },
-  { titleKey: 'sidebar.settings', icon: Settings, url: '#' },
-];
 
 function ContestProblemsGroup() {
   const { t } = useTranslation();
@@ -157,28 +151,6 @@ export function Sidebar() {
         <ContestProblemsGroup />
 
         <Slot name="sidebar.groups" as="div" />
-
-        <SidebarGroup>
-          <SidebarGroupLabel>{t('sidebar.account')}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {defaultUserItems.map((item) => {
-                const title = t(item.titleKey);
-                return (
-                  <SidebarMenuItem key={item.titleKey}>
-                    <SidebarMenuButton asChild tooltip={title}>
-                      <a href={item.url}>
-                        <item.icon />
-                        <span>{title}</span>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-              <Slot name="sidebar.account.menu" as="div" />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
 
         <Slot name="sidebar.content.after" as="div" />
       </SidebarContent>
