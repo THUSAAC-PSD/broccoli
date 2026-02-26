@@ -31,7 +31,7 @@ pub struct Environment {
 /// File: related file path in sandbox
 /// Pipe: read/write from named pipe. This will create a pipe file in folder /pipes in sandbox, and the worker will read/write from it to transfer data.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(tag = "type")]
+#[serde(tag = "type", content = "value")]
 pub enum IOTarget {
     /// Discard IO
     #[serde(rename = "null")]
