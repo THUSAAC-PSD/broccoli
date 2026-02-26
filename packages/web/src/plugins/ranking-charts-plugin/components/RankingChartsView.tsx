@@ -1,5 +1,5 @@
 import { RankChart, type ScoreSnapshot } from './RankChart';
-import { ScoreDistribution, type DistributionEntry } from './ScoreDistribution';
+import { type DistributionEntry, ScoreDistribution } from './ScoreDistribution';
 
 interface RankingChartsViewProps {
   data?: ScoreSnapshot[];

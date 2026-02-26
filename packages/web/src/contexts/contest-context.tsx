@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, type ReactNode, use, useState } from 'react';
 
 export type DashboardTab = 'problems' | 'submissions' | 'ranking';
 
@@ -42,7 +42,7 @@ export function ContestProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <ContestContext.Provider
+    <ContestContext
       value={{
         contestId,
         contestTitle,
@@ -56,12 +56,12 @@ export function ContestProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-    </ContestContext.Provider>
+    </ContestContext>
   );
 }
 
 export function useContest() {
-  const ctx = useContext(ContestContext);
+  const ctx = use(ContestContext);
   if (!ctx) throw new Error('useContest must be used within ContestProvider');
   return ctx;
 }

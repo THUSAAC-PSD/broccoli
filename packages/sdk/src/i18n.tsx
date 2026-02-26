@@ -6,8 +6,8 @@
 import {
   createContext,
   type ReactNode,
+  use,
   useCallback,
-  useContext,
   useMemo,
   useState,
 } from 'react';
@@ -108,7 +108,7 @@ export function I18nProvider({
   );
 
   return (
-    <I18nContext.Provider
+    <I18nContext
       value={{
         locale,
         setLocale,
@@ -119,12 +119,12 @@ export function I18nProvider({
       }}
     >
       {children}
-    </I18nContext.Provider>
+    </I18nContext>
   );
 }
 
 export function useTranslation() {
-  const context = useContext(I18nContext);
+  const context = use(I18nContext);
   if (!context) {
     throw new Error('useTranslation must be used within I18nProvider');
   }

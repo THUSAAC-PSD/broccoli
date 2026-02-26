@@ -1,20 +1,21 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
 import {
+  Activity,
   AlertTriangle,
   Ban,
-  FileQuestion,
-  ServerCrash,
-  Home,
-  Construction,
-  Lock,
-  FileWarning,
-  Timer,
   CloudOff,
-  Activity,
   Coffee,
+  Construction,
+  FileQuestion,
+  FileWarning,
+  Home,
+  Lock,
   type LucideIcon,
+  ServerCrash,
+  Timer,
 } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
-import { useTranslation } from '@broccoli/sdk/i18n';
 
 interface ErrorPageProps {
   code: number | string;

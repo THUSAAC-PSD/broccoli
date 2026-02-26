@@ -1,11 +1,10 @@
-import { useState } from 'react';
-
 import type { ProblemResponse } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Maximize2, Minimize2 } from 'lucide-react';
+import { useState } from 'react';
 import { useParams } from 'react-router';
 
 import { CodeEditor } from '@/components/CodeEditor';

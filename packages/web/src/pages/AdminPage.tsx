@@ -1,9 +1,9 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Code2, Shield, Trophy } from 'lucide-react';
 
-import { useAuth } from '@/contexts/auth-context';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/contexts/auth-context';
 
 import { AdminContestsTab } from './admin/AdminContestsTab';
 import { AdminProblemsTab } from './admin/AdminProblemsTab';
