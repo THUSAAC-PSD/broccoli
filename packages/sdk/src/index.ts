@@ -35,3 +35,8 @@ export type TestCaseResponse = components['schemas']['TestCaseResponse'];
 
 export type User = components['schemas']['MeResponse'];
 export type LoginRequest = components['schemas']['LoginRequest'];
+
+export type PluginDetailResponse =
+  components['schemas']['PluginDetailResponse'];
+export type PluginStatusResponse =
+  components['schemas']['PluginStatusResponse'];
