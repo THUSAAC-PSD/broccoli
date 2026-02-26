@@ -193,9 +193,6 @@ impl SandboxManager for IsolateSandboxManager {
         for rule in &options.directory_rules {
             add_directory_rule_args(&mut command, rule);
         }
-        for rule in &options.env_rules {
-            add_env_rule_args(&mut command, rule);
-        }
 
         let output = command.output().await.map_err(|err| {
             SandboxError::Initialization(format!("failed to execute isolate --init: {err}"))
@@ -242,6 +239,7 @@ impl SandboxManager for IsolateSandboxManager {
         Ok(())
     }
 
+    /// NOTE: by default, the process limit is set to 1 by isolate default, which means the executed program cannot spawn child processes. If you encounter errors related to process spawning (like compiling), please check if the process limit is the cause and set it to a larger value or 0 (no limit) in RunOptions.
     async fn execute(
         &self,
         box_id: &str,
@@ -284,6 +282,9 @@ impl SandboxManager for IsolateSandboxManager {
         }
         if let Some(stderr) = &run_options.stderr {
             command.arg(format!("--stderr={}", stderr.to_string_lossy()));
+        }
+        for rule in &run_options.env_rules {
+            add_env_rule_args(&mut command, rule);
         }
 
         command.arg("--run").arg("--").args(argv);
