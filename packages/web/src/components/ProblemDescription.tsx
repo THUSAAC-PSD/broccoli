@@ -1,9 +1,9 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Maximize2, Minimize2 } from 'lucide-react';
 
+import { Markdown } from '@/components/Markdown';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Markdown } from '@/components/Markdown';
 
 interface Example {
   input: string;

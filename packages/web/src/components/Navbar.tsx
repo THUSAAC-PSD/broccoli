@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/contexts/auth-context';
-import { useContest, type DashboardTab } from '@/contexts/contest-context';
+import { type DashboardTab, useContest } from '@/contexts/contest-context';
 
 const defaultNavLinks = [
   { textKey: 'nav.contestInfo', href: '#' },

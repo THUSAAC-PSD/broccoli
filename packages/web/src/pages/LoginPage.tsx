@@ -1,7 +1,6 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
-
-import { useTranslation } from '@broccoli/sdk/i18n';
 
 import { Button } from '@/components/ui/button';
 import {

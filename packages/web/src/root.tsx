@@ -42,7 +42,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <html lang={typeof window !== 'undefined' ? (localStorage.getItem('broccoli-locale') ?? 'en') : 'en'}>
+    <html
+      lang={
+        typeof window !== 'undefined'
+          ? (localStorage.getItem('broccoli-locale') ?? 'en')
+          : 'en'
+      }
+    >
       <head>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -60,7 +66,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
             baseUrl={appConfig.api.baseUrl}
             authTokenKey={appConfig.api.authTokenKey}
           >
-            <I18nProvider defaultLocale="en" defaultTranslations={{ en, ...ZhCNPlugin.manifest.translations }}>
+            <I18nProvider
+              defaultLocale="en"
+              defaultTranslations={{ en, ...ZhCNPlugin.manifest.translations }}
+            >
               <AuthProvider>
                 <ContestProvider>
                   <PluginRegistryProvider
