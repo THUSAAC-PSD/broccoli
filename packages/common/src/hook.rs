@@ -57,7 +57,7 @@ pub trait GenericHook: Send + Sync {
     async fn on_event(&self, ctx: Self::Context, e: &GenericEvent) -> Result<GenericHookAction>;
 }
 
-/// Adapter to convert typed Hook<E> into GenericHook
+/// Adapter to convert typed `Hook<E>` into GenericHook
 pub struct HookAdapter<E: Event, H: Hook<E>> {
     hook: Arc<H>,
     _phantom: std::marker::PhantomData<E>,
