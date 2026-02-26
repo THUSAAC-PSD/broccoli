@@ -23,12 +23,12 @@ impl EnvironmentList {
     }
 }
 
-pub struct OperationHandler<M: SandboxManager> {
-    sandbox_manager: M,
+pub struct OperationHandler {
+    sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
 }
 
-impl<M: SandboxManager> OperationHandler<M> {
-    pub fn new(sandbox_manager: M) -> Self {
+impl OperationHandler {
+    pub fn new(sandbox_manager: Box<dyn SandboxManager + Send + Sync>) -> Self {
         Self { sandbox_manager }
     }
 

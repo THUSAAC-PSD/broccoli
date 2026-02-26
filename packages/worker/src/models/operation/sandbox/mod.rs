@@ -1,5 +1,6 @@
 pub mod error;
 pub mod isolate;
+pub mod mock;
 
 use async_trait::async_trait;
 use error::SandboxError;
