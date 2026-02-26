@@ -31,6 +31,7 @@ pub enum AppError {
     InvalidCredentials,
     PermissionDenied,
     NotFound(String),
+    MethodNotAllowed,
     Conflict(String),
     UsernameTaken,
     PluginNotReady(String),
@@ -84,6 +85,13 @@ impl AppError {
                 ErrorBody {
                     code: "NOT_FOUND",
                     message: msg,
+                },
+            ),
+            AppError::MethodNotAllowed => (
+                StatusCode::METHOD_NOT_ALLOWED,
+                ErrorBody {
+                    code: "METHOD_NOT_ALLOWED",
+                    message: "HTTP method not allowed for this endpoint".into(),
                 },
             ),
             AppError::Conflict(msg) => (

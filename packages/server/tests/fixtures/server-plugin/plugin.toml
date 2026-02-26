@@ -1,0 +1,27 @@
+name = "server-plugin"
+version = "0.1.0"
+description = "Minimal test fixture server plugin"
+
+[server]
+entry = "server_plugin.wasm"
+permissions = ["storage", "sql"]
+
+[[server.routes]]
+path = "/kv/{key}"
+method = "POST"
+handler = "kv_write"
+
+[[server.routes]]
+path = "/kv/{key}"
+method = "GET"
+handler = "kv_read"
+
+[[server.routes]]
+path = "/sql/counter"
+method = "POST"
+handler = "sql_counter"
+
+[[server.routes]]
+path = "/reflect/{id}"
+method = "GET"
+handler = "reflect"
