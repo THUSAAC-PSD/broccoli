@@ -20,9 +20,7 @@ const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
     ("admin", "contest:manage"),
     ("admin", "contest:delete"),
     ("admin", "user:manage"),
-    ("admin", "plugin:list"),
-    ("admin", "plugin:enable"),
-    ("admin", "plugin:disable"),
+    ("admin", "plugin:manage"),
     ("admin", "dlq:manage"),
     // Problem setter
     ("problem_setter", "submission:submit"),

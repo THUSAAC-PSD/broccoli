@@ -50,7 +50,7 @@ pub struct PluginDetailResponse {
 #[derive(Serialize, utoipa::ToSchema)]
 pub enum PluginStatusResponse {
     /// The plugin is discovered but not loaded.
-    Discovered,
+    Unloaded,
     /// The plugin is fully loaded and running.
     Loaded,
     /// The plugin failed to load or encountered an error.
@@ -74,7 +74,7 @@ impl From<PluginInfo> for ActivePluginResponse {
 impl From<PluginStatus> for PluginStatusResponse {
     fn from(status: PluginStatus) -> Self {
         match status {
-            PluginStatus::Discovered => Self::Discovered,
+            PluginStatus::Unloaded => Self::Unloaded,
             PluginStatus::Loaded => Self::Loaded,
             PluginStatus::Failed(_) => Self::Failed,
         }
