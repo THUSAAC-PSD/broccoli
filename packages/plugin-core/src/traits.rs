@@ -134,7 +134,7 @@ pub trait PluginManager: Send + Sync {
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
         plugin_entry.runtime = None;
-        plugin_entry.status = PluginStatus::Discovered;
+        plugin_entry.status = PluginStatus::Unloaded;
 
         info!("Plugin {} unloaded successfully", plugin_entry.manifest);
 

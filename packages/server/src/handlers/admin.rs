@@ -17,7 +17,7 @@ use crate::state::AppState;
     tag = "Admin",
     operation_id = "listAllPlugins",
     summary = "List all discovered plugins",
-    description = "Returns a list of all plugins that have been discovered on disk, along with their manifest information and current status. Requires `plugin:list` permission.",
+    description = "Returns a list of all plugins that have been discovered on disk, along with their manifest information and current status. Requires `plugin:manage` permission.",
     responses(
         (status = 200, description = "List of plugins retrieved successfully", body = Vec<PluginDetailResponse>),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
@@ -30,7 +30,7 @@ pub async fn list_all_plugins(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PluginDetailResponse>>, AppError> {
-    auth_user.require_permission("plugin:list")?;
+    auth_user.require_permission("plugin:manage")?;
 
     let plugins = state
         .plugins
@@ -49,7 +49,7 @@ pub async fn list_all_plugins(
     tag = "Admin",
     operation_id = "getPluginDetails",
     summary = "Get details of a specific plugin",
-    description = "Returns detailed information about a specific plugin, including its manifest and current status. Requires `plugin:list` permission.",
+    description = "Returns detailed information about a specific plugin, including its manifest and current status. Requires `plugin:manage` permission.",
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 200, description = "Plugin details retrieved successfully", body = PluginDetailResponse),
@@ -65,7 +65,7 @@ pub async fn get_plugin_details(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PluginDetailResponse>, AppError> {
-    auth_user.require_permission("plugin:list")?;
+    auth_user.require_permission("plugin:manage")?;
 
     let plugin = state
         .plugins
@@ -84,7 +84,7 @@ pub async fn get_plugin_details(
     tag = "Admin",
     operation_id = "enablePlugin",
     summary = "Enable a plugin",
-    description = "Enables a plugin by its ID. Requires `plugin:enable` permission.",
+    description = "Enables a plugin by its ID. Requires `plugin:manage` permission.",
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 200, description = "Plugin enabled successfully", body = serde_json::Value),
@@ -101,7 +101,7 @@ pub async fn enable_plugin(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:enable")?;
+    auth_user.require_permission("plugin:manage")?;
 
     if state.plugins.is_plugin_loaded(&id)? {
         return Err(AppError::Conflict(format!(
@@ -130,7 +130,7 @@ pub async fn enable_plugin(
     tag = "Admin",
     operation_id = "disablePlugin",
     summary = "Disable a plugin",
-    description = "Disables a plugin by its ID. Requires `plugin:disable` permission.",
+    description = "Disables a plugin by its ID. Requires `plugin:manage` permission.",
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 200, description = "Plugin disabled successfully", body = serde_json::Value),
@@ -147,7 +147,7 @@ pub async fn disable_plugin(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:disable")?;
+    auth_user.require_permission("plugin:manage")?;
 
     if !state.plugins.is_plugin_loaded(&id)? {
         return Err(AppError::Conflict(format!(

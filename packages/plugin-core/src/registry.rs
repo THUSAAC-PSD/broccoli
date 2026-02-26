@@ -12,7 +12,7 @@ use crate::manifest::PluginManifest;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PluginStatus {
     /// Found on disk, parsed successfully, but not running.
-    Discovered,
+    Unloaded,
     /// Fully loaded and running in the runtime.
     Loaded,
     /// Encountered an error during discovery or activation.
@@ -92,7 +92,7 @@ impl PluginEntry {
             id,
             root_dir,
             manifest,
-            status: PluginStatus::Discovered,
+            status: PluginStatus::Unloaded,
             runtime: None,
             router,
         }
