@@ -22,10 +22,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/auth-context';
 import { useContest } from '@/contexts/contest-context';
+import { cn } from '@/lib/utils';
 
 import { RankingPage } from './RankingPage';
 
@@ -154,9 +154,7 @@ function ProblemsTab({ contestId }: { contestId: number }) {
     );
   if (problems.length === 0)
     return (
-      <div className="text-sm text-muted-foreground">
-        {t('problems.empty')}
-      </div>
+      <div className="text-sm text-muted-foreground">{t('problems.empty')}</div>
     );
 
   return (
