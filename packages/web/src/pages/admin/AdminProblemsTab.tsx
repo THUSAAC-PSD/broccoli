@@ -4,6 +4,7 @@ import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQueryClient } from '@tanstack/react-query';
 import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
@@ -299,7 +300,12 @@ export function useProblemColumns({
       header: t('admin.field.title'),
       sortKey: 'title',
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.title}</span>
+        <Link
+          to={`/problems/${row.original.id}`}
+          className="font-medium hover:text-primary hover:underline"
+        >
+          {row.original.title}
+        </Link>
       ),
     },
     {
