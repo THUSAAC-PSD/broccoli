@@ -9,7 +9,6 @@ import {
   FileText,
   Home,
   LogOut,
-  Shield,
   Trophy,
   User,
 } from 'lucide-react';
@@ -39,6 +38,9 @@ import { useContest } from '@/contexts/contest-context';
 
 const defaultMenuItems = [
   { titleKey: 'sidebar.dashboard', icon: Home, url: '/' },
+];
+
+const adminMenuItems = [
   { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
   { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
 ];
@@ -135,16 +137,20 @@ export function Sidebar() {
                   </SidebarMenuItem>
                 );
               })}
-              {user?.role === 'admin' && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip={t('sidebar.admin')}>
-                    <a href="/admin">
-                      <Shield />
-                      <span>{t('sidebar.admin')}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
+              {user?.role === 'admin' &&
+                adminMenuItems.map((item) => {
+                  const title = t(item.titleKey);
+                  return (
+                    <SidebarMenuItem key={item.titleKey}>
+                      <SidebarMenuButton asChild tooltip={title}>
+                        <a href={item.url}>
+                          <item.icon />
+                          <span>{title}</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
               <Slot name="sidebar.platform.menu" as="div" />
             </SidebarMenu>
           </SidebarGroupContent>
