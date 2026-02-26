@@ -62,6 +62,7 @@ pub struct RunOptions {
     pub stdout: Option<PathBuf>,
     pub stderr: Option<PathBuf>,
     pub env_rules: Vec<EnvRule>,
+    pub directory_rules: Vec<DirectoryRule>,
 }
 
 impl Default for RunOptions {
@@ -84,14 +85,13 @@ impl Default for RunOptions {
             stdout: None,
             stderr: None,
             env_rules: vec![EnvRule::FullEnv],
+            directory_rules: vec![],
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SandboxOptions {
-    pub directory_rules: Vec<DirectoryRule>,
-}
+pub struct SandboxOptions {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {

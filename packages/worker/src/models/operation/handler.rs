@@ -250,6 +250,8 @@ impl OperationHandler {
             stdin: stdin_path,
             stdout: stdout_path,
             stderr: stderr_path,
+            directory_rules: step.conf.directory_rules.clone(),
+            ..Default::default()
         };
 
         let exec_result = self
@@ -301,7 +303,7 @@ impl OperationHandler {
     ) -> Result<Option<PathBuf>> {
         match target {
             IOTarget::Null | IOTarget::Inherit => Ok(None),
-            IOTarget::File(path) => Ok(Some(sandbox_path.join(path))),
+            IOTarget::File(path) => Ok(Some(path.into())),
             IOTarget::Pipe(name) => {
                 if name.is_empty() {
                     return Err(anyhow!("Pipe name cannot be empty"));

@@ -179,7 +179,7 @@ impl SandboxManager for IsolateSandboxManager {
     async fn create_sandbox(
         &mut self,
         id: Option<&str>,
-        options: &SandboxOptions,
+        _options: &SandboxOptions,
     ) -> Result<PathBuf, SandboxError> {
         let mut command = Command::new(isolate_bin());
         if let Some(box_id) = id {
@@ -189,10 +189,6 @@ impl SandboxManager for IsolateSandboxManager {
             command.arg("--cg");
         }
         command.arg("--init");
-
-        for rule in &options.directory_rules {
-            add_directory_rule_args(&mut command, rule);
-        }
 
         let output = command.output().await.map_err(|err| {
             SandboxError::Initialization(format!("failed to execute isolate --init: {err}"))
@@ -285,6 +281,9 @@ impl SandboxManager for IsolateSandboxManager {
         }
         for rule in &run_options.env_rules {
             add_env_rule_args(&mut command, rule);
+        }
+        for rule in &run_options.directory_rules {
+            add_directory_rule_args(&mut command, rule);
         }
 
         command.arg("--run").arg("--").args(argv);

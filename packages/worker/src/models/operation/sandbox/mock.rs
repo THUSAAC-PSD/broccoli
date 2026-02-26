@@ -205,9 +205,9 @@ impl MockSandboxManager {
 
     async fn apply_directory_rules(
         sandbox_path: &Path,
-        options: &SandboxOptions,
+        directory_rules: &[DirectoryRule],
     ) -> Result<(), SandboxError> {
-        for rule in &options.directory_rules {
+        for rule in directory_rules {
             Self::apply_directory_rule(sandbox_path, rule).await?;
         }
         Ok(())
@@ -250,8 +250,6 @@ impl SandboxManager for MockSandboxManager {
                     "failed to create mock sandbox directory: {err}"
                 ))
             })?;
-
-        Self::apply_directory_rules(&sandbox_path, options).await?;
 
         self.sandboxes
             .write()
@@ -333,6 +331,7 @@ impl SandboxManager for MockSandboxManager {
             command.stderr(Stdio::piped());
         }
 
+        Self::apply_directory_rules(&sandbox_path, &run_options.directory_rules).await?;
         let start = Instant::now();
         let child = command.spawn().map_err(|err| {
             SandboxError::Execution(format!("failed to spawn mock sandbox process: {err}"))
