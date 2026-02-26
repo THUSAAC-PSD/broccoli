@@ -20,10 +20,10 @@
   "lint-staged": {
     "*.{ts,tsx}": [
       "eslint --fix",
-      "NODE_OPTIONS=--experimental-strip-types prettier --write"
+      "prettier --write"
     ],
     "*.{css,scss,html,md}": [
-      "NODE_OPTIONS=--experimental-strip-types prettier --write"
+      "prettier --write"
     ]
   },
   "devDependencies": {
