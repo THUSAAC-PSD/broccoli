@@ -8,6 +8,7 @@ import type {
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
+import { FileText } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link } from 'react-router';
 
@@ -21,6 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/auth-context';
 import { useContest } from '@/contexts/contest-context';
@@ -126,6 +128,7 @@ function ContestSelector({
 function ProblemsTab({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
+  const { viewSubmissions } = useContest();
 
   const {
     data: problems = [],
@@ -167,6 +170,7 @@ function ProblemsTab({ contestId }: { contestId: number }) {
             <th className="px-4 py-3 text-left font-medium">
               {t('problems.titleColumn')}
             </th>
+            <th className="px-4 py-3 text-right font-medium w-20" />
           </tr>
         </thead>
         <tbody>
@@ -181,6 +185,17 @@ function ProblemsTab({ contestId }: { contestId: number }) {
                   {p.problem_title}
                 </Link>
               </td>
+              <td className="px-4 py-3 text-right">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-muted-foreground"
+                  onClick={() => viewSubmissions(p.problem_id)}
+                  title={t('nav.submissions')}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                </Button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -189,12 +204,24 @@ function ProblemsTab({ contestId }: { contestId: number }) {
   );
 }
 
-function SubmissionsTab() {
+function SubmissionsTab({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
+  const { filterProblemId, setFilterProblemId } = useContest();
+
+  const { data: problems = [] } = useQuery({
+    queryKey: ['contest-problems', contestId],
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
+        params: { path: { id: contestId } },
+      });
+      if (error) throw error;
+      return data as ContestProblemResponse[];
+    },
+  });
 
   const { data: submissions, isLoading } = useQuery({
-    queryKey: ['dashboard-submissions'],
+    queryKey: ['dashboard-submissions', filterProblemId],
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/submissions', {
         params: {
@@ -203,6 +230,7 @@ function SubmissionsTab() {
             per_page: 20,
             sort_by: 'created_at',
             sort_order: 'desc',
+            ...(filterProblemId ? { problem_id: filterProblemId } : {}),
           },
         },
       });
@@ -211,60 +239,90 @@ function SubmissionsTab() {
     },
   });
 
-  if (isLoading) return <ListSkeleton />;
-  if (!submissions?.length)
-    return (
-      <div className="text-sm text-muted-foreground">
-        {t('dashboard.noSubmissions')}
-      </div>
-    );
-
   return (
-    <div className="rounded-md border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b bg-muted/50">
-            <th className="px-4 py-2 text-left font-medium">
-              {t('dashboard.problem')}
-            </th>
-            <th className="px-4 py-2 text-left font-medium">
-              {t('dashboard.language')}
-            </th>
-            <th className="px-4 py-2 text-left font-medium">
-              {t('dashboard.verdict')}
-            </th>
-            <th className="px-4 py-2 text-left font-medium">
-              {t('dashboard.submitted')}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {submissions.map((s) => {
-            const vb = getVerdictBadge(s.verdict, s.status);
-            return (
-              <tr key={s.id} className="border-b last:border-b-0">
-                <td className="px-4 py-2">
-                  <Link
-                    to={`/problems/${s.problem_id}`}
-                    className="font-medium hover:text-primary hover:underline"
-                  >
-                    {s.problem_title}
-                  </Link>
-                </td>
-                <td className="px-4 py-2">
-                  <Badge variant="outline">{s.language}</Badge>
-                </td>
-                <td className="px-4 py-2">
-                  <Badge variant={vb.variant}>{vb.label}</Badge>
-                </td>
-                <td className="px-4 py-2 text-muted-foreground">
-                  {formatRelativeTime(s.created_at, t)}
-                </td>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          onClick={() => setFilterProblemId(null)}
+          className={cn(
+            'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+            !filterProblemId
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t('dashboard.all')}
+        </button>
+        {problems.map((p) => (
+          <button
+            key={p.problem_id}
+            onClick={() => setFilterProblemId(p.problem_id)}
+            className={cn(
+              'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+              filterProblemId === p.problem_id
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <ListSkeleton />
+      ) : !submissions?.length ? (
+        <div className="text-sm text-muted-foreground">
+          {t('dashboard.noSubmissions')}
+        </div>
+      ) : (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-4 py-2 text-left font-medium">
+                  {t('dashboard.problem')}
+                </th>
+                <th className="px-4 py-2 text-left font-medium">
+                  {t('dashboard.language')}
+                </th>
+                <th className="px-4 py-2 text-left font-medium">
+                  {t('dashboard.verdict')}
+                </th>
+                <th className="px-4 py-2 text-left font-medium">
+                  {t('dashboard.submitted')}
+                </th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {submissions.map((s) => {
+                const vb = getVerdictBadge(s.verdict, s.status);
+                return (
+                  <tr key={s.id} className="border-b last:border-b-0">
+                    <td className="px-4 py-2">
+                      <Link
+                        to={`/problems/${s.problem_id}`}
+                        className="font-medium hover:text-primary hover:underline"
+                      >
+                        {s.problem_title}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Badge variant="outline">{s.language}</Badge>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Badge variant={vb.variant}>{vb.label}</Badge>
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {formatRelativeTime(s.created_at, t)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -371,7 +429,9 @@ export function DashboardPage() {
       {activeTab === 'problems' && contestId && (
         <ProblemsTab contestId={contestId} />
       )}
-      {activeTab === 'submissions' && <SubmissionsTab />}
+      {activeTab === 'submissions' && contestId && (
+        <SubmissionsTab contestId={contestId} />
+      )}
       {activeTab === 'ranking' && <RankingPage />}
     </div>
   );

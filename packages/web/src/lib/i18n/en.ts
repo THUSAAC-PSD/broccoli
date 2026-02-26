@@ -254,6 +254,7 @@ export const en: Record<string, string> = {
   'dashboard.selectContestDesc':
     'You are enrolled in multiple contests. Please select one.',
   'dashboard.noActiveContest': 'You are not enrolled in any contest.',
+  'dashboard.all': 'All',
   'dashboard.noSubmissions': 'No submissions yet. Start solving problems!',
   'dashboard.problem': 'Problem',
   'dashboard.language': 'Language',

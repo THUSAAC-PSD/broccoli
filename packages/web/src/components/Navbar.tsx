@@ -1,7 +1,7 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { Menu } from 'lucide-react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -24,11 +24,18 @@ const contestTabs: { textKey: string; tab: DashboardTab }[] = [
 export function Navbar() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const { contestId, contestTitle, activeTab, setActiveTab } = useContest();
+  const { contestId, contestTitle, activeTab, setActiveTab, viewSubmissions } =
+    useContest();
   const navigate = useNavigate();
+  const params = useParams();
 
   const handleTabClick = (tab: DashboardTab) => {
-    setActiveTab(tab);
+    if (tab === 'submissions') {
+      const problemId = params.problemId ? Number(params.problemId) : undefined;
+      viewSubmissions(problemId);
+    } else {
+      setActiveTab(tab);
+    }
     navigate('/');
   };
 
