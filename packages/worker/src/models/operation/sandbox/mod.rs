@@ -52,7 +52,7 @@ pub struct ResourceLimits {
     pub process_limit: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunOptions {
     pub resource_limits: ResourceLimits,
     pub wait: bool,
@@ -61,12 +61,36 @@ pub struct RunOptions {
     pub stdin: Option<PathBuf>,
     pub stdout: Option<PathBuf>,
     pub stderr: Option<PathBuf>,
+    pub env_rules: Vec<EnvRule>,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            resource_limits: ResourceLimits {
+                time_limit: None,
+                wall_time_limit: None,
+                extra_time: None,
+                memory_limit: None,
+                stack_limit: None,
+                open_files_limit: None,
+                file_size_limit: None,
+                process_limit: Some(1),
+            },
+            wait: true,
+            as_uid: None,
+            as_gid: None,
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            env_rules: vec![EnvRule::FullEnv],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SandboxOptions {
     pub directory_rules: Vec<DirectoryRule>,
-    pub env_rules: Vec<EnvRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
