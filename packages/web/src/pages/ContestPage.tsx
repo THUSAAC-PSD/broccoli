@@ -34,43 +34,169 @@ function formatDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString();
 }
 
-export function ContestPage() {
+export function ContestInfoCard({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
-  const { contestId } = useParams();
-  const id = Number(contestId);
   const apiClient = useApiClient();
 
   const {
     data: contest,
-    isLoading: isContestLoading,
-    error: contestError,
+    isLoading,
+    error,
   } = useQuery({
-    queryKey: ['contest', id],
-    enabled: Number.isFinite(id),
+    queryKey: ['contest', contestId],
+    enabled: Number.isFinite(contestId),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
-        params: { path: { id } },
+        params: { path: { id: contestId } },
       });
       if (error) throw error;
       return data as ContestResponse;
     },
   });
 
+  const status = contest
+    ? getContestStatus(contest.start_time, contest.end_time, t)
+    : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <CardTitle className="text-xl">
+            {contest?.title ?? t('contests.title')}
+          </CardTitle>
+          {status && <Badge variant={status.variant}>{status.label}</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-5 w-64" />
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+        ) : error ? (
+          <div className="text-sm text-destructive">
+            {t('contests.loadError')}
+          </div>
+        ) : contest ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <div className="text-sm text-muted-foreground">
+                  {t('contests.startTime')}
+                </div>
+                <div className="font-medium">
+                  {formatDateTime(contest.start_time)}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-muted-foreground">
+                  {t('contests.endTime')}
+                </div>
+                <div className="font-medium">
+                  {formatDateTime(contest.end_time)}
+                </div>
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <div className="text-sm text-muted-foreground">
+                {t('contests.description')}
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <Markdown>
+                  {contest.description || t('contests.noDescription')}
+                </Markdown>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ContestProblemsCard({ contestId }: { contestId: number }) {
+  const { t } = useTranslation();
+  const apiClient = useApiClient();
+
   const {
     data: problems = [],
-    isLoading: isProblemsLoading,
-    error: problemsError,
+    isLoading,
+    error,
   } = useQuery({
-    queryKey: ['contest-problems', id],
-    enabled: Number.isFinite(id),
+    queryKey: ['contest-problems', contestId],
+    enabled: Number.isFinite(contestId),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
-        params: { path: { id } },
+        params: { path: { id: contestId } },
       });
       if (error) throw error;
       return data as ContestProblemResponse[];
     },
   });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('contests.problems')}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
+        ) : error ? (
+          <div className="text-sm text-destructive">
+            {t('contests.loadProblemsError')}
+          </div>
+        ) : problems.length === 0 ? (
+          <div className="text-sm text-muted-foreground">
+            {t('problems.empty')}
+          </div>
+        ) : (
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-4 py-3 text-left font-medium w-20">
+                    {t('problems.label')}
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium">
+                    {t('problems.titleColumn')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {problems.map((p) => (
+                  <tr key={p.problem_id} className="border-b">
+                    <td className="px-4 py-3 font-semibold">{p.label}</td>
+                    <td className="px-4 py-3">
+                      <Link
+                        to={`/contests/${contestId}/problems/${p.problem_id}`}
+                        className="font-medium hover:text-primary hover:underline"
+                      >
+                        {p.problem_title}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ContestPage() {
+  const { t } = useTranslation();
+  const { contestId } = useParams();
+  const id = Number(contestId);
 
   if (!contestId || Number.isNaN(id)) {
     return (
@@ -80,129 +206,17 @@ export function ContestPage() {
     );
   }
 
-  const status = contest
-    ? getContestStatus(contest.start_time, contest.end_time, t)
-    : null;
-
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
         <Trophy className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">
-          {contest?.title ?? t('contests.title')}
-        </h1>
+        <h1 className="text-2xl font-bold">{t('contests.title')}</h1>
       </div>
 
       <Slot name="contest-detail.header" as="div" />
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <CardTitle className="text-xl">
-              {contest?.title ?? t('contests.title')}
-            </CardTitle>
-            {status && <Badge variant={status.variant}>{status.label}</Badge>}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isContestLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-5 w-64" />
-              <Skeleton className="h-5 w-48" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ) : contestError ? (
-            <div className="text-sm text-destructive">
-              {t('contests.loadError')}
-            </div>
-          ) : contest ? (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('contests.startTime')}
-                  </div>
-                  <div className="font-medium">
-                    {formatDateTime(contest.start_time)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('contests.endTime')}
-                  </div>
-                  <div className="font-medium">
-                    {formatDateTime(contest.end_time)}
-                  </div>
-                </div>
-              </div>
-              <Separator />
-              <div>
-                <div className="text-sm text-muted-foreground">
-                  {t('contests.description')}
-                </div>
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <Markdown>
-                    {contest.description || t('contests.noDescription')}
-                  </Markdown>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('contests.problems')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isProblemsLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-6 w-full" />
-              <Skeleton className="h-6 w-full" />
-              <Skeleton className="h-6 w-full" />
-            </div>
-          ) : problemsError ? (
-            <div className="text-sm text-destructive">
-              {t('contests.loadProblemsError')}
-            </div>
-          ) : problems.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              {t('problems.empty')}
-            </div>
-          ) : (
-            <div className="rounded-md border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-3 text-left font-medium w-20">
-                      {t('problems.label')}
-                    </th>
-                    <th className="px-4 py-3 text-left font-medium">
-                      {t('problems.titleColumn')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {problems.map((p) => (
-                    <tr key={p.problem_id} className="border-b">
-                      <td className="px-4 py-3 font-semibold">{p.label}</td>
-                      <td className="px-4 py-3">
-                        <Link
-                          to={`/contests/${id}/problems/${p.problem_id}`}
-                          className="font-medium hover:text-primary hover:underline"
-                        >
-                          {p.problem_title}
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <ContestInfoCard contestId={id} />
+      <ContestProblemsCard contestId={id} />
 
       <Slot name="contest-detail.scoreboard" as="div" />
     </div>

@@ -27,6 +27,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useContest } from '@/contexts/contest-context';
 import { cn } from '@/lib/utils';
 
+import { ContestInfoCard } from './ContestPage';
 import { RankingPage } from './RankingPage';
 
 function getVerdictBadge(
@@ -425,7 +426,10 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       {activeTab === 'problems' && contestId && (
-        <ProblemsTab contestId={contestId} />
+        <>
+          <ContestInfoCard contestId={contestId} />
+          <ProblemsTab contestId={contestId} />
+        </>
       )}
       {activeTab === 'submissions' && contestId && (
         <SubmissionsTab contestId={contestId} />
