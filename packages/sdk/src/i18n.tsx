@@ -40,7 +40,19 @@ export function I18nProvider({
   defaultLocale = 'en',
   defaultTranslations = {},
 }: I18nProviderProps) {
-  const [locale, setLocale] = useState(defaultLocale);
+  const [locale, setLocaleState] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('broccoli-locale') ?? defaultLocale;
+    }
+    return defaultLocale;
+  });
+
+  const setLocale = useCallback((newLocale: string) => {
+    setLocaleState(newLocale);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('broccoli-locale', newLocale);
+    }
+  }, []);
   const [translations, setTranslations] =
     useState<TranslationMap>(defaultTranslations);
 

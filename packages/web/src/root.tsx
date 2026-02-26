@@ -5,6 +5,7 @@ import { ApiClientProvider } from '@broccoli/sdk/api';
 import { I18nProvider } from '@broccoli/sdk/i18n';
 import { PluginRegistryProvider } from '@broccoli/sdk/plugin';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
@@ -36,13 +37,22 @@ const plugins = [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    document.documentElement.style.opacity = '';
+  }, []);
+
   return (
-    <html lang="en">
+    <html lang={typeof window !== 'undefined' ? (localStorage.getItem('broccoli-locale') ?? 'en') : 'en'}>
       <head>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <Meta />
         <Links />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var t=localStorage.getItem('theme');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.classList.add(t);var l=localStorage.getItem('broccoli-locale');if(l&&l!=='en')document.documentElement.style.opacity='0'})()`,
+          }}
+        />
       </head>
       <body>
         <QueryClientProvider client={queryClient}>
@@ -50,7 +60,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             baseUrl={appConfig.api.baseUrl}
             authTokenKey={appConfig.api.authTokenKey}
           >
-            <I18nProvider defaultLocale="en" defaultTranslations={{ en }}>
+            <I18nProvider defaultLocale="en" defaultTranslations={{ en, ...ZhCNPlugin.manifest.translations }}>
               <AuthProvider>
                 <ContestProvider>
                   <PluginRegistryProvider
