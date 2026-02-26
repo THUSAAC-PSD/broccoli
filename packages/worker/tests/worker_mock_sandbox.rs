@@ -39,18 +39,6 @@ fn unique_shared_dir() -> PathBuf {
     ))
 }
 
-fn unique_shared_pipe_path() -> String {
-    let counter = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir()
-        .join(format!("broccoli-shared-test-pipe-{counter}-{ts}"))
-        .to_string_lossy()
-        .to_string()
-}
-
 fn build_operation_task(command: &str) -> OperationTask {
     OperationTask {
         environments: vec![Environment {
@@ -416,7 +404,6 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
                 files_in: vec![],
                 conf: SandboxOptions {
                     directory_rules: vec![shared_rule("shared")],
-                    env_rules: vec![],
                 },
             },
             Environment {
@@ -424,7 +411,6 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
                 files_in: vec![],
                 conf: SandboxOptions {
                     directory_rules: vec![shared_rule("shared")],
-                    env_rules: vec![],
                 },
             },
         ],
