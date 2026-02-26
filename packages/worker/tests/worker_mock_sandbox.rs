@@ -402,16 +402,12 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
             Environment {
                 id: "env-a".to_string(),
                 files_in: vec![],
-                conf: SandboxOptions {
-                    directory_rules: vec![shared_rule("shared")],
-                },
+                conf: SandboxOptions {},
             },
             Environment {
                 id: "env-b".to_string(),
                 files_in: vec![],
-                conf: SandboxOptions {
-                    directory_rules: vec![shared_rule("shared")],
-                },
+                conf: SandboxOptions {},
             },
         ],
         tasks: vec![
@@ -423,7 +419,10 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
                     "-c".to_string(),
                     "printf 'hello-from-env-a' > shared/msg.txt".to_string(),
                 ],
-                conf: RunOptions::default(),
+                conf: RunOptions {
+                    directory_rules: vec![shared_rule("shared")],
+                    ..RunOptions::default()
+                },
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
@@ -437,7 +436,10 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
                     "test -f shared/msg.txt && grep -qx 'hello-from-env-a' shared/msg.txt"
                         .to_string(),
                 ],
-                conf: RunOptions::default(),
+                conf: RunOptions {
+                    directory_rules: vec![shared_rule("shared")],
+                    ..RunOptions::default()
+                },
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["producer".to_string()],
