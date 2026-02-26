@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
-
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { useApiClient, type ApiClient } from '@broccoli/sdk/api';
 import type {
   ContestListItem,
   ContestProblemItem,
   ProblemListItem,
 } from '@broccoli/sdk';
+import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
+import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -19,6 +17,8 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
@@ -47,9 +47,9 @@ import { Textarea } from '@/components/ui/textarea';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
 import {
-  SwitchField,
-  getContestStatus,
   formatDateTime,
+  getContestStatus,
+  SwitchField,
   toLocalDatetimeValue,
 } from './helpers';
 
@@ -639,7 +639,12 @@ export function useContestColumns({
       header: t('admin.field.title'),
       sortKey: 'title',
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.title}</span>
+        <Link
+          to={`/contests/${row.original.id}`}
+          className="font-medium hover:text-primary hover:underline"
+        >
+          {row.original.title}
+        </Link>
       ),
     },
     {
