@@ -12,7 +12,7 @@ use worker::models::operation::models::{
 };
 use worker::models::operation::sandbox::isolate::IsolateSandboxManager;
 use worker::models::operation::sandbox::{
-    DirectoryOptions, DirectoryRule, EnvRule, ResourceLimits, RunOptions, SandboxOptions,
+    DirectoryOptions, DirectoryRule, ResourceLimits, RunOptions, SandboxOptions,
 };
 use worker::models::worker::Worker;
 
@@ -161,7 +161,7 @@ async fn execute_cpp_oi_pipeline_with_io_redirection_isolate() {
         return;
     }
 
-    let Some(compiler) = cpp_compiler() else {
+    let Some(_compiler) = cpp_compiler() else {
         eprintln!("skip test: no C++ compiler found");
         return;
     };
