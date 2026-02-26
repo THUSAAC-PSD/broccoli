@@ -219,7 +219,7 @@ impl SandboxManager for MockSandboxManager {
     async fn create_sandbox(
         &mut self,
         id: Option<&str>,
-        options: &SandboxOptions,
+        _options: &SandboxOptions,
     ) -> Result<PathBuf, SandboxError> {
         let box_id = id.unwrap_or("0").to_string();
         if box_id.is_empty() {
@@ -297,11 +297,13 @@ impl SandboxManager for MockSandboxManager {
         command.current_dir(&sandbox_path);
 
         if let Some(stdin_path) = &run_options.stdin {
-            let stdin_file = Self::open_stdin(stdin_path)?;
+            let stdin_path = sandbox_path.join(stdin_path);
+            let stdin_file = Self::open_stdin(&stdin_path)?;
             command.stdin(Stdio::from(stdin_file));
         }
 
         if let Some(stdout_path) = &run_options.stdout {
+            let stdout_path = sandbox_path.join(stdout_path);
             if let Some(parent) = stdout_path.parent() {
                 tokio::fs::create_dir_all(parent).await.map_err(|err| {
                     SandboxError::Execution(format!(
@@ -310,13 +312,14 @@ impl SandboxManager for MockSandboxManager {
                     ))
                 })?;
             }
-            let stdout_file = Self::open_stdout_stderr(stdout_path, "stdout")?;
+            let stdout_file = Self::open_stdout_stderr(&stdout_path, "stdout")?;
             command.stdout(Stdio::from(stdout_file));
         } else {
             command.stdout(Stdio::piped());
         }
 
         if let Some(stderr_path) = &run_options.stderr {
+            let stderr_path = sandbox_path.join(stderr_path);
             if let Some(parent) = stderr_path.parent() {
                 tokio::fs::create_dir_all(parent).await.map_err(|err| {
                     SandboxError::Execution(format!(
@@ -325,7 +328,7 @@ impl SandboxManager for MockSandboxManager {
                     ))
                 })?;
             }
-            let stderr_file = Self::open_stdout_stderr(stderr_path, "stderr")?;
+            let stderr_file = Self::open_stdout_stderr(&stderr_path, "stderr")?;
             command.stderr(Stdio::from(stderr_file));
         } else {
             command.stderr(Stdio::piped());
