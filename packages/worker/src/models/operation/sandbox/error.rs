@@ -8,10 +8,6 @@ pub enum SandboxError {
     #[error("execution error: {0}")]
     Execution(String),
 
-    #[error("Resource limit: {0}")]
-    #[allow(dead_code)]
-    ResourceLimit(String),
-
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
