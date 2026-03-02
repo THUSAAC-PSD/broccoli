@@ -154,8 +154,6 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
             .unwrap_or(0.0)
     };
 
-    // TODO: return ResourceLimit error when the program is killed due to resource limit
-
     Ok(ExecutionResult {
         exit_code: parse_i32("exitcode"),
         signal: parse_i32("exitsig"),

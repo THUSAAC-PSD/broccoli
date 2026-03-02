@@ -1,7 +1,8 @@
 use super::models::*;
 use super::sandbox::{ExecutionResult, RunOptions, SandboxManager, SandboxOptions};
 use anyhow::{Context, Result, anyhow};
-use std::collections::{HashMap, VecDeque};
+use futures::future::join_all;
+use std::collections::HashMap;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, instrument, warn};
@@ -65,58 +66,47 @@ impl OperationHandler {
             );
         }
 
-        // Get execution order
-        let execution_order = self.get_execution_order(operation)?;
-        debug!(order = ?execution_order, "Task execution order determined");
+        // Get execution order as layers of independent tasks
+        let execution_layers = self.get_execution_order(operation)?;
+        debug!(layers = ?execution_layers, "Task execution layers determined");
 
         let mut task_results = HashMap::new();
         let mut global_success = true;
 
-        // Execute tasks in order
-        // TODO: Consider parallel execution of independent tasks
-        for task_id in execution_order {
-            let task = operation
-                .tasks
+        // Reborrow self as shared reference for parallel execution phase.
+        // Mutable access is only needed for create/cleanup, not for task execution.
+        let this = &*self;
+
+        // Execute layers sequentially; tasks within each layer run in parallel
+        for layer in execution_layers {
+            let futures: Vec<_> = layer
                 .iter()
-                .find(|t| t.id == task_id)
-                .expect("Task should exist");
+                .map(|task_id| {
+                    let task = operation
+                        .tasks
+                        .iter()
+                        .find(|t| t.id == *task_id)
+                        .expect("Task should exist");
 
-            // Check if all dependencies succeeded
-            let deps_ok = task.depends_on.iter().all(|dep_id| {
-                task_results
-                    .get(dep_id)
-                    .map(|r: &TaskExecutionResult| r.success)
-                    .unwrap_or(false)
-            });
+                    // Check if all dependencies succeeded
+                    let deps_ok = task.depends_on.iter().all(|dep_id| {
+                        task_results
+                            .get(dep_id)
+                            .map(|r: &TaskExecutionResult| r.success)
+                            .unwrap_or(false)
+                    });
 
-            let result = if deps_ok {
-                match self.execute_step(task, &environments).await {
-                    Ok(result) => {
-                        if !result.success {
-                            global_success = false;
-                        }
-                        result
-                    }
-                    Err(e) => {
-                        error!(task_id = %task.id, error = %e, "Task execution error");
-                        global_success = false;
-                        TaskExecutionResult {
-                            task_id: task.id.clone(),
-                            success: false,
-                            sandbox_result: ExecutionResult::default(),
-                        }
-                    }
+                    this.execute_step_with_deps(task, &environments, deps_ok)
+                })
+                .collect();
+
+            let results = join_all(futures).await;
+            for result in results {
+                if !result.success {
+                    global_success = false;
                 }
-            } else {
-                warn!(task_id = %task.id, "Skipping task due to dependency failure");
-                TaskExecutionResult {
-                    task_id: task.id.clone(),
-                    success: false,
-                    sandbox_result: ExecutionResult::default(),
-                }
-            };
-
-            task_results.insert(task.id.clone(), result);
+                task_results.insert(result.task_id.clone(), result);
+            }
         }
 
         // Cleanup
@@ -166,8 +156,10 @@ impl OperationHandler {
         graph
     }
 
-    /// Get execution order using topological sort
-    fn get_execution_order(&self, operation: &OperationTask) -> Result<Vec<String>> {
+    /// Get execution order as layers using topological sort (Kahn's algorithm).
+    /// Each layer contains tasks whose dependencies are all in prior layers,
+    /// allowing tasks within the same layer to execute in parallel.
+    fn get_execution_order(&self, operation: &OperationTask) -> Result<Vec<Vec<String>>> {
         let graph = self.build_dependency_graph(operation);
         let mut in_degree: HashMap<String, usize> = HashMap::new();
         let mut adj_list: HashMap<String, Vec<String>> = HashMap::new();
@@ -193,37 +185,73 @@ impl OperationHandler {
             in_degree.insert(task_id.clone(), degree);
         }
 
-        // Kahn's algorithm
-        let mut queue: VecDeque<_> = in_degree
+        // Kahn's algorithm — collect nodes by layer
+        let mut current_layer: Vec<_> = in_degree
             .iter()
             .filter(|(_, degree)| **degree == 0)
             .map(|(id, _)| id.clone())
             .collect();
 
-        let mut order = Vec::new();
+        let mut layers = Vec::new();
+        let mut total = 0;
 
-        while let Some(task_id) = queue.pop_front() {
-            order.push(task_id.clone());
+        while !current_layer.is_empty() {
+            let mut next_layer = Vec::new();
 
-            if let Some(neighbors) = adj_list.get(&task_id) {
-                for neighbor in neighbors {
-                    if let Some(degree) = in_degree.get_mut(neighbor) {
-                        *degree -= 1;
-                        if *degree == 0 {
-                            queue.push_back(neighbor.clone());
+            for task_id in &current_layer {
+                if let Some(neighbors) = adj_list.get(task_id) {
+                    for neighbor in neighbors {
+                        if let Some(degree) = in_degree.get_mut(neighbor) {
+                            *degree -= 1;
+                            if *degree == 0 {
+                                next_layer.push(neighbor.clone());
+                            }
                         }
                     }
                 }
             }
+
+            total += current_layer.len();
+            layers.push(current_layer);
+            current_layer = next_layer;
         }
 
-        if order.len() != operation.tasks.len() {
+        if total != operation.tasks.len() {
             return Err(anyhow!(
                 "Circular dependency detected or task missing in dependency graph"
             ));
         }
 
-        Ok(order)
+        Ok(layers)
+    }
+
+    /// Execute a task, skipping if dependencies failed
+    async fn execute_step_with_deps(
+        &self,
+        step: &Step,
+        environments: &HashMap<String, EnvironmentList>,
+        deps_ok: bool,
+    ) -> TaskExecutionResult {
+        if deps_ok {
+            match self.execute_step(step, environments).await {
+                Ok(result) => result,
+                Err(e) => {
+                    error!(task_id = %step.id, error = %e, "Task execution error");
+                    TaskExecutionResult {
+                        task_id: step.id.clone(),
+                        success: false,
+                        sandbox_result: ExecutionResult::default(),
+                    }
+                }
+            }
+        } else {
+            warn!(task_id = %step.id, "Skipping task due to dependency failure");
+            TaskExecutionResult {
+                task_id: step.id.clone(),
+                success: false,
+                sandbox_result: ExecutionResult::default(),
+            }
+        }
     }
 
     /// Execute a single step
