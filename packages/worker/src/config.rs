@@ -9,11 +9,6 @@ pub struct WorkerConfig {
     /// Unique identifier for this worker instance. Default: "worker-1".
     #[serde(default = "default_worker_id")]
     pub id: String,
-    /// Number of jobs to fetch per batch. Default: 10.
-    /// TODO: remove this
-    #[serde(default = "default_batch_size")]
-    #[allow(dead_code)]
-    pub batch_size: usize,
     /// Isolate executable path. Default: "isolate".
     #[serde(default = "default_isolate_bin")]
     pub isolate_bin: String,
@@ -27,9 +22,6 @@ pub struct WorkerConfig {
 
 fn default_worker_id() -> String {
     "worker-1".into()
-}
-fn default_batch_size() -> usize {
-    4
 }
 fn default_isolate_bin() -> String {
     "isolate".into()
@@ -45,7 +37,6 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             id: default_worker_id(),
-            batch_size: default_batch_size(),
             isolate_bin: default_isolate_bin(),
             enable_cgroups: default_enable_cgroups(),
             sandbox_backend: default_sandbox_backend(),

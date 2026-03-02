@@ -8,7 +8,6 @@ max_age = 3600
 
 [worker]
 id = "worker-1"
-batch_size = 4
 sandbox_backend = "isolate"
 isolate_bin = "isolate"
 enable_cgroups = true
