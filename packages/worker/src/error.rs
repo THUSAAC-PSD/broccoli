@@ -27,6 +27,10 @@ pub enum WorkerError {
     /// Unexpected internal error.
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Task panicked during execution.
+    #[error("Task panicked: {0}")]
+    TaskPanic(String),
 }
 
 impl WorkerError {
@@ -40,6 +44,7 @@ impl WorkerError {
             Self::Io(_) => "IO_ERROR",
             Self::External(_) => "EXTERNAL_ERROR",
             Self::Internal(_) => "INTERNAL_ERROR",
+            Self::TaskPanic(_) => "TASK_PANIC",
         }
     }
 }
