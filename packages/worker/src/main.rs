@@ -3,14 +3,16 @@ mod error;
 mod models;
 
 use anyhow::Context;
-use common::DlqConfig;
-use common::retry::{RetryTracker, spawn_cleanup_task};
+use common::retry::{
+    RetryCleanupGuard, RetryDecision, RetryTracker, calculate_backoff, spawn_cleanup_task,
+};
 use common::worker::Task;
+use common::{DlqConfig, DlqEnvelope, DlqErrorCode, DlqMessageType};
 use mq::{BroccoliError, BrokerMessage, MqConfig, init_mq};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::error::WorkerError;
 use crate::models::worker::Worker;
@@ -47,16 +49,22 @@ async fn main() -> anyhow::Result<()> {
 
     let retry_tracker = Arc::new(Mutex::new(RetryTracker::new(dlq_config.max_retries)));
 
-    // TODO: Store handle for graceful shutdown. Currently the task runs until process exit.
     let _cleanup_handle = spawn_cleanup_task(
         retry_tracker.clone(),
         Duration::from_secs(dlq_config.retry_cleanup_interval_secs),
         Duration::from_secs(dlq_config.retry_max_age_secs),
     );
 
-    // TODO: consider use an infinite loop
-    let result = mq
-        .process_messages(
+    // Main loop: reconnect on MQ errors, exit on graceful shutdown
+    loop {
+        let mq_for_handler = Arc::clone(&mq_for_handler);
+        let worker = Arc::clone(&worker);
+        let result_queue = result_queue.clone();
+        let dlq_queue = dlq_queue.clone();
+        let dlq_config = dlq_config.clone();
+        let retry_tracker = Arc::clone(&retry_tracker);
+
+        let consume_fut = mq.process_messages(
             &config.mq.queue_name,
             None,
             None,
@@ -80,13 +88,41 @@ async fn main() -> anyhow::Result<()> {
                     .await
                 }
             },
-        )
-        .await;
+        );
 
-    if let Err(e) = result {
-        error!(error = %e, "Worker stopped unexpectedly");
+        let should_break = tokio::select! {
+            result = consume_fut => {
+                match result {
+                    Ok(()) => {
+                        info!("Consumer exited normally");
+                        true
+                    }
+                    Err(e) => {
+                        error!(error = %e, "MQ error, reconnecting in 5s...");
+                        // Sleep also under select so ctrl_c can interrupt it
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                            _ = tokio::signal::ctrl_c() => {
+                                info!("Shutdown signal received during reconnect wait");
+                                return Ok(());
+                            }
+                        }
+                        false
+                    }
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                info!("Shutdown signal received, exiting gracefully...");
+                true
+            }
+        };
+
+        if should_break {
+            break;
+        }
     }
 
+    info!("Worker stopped");
     Ok(())
 }
 
@@ -109,20 +145,76 @@ async fn process_message(
         "Received task"
     );
 
-    if let Err(e) = process_task(&task, worker, mq, result_queue).await {
-        error!(
-            job_id = %task_id,
-            error = %e,
-            dlq_queue = %dlq_queue,
-            max_retries = dlq_config.max_retries,
-            "Task execution failed (DLQ flow is not implemented yet)"
-        );
+    let mut cleanup_guard = RetryCleanupGuard::new(retry_tracker, &task_id);
+
+    loop {
+        match process_task(&task, worker, mq, result_queue).await {
+            Ok(()) => {
+                retry_tracker.lock().await.clear(&task_id);
+                cleanup_guard.defuse();
+                return Ok(());
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                let decision = retry_tracker
+                    .lock()
+                    .await
+                    .record_failure(&task_id, &error_str);
+
+                match decision {
+                    RetryDecision::Retry { attempt, .. } => {
+                        let delay = calculate_backoff(
+                            attempt,
+                            dlq_config.base_delay_ms,
+                            dlq_config.max_delay_ms,
+                        );
+                        warn!(
+                            job_id = %task_id,
+                            attempt,
+                            delay_ms = delay.as_millis() as u64,
+                            error = %e,
+                            "Task failed, retrying"
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                    RetryDecision::Exhausted { history } => {
+                        error!(
+                            job_id = %task_id,
+                            retry_count = history.len(),
+                            error = %e,
+                            "Max retries exhausted, sending to DLQ"
+                        );
+
+                        let payload = serde_json::to_value(&task).unwrap_or_else(|ser_err| {
+                            error!(error = %ser_err, "Failed to serialize task for DLQ");
+                            serde_json::json!({ "task_id": task_id })
+                        });
+
+                        let envelope = DlqEnvelope {
+                            message_id: task_id.clone(),
+                            message_type: DlqMessageType::JudgeJob,
+                            submission_id: None,
+                            payload,
+                            error_code: DlqErrorCode::MaxRetriesExceeded,
+                            error_message: error_str,
+                            retry_history: history,
+                        };
+
+                        if let Err(dlq_err) = mq.publish(dlq_queue, None, &envelope, None).await {
+                            error!(
+                                job_id = %task_id,
+                                error = %dlq_err,
+                                "CRITICAL: Failed to publish to DLQ, message may be lost"
+                            );
+                        }
+
+                        cleanup_guard.defuse();
+                        return Ok(());
+                    }
+                }
+            }
+        }
     }
-
-    let mut tracker = retry_tracker.lock().await;
-    tracker.clear(&task_id);
-
-    Ok(())
 }
 
 async fn process_task(
@@ -137,7 +229,18 @@ async fn process_task(
         "Processing task"
     );
 
-    let result = worker.execute_task(task.clone()).await?;
+    // Panic isolation: run task in a spawned task to catch panics
+    let worker = Arc::clone(worker);
+    let task_clone = task.clone();
+    let result = tokio::spawn(async move { worker.execute_task(task_clone).await })
+        .await
+        .map_err(|e| {
+            if e.is_panic() {
+                WorkerError::TaskPanic(format!("{e}"))
+            } else {
+                WorkerError::Internal(format!("Task join error: {e}"))
+            }
+        })??;
 
     // Judge tasks: publish the inner JudgeResult directly (server consumer expects it)
     // Other tasks: publish the full TaskResult wrapper
