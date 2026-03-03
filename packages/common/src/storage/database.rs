@@ -100,7 +100,7 @@ impl BlobStore for DatabaseBlobStore {
             .await
             .map_err(|e| StorageError::Database(format!("get_stream query failed: {e}")))?;
 
-        let row = row.ok_or_else(|| StorageError::NotFound(hash_hex))?;
+        let row = row.ok_or(StorageError::NotFound(hash_hex))?;
 
         let data: Vec<u8> = row
             .try_get_by_index::<Vec<u8>>(0)
@@ -157,7 +157,7 @@ impl BlobStore for DatabaseBlobStore {
             .await
             .map_err(|e| StorageError::Database(format!("size query failed: {e}")))?;
 
-        let row = row.ok_or_else(|| StorageError::NotFound(hash_hex))?;
+        let row = row.ok_or(StorageError::NotFound(hash_hex))?;
 
         let size: i64 = row
             .try_get_by_index(0)
