@@ -1,3 +1,4 @@
+use super::file_cacher::FileCacher;
 use super::models::*;
 use super::sandbox::{ExecutionResult, RunOptions, SandboxManager, SandboxOptions};
 use anyhow::{Context, Result, anyhow};
@@ -26,11 +27,18 @@ impl EnvironmentList {
 
 pub struct OperationHandler {
     sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
+    file_cacher: Box<dyn FileCacher>,
 }
 
 impl OperationHandler {
-    pub fn new(sandbox_manager: Box<dyn SandboxManager + Send + Sync>) -> Self {
-        Self { sandbox_manager }
+    pub fn new(
+        sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
+        file_cacher: Box<dyn FileCacher>,
+    ) -> Self {
+        Self {
+            sandbox_manager,
+            file_cacher,
+        }
     }
 
     /// Execute an operation
@@ -138,10 +146,36 @@ impl OperationHandler {
     /// Load files into sandbox environment
     async fn load_environment_files(
         &self,
-        _sandbox_path: &PathBuf,
-        _files: &[(String, SessionFile)],
+        sandbox_path: &Path,
+        files: &[(String, SessionFile)],
     ) -> Result<()> {
-        // TODO
+        for (target_path, source) in files {
+            let dest = sandbox_path.join(target_path);
+            if let Some(parent) = dest.parent() {
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .context("Failed to create parent directory")?;
+            }
+            match source {
+                SessionFile::Path(src) => {
+                    tokio::fs::copy(src, &dest).await.with_context(|| {
+                        format!("Failed to copy file {} -> {}", src, dest.display())
+                    })?;
+                }
+                SessionFile::Content(content) => {
+                    tokio::fs::write(&dest, content).await.with_context(|| {
+                        format!("Failed to write content to {}", dest.display())
+                    })?;
+                }
+                SessionFile::DbFile(content_hash) => {
+                    self.file_cacher
+                        .fetch_to_path(content_hash, &dest)
+                        .await
+                        .map_err(|e| anyhow!("Failed to fetch db file {}: {}", content_hash, e))?;
+                }
+            }
+            debug!(target = %target_path, dest = %dest.display(), "Loaded environment file");
+        }
         Ok(())
     }
 
@@ -373,12 +407,22 @@ impl OperationHandler {
         }
     }
 
-    async fn collect_output(
-        &self,
-        _sandbox_path: &PathBuf,
-        _collect_files: &[String],
-    ) -> Result<()> {
-        // TODO
+    async fn collect_output(&self, sandbox_path: &Path, collect_files: &[String]) -> Result<()> {
+        for file_path in collect_files {
+            let src = sandbox_path.join(file_path);
+            if tokio::fs::try_exists(&src).await.unwrap_or(false) {
+                let hash = self.file_cacher.upload_from_path(&src).await.map_err(|e| {
+                    anyhow!("Failed to upload output file {}: {}", src.display(), e)
+                })?;
+                info!(
+                    file = %file_path,
+                    hash = %hash,
+                    "Collected output file"
+                );
+            } else {
+                warn!(path = %src.display(), "Collect target not found, skipping");
+            }
+        }
         Ok(())
     }
 

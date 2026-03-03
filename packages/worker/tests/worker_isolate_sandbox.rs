@@ -84,8 +84,8 @@ fn build_operation_task(command: &str) -> OperationTask {
     }
 }
 
-fn build_worker_with_isolate_sandbox() -> Worker {
-    let worker = Worker::new();
+async fn build_worker_with_isolate_sandbox() -> Worker {
+    let worker = Worker::new().await;
     worker.register_executor(
         "operation",
         Arc::new(OperationTaskExecutor::new_with_sandbox_manager(Box::new(
@@ -99,7 +99,7 @@ async fn execute_operation_with_isolate(
     task_id: &str,
     operation: OperationTask,
 ) -> (common::worker::TaskResult, OperationResult) {
-    let worker = build_worker_with_isolate_sandbox();
+    let worker = build_worker_with_isolate_sandbox().await;
     let task = Task {
         id: task_id.to_string(),
         task_type: "operation".to_string(),

@@ -14,7 +14,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let worker = Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
             hook_registry: Arc::new(Mutex::new(HookRegistry::new(()))),
@@ -23,7 +23,10 @@ impl Worker {
         let native = NativeExecutor::new();
         native.register_handler("judge".into(), handle_judge);
         worker.register_executor("native", Arc::new(native));
-        worker.register_executor("operation", Arc::new(OperationTaskExecutor::new()));
+        worker.register_executor(
+            "operation",
+            Arc::new(OperationTaskExecutor::from_config().await),
+        );
         // TODO: WasmExecutor?
         worker
     }
@@ -106,11 +109,5 @@ impl Worker {
         };
 
         Ok(result)
-    }
-}
-
-impl Default for Worker {
-    fn default() -> Self {
-        Self::new()
     }
 }

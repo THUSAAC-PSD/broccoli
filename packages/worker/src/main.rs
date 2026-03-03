@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     let dlq_queue = config.mq.dlq_queue_name.clone();
     let dlq_config = config.mq.dlq.clone();
     let mq_for_handler = Arc::clone(&mq);
-    let worker = Arc::new(Worker::new());
+    let worker = Arc::new(Worker::new().await);
 
     let retry_tracker = Arc::new(Mutex::new(RetryTracker::new(dlq_config.max_retries)));
 

@@ -1,5 +1,8 @@
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use super::file_cacher::{BlobStoreFileCacher, FileCacher, NoopFileCacher};
 use super::models::OperationTask;
 use super::sandbox::SandboxManager;
 use super::sandbox::isolate::IsolateSandboxManager;
@@ -8,8 +11,9 @@ use crate::config::WorkerAppConfig;
 use crate::models::operation::handler::OperationHandler;
 use anyhow::Result;
 use async_trait::async_trait;
+use common::storage::database::DatabaseBlobStore;
 use common::worker::*;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Executor for running operations with isolated sandboxes
 pub struct OperationTaskExecutor {
@@ -17,26 +21,39 @@ pub struct OperationTaskExecutor {
 }
 
 impl OperationTaskExecutor {
-    pub fn new() -> Self {
-        Self::new_with_sandbox_manager(Self::sandbox_manager_from_config())
+    /// Create from config, initializing DatabaseBlobStore + BlobStoreFileCacher.
+    pub async fn from_config() -> Self {
+        let config = WorkerAppConfig::load().ok();
+
+        let sandbox_manager = Self::sandbox_manager_from_config(config.as_ref());
+        let file_cacher = Self::file_cacher_from_config(config.as_ref()).await;
+
+        Self {
+            operation_executor: Mutex::new(OperationHandler::new(sandbox_manager, file_cacher)),
+        }
     }
 
+    /// Create with a specific sandbox manager (uses NoopFileCacher — for tests).
     pub fn new_with_sandbox_manager(
         sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
     ) -> Self {
         Self {
-            operation_executor: Mutex::new(OperationHandler::new(sandbox_manager)),
+            operation_executor: Mutex::new(OperationHandler::new(
+                sandbox_manager,
+                Box::new(NoopFileCacher),
+            )),
         }
     }
 
-    fn sandbox_manager_from_config() -> Box<dyn SandboxManager + Send + Sync> {
-        let backend = match WorkerAppConfig::load() {
-            Ok(cfg) => cfg.worker.sandbox_backend,
-            Err(error) => {
-                warn!(error = %error, "Failed to load worker config, fallback to isolate sandbox");
+    fn sandbox_manager_from_config(
+        config: Option<&WorkerAppConfig>,
+    ) -> Box<dyn SandboxManager + Send + Sync> {
+        let backend = config
+            .map(|c| c.worker.sandbox_backend.clone())
+            .unwrap_or_else(|| {
+                warn!("No config available, fallback to isolate sandbox");
                 "isolate".to_string()
-            }
-        };
+            });
 
         if backend.eq_ignore_ascii_case("mock") {
             info!(sandbox_backend = "mock", "Using operation sandbox backend");
@@ -52,11 +69,72 @@ impl OperationTaskExecutor {
             Box::new(IsolateSandboxManager)
         }
     }
+
+    async fn file_cacher_from_config(config: Option<&WorkerAppConfig>) -> Box<dyn FileCacher> {
+        let storage_config = config.map(|c| &c.storage);
+
+        let database_url = storage_config
+            .map(|s| s.database_url.clone())
+            .unwrap_or_else(|| "postgres://localhost/broccoli".into());
+        let cache_dir = storage_config
+            .map(|s| s.cache_dir.clone())
+            .unwrap_or_else(|| "./data/cache".into());
+        let max_cache_size = storage_config
+            .map(|s| s.max_cache_size)
+            .unwrap_or(512 * 1024 * 1024);
+
+        // Connect to database for DatabaseBlobStore.
+        let db = match sea_orm::Database::connect(&database_url).await {
+            Ok(db) => db,
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to connect to database for blob store, falling back to NoopFileCacher"
+                );
+                return Box::new(NoopFileCacher);
+            }
+        };
+
+        // Ensure blob_data table exists.
+        if let Err(e) = DatabaseBlobStore::ensure_table(&db).await {
+            error!(error = %e, "Failed to ensure blob_data table");
+            return Box::new(NoopFileCacher);
+        }
+
+        let blob_store = Arc::new(DatabaseBlobStore::new(db, 128 * 1024 * 1024));
+
+        match BlobStoreFileCacher::new(blob_store, PathBuf::from(&cache_dir), max_cache_size).await
+        {
+            Ok(cacher) => {
+                info!(
+                    database_url = %database_url,
+                    cache_dir = %cache_dir,
+                    max_cache_size,
+                    "DatabaseBlobStore + BlobStoreFileCacher initialized"
+                );
+                Box::new(cacher) as Box<dyn FileCacher>
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to initialize BlobStoreFileCacher, falling back to NoopFileCacher"
+                );
+                Box::new(NoopFileCacher) as Box<dyn FileCacher>
+            }
+        }
+    }
 }
 
 impl Default for OperationTaskExecutor {
     fn default() -> Self {
-        Self::new()
+        // Sync default uses NoopFileCacher. For production, use `from_config().await`.
+        let config = WorkerAppConfig::load().ok();
+        Self {
+            operation_executor: Mutex::new(OperationHandler::new(
+                Self::sandbox_manager_from_config(config.as_ref()),
+                Box::new(NoopFileCacher),
+            )),
+        }
     }
 }
 
