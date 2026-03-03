@@ -62,20 +62,20 @@ impl BlobStoreFileCacher {
             .map_err(|e| format!("Failed to read cache dir: {e}"))?;
 
         while let Ok(Some(entry)) = rd.next_entry().await {
-            if let Ok(meta) = entry.metadata().await {
-                if meta.is_file() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    // Skip temporary files from partial downloads.
-                    if name.ends_with(".tmp") {
-                        let _ = tokio::fs::remove_file(entry.path()).await;
-                        continue;
-                    }
-                    let size = meta.len();
-                    // Use modified time for sorting, fallback to 0 if unavailable
-                    let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    entries_vec.push((name, size, mtime));
-                    total_size += size;
+            if let Ok(meta) = entry.metadata().await
+                && meta.is_file()
+            {
+                let name = entry.file_name().to_string_lossy().to_string();
+                // Skip temporary files from partial downloads.
+                if name.ends_with(".tmp") {
+                    let _ = tokio::fs::remove_file(entry.path()).await;
+                    continue;
                 }
+                let size = meta.len();
+                // Use modified time for sorting, fallback to 0 if unavailable
+                let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                entries_vec.push((name, size, mtime));
+                total_size += size;
             }
         }
 
