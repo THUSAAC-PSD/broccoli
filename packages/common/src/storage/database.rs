@@ -1,13 +1,34 @@
 use std::io::Cursor;
 
 use async_trait::async_trait;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
+use sea_orm::entity::prelude::*;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect, Schema, Set};
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use super::error::StorageError;
 use super::hash::ContentHash;
 use super::traits::{BlobStore, BoxReader};
+
+// TODO: use chunk storage for large blobs or object storage like S3 instead of storing all blob data in the database.
+
+mod blob_data {
+    use sea_orm::entity::prelude::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+    #[sea_orm(table_name = "blob_data")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub content_hash: String,
+        pub data: Vec<u8>,
+        pub size: i64,
+        pub created_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
 
 /// A [`BlobStore`] backed by a PostgreSQL `blob_data` table.
 ///
@@ -36,50 +57,72 @@ impl DatabaseBlobStore {
 
     /// Create the `blob_data` table if it does not already exist.
     pub async fn ensure_table(db: &DatabaseConnection) -> Result<(), StorageError> {
-        let sql = r#"
-            CREATE TABLE IF NOT EXISTS blob_data (
-                content_hash TEXT PRIMARY KEY,
-                data         BYTEA NOT NULL,
-                size         BIGINT NOT NULL,
-                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        "#;
-        db.execute_unprepared(sql).await.map_err(|e| {
+        let backend = db.get_database_backend();
+        let schema = Schema::new(backend);
+        let mut create_stmt = schema.create_table_from_entity(blob_data::Entity);
+        create_stmt.if_not_exists();
+
+        db.execute(&create_stmt).await.map_err(|e| {
             StorageError::Database(format!("Failed to create blob_data table: {e}"))
         })?;
         Ok(())
+    }
+
+    async fn read_all_limited(
+        mut reader: impl AsyncRead + Unpin,
+        max_size: u64,
+    ) -> Result<(Vec<u8>, u64, ContentHash), StorageError> {
+        let mut hasher = Sha256::new();
+        let mut total_bytes: u64 = 0;
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 64 * 1024];
+
+        loop {
+            let n = reader.read(&mut chunk).await?;
+            if n == 0 {
+                break;
+            }
+
+            total_bytes += n as u64;
+            if total_bytes > max_size {
+                return Err(StorageError::SizeLimitExceeded {
+                    actual: total_bytes,
+                    limit: max_size,
+                });
+            }
+
+            hasher.update(&chunk[..n]);
+            data.extend_from_slice(&chunk[..n]);
+        }
+
+        let hash = ContentHash::from_bytes(hasher.finalize().into());
+        Ok((data, total_bytes, hash))
     }
 }
 
 #[async_trait]
 impl BlobStore for DatabaseBlobStore {
     async fn put_stream(&self, mut reader: BoxReader) -> Result<ContentHash, StorageError> {
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-
-        if buf.len() as u64 > self.max_size {
-            return Err(StorageError::SizeLimitExceeded {
-                actual: buf.len() as u64,
-                limit: self.max_size,
-            });
-        }
-
-        let mut hasher = Sha256::new();
-        hasher.update(&buf);
-        let hash = ContentHash::from_bytes(hasher.finalize().into());
+        let (buf, total_bytes, hash) = Self::read_all_limited(&mut reader, self.max_size).await?;
         let hash_hex = hash.to_hex();
-        let size = buf.len() as i64;
 
-        // INSERT ... ON CONFLICT DO NOTHING for deduplication.
-        let stmt = Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            r#"INSERT INTO blob_data (content_hash, data, size)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (content_hash) DO NOTHING"#,
-            [hash_hex.into(), buf.into(), size.into()],
-        );
-        self.db
-            .execute_raw(stmt)
+        let size = i64::try_from(total_bytes)
+            .map_err(|_| StorageError::Database(format!("blob size overflow: {total_bytes}")))?;
+
+        let model = blob_data::ActiveModel {
+            content_hash: Set(hash_hex),
+            data: Set(buf),
+            size: Set(size),
+            ..Default::default()
+        };
+
+        blob_data::Entity::insert(model)
+            .on_conflict(
+                OnConflict::column(blob_data::Column::ContentHash)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec_without_returning(&self.db)
             .await
             .map_err(|e| StorageError::Database(format!("put_stream failed: {e}")))?;
 
@@ -89,37 +132,24 @@ impl BlobStore for DatabaseBlobStore {
     async fn get_stream(&self, hash: &ContentHash) -> Result<BoxReader, StorageError> {
         let hash_hex = hash.to_hex();
 
-        let stmt = Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "SELECT data FROM blob_data WHERE content_hash = $1",
-            [hash_hex.clone().into()],
-        );
-        let row = self
-            .db
-            .query_one_raw(stmt)
+        let model = blob_data::Entity::find_by_id(hash_hex.clone())
+            .one(&self.db)
             .await
             .map_err(|e| StorageError::Database(format!("get_stream query failed: {e}")))?;
 
-        let row = row.ok_or(StorageError::NotFound(hash_hex))?;
+        let model = model.ok_or(StorageError::NotFound(hash_hex))?;
 
-        let data: Vec<u8> = row
-            .try_get_by_index::<Vec<u8>>(0)
-            .map_err(|e| StorageError::Database(format!("get_stream decode failed: {e}")))?;
-
-        Ok(Box::new(Cursor::new(data)))
+        Ok(Box::new(Cursor::new(model.data)))
     }
 
     async fn exists(&self, hash: &ContentHash) -> Result<bool, StorageError> {
         let hash_hex = hash.to_hex();
 
-        let stmt = Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "SELECT 1 FROM blob_data WHERE content_hash = $1",
-            [hash_hex.into()],
-        );
-        let row = self
-            .db
-            .query_one_raw(stmt)
+        let row = blob_data::Entity::find_by_id(hash_hex)
+            .select_only()
+            .column(blob_data::Column::ContentHash)
+            .into_tuple::<(String,)>()
+            .one(&self.db)
             .await
             .map_err(|e| StorageError::Database(format!("exists query failed: {e}")))?;
 
@@ -129,39 +159,32 @@ impl BlobStore for DatabaseBlobStore {
     async fn delete(&self, hash: &ContentHash) -> Result<bool, StorageError> {
         let hash_hex = hash.to_hex();
 
-        let stmt = Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "DELETE FROM blob_data WHERE content_hash = $1",
-            [hash_hex.into()],
-        );
-        let result = self
-            .db
-            .execute_raw(stmt)
+        let result = blob_data::Entity::delete_by_id(hash_hex)
+            .exec(&self.db)
             .await
             .map_err(|e| StorageError::Database(format!("delete failed: {e}")))?;
 
-        Ok(result.rows_affected() > 0)
+        Ok(result.rows_affected > 0)
     }
 
     async fn size(&self, hash: &ContentHash) -> Result<u64, StorageError> {
         let hash_hex = hash.to_hex();
 
-        let stmt = Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "SELECT size FROM blob_data WHERE content_hash = $1",
-            [hash_hex.clone().into()],
-        );
-        let row = self
-            .db
-            .query_one_raw(stmt)
+        let row = blob_data::Entity::find_by_id(hash_hex.clone())
+            .select_only()
+            .column(blob_data::Column::Size)
+            .into_tuple::<(i64,)>()
+            .one(&self.db)
             .await
             .map_err(|e| StorageError::Database(format!("size query failed: {e}")))?;
 
-        let row = row.ok_or(StorageError::NotFound(hash_hex))?;
+        let (size,) = row.ok_or(StorageError::NotFound(hash_hex))?;
 
-        let size: i64 = row
-            .try_get_by_index(0)
-            .map_err(|e| StorageError::Database(format!("size decode failed: {e}")))?;
+        if size < 0 {
+            return Err(StorageError::Database(format!(
+                "size decode failed: negative size {size}"
+            )));
+        }
 
         Ok(size as u64)
     }
