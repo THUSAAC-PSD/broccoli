@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, body::Body};
 use chrono::Utc;
-use common::storage::{BoxReader, ContentHash};
+use common::storage::{BlobStore, BoxReader, ContentHash};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use tokio::io::AsyncWriteExt;
@@ -122,6 +122,15 @@ pub async fn upload_attachment(
         )
         .exec_without_returning(&state.db)
         .await?;
+
+    // Dual-write: also store blob data in the blob_data table so workers
+    // can fetch via DatabaseBlobStore (direct DB access).
+    let blob_bytes = state.blob_store.get(&hash).await?;
+    let db_blob_store =
+        common::storage::database::DatabaseBlobStore::new(state.db.clone(), u64::MAX);
+    if let Err(e) = db_blob_store.put(&blob_bytes).await {
+        tracing::warn!(error = %e, "Failed to dual-write blob to blob_data table");
+    }
 
     let ref_id = Uuid::now_v7();
     let now = Utc::now();
