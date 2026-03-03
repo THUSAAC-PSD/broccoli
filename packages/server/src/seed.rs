@@ -1,3 +1,4 @@
+use common::storage::database::DatabaseBlobStore;
 use sea_orm::*;
 use sea_query::{Index, PostgresQueryBuilder};
 use tracing::info;
@@ -99,6 +100,11 @@ pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr>
 /// SeaORM's schema-sync doesn't support composite non-unique indexes,
 /// so we create them manually on startup.
 pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
+    // Ensure blob_data table exists for DatabaseBlobStore.
+    DatabaseBlobStore::ensure_table(db)
+        .await
+        .map_err(|e| DbErr::Custom(format!("Failed to ensure blob_data table: {e}")))?;
+    info!("Ensured blob_data table exists");
     // Composite index for rate limiting queries:
     // SELECT COUNT(*) FROM submission WHERE user_id = ? AND created_at > ?
     let stmt = Index::create()
