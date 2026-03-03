@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use crate::models::operation::sandbox::{ExecutionResult, RunOptions, SandboxOptions};
 
 /// File source for initial environment setup
-/// TODO: Fetch from db
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SessionFile {
@@ -14,6 +13,9 @@ pub enum SessionFile {
     /// Inline content
     #[serde(rename = "content")]
     Content(String),
+    /// File from database BlobStore, identified by ContentHash hex string
+    #[serde(rename = "db")]
+    DbFile(String),
 }
 
 /// Environment configuration - represents a sandbox instance
