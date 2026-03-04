@@ -73,8 +73,8 @@ impl OperationTaskExecutor {
     async fn file_cacher_from_config(config: Option<&WorkerAppConfig>) -> Box<dyn FileCacher> {
         let storage_config = config.map(|c| &c.storage);
 
-        let database_url = storage_config
-            .map(|s| s.database_url.clone())
+        let database_url = config
+            .map(|c| c.database.url.clone())
             .unwrap_or_else(|| "postgres://localhost/broccoli".into());
         let cache_dir = storage_config
             .map(|s| s.cache_dir.clone())
@@ -91,14 +91,14 @@ impl OperationTaskExecutor {
                     error = %e,
                     "Failed to connect to database for blob store, falling back to NoopFileCacher"
                 );
-                return Box::new(NoopFileCacher);
+                return Box::new(NoopFileCacher) as Box<dyn FileCacher>;
             }
         };
 
         // Ensure blob_data table exists.
         if let Err(e) = DatabaseBlobStore::ensure_table(&db).await {
             error!(error = %e, "Failed to ensure blob_data table");
-            return Box::new(NoopFileCacher);
+            return Box::new(NoopFileCacher) as Box<dyn FileCacher>;
         }
 
         let blob_store = Arc::new(DatabaseBlobStore::new(db, 128 * 1024 * 1024));
