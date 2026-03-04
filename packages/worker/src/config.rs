@@ -3,6 +3,25 @@ use serde::Deserialize;
 
 pub use common::config::MqAppConfig;
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct DatabaseConfig {
+    /// PostgreSQL connection URL.
+    #[serde(default = "default_database_url")]
+    pub url: String,
+}
+
+fn default_database_url() -> String {
+    "postgres://localhost/broccoli".into()
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: default_database_url(),
+        }
+    }
+}
+
 /// Worker-specific configuration.
 #[derive(Debug, Deserialize, Clone)]
 pub struct WorkerConfig {
@@ -47,9 +66,6 @@ impl Default for WorkerConfig {
 /// Storage configuration for database-backed blob store and local cache.
 #[derive(Debug, Deserialize, Clone)]
 pub struct StorageConfig {
-    /// PostgreSQL connection URL for DatabaseBlobStore.
-    #[serde(default = "default_database_url")]
-    pub database_url: String,
     /// Local directory for the file cache. Default: "./data/cache".
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
@@ -58,9 +74,6 @@ pub struct StorageConfig {
     pub max_cache_size: u64,
 }
 
-fn default_database_url() -> String {
-    "postgres://localhost/broccoli".into()
-}
 fn default_cache_dir() -> String {
     "./data/cache".into()
 }
@@ -71,7 +84,6 @@ fn default_max_cache_size() -> u64 {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            database_url: default_database_url(),
             cache_dir: default_cache_dir(),
             max_cache_size: default_max_cache_size(),
         }
@@ -83,6 +95,8 @@ impl Default for StorageConfig {
 pub struct WorkerAppConfig {
     #[serde(default)]
     pub worker: WorkerConfig,
+    #[serde(default)]
+    pub database: DatabaseConfig,
     #[serde(default)]
     pub mq: MqAppConfig,
     #[serde(default)]
@@ -105,7 +119,7 @@ impl WorkerAppConfig {
             .set_default("mq.pool_size", 5_i64)?
             .set_default("mq.queue_name", "judge_jobs")?
             .set_default("mq.result_queue_name", "judge_results")?
-            .set_default("storage.database_url", "postgres://localhost/broccoli")?
+            .set_default("database.url", "postgres://localhost/broccoli")?
             .set_default("storage.cache_dir", "./data/cache")?
             .set_default("storage.max_cache_size", 512 * 1024 * 1024_i64)?
             .add_source(File::with_name(&config_path).required(false))
