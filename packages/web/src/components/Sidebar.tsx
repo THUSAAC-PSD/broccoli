@@ -6,7 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ChevronUp,
   Code2,
-  FileText,
   Home,
   LogOut,
   MessageCircle,
@@ -104,30 +103,49 @@ function ContestProblemsGroup() {
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          {problems.map((p) => (
-            <SidebarMenuItem key={p.problem_id}>
-              <SidebarMenuButton
-                asChild
-                tooltip={`${p.label}. ${p.problem_title}`}
-              >
-                <Link to={`/contests/${contestId}/problems/${p.problem_id}`}>
-                  <FileText />
-                  <span>
-                    {p.label}. {p.problem_title}
-                  </span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
+          {problems.map((p) => {
+            const isActive =
+              pathname === `/contests/${contestId}/problems/${p.problem_id}`;
+            return (
+              <SidebarMenuItem key={p.problem_id}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive}
+                  tooltip={`${p.label}. ${p.problem_title}`}
+                >
+                  <Link to={`/contests/${contestId}/problems/${p.problem_id}`}>
+                    <span className="relative flex size-4 shrink-0 items-center justify-center">
+                      <span
+                        className={`absolute flex size-5 items-center justify-center rounded text-[11px] font-bold leading-none ${
+                          isActive
+                            ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                            : 'bg-sidebar-primary/20 text-sidebar-primary'
+                        }`}
+                      >
+                        {p.label}
+                      </span>
+                    </span>
+                    <span>{p.problem_title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
   );
 }
 
+function isActivePath(pathname: string, url: string) {
+  if (url === '/') return pathname === '/';
+  return pathname.startsWith(url);
+}
+
 export function Sidebar() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
 
   return (
     <SidebarUI collapsible="icon">
@@ -159,13 +177,22 @@ export function Sidebar() {
             <SidebarMenu>
               {defaultMenuItems.map((item) => {
                 const title = t(item.titleKey);
+                const active = isActivePath(pathname, item.url);
                 return (
                   <SidebarMenuItem key={item.titleKey}>
-                    <SidebarMenuButton asChild tooltip={title}>
-                      <a href={item.url}>
-                        <item.icon />
+                    <SidebarMenuButton
+                      asChild
+                      isActive={active}
+                      tooltip={title}
+                    >
+                      <Link to={item.url}>
+                        <item.icon
+                          className={
+                            active ? 'text-sidebar-primary' : undefined
+                          }
+                        />
                         <span>{title}</span>
-                      </a>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -173,13 +200,22 @@ export function Sidebar() {
               {user?.role === 'admin' &&
                 adminMenuItems.map((item) => {
                   const title = t(item.titleKey);
+                  const active = isActivePath(pathname, item.url);
                   return (
                     <SidebarMenuItem key={item.titleKey}>
-                      <SidebarMenuButton asChild tooltip={title}>
-                        <a href={item.url}>
-                          <item.icon />
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        tooltip={title}
+                      >
+                        <Link to={item.url}>
+                          <item.icon
+                            className={
+                              active ? 'text-sidebar-primary' : undefined
+                            }
+                          />
                           <span>{title}</span>
-                        </a>
+                        </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
