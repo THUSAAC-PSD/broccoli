@@ -22,6 +22,7 @@ export const manifest: PluginManifest = {
       'sidebar.profile': '个人资料',
       'sidebar.settings': '设置',
       'sidebar.plugins': '插件',
+      'sidebar.qa': '问答',
 
       // Navbar
       'nav.contestInfo': '比赛信息',

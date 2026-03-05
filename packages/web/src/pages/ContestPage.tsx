@@ -3,18 +3,11 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  AlignLeft,
-  CalendarClock,
-  Clock,
-  MessageCircle,
-  Trophy,
-} from 'lucide-react';
+import { AlignLeft, CalendarClock, Clock, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -241,12 +234,6 @@ export function ContestPage() {
             {contest?.title ?? t('contests.title')}
           </h1>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to={`/contests/${id}/qa`}>
-            <MessageCircle className="mr-2 h-4 w-4" />
-            {'Q & A'}
-          </Link>
-        </Button>
       </div>
       <Slot name="contest-detail.header" as="div" />
 
