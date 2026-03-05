@@ -12,7 +12,6 @@ import { Markdown } from '@/components/Markdown';
 import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSubmission } from '@/hooks/use-submission';
 
@@ -417,9 +416,7 @@ export function ProblemDetailPage() {
       {/* ── Scrollable / flexible content area ── */}
       {!showCodingPanel ? (
         <div className="flex-1 overflow-y-auto p-6">
-          <Card className="max-w-4xl mx-auto">
-            <CardContent className="pt-6">{descriptionBody}</CardContent>
-          </Card>
+          <div className="max-w-4xl mx-auto">{descriptionBody}</div>
         </div>
       ) : (
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">
