@@ -1,6 +1,6 @@
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { PanelLeft } from 'lucide-react';
+import { ChevronsLeftRight, PanelLeft } from 'lucide-react';
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -288,18 +288,18 @@ const SidebarRail = ({
 }: React.ComponentProps<'button'> & {
   ref?: React.RefObject<HTMLButtonElement | null>;
 }) => {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, state } = useSidebar();
 
   return (
     <button
       ref={ref}
       data-sidebar="rail"
-      aria-label="Toggle Sidebar"
+      aria-label={state === 'collapsed' ? 'Expand Sidebar' : 'Collapse Sidebar'}
       tabIndex={-1}
       onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      title={state === 'collapsed' ? 'Expand Sidebar' : 'Collapse Sidebar'}
       className={cn(
-        'absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex',
+        'group absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-colors ease-linear after:absolute after:inset-y-0 after:left-1/2 after:z-0 after:-translate-x-1/2 after:w-[2px] after:bg-sidebar-border/45 hover:bg-sidebar-accent/20 hover:after:bg-sidebar-border focus-visible:bg-sidebar-accent/30 focus-visible:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex',
         '[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-e-resize',
         '[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize',
         'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full group-data-[collapsible=offcanvas]:hover:bg-sidebar',
@@ -308,7 +308,11 @@ const SidebarRail = ({
         className,
       )}
       {...props}
-    />
+    >
+      <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-foreground/70 shadow-sm opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 md:flex">
+        <ChevronsLeftRight className="h-3.5 w-3.5" />
+      </span>
+    </button>
   );
 };
 SidebarRail.displayName = 'SidebarRail';
