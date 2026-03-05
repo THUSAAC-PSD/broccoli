@@ -19,7 +19,7 @@ services:
       - redis_data:/data
 
   seaweedfs:
-    image: chrislusf/seaweedfs:3.79
+    image: chrislusf/seaweedfs:4.15
     command:
       [
         "server",
