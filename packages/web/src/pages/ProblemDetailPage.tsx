@@ -226,7 +226,7 @@ export function ProblemDetailPage() {
           {copiedNotice.text || t('problem.copiedSimple')}
         </div>
       )}
-      <div className="p-6 pb-0">
+      <div className="px-6 pt-3 pb-0">
         <ProblemHeader
           id={headerId}
           title={problem?.title ?? t('problem.title')}
