@@ -184,10 +184,12 @@ export function Sidebar() {
                 className="w-[--radix-dropdown-menu-trigger-width]"
               >
                 {user ? (
-                  <DropdownMenuItem onClick={logout}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    {t('auth.logout')}
-                  </DropdownMenuItem>
+                  <Link to="/">
+                    <DropdownMenuItem onClick={logout}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      {t('auth.logout')}
+                    </DropdownMenuItem>
+                  </Link>
                 ) : (
                   <DropdownMenuItem asChild>
                     <a href="/login">{t('nav.signIn')}</a>
