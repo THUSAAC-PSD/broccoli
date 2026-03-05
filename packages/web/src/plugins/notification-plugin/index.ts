@@ -10,7 +10,7 @@ export const manifest: PluginManifest = {
   author: 'Broccoli Team',
   slots: [
     {
-      name: 'navbar.actions',
+      name: 'app.NotificationButton',
       position: 'append',
       component: 'notifications/NotificationButton',
       priority: 50,
