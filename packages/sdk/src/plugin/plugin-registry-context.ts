@@ -1,34 +1,24 @@
 import { createContext } from 'react';
 
-import type {
-  ComponentBundle,
-  PluginManifest,
-  PluginModule,
-  RouteConfig,
-  SlotConfig,
-} from '@/types';
+import type { ActivePluginManifest, RouteConfig, SlotConfig } from '@/index';
+import type { ComponentBundle, PluginModule } from '@/types';
 
 // Plugin Registry Context
 export interface PluginRegistryContextValue {
-  plugins: Map<string, PluginManifest>;
+  plugins: Map<string, ActivePluginManifest>;
   components: ComponentBundle;
   // TODO: consider appending plugin name to route config,
   // e.g. RouteConfig & { pluginName: string }
   routes: RouteConfig[];
   isLoading: boolean;
-  loadPluginFromManifest: (
-    manifest: PluginManifest,
-    components: ComponentBundle,
+  loadPlugin: (
+    manifest: ActivePluginManifest,
+    module: PluginModule,
   ) => Promise<void>;
-  loadPluginFromModule: (module: PluginModule) => Promise<void>;
-  loadPluginFromUrl: (url: string) => Promise<void>;
   loadAllPlugins: () => Promise<void>;
   unloadPlugin: (pluginId: string) => Promise<void>;
-  // TODO: loadPluginFromId & reloadPlugin & reloadAllPlugins
-  getSlots: <TContext = unknown>(
-    slotName: string,
-    context?: TContext,
-  ) => SlotConfig<TContext>[];
+  // TODO: reloadPlugin & reloadAllPlugins
+  getSlots: (slotName: string) => SlotConfig[];
   errors: Map<string, Error>;
 }
 

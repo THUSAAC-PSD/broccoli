@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
@@ -78,5 +79,81 @@ pub struct WebConfig {
 
     /// Path to the JS entry file relative to the web root, e.g., "index.js".
     pub entry: String,
-    // TODO: styles
+
+    /// Components exposed by the plugin, where the key is the component name
+    /// and the value is the name as exported by the JS entry file.
+    #[serde(default)]
+    pub components: ComponentMap,
+
+    /// Slots for UI extension.
+    #[serde(default)]
+    pub slots: Vec<WebSlotConfig>,
+
+    /// Routes for client-side navigation.
+    #[serde(default)]
+    pub routes: Vec<WebRouteConfig>,
+
+    /// Translations for i18n, where the key is the locale (e.g., "en-US") and
+    /// the value is a map of translation keys to translated strings.
+    #[serde(default)]
+    pub translations: TranslationMap,
 }
+
+// pub type ComponentMap = HashMap<String, String>;
+
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema, Default)]
+#[schema(example = json!({
+    "MyComponent": "MyComponent",
+    "MyPage": "MyPage"
+}))]
+pub struct ComponentMap(HashMap<String, String>);
+
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WebSlotPosition {
+    Append,
+    Prepend,
+    Replace,
+    Before,
+    After,
+    Wrap,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
+pub struct WebSlotConfig {
+    /// Name of the slot to render into, e.g., "sidebar.footer".
+    pub name: String,
+
+    /// Positioning strategy for the component in the slot.
+    pub position: WebSlotPosition,
+
+    /// Name of the component to render in this slot, which must match a key in
+    /// the `components` map.
+    pub component: String,
+
+    /// Priority for ordering when multiple plugins target the same slot.
+    pub priority: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
+pub struct WebRouteConfig {
+    /// Path for client-side navigation, e.g., "/problems/{id}/export".
+    pub path: String,
+
+    /// Component to render for this route, which must match a key in the
+    /// `components` map.
+    pub component: String,
+
+    /// Meta information for this route, which can be used for things like page
+    /// titles or icons in the frontend.
+    pub meta: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema, Default)]
+#[schema(example = json!({
+    "zh-CN": {
+        "sidebar.problems": "题目",
+        "sidebar.plugins": "插件"
+    }
+}))]
+pub struct TranslationMap(HashMap<String, HashMap<String, String>>);

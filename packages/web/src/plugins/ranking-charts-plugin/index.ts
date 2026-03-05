@@ -1,16 +1,20 @@
-import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/sdk';
 
 import { RankChart } from './components/RankChart';
 import { RankingChartsView } from './components/RankingChartsView';
 import { ScoreDistribution } from './components/ScoreDistribution';
 
-export const manifest: PluginManifest = {
+export { RankChart, RankingChartsView, ScoreDistribution };
+
+export const manifest: ActivePluginManifest = {
   id: 'ranking-charts-plugin',
   name: 'ranking-charts-plugin',
-  version: '1.0.0',
-  description: 'Charts and graphs for ranking visualization',
-  author: 'Broccoli Team',
-  enabled: true,
+  entry: '',
+  components: {
+    'charts/RankChart': 'RankChart',
+    'charts/ScoreDistribution': 'ScoreDistribution',
+    'charts/RankingChartsView': 'RankingChartsView',
+  },
   slots: [
     {
       name: 'ranking.charts',
@@ -19,10 +23,6 @@ export const manifest: PluginManifest = {
       priority: 50,
     },
   ],
-};
-
-export const components: ComponentBundle = {
-  'charts/RankChart': RankChart,
-  'charts/ScoreDistribution': ScoreDistribution,
-  'charts/RankingChartsView': RankingChartsView,
+  routes: [],
+  translations: {},
 };

@@ -1,12 +1,12 @@
-import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/sdk';
 
-export const manifest: PluginManifest = {
+export const manifest: ActivePluginManifest = {
   id: 'zh-cn-language',
   name: 'zh-cn-language',
-  version: '1.0.0',
-  description: 'Chinese (Simplified) language pack',
-  author: 'Broccoli Team',
-  enabled: true,
+  entry: '',
+  components: {},
+  slots: [],
+  routes: [],
   translations: {
     'zh-CN': {
       // App
@@ -287,5 +287,3 @@ export const manifest: PluginManifest = {
     },
   },
 };
-
-export const components: ComponentBundle = {};

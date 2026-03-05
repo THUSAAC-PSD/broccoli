@@ -3,15 +3,21 @@
  * This demonstrates how plugins work with the slot system
  */
 
-import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/sdk';
 
 import { AmazingButton } from './components/AmazingButton';
 import { AmazingPage } from './pages/AmazingPage';
 
-export const manifest: PluginManifest = {
+export { AmazingButton, AmazingPage };
+
+export const manifest: ActivePluginManifest = {
   id: 'amazing-button-plugin',
   name: 'amazing-button-plugin',
-  version: '1.0.0',
+  entry: '',
+  components: {
+    'components/AmazingButton': 'AmazingButton',
+    'pages/AmazingPage': 'AmazingPage',
+  },
   slots: [
     {
       name: 'sidebar.account.menu',
@@ -32,9 +38,4 @@ export const manifest: PluginManifest = {
       'plugin.amazingButton.pageTitle': 'Amazing Page!',
     },
   },
-};
-
-export const components: ComponentBundle = {
-  'components/AmazingButton': AmazingButton,
-  'pages/AmazingPage': AmazingPage,
 };
