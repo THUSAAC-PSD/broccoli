@@ -2,7 +2,7 @@ services:
   db:
     image: postgres:18-alpine
     ports:
-      - '5432:5432'
+      - "5432:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: broccoli_pg_secret
@@ -12,12 +12,30 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ['redis-server', '--requirepass', 'broccoli_redis_secret']
+    command: ["redis-server", "--requirepass", "broccoli_redis_secret"]
     ports:
-      - '6379:6379'
+      - "6379:6379"
     volumes:
       - redis_data:/data
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.79
+    command:
+      [
+        "server",
+        "-dir=/data",
+        "-s3",
+        "-s3.config=/etc/seaweedfs/s3.json",
+        "-ip=seaweedfs",
+      ]
+    ports:
+      - "9333:9333"
+      - "8333:8333"
+    volumes:
+      - seaweed_data:/data
+      - ./config/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
 
 volumes:
   pg_data:
   redis_data:
+  seaweed_data:
