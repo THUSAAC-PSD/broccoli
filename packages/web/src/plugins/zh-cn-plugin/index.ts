@@ -72,6 +72,10 @@ export const manifest: PluginManifest = {
       'problem.toggleFullscreen': '切换全屏',
       'problem.notFound': '未找到题目。',
       'problem.loadError': '加载题目失败。',
+      'problem.copy': '复制',
+      'problem.copied': '已复制 {{file}}',
+      'problem.copiedSimple': '已复制',
+      'problem.downloadSampleFile': '下载 {{file}}（{{size}}）',
 
       // Code editor
       'editor.title': '代码',

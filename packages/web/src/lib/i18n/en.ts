@@ -67,6 +67,10 @@ export const en: Record<string, string> = {
   'problem.toggleFullscreen': 'Toggle fullscreen',
   'problem.notFound': 'Problem not found.',
   'problem.loadError': 'Failed to load problem.',
+  'problem.copy': 'Copy',
+  'problem.copied': 'Copied {{file}}',
+  'problem.copiedSimple': 'Copied',
+  'problem.downloadSampleFile': 'Download {{file}} ({{size}})',
 
   // Code editor
   'editor.title': 'Code',
