@@ -4,11 +4,13 @@ import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  BarChart3,
   ChevronUp,
   Code2,
   Home,
   LogOut,
   MessageCircle,
+  Presentation,
   Puzzle,
   Trophy,
   User,
@@ -98,7 +100,7 @@ function ContestProblemsGroup() {
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip={t('sidebar.contestshomepage')}>
               <Link to={`/contests/${contestId}`}>
-                <Home />
+                <Presentation />
                 <span>{t('sidebar.contestshomepage')}</span>
               </Link>
             </SidebarMenuButton>
@@ -116,7 +118,7 @@ function ContestProblemsGroup() {
             </SidebarMenuButton>
             <SidebarMenuButton asChild tooltip={t('sidebar.rankings')}>
               <Link to={`/contests/${contestId}/rankings`}>
-                <Trophy />
+                <BarChart3 />
                 <span>{t('sidebar.rankings')}</span>
               </Link>
             </SidebarMenuButton>
@@ -164,6 +166,8 @@ export function Sidebar() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
+  const permissions = user?.permissions || [];
+  console.log('User permissions:', permissions);
 
   return (
     <SidebarUI collapsible="icon">
@@ -215,7 +219,8 @@ export function Sidebar() {
                   </SidebarMenuItem>
                 );
               })}
-              {user?.role === 'admin' &&
+              {(permissions.includes('problem:create') ||
+                permissions.includes('problem:edit')) &&
                 adminMenuItems.map((item) => {
                   const title = t(item.titleKey);
                   const active = isActivePath(pathname, item.url);
