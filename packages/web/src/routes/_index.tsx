@@ -1,5 +1,5 @@
-import { DashboardPage } from '@/pages/DashboardPage';
+import { HomePage } from '@/pages/HomePage';
 
 export default function Index() {
-  return <DashboardPage />;
+  return <HomePage />;
 }
