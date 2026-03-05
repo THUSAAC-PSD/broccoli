@@ -13,7 +13,7 @@ import {
   Trophy,
   User,
 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 
 import {
   DropdownMenu,
@@ -49,8 +49,30 @@ const adminMenuItems = [
 
 function ContestProblemsGroup() {
   const { t } = useTranslation();
-  const { contestId, contestTitle } = useContest();
+  const { contestId: ctxContestId, contestTitle } = useContest();
+  const { pathname } = useLocation();
   const apiClient = useApiClient();
+
+  const urlContestId = (() => {
+    const m = pathname.match(/^\/contests\/(\d+)/);
+    return m ? Number(m[1]) : null;
+  })();
+
+  const contestId = ctxContestId ?? urlContestId;
+
+  const { data: contestData } = useQuery({
+    queryKey: ['contest', contestId],
+    enabled: !!contestId && !contestTitle,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/contests/{id}', {
+        params: { path: { id: contestId! } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const resolvedTitle = contestTitle ?? contestData?.title ?? null;
 
   const { data: problems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
@@ -69,7 +91,7 @@ function ContestProblemsGroup() {
   return (
     <SidebarGroup>
       <SidebarGroupLabel>
-        {contestTitle ?? t('contests.problems')}
+        {resolvedTitle ?? t('contests.problems')}
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
