@@ -5,8 +5,8 @@
 
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 
+import type { SlotConfig } from '@/index';
 import { usePluginRegistry } from '@/plugin/use-plugin-registry';
-import type { SlotConfig } from '@/types';
 
 export { usePluginRegistry };
 
@@ -53,15 +53,11 @@ class PluginErrorBoundary extends Component<
 
 // ── Slot Component ──
 
-interface SlotProps<TContext = unknown> {
+interface SlotProps {
   name: string;
   as?: React.ElementType;
   className?: string;
   children?: ReactNode;
-  /**
-   * Context object passed to slot condition functions
-   */
-  context?: TContext;
   /**
    * Additional props to pass to all slot components
    */
@@ -73,11 +69,10 @@ export function Slot({
   as = 'div',
   className,
   children,
-  context,
   slotProps = {},
 }: SlotProps) {
   const { getSlots, components } = usePluginRegistry();
-  const slots = getSlots(name, context);
+  const slots = getSlots(name);
   const Container = as;
 
   // Render slots based on their position
@@ -88,19 +83,13 @@ export function Slot({
       return null;
     }
 
-    // Merge slot props with component props
-    const componentProps = {
-      ...slotProps,
-      ...slot.props,
-    };
-
     return (
       <PluginErrorBoundary
         key={`${slot.name}-${slot.component}-${index}`}
         pluginName={slot._pluginName ?? 'unknown'}
         componentName={slot.component}
       >
-        <SlotComponent {...componentProps} />
+        <SlotComponent {...slotProps} />
       </PluginErrorBoundary>
     );
   };
@@ -136,7 +125,6 @@ export function Slot({
     if (WrapperComponent) {
       const wrapperProps = {
         ...slotProps,
-        ...slot.props,
         children: content,
       };
       content = (

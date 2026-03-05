@@ -963,6 +963,11 @@ export interface components {
         /** @description Response model for listing active web plugins. */
         ActivePluginResponse: {
             /**
+             * @description Components exposed by the plugin, where the key is the component name
+             *     and the value is the name as exported by the JS entry file.
+             */
+            components: components["schemas"]["ComponentMap"];
+            /**
              * @description Public URL to the plugin's frontend ESM entry point.
              * @example /assets/plugin-123/index.js
              */
@@ -977,6 +982,33 @@ export interface components {
              * @example An Awesome Plugin
              */
             name: string;
+            /**
+             * @description Routes for client-side navigation.
+             * @example [
+             *       {
+             *         "component": "MyPage",
+             *         "path": "/problems/{id}/export"
+             *       }
+             *     ]
+             */
+            routes: components["schemas"]["WebRouteConfig"][];
+            /**
+             * @description Slots for UI extension.
+             * @example [
+             *       {
+             *         "component": "MyComponent",
+             *         "name": "sidebar.footer",
+             *         "position": "append",
+             *         "priority": 10
+             *       }
+             *     ]
+             */
+            slots: components["schemas"]["WebSlotConfig"][];
+            /**
+             * @description Translations for i18n, where the key is the locale (e.g., "en-US") and
+             *     the value is a map of translation keys to translated strings.
+             */
+            translations: components["schemas"]["TranslationMap"];
         };
         /** @description Request body for adding a problem to a contest. */
         AddContestProblemRequest: {
@@ -1232,6 +1264,15 @@ export interface components {
              * @example 7
              */
             id: number;
+        };
+        /**
+         * @example {
+         *       "MyComponent": "MyComponent",
+         *       "MyPage": "MyPage"
+         *     }
+         */
+        ComponentMap: {
+            [key: string]: string;
         };
         /** @description Contest summary for list views (description omitted). */
         ContestListItem: {
@@ -2234,6 +2275,19 @@ export interface components {
             time_used?: number | null;
             verdict: components["schemas"]["Verdict"];
         };
+        /**
+         * @example {
+         *       "zh-CN": {
+         *         "sidebar.plugins": "插件",
+         *         "sidebar.problems": "题目"
+         *       }
+         *     }
+         */
+        TranslationMap: {
+            [key: string]: {
+                [key: string]: string;
+            };
+        };
         /** @description PATCH body for updating a contest problem's label or position. */
         UpdateContestProblemRequest: {
             /**
@@ -2396,6 +2450,40 @@ export interface components {
          * @enum {string}
          */
         Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError";
+        WebRouteConfig: {
+            /**
+             * @description Component to render for this route, which must match a key in the
+             *     `components` map.
+             */
+            component: string;
+            /**
+             * @description Meta information for this route, which can be used for things like page
+             *     titles or icons in the frontend.
+             */
+            meta?: {
+                [key: string]: string;
+            } | null;
+            /** @description Path for client-side navigation, e.g., "/problems/{id}/export". */
+            path: string;
+        };
+        WebSlotConfig: {
+            /**
+             * @description Name of the component to render in this slot, which must match a key in
+             *     the `components` map.
+             */
+            component: string;
+            /** @description Name of the slot to render into, e.g., "sidebar.footer". */
+            name: string;
+            /** @description Positioning strategy for the component in the slot. */
+            position: components["schemas"]["WebSlotPosition"];
+            /**
+             * Format: int32
+             * @description Priority for ordering when multiple plugins target the same slot.
+             */
+            priority?: number | null;
+        };
+        /** @enum {string} */
+        WebSlotPosition: "append" | "prepend" | "replace" | "before" | "after" | "wrap";
     };
     responses: never;
     parameters: never;

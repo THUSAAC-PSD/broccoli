@@ -1,3 +1,4 @@
+use plugin_core::manifest::{ComponentMap, TranslationMap, WebRouteConfig, WebSlotConfig};
 use plugin_core::registry::{PluginInfo, PluginStatus};
 use serde::Serialize;
 
@@ -7,12 +8,42 @@ pub struct ActivePluginResponse {
     /// Unique identifier for the plugin.
     #[schema(example = "plugin-123")]
     pub id: String,
+
     /// Plugin name.
     #[schema(example = "An Awesome Plugin")]
     pub name: String,
+
     /// Public URL to the plugin's frontend ESM entry point.
     #[schema(example = "/assets/plugin-123/index.js")]
     pub entry: String,
+
+    /// Components exposed by the plugin, where the key is the component name
+    /// and the value is the name as exported by the JS entry file.
+    pub components: ComponentMap,
+
+    /// Slots for UI extension.
+    #[schema(example = json!([
+        {
+            "name": "sidebar.footer",
+            "position": "append",
+            "component": "MyComponent",
+            "priority": 10
+        }
+    ]))]
+    pub slots: Vec<WebSlotConfig>,
+
+    /// Routes for client-side navigation.
+    #[schema(example = json!([
+        {
+            "path": "/problems/{id}/export",
+            "component": "MyPage"
+        }
+    ]))]
+    pub routes: Vec<WebRouteConfig>,
+
+    /// Translations for i18n, where the key is the locale (e.g., "en-US") and
+    /// the value is a map of translation keys to translated strings.
+    pub translations: TranslationMap,
 }
 
 /// Detailed information about a plugin.
@@ -67,6 +98,10 @@ impl From<PluginInfo> for ActivePluginResponse {
             id: info.id.clone(),
             name: info.manifest.name,
             entry: format!("/assets/{}/{}", info.id, web_manifest.entry),
+            components: web_manifest.components.clone(),
+            slots: web_manifest.slots.clone(),
+            routes: web_manifest.routes.clone(),
+            translations: web_manifest.translations.clone(),
         }
     }
 }

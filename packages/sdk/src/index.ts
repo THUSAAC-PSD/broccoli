@@ -36,6 +36,14 @@ export type TestCaseResponse = components['schemas']['TestCaseResponse'];
 export type User = components['schemas']['MeResponse'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 
+export type ActivePluginManifest =
+  components['schemas']['ActivePluginResponse'];
+export type SlotConfig = components['schemas']['WebSlotConfig'] & {
+  _pluginName: string;
+};
+export type RouteConfig = components['schemas']['WebRouteConfig'];
+export type TranslationMap = components['schemas']['TranslationMap'];
+
 export type PluginDetailResponse =
   components['schemas']['PluginDetailResponse'];
 export type PluginStatusResponse =

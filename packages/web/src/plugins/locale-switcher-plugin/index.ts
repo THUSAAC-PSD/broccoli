@@ -1,13 +1,16 @@
-import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/sdk';
 
 import { LocaleSwitcher } from './components/LocaleSwitcher';
 
-export const manifest: PluginManifest = {
+export { LocaleSwitcher };
+
+export const manifest: ActivePluginManifest = {
   id: 'locale-switcher',
   name: 'locale-switcher',
-  version: '1.0.0',
-  description: 'Language switcher for the sidebar',
-  author: 'Broccoli Team',
+  entry: '',
+  components: {
+    'locale/LocaleSwitcher': 'LocaleSwitcher',
+  },
   slots: [
     {
       name: 'sidebar.footer',
@@ -16,9 +19,6 @@ export const manifest: PluginManifest = {
       priority: 90,
     },
   ],
-  enabled: true,
-};
-
-export const components: ComponentBundle = {
-  'locale/LocaleSwitcher': LocaleSwitcher,
+  routes: [],
+  translations: {},
 };

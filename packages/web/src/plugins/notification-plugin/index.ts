@@ -1,14 +1,18 @@
-import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/sdk';
 
 import { NotificationButton } from './components/NotificationButton';
 import { NotificationCenter } from './components/NotificationCenter';
 
-export const manifest: PluginManifest = {
+export { NotificationButton, NotificationCenter };
+
+export const manifest: ActivePluginManifest = {
   id: 'notification-plugin',
   name: 'notification-plugin',
-  version: '1.0.0',
-  description: 'In-app notification system',
-  author: 'Broccoli Team',
+  entry: '',
+  components: {
+    'notifications/NotificationButton': 'NotificationButton',
+    'notifications/NotificationCenter': 'NotificationCenter',
+  },
   slots: [
     {
       name: 'app.NotificationButton',
@@ -23,15 +27,10 @@ export const manifest: PluginManifest = {
       priority: 0,
     },
   ],
-  enabled: true,
+  routes: [],
   translations: {
     en: {
       'plugin.notification.button': 'Notifications',
     },
   },
-};
-
-export const components: ComponentBundle = {
-  'notifications/NotificationButton': NotificationButton,
-  'notifications/NotificationCenter': NotificationCenter,
 };
