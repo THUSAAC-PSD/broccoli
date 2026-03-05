@@ -1,6 +1,7 @@
 import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 
 export const manifest: PluginManifest = {
+  id: 'zh-cn-language',
   name: 'zh-cn-language',
   version: '1.0.0',
   description: 'Chinese (Simplified) language pack',

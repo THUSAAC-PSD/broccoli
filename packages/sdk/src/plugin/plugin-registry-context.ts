@@ -29,6 +29,7 @@ export interface PluginRegistryContextValue {
     slotName: string,
     context?: TContext,
   ) => SlotConfig<TContext>[];
+  errors: Map<string, Error>;
 }
 
 export const PluginRegistryContext =

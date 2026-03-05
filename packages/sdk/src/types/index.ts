@@ -59,6 +59,7 @@ export interface RouteConfig {
 }
 
 export interface PluginManifest {
+  id: string;
   name: string;
   version: string;
   description?: string;

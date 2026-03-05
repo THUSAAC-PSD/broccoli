@@ -3,6 +3,7 @@ import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 import { KeyboardShortcutsHandler } from './components/KeyboardShortcutsHandler';
 
 export const manifest: PluginManifest = {
+  id: 'keyboard-shortcuts-plugin',
   name: 'keyboard-shortcuts-plugin',
   version: '1.0.0',
   slots: [

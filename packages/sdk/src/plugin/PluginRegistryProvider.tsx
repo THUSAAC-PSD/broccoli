@@ -32,7 +32,7 @@ export function PluginRegistryProvider({
   pluginModules,
 }: PluginRegistryProviderProps) {
   const [plugins, setPlugins] = useState<Map<string, PluginManifest>>(
-    new Map(),
+    () => new Map(),
   );
   const [components, setComponents] = useState<ComponentBundle>({});
   const [routes, setRoutes] = useState<RouteConfig[]>([]);
@@ -49,97 +49,7 @@ export function PluginRegistryProvider({
   const { addTranslations, removeTranslations } = useTranslation();
   const apiClient = useApiClient();
 
-  const loadPluginFromManifest = useCallback(
-    async (manifest: PluginManifest, pluginComponents: ComponentBundle) => {
-      if (pluginsRef.current.has(manifest.name)) {
-        console.warn(`Plugin '${manifest.name}' is already loaded`);
-        return;
-      }
-
-      // Call onInit if provided
-      if (manifest.onInit) {
-        try {
-          await manifest.onInit();
-        } catch (error) {
-          console.error(`Error initializing plugin '${manifest.name}':`, error);
-          return;
-        }
-      }
-
-      setPlugins((prev) => {
-        const next = new Map(prev);
-        next.set(manifest.name, manifest);
-        return next;
-      });
-
-      // Check for component namespace collisions before merging
-      for (const key of Object.keys(pluginComponents)) {
-        const existingOwner = componentOwnersRef.current.get(key);
-        if (existingOwner && existingOwner !== manifest.name) {
-          console.warn(
-            `Component key '${key}' from plugin '${manifest.name}' ` +
-              `overwrites existing component from plugin '${existingOwner}'.`,
-          );
-        }
-        componentOwnersRef.current.set(key, manifest.name);
-      }
-
-      setComponents((prev) => ({
-        ...prev,
-        ...pluginComponents,
-      }));
-
-      if (manifest.routes) {
-        setRoutes((prev) => [...prev, ...(manifest.routes ?? [])]);
-      }
-
-      if (manifest.translations) {
-        addTranslations(manifest.translations);
-      }
-    },
-    [addTranslations],
-  );
-
-  const loadPluginFromModule = useCallback(
-    async (module: PluginModule) => {
-      await loadPluginFromManifest(module.manifest, module.components);
-    },
-    [loadPluginFromManifest],
-  );
-
-  const loadPluginFromUrl = useCallback(
-    async (url: string) => {
-      try {
-        const pluginModule: PluginModule = await import(/* @vite-ignore */ url);
-        await loadPluginFromModule(pluginModule);
-      } catch (error) {
-        console.error(`Failed to load plugin from ${url}:`, error);
-      }
-    },
-    [loadPluginFromModule],
-  );
-
-  const loadAllPlugins = useCallback(async () => {
-    const { data: pluginList, error } = await apiClient.GET('/plugins/active');
-
-    if (error) {
-      console.warn(`Failed to fetch active plugins:`, error);
-      return;
-    }
-
-    const results = await Promise.allSettled(
-      pluginList.map(async (pluginInfo) => {
-        await loadPluginFromUrl(`${backendUrl}${pluginInfo.entry}`);
-      }),
-    );
-
-    const failed = results.filter((r) => r.status === 'rejected');
-    if (failed.length > 0) {
-      console.warn(
-        `${failed.length}/${pluginList.length} plugins failed to load.`,
-      );
-    }
-  }, [apiClient, backendUrl, loadPluginFromUrl]);
+  const [errors, setErrors] = useState<Map<string, Error>>(() => new Map());
 
   const unloadPlugin = useCallback(
     async (pluginId: string) => {
@@ -184,9 +94,123 @@ export function PluginRegistryProvider({
       if (manifest.translations) {
         removeTranslations(manifest.translations);
       }
+
+      pluginsRef.current.delete(pluginId);
     },
     [removeTranslations],
   );
+
+  const loadPluginFromManifest = useCallback(
+    async (manifest: PluginManifest, pluginComponents: ComponentBundle) => {
+      if (pluginsRef.current.has(manifest.id)) {
+        console.warn(
+          `Plugin '${manifest.name}' with id '${manifest.id}' is already loaded. Skipping.`,
+        );
+        return;
+      }
+      pluginsRef.current.set(manifest.id, manifest);
+
+      try {
+        // Call onInit if provided
+        if (manifest.onInit) {
+          try {
+            await manifest.onInit();
+          } catch (error) {
+            console.error(
+              `Error initializing plugin '${manifest.name}' with id '${manifest.id}':`,
+              error,
+            );
+            return;
+          }
+        }
+
+        setPlugins((prev) => {
+          const next = new Map(prev);
+          next.set(manifest.name, manifest);
+          return next;
+        });
+
+        // Check for component namespace collisions before merging
+        for (const key of Object.keys(pluginComponents)) {
+          const existingOwner = componentOwnersRef.current.get(key);
+          if (existingOwner && existingOwner !== manifest.name) {
+            console.warn(
+              `Component key '${key}' from plugin '${manifest.name}' ` +
+                `overwrites existing component from plugin '${existingOwner}'.`,
+            );
+          }
+          componentOwnersRef.current.set(key, manifest.name);
+        }
+
+        setComponents((prev) => ({
+          ...prev,
+          ...pluginComponents,
+        }));
+
+        if (manifest.routes) {
+          setRoutes((prev) => [...prev, ...(manifest.routes ?? [])]);
+        }
+
+        if (manifest.translations) {
+          addTranslations(manifest.translations);
+        }
+
+        console.log(
+          `Plugin '${manifest.name}' with id '${manifest.id}' loaded successfully.`,
+        );
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(
+          `Error loading plugin '${manifest.name}' with id '${manifest.id}':`,
+          err,
+        );
+        setErrors((prev) => new Map(prev).set(manifest.id, err));
+        await unloadPlugin(manifest.id);
+      }
+    },
+    [addTranslations, unloadPlugin],
+  );
+
+  const loadPluginFromModule = useCallback(
+    async (module: PluginModule) => {
+      await loadPluginFromManifest(module.manifest, module.components);
+    },
+    [loadPluginFromManifest],
+  );
+
+  const loadPluginFromUrl = useCallback(
+    async (url: string) => {
+      try {
+        const pluginModule: PluginModule = await import(/* @vite-ignore */ url);
+        await loadPluginFromModule(pluginModule);
+      } catch (error) {
+        console.error(`Failed to load plugin from ${url}:`, error);
+      }
+    },
+    [loadPluginFromModule],
+  );
+
+  const loadAllPlugins = useCallback(async () => {
+    const { data: pluginList, error } = await apiClient.GET('/plugins/active');
+
+    if (error) {
+      console.warn(`Failed to fetch active plugins:`, error);
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      pluginList.map(async (pluginInfo) => {
+        await loadPluginFromUrl(`${backendUrl}${pluginInfo.entry}`);
+      }),
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn(
+        `${failed.length}/${pluginList.length} plugins failed to load.`,
+      );
+    }
+  }, [apiClient, backendUrl, loadPluginFromUrl]);
 
   const getSlots = useCallback(
     <TContext = unknown,>(
@@ -253,6 +277,7 @@ export function PluginRegistryProvider({
         loadAllPlugins,
         unloadPlugin,
         getSlots,
+        errors,
       }}
     >
       {children}

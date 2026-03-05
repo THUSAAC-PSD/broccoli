@@ -4,6 +4,7 @@ import { AnalyticsTracker } from './components/AnalyticsTracker';
 import { PerformanceMonitor } from './components/PerformanceMonitor';
 
 export const manifest: PluginManifest = {
+  id: 'analytics-plugin',
   name: 'analytics-plugin',
   version: '1.0.0',
   description: 'Analytics and performance monitoring',

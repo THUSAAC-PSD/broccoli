@@ -9,6 +9,7 @@ import { AmazingButton } from './components/AmazingButton';
 import { AmazingPage } from './pages/AmazingPage';
 
 export const manifest: PluginManifest = {
+  id: 'amazing-button-plugin',
   name: 'amazing-button-plugin',
   version: '1.0.0',
   slots: [
