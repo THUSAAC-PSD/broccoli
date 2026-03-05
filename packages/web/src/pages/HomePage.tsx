@@ -40,8 +40,8 @@ function ContestSelector({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('dashboard.selectContest')}</CardTitle>
-        <CardDescription>{t('dashboard.selectContestDesc')}</CardDescription>
+        <CardTitle>{t('homepage.selectContest')}</CardTitle>
+        <CardDescription>{t('homepage.selectContestDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
@@ -142,7 +142,7 @@ export function HomePage() {
   if (isContestsLoading) {
     return (
       <div className="flex flex-col gap-6 p-6">
-        <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
+        <h1 className="text-2xl font-bold">{t('homepage.title')}</h1>
         <ListSkeleton />
       </div>
     );
@@ -156,7 +156,7 @@ export function HomePage() {
   if (!contests?.length) {
     return (
       <div className="flex flex-col gap-6 p-6">
-        <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
+        <h1 className="text-2xl font-bold">Broccoli Online Judge</h1>
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">

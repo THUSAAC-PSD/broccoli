@@ -289,6 +289,10 @@ export const manifest: ActivePluginManifest = {
       'overview.contestsDescription': '即将开始和正在进行的比赛。',
       'overview.noContests': '暂无比赛。',
 
+      // Homepage
+      'homepage.selectContest': '选择比赛',
+      'homepage.selectContestDesc': '选择一个比赛以查看其详情和题目。',
+
       // Sidebar (contest-specific)
       'sidebar.contestshomepage': '比赛主页',
       'sidebar.submissions': '提交记录',
