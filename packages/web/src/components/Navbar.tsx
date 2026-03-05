@@ -87,7 +87,7 @@ export function Navbar() {
               <>
                 <span className="hidden text-sm md:block">{user.username}</span>
                 <Button variant="outline" onClick={logout}>
-                  {t('auth.logout')}
+                  <Link to="/">{t('auth.logout')}</Link>
                 </Button>
               </>
             ) : (
