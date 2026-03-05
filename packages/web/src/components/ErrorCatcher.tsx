@@ -14,6 +14,7 @@ import {
   ServerCrash,
   Timer,
 } from 'lucide-react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 
@@ -26,6 +27,7 @@ interface ErrorPageProps {
 
 export function ErrorCatcher({ code }: ErrorPageProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const Iconmap: Record<string, LucideIcon> = {
     '400': FileWarning,
@@ -68,9 +70,9 @@ export function ErrorCatcher({ code }: ErrorPageProps) {
         </p>
       </div>
       <div className="mt-8 flex justify-center gap-4">
-        <Button onClick={() => (window.location.href = '/')} variant="default">
+        <Button onClick={() => navigate(-1)} variant="default">
           <Home className="mr-2 h-4 w-4" />
-          {t('error.backToHome')}
+          {'return to back page'}
         </Button>
       </div>
     </div>
