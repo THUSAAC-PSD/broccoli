@@ -6,7 +6,6 @@ use s3::{Bucket, Region};
 use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::io::StreamReader;
 use tracing::debug;
 
 use super::error::StorageError;
@@ -151,13 +150,15 @@ impl BlobStore for ObjectStorageBlobStore {
 
             // Stream the temp file to S3.
             let mut upload_file = fs::File::open(&temp_path).await?;
-            let status_code = self
+            let put_response = self
                 .bucket
                 .put_object_stream(&mut upload_file, &key)
                 .await
                 .map_err(|e| {
                     StorageError::ObjectStorage(format!("put_object_stream failed: {e}"))
                 })?;
+
+            let status_code = put_response.status_code();
 
             if !(200..300).contains(&status_code) {
                 return Err(StorageError::ObjectStorage(format!(
@@ -183,23 +184,18 @@ impl BlobStore for ObjectStorageBlobStore {
                 StorageError::ObjectStorage(format!("get_object_stream failed: {e}"))
             })?;
 
-        if response.status_code() == 404 {
+        if response.status_code == 404 {
             return Err(StorageError::NotFound(hash.to_hex()));
         }
-        if !(200..300).contains(&response.status_code()) {
+        if !(200..300).contains(&response.status_code) {
             return Err(StorageError::ObjectStorage(format!(
                 "S3 get returned status {}",
-                response.status_code()
+                response.status_code
             )));
         }
 
-        // Bridge the S3 bytes stream into an AsyncRead.
-        let byte_stream = response.bytes;
-        let stream = byte_stream
-            .map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
-        let reader = StreamReader::new(stream);
-
-        Ok(Box::new(reader))
+        // rust-s3's ResponseDataStream implements AsyncRead under with-tokio.
+        Ok(Box::new(response))
     }
 
     async fn exists(&self, hash: &ContentHash) -> Result<bool, StorageError> {
