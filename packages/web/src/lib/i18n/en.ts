@@ -72,6 +72,11 @@ export const en: Record<string, string> = {
   'overview.contests': 'Contests',
   'overview.noContests': 'No contests found.',
 
+  // Homepage
+  'homepage.selectContest': 'Select a Contest',
+  'homepage.selectContestDesc':
+    'Select a contest to view its details and problems.',
+
   // Sidebar (contest-specific)
   'sidebar.contestshomepage': 'Contest Homepage',
   'sidebar.submissions': 'Submissions',
