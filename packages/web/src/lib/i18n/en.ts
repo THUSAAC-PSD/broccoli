@@ -6,7 +6,7 @@ export const en: Record<string, string> = {
   // Sidebar
   'sidebar.platform': 'Platform',
   'sidebar.account': 'Account',
-  'sidebar.dashboard': 'Dashboard',
+  'sidebar.homepage': 'Homepage',
   'sidebar.problems': 'Problems',
   'sidebar.contests': 'Contests',
   'sidebar.tutorials': 'Tutorials',

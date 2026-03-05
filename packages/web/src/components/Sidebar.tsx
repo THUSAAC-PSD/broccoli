@@ -39,7 +39,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useContest } from '@/contexts/contest-context';
 
 const defaultMenuItems = [
-  { titleKey: 'sidebar.dashboard', icon: Home, url: '/' },
+  { titleKey: 'sidebar.homepage', icon: Home, url: '/' },
 ];
 
 const adminMenuItems = [
@@ -203,7 +203,7 @@ export function Sidebar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton>
-                  <User className="mr-2 h-4 w-4" />
+                  <User className="h-4 w-4" />
                   <span className="flex-1">
                     {user ? user.username : t('sidebar.guest')}
                   </span>

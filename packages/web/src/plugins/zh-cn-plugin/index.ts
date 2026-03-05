@@ -15,7 +15,7 @@ export const manifest: PluginManifest = {
       // Sidebar
       'sidebar.platform': '平台',
       'sidebar.account': '账户',
-      'sidebar.dashboard': '仪表盘',
+      'sidebar.homepage': '首页',
       'sidebar.problems': '题目',
       'sidebar.contests': '比赛',
       'sidebar.tutorials': '教程',
