@@ -6,3 +6,4 @@ pub mod plugin;
 pub mod problem;
 pub mod shared;
 pub mod submission;
+pub mod user;

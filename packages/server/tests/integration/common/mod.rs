@@ -99,6 +99,7 @@ pub mod routes {
     pub const REGISTER: &str = "/api/v1/auth/register";
     pub const LOGIN: &str = "/api/v1/auth/login";
     pub const ME: &str = "/api/v1/auth/me";
+    pub const USERS: &str = "/api/v1/users";
     pub const PROBLEMS: &str = "/api/v1/problems";
     pub const ACTIVE_PLUGINS: &str = "/api/v1/plugins/active";
     pub const ADMIN_LIST_PLUGINS: &str = "/api/v1/admin/plugins";
