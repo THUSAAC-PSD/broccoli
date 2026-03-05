@@ -120,7 +120,7 @@ export function ContestQAPage() {
   const { contestId } = useParams();
   const id = Number(contestId);
   const queryClient = useQueryClient();
-  const isAdminMode = user?.role === 'admin';
+  const isAdminMode = true; // For demo purposes, you can toggle this to false to see participant view
 
   const userId = user?.id || -1;
   const userName = user?.username || 'Unknown User';

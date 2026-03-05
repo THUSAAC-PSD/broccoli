@@ -12,10 +12,7 @@ export function AdminPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
 
-  if (
-    !user ||
-    (user.role !== 'admin' && !user.permissions.includes('contest:create'))
-  ) {
+  if (!user || !user.permissions.includes('contest:create')) {
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="max-w-md">

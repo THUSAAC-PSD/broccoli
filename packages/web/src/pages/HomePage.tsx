@@ -98,6 +98,7 @@ export function HomePage() {
       return;
     }
     if (user && user.role === 'admin') {
+      //No api to judge if the user has access to overview page, waiting
       navigate('/overview');
       return;
     }
