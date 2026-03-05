@@ -77,6 +77,8 @@ export const manifest: ActivePluginManifest = {
       'problem.copied': '已复制 {{file}}',
       'problem.copiedSimple': '已复制',
       'problem.downloadSampleFile': '下载 {{file}}（{{size}}）',
+      'problem.startCoding': '开始做题',
+      'problem.backToDescription': '题目描述',
 
       // Code editor
       'editor.title': '代码',

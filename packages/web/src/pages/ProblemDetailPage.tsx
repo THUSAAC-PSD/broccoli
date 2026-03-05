@@ -3,7 +3,7 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Copy, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, Check, Code2, Copy } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 
@@ -12,7 +12,7 @@ import { Markdown } from '@/components/Markdown';
 import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSubmission } from '@/hooks/use-submission';
 
@@ -38,8 +38,8 @@ export function ProblemDetailPage() {
   const id = Number(problemId);
   const cId = contestId ? Number(contestId) : undefined;
 
-  const [isProblemFullscreen, setIsProblemFullscreen] = useState(false);
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
+  const [showCodingPanel, setShowCodingPanel] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
   const apiClient = useApiClient();
@@ -216,8 +216,148 @@ export function ProblemDetailPage() {
     }, 1500);
   };
 
+  // Shared description card body, used in both views
+  const descriptionBody = isLoading ? (
+    <div className="space-y-3">
+      <Skeleton className="h-5 w-64" />
+      <Skeleton className="h-5 w-48" />
+      <Skeleton className="h-24 w-full" />
+    </div>
+  ) : error ? (
+    <div className="text-sm text-destructive">{t('problem.loadError')}</div>
+  ) : problem ? (
+    <div className="prose prose-sm dark:prose-invert max-w-none">
+      <Markdown>{problem.content}</Markdown>
+
+      {problem.samples.length > 0 && (
+        <section className="mt-6 space-y-4">
+          <h3 className="text-base font-bold">{t('problem.examples')}</h3>
+
+          {problem.samples.map((sample, index) => {
+            const sampleNumber = index + 1;
+            const sampleContent = sampleContents[sample.id] ?? {};
+
+            return (
+              <div key={sample.id} className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-1 text-sm font-medium">
+                      {`${t('problem.input')} #${sampleNumber}`}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title={t('problem.copy')}
+                        onClick={(event) =>
+                          copySampleFile(
+                            sample.id,
+                            sampleNumber,
+                            'input',
+                            event.currentTarget,
+                            sampleContent.input,
+                          )
+                        }
+                      >
+                        {copiedKey === `input-${sample.id}` ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <div className="border rounded-lg overflow-hidden">
+                      {sampleContent.input !== undefined ? (
+                        <pre className="p-4 text-sm font-mono overflow-x-auto mb-0">
+                          {sampleContent.input}
+                        </pre>
+                      ) : (
+                        <div className="p-4 text-sm">
+                          <button
+                            type="button"
+                            className="text-primary underline underline-offset-2 decoration-primary/40 hover:decoration-primary/80 transition-colors"
+                            onClick={() =>
+                              downloadSampleFile(
+                                sample.id,
+                                sampleNumber,
+                                'input',
+                              )
+                            }
+                          >
+                            {t('problem.downloadSampleFile', {
+                              file: `sample${sampleNumber}.in`,
+                              size: formatBytes(sample.input_size),
+                            })}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-1 text-sm font-medium">
+                      {`${t('problem.output')} #${sampleNumber}`}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title={t('problem.copy')}
+                        onClick={(event) =>
+                          copySampleFile(
+                            sample.id,
+                            sampleNumber,
+                            'output',
+                            event.currentTarget,
+                            sampleContent.output,
+                          )
+                        }
+                      >
+                        {copiedKey === `output-${sample.id}` ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <div className="border rounded-lg overflow-hidden">
+                      {sampleContent.output !== undefined ? (
+                        <pre className="p-4 text-sm font-mono overflow-x-auto mb-0">
+                          {sampleContent.output}
+                        </pre>
+                      ) : (
+                        <div className="p-4 text-sm">
+                          <button
+                            type="button"
+                            className="text-primary underline underline-offset-2 decoration-primary/40 hover:decoration-primary/80 transition-colors"
+                            onClick={() =>
+                              downloadSampleFile(
+                                sample.id,
+                                sampleNumber,
+                                'output',
+                              )
+                            }
+                          >
+                            {t('problem.downloadSampleFile', {
+                              file: `sample${sampleNumber}.out`,
+                              size: formatBytes(sample.output_size),
+                            })}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
+    </div>
+  ) : null;
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {copiedNotice && (
         <div
           className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-sm"
@@ -226,7 +366,9 @@ export function ProblemDetailPage() {
           {copiedNotice.text || t('problem.copiedSimple')}
         </div>
       )}
-      <div className="px-6 pt-3 pb-0 relative">
+
+      {/* ── Fixed header section (never scrolls) ── */}
+      <div className="flex-shrink-0 px-6 pt-3 pb-0 relative">
         <ProblemHeader
           id={headerId}
           title={problem?.title ?? t('problem.title')}
@@ -238,182 +380,51 @@ export function ProblemDetailPage() {
         <Slot name="problem-detail.header" as="div" className="relative" />
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">
-        {!isCodeFullscreen && (
-          <div
-            className={`flex flex-col gap-6 overflow-y-auto ${isProblemFullscreen ? 'col-span-2' : ''}`}
-          >
-            <Card className="h-full overflow-y-auto">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-                <CardTitle>{t('problem.description')}</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsProblemFullscreen(!isProblemFullscreen)}
-                  title={t('problem.toggleFullscreen')}
-                >
-                  {isProblemFullscreen ? (
-                    <Minimize2 className="h-4 w-4" />
-                  ) : (
-                    <Maximize2 className="h-4 w-4" />
-                  )}
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="space-y-3">
-                    <Skeleton className="h-5 w-64" />
-                    <Skeleton className="h-5 w-48" />
-                    <Skeleton className="h-24 w-full" />
-                  </div>
-                ) : error ? (
-                  <div className="text-sm text-destructive">
-                    {t('problem.loadError')}
-                  </div>
-                ) : problem ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <Markdown>{problem.content}</Markdown>
-
-                    {problem.samples.length > 0 && (
-                      <section className="mt-6 space-y-4">
-                        <h3 className="text-base font-bold">
-                          {t('problem.examples')}
-                        </h3>
-
-                        {problem.samples.map((sample, index) => {
-                          const sampleNumber = index + 1;
-                          const sampleContent = sampleContents[sample.id] ?? {};
-
-                          return (
-                            <div key={sample.id} className="space-y-3">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between px-1 text-sm font-medium">
-                                    {`${t('problem.input')} #${sampleNumber}`}
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7"
-                                      title={t('problem.copy')}
-                                      onClick={(event) =>
-                                        copySampleFile(
-                                          sample.id,
-                                          sampleNumber,
-                                          'input',
-                                          event.currentTarget,
-                                          sampleContent.input,
-                                        )
-                                      }
-                                    >
-                                      {copiedKey === `input-${sample.id}` ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <Copy className="h-4 w-4" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                  <div className="border rounded-lg overflow-hidden">
-                                    {sampleContent.input !== undefined ? (
-                                      <pre className="p-4 text-sm font-mono overflow-x-auto mb-0">
-                                        {sampleContent.input}
-                                      </pre>
-                                    ) : (
-                                      <div className="p-4 text-sm">
-                                        <button
-                                          type="button"
-                                          className="text-primary underline underline-offset-2 decoration-primary/40 hover:decoration-primary/80 transition-colors"
-                                          onClick={() =>
-                                            downloadSampleFile(
-                                              sample.id,
-                                              sampleNumber,
-                                              'input',
-                                            )
-                                          }
-                                        >
-                                          {t('problem.downloadSampleFile', {
-                                            file: `sample${sampleNumber}.in`,
-                                            size: formatBytes(
-                                              sample.input_size,
-                                            ),
-                                          })}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between px-1 text-sm font-medium">
-                                    {`${t('problem.output')} #${sampleNumber}`}
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7"
-                                      title={t('problem.copy')}
-                                      onClick={(event) =>
-                                        copySampleFile(
-                                          sample.id,
-                                          sampleNumber,
-                                          'output',
-                                          event.currentTarget,
-                                          sampleContent.output,
-                                        )
-                                      }
-                                    >
-                                      {copiedKey === `output-${sample.id}` ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <Copy className="h-4 w-4" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                  <div className="border rounded-lg overflow-hidden">
-                                    {sampleContent.output !== undefined ? (
-                                      <pre className="p-4 text-sm font-mono overflow-x-auto mb-0">
-                                        {sampleContent.output}
-                                      </pre>
-                                    ) : (
-                                      <div className="p-4 text-sm">
-                                        <button
-                                          type="button"
-                                          className="text-primary underline underline-offset-2 decoration-primary/40 hover:decoration-primary/80 transition-colors"
-                                          onClick={() =>
-                                            downloadSampleFile(
-                                              sample.id,
-                                              sampleNumber,
-                                              'output',
-                                            )
-                                          }
-                                        >
-                                          {t('problem.downloadSampleFile', {
-                                            file: `sample${sampleNumber}.out`,
-                                            size: formatBytes(
-                                              sample.output_size,
-                                            ),
-                                          })}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </section>
-                    )}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          </div>
+      {/* ── Fixed action bar (never scrolls) ── */}
+      <div className="flex-shrink-0 px-6 py-1.5 border-b flex items-center justify-between bg-background">
+        {!showCodingPanel ? (
+          <>
+            <span className="text-sm font-semibold text-primary">
+              {t('problem.description')}
+            </span>
+            <Button
+              onClick={() => setShowCodingPanel(true)}
+              size="sm"
+              variant="default"
+              className="gap-1.5 h-8 px-4 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+            >
+              <Code2 className="h-3.5 w-3.5" />
+              {t('problem.startCoding')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowCodingPanel(false)}
+              className="gap-1.5 -ml-2 h-8 text-sm font-semibold text-primary hover:text-primary"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              {t('problem.backToDescription')}
+            </Button>
+            {/* placeholder keeps bar height identical to description bar */}
+            <div className="h-8" />
+          </>
         )}
+      </div>
 
-        {!isProblemFullscreen && (
+      {/* ── Scrollable / flexible content area ── */}
+      {!showCodingPanel ? (
+        <div className="flex-1 overflow-y-auto p-6">
+          <Card className="max-w-4xl mx-auto">
+            <CardContent className="pt-6">{descriptionBody}</CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">
           <div
-            className={`flex flex-col gap-6 overflow-y-auto ${isCodeFullscreen ? 'col-span-2' : ''}`}
+            className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'col-span-2' : ''}`}
           >
             <CodeEditor
               onSubmit={submit}
@@ -424,15 +435,20 @@ export function ProblemDetailPage() {
                 cId ? `contest-${cId}-problem-${id}` : `problem-${id}`
               }
             />
-            <SubmissionResult
-              submission={submission}
-              isSubmitting={isSubmitting}
-              error={submitError}
-            />
-            <Slot name="problem-detail.sidebar" as="div" />
           </div>
-        )}
-      </div>
+
+          {!isCodeFullscreen && (
+            <div className="flex flex-col gap-6 overflow-y-auto">
+              <SubmissionResult
+                submission={submission}
+                isSubmitting={isSubmitting}
+                error={submitError}
+              />
+              <Slot name="problem-detail.sidebar" as="div" />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
