@@ -23,7 +23,6 @@ export const manifest: ActivePluginManifest = {
       'sidebar.profile': '个人资料',
       'sidebar.settings': '设置',
       'sidebar.plugins': '插件',
-      'sidebar.qa': '问答',
 
       // Navbar
       'nav.contestInfo': '比赛信息',
@@ -270,6 +269,29 @@ export const manifest: ActivePluginManifest = {
       'admin.field.showTestDetails': '显示测试详情',
       'admin.field.options': '选项',
       'admin.field.createdAt': '创建时间',
+
+      // Overview
+      'overview.title': '总览',
+      'overview.problems': '题目',
+      'overview.viewAll': '查看全部',
+      'overview.noProblems': '未找到相关题目。',
+      'overview.recentSubmissions': '最近提交',
+      'overview.recentSubmissionsDescription':
+        '展示所有比赛和题目的最新提交记录。',
+      'overview.noSubmissions': '暂无提交记录。',
+      'overview.problem': '题目',
+      'overview.language': '语言',
+      'overview.verdict': '评测结果',
+      'overview.submitted': '提交时间',
+      'overview.contests': '比赛',
+      'overview.contestsDescription': '即将开始和正在进行的比赛。',
+      'overview.noContests': '暂无比赛。',
+
+      // Sidebar (contest-specific)
+      'sidebar.contestshomepage': '比赛主页',
+      'sidebar.submissions': '提交记录',
+      'sidebar.rankings': '排行榜',
+      'sidebar.qa': '问答',
 
       // Plugins management
       'plugins.title': '插件管理',
