@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-common = { workspace = true, features = ["sea-orm"] }
+common = { workspace = true, features = ["sea-orm", "object-storage"] }
 config.workspace = true
 futures.workspace = true
 hex.workspace = true
