@@ -23,10 +23,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/contexts/auth-context';
 
 // --- Types ---
 
@@ -43,6 +42,7 @@ interface Question {
   status: QAStatus;
   answer?: {
     content: string;
+    responderId: number;
     responderName: string;
     answerTime: string;
     type: AnswerType;
@@ -50,8 +50,6 @@ interface Question {
 }
 
 // --- Mock Data ---
-
-const MOCK_CURRENT_USER_ID = 101;
 
 const INITIAL_QUESTIONS: Question[] = [
   {
@@ -66,6 +64,7 @@ const INITIAL_QUESTIONS: Question[] = [
     answer: {
       content: '抱歉，题目描述有误，已修正为 n < 2000。此消息为全员公告。',
       responderName: 'Admin',
+      responderId: 999,
       answerTime: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
       type: 'public',
     },
@@ -81,6 +80,7 @@ const INITIAL_QUESTIONS: Question[] = [
     answer: {
       content: '请检查是否使用了特定编译器版本的特性。',
       responderName: 'Judge',
+      responderId: 999,
       answerTime: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
       type: 'private',
     },
@@ -116,13 +116,15 @@ function formatTime(isoString: string) {
 
 export function ContestQAPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { contestId } = useParams();
   const id = Number(contestId);
   const queryClient = useQueryClient();
+  const isAdminMode = user?.role === 'admin';
 
-  const [isAdminMode, setIsAdminMode] = useState(false);
+  const userId = user?.id || -1;
+  const userName = user?.username || 'Unknown User';
 
-  // ... useQuery 保持不变 ...
   const { data: questions = [], isLoading } = useQuery({
     queryKey: ['contest-qa', id],
     queryFn: async () => {
@@ -130,40 +132,33 @@ export function ContestQAPage() {
     },
   });
 
-  // 👇 1. 优化提问操作
   const askMutation = useMutation({
     mutationFn: async (content: string) => {
-      // 模拟网络请求延迟（实际项目中这里是 fetch）
       const newQ: Question = {
-        id: Math.random(), // 这里的 ID 最终会被后端 ID 替换
+        id: Math.random(),
         contestId: id,
-        askerId: MOCK_CURRENT_USER_ID,
-        askerName: 'Me (Participant)',
+        askerId: userId,
+        askerName: userName,
         content,
         createTime: new Date().toISOString(),
         status: 'pending',
       };
-      // 这里的副作用实际上应该由后端完成，但 Mock 模式下先留着
       INITIAL_QUESTIONS.unshift(newQ);
       return newQ;
     },
-    // 🔥 核心修改：乐观更新
     onMutate: async (newContent) => {
-      // 1. 取消正在进行的查询，防止数据冲突
       await queryClient.cancelQueries({ queryKey: ['contest-qa', id] });
 
-      // 2. 保存当前数据的快照（万一失败了要回滚）
       const previousQuestions = queryClient.getQueryData(['contest-qa', id]);
 
-      // 3. 直接修改缓存！让 UI 瞬间显示新问题
       queryClient.setQueryData(
         ['contest-qa', id],
         (old: Question[] | undefined) => {
           const optimisticQuestion: Question = {
-            id: Date.now(), // 临时 ID
+            id: Date.now(),
             contestId: id,
-            askerId: MOCK_CURRENT_USER_ID,
-            askerName: 'Me (Participant)',
+            askerId: userId,
+            askerName: userName,
             content: newContent,
             createTime: new Date().toISOString(),
             status: 'pending',
@@ -172,27 +167,24 @@ export function ContestQAPage() {
         },
       );
 
-      // 返回 context 供 onError 使用
       return { previousQuestions };
     },
-    // 如果出错了，回滚到快照
-    onError: (err, newTodo, context) => {
+
+    onError: (_err, _newTodo, context) => {
       queryClient.setQueryData(['contest-qa', id], context?.previousQuestions);
     },
-    // 无论成功失败，最后都“静默”重新拉取一次确保数据一致
+
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['contest-qa', id] });
     },
   });
 
-  // 👇 2. 优化回答操作 (同理)
   const answerMutation = useMutation({
     mutationFn: async (payload: {
       questionId: number;
       content: string;
       type: AnswerType;
     }) => {
-      // Mock 逻辑
       const qIndex = INITIAL_QUESTIONS.findIndex(
         (q) => q.id === payload.questionId,
       );
@@ -201,17 +193,16 @@ export function ContestQAPage() {
         INITIAL_QUESTIONS[qIndex].answer = {
           content: payload.content,
           responderName: 'You (Admin)',
+          responderId: 999,
           answerTime: new Date().toISOString(),
           type: payload.type,
         };
       }
     },
-    // 🔥 核心修改：乐观更新
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: ['contest-qa', id] });
       const previousQuestions = queryClient.getQueryData(['contest-qa', id]);
 
-      // 立即在缓存中把那条问题改成“已回答”状态
       queryClient.setQueryData(
         ['contest-qa', id],
         (old: Question[] | undefined) => {
@@ -236,7 +227,7 @@ export function ContestQAPage() {
 
       return { previousQuestions };
     },
-    onError: (err, variables, context) => {
+    onError: (_err, _variables, context) => {
       queryClient.setQueryData(['contest-qa', id], context?.previousQuestions);
     },
     onSettled: () => {
@@ -249,7 +240,7 @@ export function ContestQAPage() {
   const visibleQuestions = questions.filter((q) => {
     if (isAdminMode) return true;
 
-    const isMyQuestion = q.askerId === MOCK_CURRENT_USER_ID;
+    const isMyQuestion = q.askerId === userId;
     const isPublicAnswer =
       q.status === 'answered' && q.answer?.type === 'public';
 
@@ -270,20 +261,6 @@ export function ContestQAPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-full border">
-            <Switch
-              id="admin-mode"
-              checked={isAdminMode}
-              onCheckedChange={setIsAdminMode}
-            />
-            <Label
-              htmlFor="admin-mode"
-              className="text-xs cursor-pointer font-medium"
-            >
-              Admin View {isAdminMode ? '(On)' : '(Off)'}
-            </Label>
-          </div>
-
           <AskQuestionDialog
             onSubmit={(content) => askMutation.mutate(content)}
           />
