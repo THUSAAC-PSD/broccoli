@@ -157,7 +157,7 @@ pub async fn list_problems(
     tag = "Problems",
     operation_id = "getProblem",
     summary = "Get a problem by ID",
-    description = "Returns the full details of a problem, including its Markdown content and sample test cases. Accessible to users with `problem:create`/`problem:edit` permission, or to participants of any active (started) contest that includes this problem.",
+    description = "Returns the full details of a problem, including its Markdown content and sample test case metadata. Accessible to users with `problem:create`/`problem:edit` permission, or to participants of any active (started) contest that includes this problem.",
     params(("id" = i32, Path, description = "Problem ID")),
     responses(
         (status = 200, description = "Problem details", body = ProblemResponse),
@@ -174,9 +174,9 @@ pub async fn get_problem(
 ) -> Result<Json<ProblemResponse>, AppError> {
     require_problem_read_access(&state.db, &auth_user, id).await?;
 
-    let model = find_problem(&state.db, id).await?;
-    let samples = load_sample_test_cases(&state.db, id).await?;
-    Ok(Json(ProblemResponse::with_samples(model, samples)))
+    let mut response = ProblemResponse::from(find_problem(&state.db, id).await?);
+    response.samples = load_sample_test_cases(&state.db, id).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -208,9 +208,9 @@ pub async fn update_problem(
     validate_update_problem(&payload)?;
 
     if payload == UpdateProblemRequest::default() {
-        let existing = find_problem(&state.db, id).await?;
-        let samples = load_sample_test_cases(&state.db, id).await?;
-        return Ok(Json(ProblemResponse::with_samples(existing, samples)));
+        let mut existing = ProblemResponse::from(find_problem(&state.db, id).await?);
+        existing.samples = load_sample_test_cases(&state.db, id).await?;
+        return Ok(Json(existing));
     }
 
     let txn = state.db.begin().await?;
@@ -238,8 +238,9 @@ pub async fn update_problem(
     let model = active.update(&txn).await?;
     txn.commit().await?;
 
-    let samples = load_sample_test_cases(&state.db, id).await?;
-    Ok(Json(ProblemResponse::with_samples(model, samples)))
+    let mut response = ProblemResponse::from(model);
+    response.samples = load_sample_test_cases(&state.db, id).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -443,7 +444,7 @@ pub async fn list_test_cases(
     tag = "Test Cases",
     operation_id = "getTestCase",
     summary = "Get a test case by ID",
-    description = "Returns the full details of a test case, including complete input and expected_output. Requires `problem:create` or `problem:edit` permission. The test case must belong to the specified problem.",
+    description = "Returns the full details of a test case, including complete input and expected_output. Users with `problem:create`/`problem:edit` can access all test cases; contestants can access sample (`is_sample = true`) test cases for problems they can read. The test case must belong to the specified problem.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
         ("tc_id" = i32, Path, description = "Test case ID"),
@@ -462,9 +463,14 @@ pub async fn get_test_case(
     State(state): State<AppState>,
     Path((problem_id, tc_id)): Path<(i32, i32)>,
 ) -> Result<Json<TestCaseResponse>, AppError> {
-    auth_user.require_any_permission(&["problem:create", "problem:edit"])?;
-
     let tc = find_test_case_for_problem(&state.db, problem_id, tc_id).await?;
+
+    if !auth_user.has_permission("problem:create") && !auth_user.has_permission("problem:edit") {
+        require_problem_read_access(&state.db, &auth_user, problem_id).await?;
+        if !tc.is_sample {
+            return Err(AppError::NotFound("Test case not found".into()));
+        }
+    }
 
     Ok(Json(tc.into()))
 }
@@ -851,7 +857,7 @@ async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Mo
 async fn load_sample_test_cases<C: ConnectionTrait>(
     db: &C,
     problem_id: i32,
-) -> Result<Vec<SampleTestCase>, AppError> {
+) -> Result<Vec<SampleTestCaseMeta>, AppError> {
     let rows = test_case::Entity::find()
         .filter(test_case::Column::ProblemId.eq(problem_id))
         .filter(test_case::Column::IsSample.eq(true))
@@ -860,13 +866,10 @@ async fn load_sample_test_cases<C: ConnectionTrait>(
         .await?;
     Ok(rows
         .into_iter()
-        .map(|tc| SampleTestCase {
+        .map(|tc| SampleTestCaseMeta {
             id: tc.id,
-            input: tc.input,
-            expected_output: tc.expected_output,
-            score: tc.score,
-            description: tc.description,
-            position: tc.position,
+            input_size: tc.input.len(),
+            output_size: tc.expected_output.len(),
         })
         .collect())
 }

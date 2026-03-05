@@ -910,6 +910,85 @@ mod test_case_detail {
 
         assert_eq!(res.status, 404);
     }
+
+    #[tokio::test]
+    async fn contestant_can_access_sample_test_case_via_active_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_tc_sample_1", "password123", "admin")
+            .await;
+        let contestant = app
+            .create_authenticated_user("contestant_tc_sample_1", "password123")
+            .await;
+
+        let pid = app.create_problem(&admin, "Sample Access Problem").await;
+
+        let sample_res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1 2",
+                    "expected_output": "3",
+                    "score": 10,
+                    "is_sample": true,
+                }),
+                &admin,
+            )
+            .await;
+        assert_eq!(sample_res.status, 201);
+        let sample_id = sample_res.id();
+
+        let cid = app
+            .create_contest(&admin, "Sample Access Contest", true, true)
+            .await;
+        app.add_problem_to_contest(cid, pid, &admin).await;
+
+        let res = app
+            .get_with_token(&routes::test_case(pid, sample_id), &contestant)
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["id"], sample_id);
+        assert_eq!(res.body["is_sample"], true);
+    }
+
+    #[tokio::test]
+    async fn contestant_cannot_access_non_sample_test_case_via_active_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_tc_sample_2", "password123", "admin")
+            .await;
+        let contestant = app
+            .create_authenticated_user("contestant_tc_sample_2", "password123")
+            .await;
+
+        let pid = app.create_problem(&admin, "Hidden Case Problem").await;
+
+        let hidden_res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "secret",
+                    "expected_output": "answer",
+                    "score": 90,
+                    "is_sample": false,
+                }),
+                &admin,
+            )
+            .await;
+        assert_eq!(hidden_res.status, 201);
+        let hidden_id = hidden_res.id();
+
+        let cid = app
+            .create_contest(&admin, "Hidden Case Contest", true, true)
+            .await;
+        app.add_problem_to_contest(cid, pid, &admin).await;
+
+        let res = app
+            .get_with_token(&routes::test_case(pid, hidden_id), &contestant)
+            .await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
 }
 
 mod test_case_update {
@@ -1745,7 +1824,7 @@ mod problem_contest_access {
     }
 
     #[tokio::test]
-    async fn problem_response_includes_only_sample_test_cases() {
+    async fn problem_response_includes_only_sample_test_case_metadata() {
         let app = TestApp::spawn().await;
         let admin = app
             .create_user_with_role("admin_pca4", "password123", "admin")
@@ -1797,9 +1876,11 @@ mod problem_contest_access {
 
         let samples = res.body["samples"].as_array().expect("samples array");
         assert_eq!(samples.len(), 1);
-        assert_eq!(samples[0]["input"], "sample input");
-        assert_eq!(samples[0]["expected_output"], "sample output");
-        assert_eq!(samples[0]["score"], 10);
+        assert!(samples[0]["id"].is_number());
+        assert_eq!(samples[0]["input_size"], "sample input".len());
+        assert_eq!(samples[0]["output_size"], "sample output".len());
+        assert!(samples[0].get("input").is_none());
+        assert!(samples[0].get("expected_output").is_none());
     }
 
     #[tokio::test]

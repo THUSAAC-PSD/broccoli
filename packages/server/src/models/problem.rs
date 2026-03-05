@@ -67,40 +67,25 @@ pub struct ProblemResponse {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
-    /// Sample test cases (is_sample = true).
-    pub samples: Vec<SampleTestCase>,
+    /// Sample test case metadata (is_sample = true).
+    pub samples: Vec<SampleTestCaseMeta>,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
     pub updated_at: DateTime<Utc>,
 }
 
-/// A sample test case included in problem detail responses.
+/// A sample test case metadata included in problem detail responses.
 #[derive(Serialize, utoipa::ToSchema)]
-pub struct SampleTestCase {
+pub struct SampleTestCaseMeta {
     #[schema(example = 1)]
     pub id: i32,
-    #[schema(example = "4\n2 7 11 15\n9")]
-    pub input: String,
-    #[schema(example = "0 1")]
-    pub expected_output: String,
-    #[schema(example = 10)]
-    pub score: i32,
-    #[schema(example = "Basic case")]
-    pub description: Option<String>,
-    #[schema(example = 0)]
-    pub position: i32,
-}
-
-impl ProblemResponse {
-    pub fn with_samples(
-        model: crate::entity::problem::Model,
-        samples: Vec<SampleTestCase>,
-    ) -> Self {
-        let mut resp = Self::from(model);
-        resp.samples = samples;
-        resp
-    }
+    /// Sample input file size in bytes.
+    #[schema(example = 12)]
+    pub input_size: usize,
+    /// Sample output file size in bytes.
+    #[schema(example = 4)]
+    pub output_size: usize,
 }
 
 /// Problem summary for list views (content omitted).
