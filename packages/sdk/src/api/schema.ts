@@ -857,7 +857,7 @@ export interface paths {
         };
         /**
          * Get a test case by ID
-         * @description Returns the full details of a test case, including complete input and expected_output. Requires `problem:create` or `problem:edit` permission. The test case must belong to the specified problem.
+         * @description Returns the full details of a test case, including complete input and expected_output. Users with `problem:create`/`problem:edit` can access all test cases; contestants can access sample (`is_sample = true`) test cases for problems they can read. The test case must belong to the specified problem.
          */
         get: operations["getTestCase"];
         put?: never;
@@ -1929,7 +1929,7 @@ export interface components {
              * @example 262144
              */
             memory_limit: number;
-            /** @description Sample test cases (is_sample = true). */
+            /** @description Sample test case metadata (is_sample = true). */
             samples: components["schemas"]["SampleTestCase"][];
             /**
              * @description Whether contestants see full input/output for all test cases.
@@ -2001,33 +2001,23 @@ export interface components {
              */
             test_case_ids: number[];
         };
-        /** @description A sample test case included in problem detail responses. */
+        /** @description A sample test case metadata included in problem detail responses. */
         SampleTestCase: {
-            /** @example Basic case */
-            description?: string | null;
-            /** @example 0 1 */
-            expected_output: string;
             /**
              * Format: int32
              * @example 1
              */
             id: number;
             /**
+             * @description Sample input file size in bytes.
+             * @example 12
+             */
+            input_size: number;
+            /**
+             * @description Sample output file size in bytes.
              * @example 4
-             *     2 7 11 15
-             *     9
              */
-            input: string;
-            /**
-             * Format: int32
-             * @example 0
-             */
-            position: number;
-            /**
-             * Format: int32
-             * @example 10
-             */
-            score: number;
+            output_size: number;
         };
         /** @description A single file in a submission. */
         SubmissionFileDto: {
