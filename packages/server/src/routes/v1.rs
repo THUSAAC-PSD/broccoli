@@ -9,6 +9,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
 
     OpenApiRouter::new()
         .nest("/auth", auth_routes())
+        .nest("/users", user_routes())
         .nest("/admin", admin_routes())
         .nest("/plugins", plugin_routes())
         .nest("/p", proxy_routes())
@@ -23,6 +24,10 @@ fn auth_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::auth::register))
         .routes(routes!(handlers::auth::login))
         .routes(routes!(handlers::auth::me))
+}
+
+fn user_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(handlers::user::list_users))
 }
 
 fn admin_routes() -> OpenApiRouter<AppState> {

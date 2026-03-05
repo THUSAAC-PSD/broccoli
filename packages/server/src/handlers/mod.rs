@@ -8,3 +8,4 @@ pub mod plugin;
 pub mod problem;
 pub mod proxy;
 pub mod submission;
+pub mod user;

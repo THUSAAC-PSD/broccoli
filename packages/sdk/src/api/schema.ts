@@ -144,6 +144,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all users
+         * @description Returns all users with full stored fields. Requires `user:manage` permission.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests": {
         parameters: {
             query?: never;
@@ -1741,6 +1761,28 @@ export interface components {
              */
             username: string;
         };
+        /** @description User details returned by admin listing endpoint. */
+        UserResponse: {
+            /**
+             * Format: int32
+             * @example 1
+             */
+            id: number;
+            /** @example alice */
+            username: string;
+            /**
+             * @description Password hash stored in database.
+             * @example $argon2id$v=19$m=19456,t=2,p=1$...
+             */
+            password: string;
+            /** @example contestant */
+            role: string;
+            /**
+             * Format: date-time
+             * @example 2026-03-05T10:00:00Z
+             */
+            created_at: string;
+        };
         /** @description Unresolved message counts by message type. */
         MessageTypeCounts: {
             /**
@@ -2683,6 +2725,44 @@ export interface operations {
             };
             /** @description Username taken (USERNAME_TAKEN) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"][];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
