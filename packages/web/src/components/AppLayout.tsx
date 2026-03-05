@@ -1,6 +1,5 @@
 import { Slot } from '@broccoli/sdk/react';
 
-import { Navbar } from '@/components/Navbar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 import { Sidebar } from './Sidebar';
@@ -15,8 +14,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       <SidebarProvider>
         <Sidebar />
         <SidebarInset>
-          <Navbar />
-          <div className="flex flex-1 flex-col">{children}</div>
+          <div className="flex flex-1 flex-col pt-12 container mx-auto px-4">
+            {children}
+          </div>
         </SidebarInset>
       </SidebarProvider>
       <Slot name="app.overlay" as="div" />

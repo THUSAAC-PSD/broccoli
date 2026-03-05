@@ -40,8 +40,8 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md">
+    <div className="flex min-h-screen items-smart justify-center px-4 pt-24">
+      <Card className="w-full max-w-md h-96">
         <CardHeader>
           <CardTitle className="text-2xl">{t('auth.loginTitle')}</CardTitle>
         </CardHeader>
