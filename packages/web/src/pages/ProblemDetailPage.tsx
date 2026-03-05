@@ -226,7 +226,7 @@ export function ProblemDetailPage() {
           {copiedNotice.text || t('problem.copiedSimple')}
         </div>
       )}
-      <div className="px-6 pt-3 pb-0">
+      <div className="px-6 pt-3 pb-0 relative">
         <ProblemHeader
           id={headerId}
           title={problem?.title ?? t('problem.title')}
@@ -235,7 +235,7 @@ export function ProblemDetailPage() {
           timeLimit={timeLimit}
           memoryLimit={memoryLimit}
         />
-        <Slot name="problem-detail.header" as="div" />
+        <Slot name="problem-detail.header" as="div" className="relative" />
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">

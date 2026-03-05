@@ -20,6 +20,7 @@ import { appConfig } from './config';
 // Import plugins
 import * as AmazingButtonPlugin from './plugins/amazing-button';
 import * as AnalyticsPlugin from './plugins/analytics-plugin';
+import * as ContestCountdownPlugin from './plugins/contest-countdown-plugin';
 import * as KeyboardShortcutsPlugin from './plugins/keyboard-shortcuts-plugin';
 import * as LocaleSwitcherPlugin from './plugins/locale-switcher-plugin';
 import * as NotificationPlugin from './plugins/notification-plugin';
@@ -36,6 +37,7 @@ const plugins = [
   RankingChartsPlugin,
   ZhCNPlugin,
   LocaleSwitcherPlugin,
+  ContestCountdownPlugin,
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {

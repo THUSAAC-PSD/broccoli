@@ -143,6 +143,17 @@ export const en: Record<string, string> = {
   'contests.hoursAgo': '{{count}} hours ago',
   'contests.minutesAgo': '{{count}} min ago',
 
+  // Contest countdown
+  'countdown.startsIn': 'Starts In',
+  'countdown.endsIn': 'Ends In',
+  'countdown.contestOver': 'Contest Ended',
+  'countdown.finishedMessage': 'This contest has concluded.',
+  'countdown.days': 'Days',
+  'countdown.hours': 'Hours',
+  'countdown.minutes': 'Min',
+  'countdown.seconds': 'Sec',
+  'countdown.elapsed': 'Elapsed',
+
   // Ranking
   'ranking.title': 'Ranking',
   'ranking.user': 'User',
