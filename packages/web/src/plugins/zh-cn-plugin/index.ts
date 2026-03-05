@@ -64,7 +64,7 @@ export const manifest: ActivePluginManifest = {
 
       // Problem description
       'problem.title': '题目',
-      'problem.description': '描述',
+      'problem.description': '题目描述',
       'problem.input': '输入',
       'problem.output': '输出',
       'problem.examples': '样例',

@@ -384,7 +384,7 @@ export function ProblemDetailPage() {
       <div className="flex-shrink-0 px-6 py-1.5 border-b flex items-center justify-between bg-background">
         {!showCodingPanel ? (
           <>
-            <span className="text-sm font-semibold text-primary">
+            <span className="text-sm font-semibold text-foreground">
               {t('problem.description')}
             </span>
             <Button
@@ -403,7 +403,7 @@ export function ProblemDetailPage() {
               variant="ghost"
               size="sm"
               onClick={() => setShowCodingPanel(false)}
-              className="gap-1.5 -ml-2 h-8 text-sm font-semibold text-primary hover:text-primary"
+              className="gap-1.5 -ml-2 h-8 text-sm font-semibold text-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               {t('problem.backToDescription')}

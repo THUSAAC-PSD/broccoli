@@ -97,32 +97,46 @@ function ContestProblemsGroup() {
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip={t('sidebar.contestshomepage')}>
-              <Link to={`/contests/${contestId}`}>
-                <Presentation />
-                <span>{t('sidebar.contestshomepage')}</span>
-              </Link>
-            </SidebarMenuButton>
-            <SidebarMenuButton asChild tooltip={t('sidebar.qa')}>
-              <Link to={`/contests/${contestId}/qa`}>
-                <MessageCircle />
-                <span>{t('sidebar.qa')}</span>
-              </Link>
-            </SidebarMenuButton>
-            <SidebarMenuButton asChild tooltip={t('sidebar.submissions')}>
-              <Link to={`/contests/${contestId}/submissions`}>
-                <Code2 />
-                <span>{t('sidebar.submissions')}</span>
-              </Link>
-            </SidebarMenuButton>
-            <SidebarMenuButton asChild tooltip={t('sidebar.rankings')}>
-              <Link to={`/contests/${contestId}/rankings`}>
-                <BarChart3 />
-                <span>{t('sidebar.rankings')}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {[
+            {
+              key: 'sidebar.contestshomepage',
+              icon: Presentation,
+              url: `/contests/${contestId}`,
+              exact: true,
+            },
+            {
+              key: 'sidebar.qa',
+              icon: MessageCircle,
+              url: `/contests/${contestId}/qa`,
+              exact: false,
+            },
+            {
+              key: 'sidebar.submissions',
+              icon: Code2,
+              url: `/contests/${contestId}/submissions`,
+              exact: false,
+            },
+            {
+              key: 'sidebar.rankings',
+              icon: BarChart3,
+              url: `/contests/${contestId}/rankings`,
+              exact: false,
+            },
+          ].map(({ key, icon: Icon, url, exact }) => {
+            const active = exact ? pathname === url : pathname.startsWith(url);
+            return (
+              <SidebarMenuItem key={key}>
+                <SidebarMenuButton asChild isActive={active} tooltip={t(key)}>
+                  <Link to={url}>
+                    <Icon
+                      className={active ? 'text-sidebar-primary' : undefined}
+                    />
+                    <span>{t(key)}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
           {problems.map((p) => {
             const isActive =
               pathname === `/contests/${contestId}/problems/${p.problem_id}`;
@@ -139,7 +153,7 @@ function ContestProblemsGroup() {
                         className={`absolute flex size-5 items-center justify-center rounded text-[11px] font-bold leading-none ${
                           isActive
                             ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                            : 'bg-sidebar-primary/20 text-sidebar-primary'
+                            : 'bg-sidebar-foreground/10 text-sidebar-foreground/60'
                         }`}
                       >
                         {p.label}
