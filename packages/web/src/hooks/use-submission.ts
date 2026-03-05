@@ -111,7 +111,7 @@ export function useSubmission({
             '/contests/{id}/problems/{problem_id}/submissions',
             {
               params: {
-                path: { contest_id: contestId, problem_id: problemId },
+                path: { id: contestId, problem_id: problemId },
               },
               body,
             },

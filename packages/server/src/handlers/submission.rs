@@ -723,7 +723,7 @@ pub async fn rejudge_submission(
     summary = "Submit a solution to a contest problem",
     description = "Creates a new submission for a problem within a contest. The user must be a contest participant (or have `contest:manage` permission), and the contest must be active. Requires `submission:submit` permission.",
     params(
-        ("contest_id" = i32, Path, description = "Contest ID"),
+        ("id" = i32, Path, description = "Contest ID"),
         ("problem_id" = i32, Path, description = "Problem ID")
     ),
     request_body = CreateSubmissionRequest,
@@ -737,11 +737,11 @@ pub async fn rejudge_submission(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user, payload), fields(contest_id = %contest_id, problem_id = %problem_id))]
+#[instrument(skip(state, auth_user, payload), fields(id = %id, problem_id = %problem_id))]
 pub async fn create_contest_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id)): Path<(i32, i32)>,
+    Path((id, problem_id)): Path<(i32, i32)>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
@@ -753,6 +753,7 @@ pub async fn create_contest_submission(
     )
     .await?;
 
+    let contest_id = id;
     let txn = state.db.begin().await?;
 
     let contest_model = find_contest(&txn, contest_id).await?;
