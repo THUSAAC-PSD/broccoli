@@ -62,6 +62,7 @@ export function PluginsPage() {
 
         if (!error) {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
+          queryClient.invalidateQueries({ queryKey: ['i18n'] });
 
           // Unnecessary to load the plugin immediately, as it will be lazily
           // loaded when the user navigates to a page that uses it.

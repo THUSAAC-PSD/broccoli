@@ -17,11 +17,28 @@ pub struct PluginManifest {
 
     /// Configuration for the Web (Frontend) environment
     pub web: Option<WebConfig>,
+
+    /// Translations for i18n, where the key is the locale (e.g., "en-US") and
+    /// the value is a path to a translation file in TOML format.
+    #[serde(default)]
+    pub translations: HashMap<String, String>,
 }
 
 impl PluginManifest {
+    pub fn has_server(&self) -> bool {
+        self.server.is_some()
+    }
+
+    pub fn has_worker(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    pub fn has_web(&self) -> bool {
+        self.web.is_some()
+    }
+
     pub fn is_hollow(&self) -> bool {
-        self.server.is_none() && self.worker.is_none() && self.web.is_none()
+        !self.has_server() && !self.has_worker() && !self.has_web()
     }
 }
 
@@ -92,11 +109,6 @@ pub struct WebConfig {
     /// Routes for client-side navigation.
     #[serde(default)]
     pub routes: Vec<WebRouteConfig>,
-
-    /// Translations for i18n, where the key is the locale (e.g., "en-US") and
-    /// the value is a map of translation keys to translated strings.
-    #[serde(default)]
-    pub translations: TranslationMap,
 }
 
 // pub type ComponentMap = HashMap<String, String>;
@@ -148,12 +160,3 @@ pub struct WebRouteConfig {
     /// titles or icons in the frontend.
     pub meta: Option<HashMap<String, String>>,
 }
-
-#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema, Default)]
-#[schema(example = json!({
-    "zh-CN": {
-        "sidebar.problems": "题目",
-        "sidebar.plugins": "插件"
-    }
-}))]
-pub struct TranslationMap(HashMap<String, HashMap<String, String>>);

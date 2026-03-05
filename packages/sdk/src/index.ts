@@ -42,9 +42,10 @@ export type SlotConfig = components['schemas']['WebSlotConfig'] & {
   _pluginName: string;
 };
 export type RouteConfig = components['schemas']['WebRouteConfig'];
-export type TranslationMap = components['schemas']['TranslationMap'];
 
 export type PluginDetailResponse =
   components['schemas']['PluginDetailResponse'];
 export type PluginStatusResponse =
   components['schemas']['PluginStatusResponse'];
+
+export type TranslationMap = components['schemas']['TranslationMap'];

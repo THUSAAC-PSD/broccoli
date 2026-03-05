@@ -59,6 +59,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@tanstack/react-query':
+        specifier: ^5.90.20
+        version: 5.90.20(react@19.2.0)
       openapi-fetch:
         specifier: ^0.16.0
         version: 0.16.0
