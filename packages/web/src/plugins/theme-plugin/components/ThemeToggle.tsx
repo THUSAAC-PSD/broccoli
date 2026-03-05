@@ -1,11 +1,14 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTheme } from '@broccoli/sdk/theme';
 import { Moon, Sun } from 'lucide-react';
 
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { useTheme } from '@/hooks/use-theme';
 
 export function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'dark' : 'light');
+  };
   const { t } = useTranslation();
 
   return (
