@@ -40,6 +40,16 @@ backend = "filesystem"
 data_dir = "./data"
 max_blob_size = 134217728 # 128MB
 
+# S3-compatible storage settings (used when storage.backend = "object_storage")
+[storage.object_storage]
+bucket = "broccoli-blobs"
+region = "us-east-1"
+endpoint = "http://127.0.0.1:8333"
+access_key = "broccoli_s3_access"
+secret_key = "broccoli_s3_secret"
+path_style = true
+temp_dir = ""
+
 [plugin]
 plugins_dir = "./plugins"
 enable_wasi = true
