@@ -35,8 +35,8 @@ export function getContestStatus(
   return { label: t('contests.ended'), variant: 'secondary' };
 }
 
-export function formatDateTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleString(undefined, {
+export function formatDateTime(dateStr: string, locale?: string): string {
+  return new Date(dateStr).toLocaleString(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

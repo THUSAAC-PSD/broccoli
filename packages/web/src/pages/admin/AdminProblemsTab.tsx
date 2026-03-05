@@ -292,7 +292,7 @@ export function useProblemColumns({
   onDelete: (problem: ProblemListItem) => void;
   onManageTestCases: (problem: ProblemListItem) => void;
 }): DataTableColumn<ProblemListItem>[] {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   return [
     { accessorKey: 'id', header: '#', size: 60 },
     {
@@ -335,7 +335,7 @@ export function useProblemColumns({
       sortKey: 'created_at',
       cell: ({ row }) => (
         <span className="text-muted-foreground">
-          {formatDateTime(row.original.created_at)}
+          {formatDateTime(row.original.created_at, locale)}
         </span>
       ),
     },

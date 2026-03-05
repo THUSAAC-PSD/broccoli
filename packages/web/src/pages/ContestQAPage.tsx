@@ -107,8 +107,8 @@ const INITIAL_QUESTIONS: Question[] = [
 
 // --- Components ---
 
-function formatTime(isoString: string) {
-  return new Date(isoString).toLocaleTimeString([], {
+function formatTime(isoString: string, locale?: string) {
+  return new Date(isoString).toLocaleTimeString(locale, {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -314,6 +314,7 @@ function QuestionCard({
 }) {
   const [answerContent, setAnswerContent] = useState('');
   const [answerType, setAnswerType] = useState<AnswerType>('private');
+  const { locale } = useTranslation();
   const isPending = question.status === 'pending';
 
   const handleSubmit = () => {
@@ -333,7 +334,8 @@ function QuestionCard({
               <User className="h-4 w-4 text-muted-foreground" />
               <span>{question.askerName}</span>
               <span className="text-muted-foreground text-xs font-normal flex items-center gap-1">
-                <Clock className="h-3 w-3" /> {formatTime(question.createTime)}
+                <Clock className="h-3 w-3" />{' '}
+                {formatTime(question.createTime, locale)}
               </span>
             </div>
           </div>
@@ -379,7 +381,7 @@ function QuestionCard({
               <CheckCircle2 className="h-4 w-4 text-green-600" />
               {question.answer.responderName}
               <span className="text-xs text-muted-foreground font-normal">
-                at {formatTime(question.answer.answerTime)}
+                at {formatTime(question.answer.answerTime, locale)}
               </span>
             </div>
             <div className="text-sm text-foreground/90 whitespace-pre-wrap pl-6">
