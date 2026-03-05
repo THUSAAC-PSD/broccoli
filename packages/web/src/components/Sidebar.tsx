@@ -181,7 +181,6 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const permissions = user?.permissions || [];
-  console.log('User permissions:', permissions);
 
   return (
     <SidebarUI collapsible="icon">
