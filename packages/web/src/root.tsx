@@ -4,6 +4,7 @@ import './App.css';
 import { ApiClientProvider } from '@broccoli/sdk/api';
 import { I18nProvider } from '@broccoli/sdk/i18n';
 import { PluginRegistryProvider } from '@broccoli/sdk/plugin';
+import { SidebarProvider } from '@broccoli/sdk/sidebar';
 import { ThemeProvider } from '@broccoli/sdk/theme';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -74,12 +75,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <ThemeProvider defaultTheme="light" storageKey="theme">
                 <AuthProvider>
                   <ContestProvider>
-                    <PluginRegistryProvider
-                      backendUrl={appConfig.plugin.backendUrl}
-                      pluginModules={plugins}
+                    <SidebarProvider
+                      defaultState="expanded"
+                      storageKey="sidebar-state"
                     >
-                      <AppLayout>{children}</AppLayout>
-                    </PluginRegistryProvider>
+                      <PluginRegistryProvider
+                        backendUrl={appConfig.plugin.backendUrl}
+                        pluginModules={plugins}
+                      >
+                        <AppLayout>{children}</AppLayout>
+                      </PluginRegistryProvider>
+                    </SidebarProvider>
                   </ContestProvider>
                 </AuthProvider>
               </ThemeProvider>

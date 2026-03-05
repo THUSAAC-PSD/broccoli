@@ -1,3 +1,4 @@
+import { useSidebarState } from '@broccoli/sdk/sidebar';
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { ChevronsLeftRight, PanelLeft } from 'lucide-react';
@@ -164,7 +165,8 @@ const Sidebar = ({
   variant?: 'sidebar' | 'floating' | 'inset';
   collapsible?: 'offcanvas' | 'icon' | 'none';
 } & { ref?: React.RefObject<HTMLDivElement | null> }) => {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, openMobile, setOpenMobile } = useSidebar();
+  const { sidebarState } = useSidebarState();
 
   if (collapsible === 'none') {
     return (
@@ -209,8 +211,8 @@ const Sidebar = ({
     <div
       ref={ref}
       className="group peer hidden text-sidebar-foreground md:block"
-      data-state={state}
-      data-collapsible={state === 'collapsed' ? collapsible : ''}
+      data-state={sidebarState}
+      data-collapsible={sidebarState === 'collapsed' ? collapsible : ''}
       data-variant={variant}
       data-side={side}
     >
@@ -259,7 +261,10 @@ const SidebarTrigger = ({
 }: React.ComponentProps<typeof Button> & {
   ref?: React.RefObject<React.ElementRef<typeof Button> | null>;
 }) => {
-  const { toggleSidebar } = useSidebar();
+  const { sidebarState, setSidebarState } = useSidebarState();
+  const toggleSidebar = () => {
+    setSidebarState(sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
+  };
 
   return (
     <Button
@@ -288,7 +293,11 @@ const SidebarRail = ({
 }: React.ComponentProps<'button'> & {
   ref?: React.RefObject<HTMLButtonElement | null>;
 }) => {
-  const { toggleSidebar, state } = useSidebar();
+  const { sidebarState, setSidebarState } = useSidebarState();
+
+  const toggleSidebar = () => {
+    setSidebarState(sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
+  };
 
   return (
     <button
@@ -591,7 +600,8 @@ const SidebarMenuButton = ({
     ref?: React.RefObject<HTMLButtonElement | null>;
   }) => {
   const Comp = asChild ? Slot : 'button';
-  const { isMobile, state } = useSidebar();
+  const { isMobile } = useSidebar();
+  const { sidebarState } = useSidebarState();
 
   const button = (
     <Comp
@@ -620,7 +630,7 @@ const SidebarMenuButton = ({
       <TooltipContent
         side="right"
         align="center"
-        hidden={state !== 'collapsed' || isMobile}
+        hidden={sidebarState !== 'collapsed' || isMobile}
         {...tooltip}
       />
     </Tooltip>
