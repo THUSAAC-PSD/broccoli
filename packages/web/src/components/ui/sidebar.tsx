@@ -262,8 +262,13 @@ const SidebarTrigger = ({
   ref?: React.RefObject<React.ElementRef<typeof Button> | null>;
 }) => {
   const { sidebarState, setSidebarState } = useSidebarState();
+  const { isMobile, toggleSidebar: toggleMobileSidebar } = useSidebar();
   const toggleSidebar = () => {
-    setSidebarState(sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
+    if (isMobile) {
+      toggleMobileSidebar();
+    } else {
+      setSidebarState(sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
+    }
   };
 
   return (
