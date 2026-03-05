@@ -3,13 +3,15 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/auth-context';
 
 export function NotificationButton() {
   const [count] = useState(3); // TODO: 实现通知计数的动态获取
+  const { user } = useAuth();
 
   return (
     <Button variant="ghost" size="icon" className="relative">
-      <Link to="/QA">
+      <Link to={!user ? '/login' : '/'}>
         <Bell className="h-5 w-5" />
         {count > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white">

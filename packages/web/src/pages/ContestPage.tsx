@@ -3,11 +3,18 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
-import { Trophy } from 'lucide-react';
+import {
+  AlignLeft,
+  CalendarClock,
+  Clock,
+  MessageCircle,
+  Trophy,
+} from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -34,10 +41,8 @@ function formatDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString();
 }
 
-export function ContestInfoCard({ contestId }: { contestId: number }) {
-  const { t } = useTranslation();
+function useContestData(contestId: number) {
   const apiClient = useApiClient();
-
   const {
     data: contest,
     isLoading,
@@ -53,6 +58,12 @@ export function ContestInfoCard({ contestId }: { contestId: number }) {
       return data as ContestResponse;
     },
   });
+  return { contest, isLoading, error };
+}
+
+export function ContestInfoCard({ contestId }: { contestId: number }) {
+  const { t } = useTranslation();
+  const { contest, isLoading, error } = useContestData(contestId);
 
   const status = contest
     ? getContestStatus(contest.start_time, contest.end_time, t)
@@ -60,11 +71,12 @@ export function ContestInfoCard({ contestId }: { contestId: number }) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <CardTitle className="text-xl">
-            {contest?.title ?? t('contests.title')}
-          </CardTitle>
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            {'时间'}
+          </div>
           {status && <Badge variant={status.variant}>{status.label}</Badge>}
         </div>
       </CardHeader>
@@ -81,30 +93,43 @@ export function ContestInfoCard({ contestId }: { contestId: number }) {
           </div>
         ) : contest ? (
           <>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <div className="text-sm text-muted-foreground">
-                  {t('contests.startTime')}
+            <div className="grid gap-4 sm:grid-cols-2 rounded-lg border bg-muted/30 p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-md bg-background p-2 shadow-sm">
+                  <CalendarClock className="h-5 w-5 text-primary" />
                 </div>
-                <div className="font-medium">
-                  {formatDateTime(contest.start_time)}
+                <div>
+                  <div className="text-sm text-muted-foreground">
+                    {t('contests.startTime')}
+                  </div>
+                  <div className="font-semibold text-base mt-0.5">
+                    {formatDateTime(contest.start_time)}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="text-sm text-muted-foreground">
-                  {t('contests.endTime')}
+              <div className="flex items-center gap-3">
+                <div className="rounded-md bg-background p-2 shadow-sm">
+                  <CalendarClock className="h-5 w-5 text-primary" />
                 </div>
-                <div className="font-medium">
-                  {formatDateTime(contest.end_time)}
+                <div>
+                  <div className="text-sm text-muted-foreground">
+                    {t('contests.endTime')}
+                  </div>
+                  <div className="font-semibold text-base mt-0.5">
+                    {formatDateTime(contest.end_time)}
+                  </div>
                 </div>
               </div>
             </div>
-            <Separator />
-            <div>
-              <div className="text-sm text-muted-foreground">
+
+            <Separator className="my-2" />
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <AlignLeft className="h-4 w-4" />
                 {t('contests.description')}
               </div>
-              <div className="prose prose-sm dark:prose-invert max-w-none">
+              <div className="prose prose-sm dark:prose-invert max-w-none rounded-lg border bg-muted/10 p-4">
                 <Markdown>
                   {contest.description || t('contests.noDescription')}
                 </Markdown>
@@ -197,6 +222,7 @@ export function ContestPage() {
   const { t } = useTranslation();
   const { contestId } = useParams();
   const id = Number(contestId);
+  const { contest } = useContestData(id);
 
   if (!contestId || Number.isNaN(id)) {
     return (
@@ -208,11 +234,20 @@ export function ContestPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <Trophy className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">{t('contests.title')}</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Trophy className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-bold">
+            {contest?.title ?? t('contests.title')}
+          </h1>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link to={`/contests/${id}/qa`}>
+            <MessageCircle className="mr-2 h-4 w-4" />
+            {'Q & A'}
+          </Link>
+        </Button>
       </div>
-
       <Slot name="contest-detail.header" as="div" />
 
       <ContestInfoCard contestId={id} />

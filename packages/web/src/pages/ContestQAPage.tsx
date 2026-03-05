@@ -170,7 +170,8 @@ export function ContestQAPage() {
       return { previousQuestions };
     },
 
-    onError: (_err, _newTodo, context) => {
+    onError: (...args) => {
+      const context = args[2];
       queryClient.setQueryData(['contest-qa', id], context?.previousQuestions);
     },
 
@@ -227,7 +228,8 @@ export function ContestQAPage() {
 
       return { previousQuestions };
     },
-    onError: (_err, _variables, context) => {
+    onError: (...args) => {
+      const context = args[2];
       queryClient.setQueryData(['contest-qa', id], context?.previousQuestions);
     },
     onSettled: () => {
