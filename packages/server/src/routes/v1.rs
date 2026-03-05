@@ -13,6 +13,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/admin", admin_routes())
         .nest("/plugins", plugin_routes())
         .nest("/p", proxy_routes())
+        .nest("/i18n", i18n_routes())
         .nest("/problems", problem_routes(submission_max_size))
         .nest("/contests", contest_routes(submission_max_size))
         .nest("/submissions", submission_routes())
@@ -46,6 +47,12 @@ fn plugin_routes() -> OpenApiRouter<AppState> {
 
 fn proxy_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(handlers::proxy::handle_plugin_request))
+}
+
+fn i18n_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::i18n::get_locales))
+        .routes(routes!(handlers::i18n::get_translations))
 }
 
 fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {

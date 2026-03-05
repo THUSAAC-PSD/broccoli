@@ -7,7 +7,6 @@ import {
 } from 'react';
 
 import { useApiClient } from '@/api/use-api-client';
-import { useTranslation } from '@/i18n';
 import { PluginRegistryContext } from '@/plugin/plugin-registry-context';
 import type { ComponentBundle, PluginModule } from '@/types';
 
@@ -46,62 +45,54 @@ export function PluginRegistryProvider({
 
   const [errors, setErrors] = useState<Map<string, Error>>(() => new Map());
 
-  const { addTranslations, removeTranslations } = useTranslation();
   const apiClient = useApiClient();
 
-  const unloadPlugin = useCallback(
-    async (pluginId: string) => {
-      const manifest = activeManifests.current.get(pluginId);
-      const module = activeModules.current.get(pluginId);
+  const unloadPlugin = useCallback(async (pluginId: string) => {
+    const manifest = activeManifests.current.get(pluginId);
+    const module = activeModules.current.get(pluginId);
 
-      if (!manifest || !module) {
-        console.warn(
-          `Plugin with id '${pluginId}' is not loaded. Cannot unload.`,
-        );
-        return;
-      }
+    if (!manifest || !module) {
+      console.warn(
+        `Plugin with id '${pluginId}' is not loaded. Cannot unload.`,
+      );
+      return;
+    }
 
-      try {
-        // Call onDestroy if provided
-        await module.onDestroy?.();
+    try {
+      // Call onDestroy if provided
+      await module.onDestroy?.();
 
-        // Remove plugin components
-        if (manifest.components) {
-          setComponents((prev) => {
-            const next = { ...prev };
-            Object.keys(manifest.components || {}).forEach((key) => {
-              delete next[key];
-              componentOwnersRef.current.delete(key);
-            });
-            return next;
+      // Remove plugin components
+      if (manifest.components) {
+        setComponents((prev) => {
+          const next = { ...prev };
+          Object.keys(manifest.components || {}).forEach((key) => {
+            delete next[key];
+            componentOwnersRef.current.delete(key);
           });
-        }
-
-        // Remove plugin routes
-        if (manifest.routes) {
-          setRoutes((prev) =>
-            prev.filter((route) => !manifest.routes?.includes(route)),
-          );
-        }
-
-        if (manifest.translations) {
-          removeTranslations(manifest.translations);
-        }
-
-        activeManifests.current.delete(pluginId);
-        activeModules.current.delete(pluginId);
-        setPlugins(new Map(activeManifests.current));
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(
-          `Error unloading plugin '${manifest.name}' with id '${manifest.id}':`,
-          err,
-        );
-        setErrors((prev) => new Map(prev).set(pluginId, err));
+          return next;
+        });
       }
-    },
-    [removeTranslations],
-  );
+
+      // Remove plugin routes
+      if (manifest.routes) {
+        setRoutes((prev) =>
+          prev.filter((route) => !manifest.routes?.includes(route)),
+        );
+      }
+
+      activeManifests.current.delete(pluginId);
+      activeModules.current.delete(pluginId);
+      setPlugins(new Map(activeManifests.current));
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(
+        `Error unloading plugin '${manifest.name}' with id '${manifest.id}':`,
+        err,
+      );
+      setErrors((prev) => new Map(prev).set(pluginId, err));
+    }
+  }, []);
 
   const loadPlugin = useCallback(
     async (manifest: ActivePluginManifest, module: PluginModule) => {
@@ -153,10 +144,6 @@ export function PluginRegistryProvider({
           setRoutes((prev) => [...prev, ...(manifest.routes ?? [])]);
         }
 
-        if (manifest.translations) {
-          addTranslations(manifest.translations);
-        }
-
         setPlugins(new Map(activeManifests.current));
         console.log(
           `Plugin '${manifest.name}' with id '${manifest.id}' loaded successfully.`,
@@ -171,7 +158,7 @@ export function PluginRegistryProvider({
         await unloadPlugin(manifest.id);
       }
     },
-    [addTranslations, unloadPlugin],
+    [unloadPlugin],
   );
 
   const loadAllPlugins = useCallback(async () => {
@@ -184,8 +171,9 @@ export function PluginRegistryProvider({
 
     const results = await Promise.allSettled(
       pluginList.map(async (pluginInfo) => {
-        const url = `${backendUrl}${pluginInfo.entry}`;
-        const pluginModule: PluginModule = await import(/* @vite-ignore */ url);
+        const pluginModule: PluginModule = pluginInfo.entry
+          ? await import(/* @vite-ignore */ `${backendUrl}${pluginInfo.entry}`)
+          : {}; // For translation-only plugins without an entry point
         await loadPlugin(pluginInfo, pluginModule);
       }),
     );

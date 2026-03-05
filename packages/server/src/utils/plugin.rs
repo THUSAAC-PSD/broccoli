@@ -35,5 +35,7 @@ pub async fn sync_plugins(state: &AppState) -> anyhow::Result<()> {
         }
     }
 
+    state.plugins.update_translations()?;
+
     Ok(())
 }

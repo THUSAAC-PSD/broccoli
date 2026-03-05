@@ -111,6 +111,7 @@ pub async fn enable_plugin(
     }
 
     state.plugins.load_plugin(&id)?;
+    state.plugins.update_translations()?;
 
     let plugin_model = plugin_entity::ActiveModel {
         id: Unchanged(id.clone()),
@@ -157,6 +158,7 @@ pub async fn disable_plugin(
     }
 
     state.plugins.unload_plugin(&id)?;
+    state.plugins.update_translations()?;
 
     let plugin_model = plugin_entity::ActiveModel {
         id: Unchanged(id.clone()),

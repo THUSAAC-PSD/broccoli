@@ -1,4 +1,4 @@
-use plugin_core::manifest::{ComponentMap, TranslationMap, WebRouteConfig, WebSlotConfig};
+use plugin_core::manifest::{ComponentMap, WebRouteConfig, WebSlotConfig};
 use plugin_core::registry::{PluginInfo, PluginStatus};
 use serde::Serialize;
 
@@ -40,10 +40,6 @@ pub struct ActivePluginResponse {
         }
     ]))]
     pub routes: Vec<WebRouteConfig>,
-
-    /// Translations for i18n, where the key is the locale (e.g., "en-US") and
-    /// the value is a map of translation keys to translated strings.
-    pub translations: TranslationMap,
 }
 
 /// Detailed information about a plugin.
@@ -101,7 +97,6 @@ impl From<PluginInfo> for ActivePluginResponse {
             components: web_manifest.components.clone(),
             slots: web_manifest.slots.clone(),
             routes: web_manifest.routes.clone(),
-            translations: web_manifest.translations.clone(),
         }
     }
 }
@@ -118,15 +113,19 @@ impl From<PluginStatus> for PluginStatusResponse {
 
 impl From<PluginInfo> for PluginDetailResponse {
     fn from(info: PluginInfo) -> Self {
+        let has_server = info.manifest.has_server();
+        let has_worker = info.manifest.has_worker();
+        let has_web = info.manifest.has_web();
+
         Self {
             id: info.id,
             status: info.status.into(),
             name: info.manifest.name,
             version: info.manifest.version,
             description: info.manifest.description,
-            has_server: info.manifest.server.is_some(),
-            has_worker: info.manifest.worker.is_some(),
-            has_web: info.manifest.web.is_some(),
+            has_server,
+            has_worker,
+            has_web,
         }
     }
 }

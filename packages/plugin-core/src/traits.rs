@@ -1,12 +1,14 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use extism::{Manifest, PluginBuilder, Pool, Wasm};
 use serde::{Serialize, de::DeserializeOwned};
-use std::time::Duration;
 use tracing::{error, info, instrument, warn};
 
 use crate::config::PluginConfig;
 use crate::error::{AssetError, PluginError};
 use crate::host::HostFunctionRegistry;
+use crate::i18n::{I18nRegistry, TranslationMap};
 use crate::manifest::PluginManifest;
 use crate::registry::{PluginEntry, PluginInfo, PluginRegistry, PluginStatus};
 
@@ -20,6 +22,9 @@ pub trait PluginManager: Send + Sync {
 
     /// Returns a reference to the host function registry.
     fn get_host_functions(&self) -> &HostFunctionRegistry;
+
+    /// Returns a reference to the i18n registry.
+    fn get_i18n_registry(&self) -> &I18nRegistry;
 
     /// Resolves the appropriate Wasm entry point and permissions from the manifest.
     fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)>;
@@ -187,6 +192,42 @@ pub trait PluginManager: Send + Sync {
 
         let plugin_entry = registry.get(plugin_id).ok_or(AssetError::NotFound)?;
         plugin_entry.resolve_web_asset(asset_path)
+    }
+
+    fn update_translations(&self) -> Result<(), PluginError> {
+        let registry = self
+            .get_registry()
+            .read()
+            .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
+
+        let i18n = self.get_i18n_registry();
+        i18n.clear();
+
+        let loaded_plugins = registry
+            .values()
+            .filter(|e| e.status == PluginStatus::Loaded);
+        for plugin_entry in loaded_plugins {
+            for (lang, path) in &plugin_entry.manifest.translations {
+                let translation_path = plugin_entry.root_dir.join(path);
+                let content = std::fs::read_to_string(&translation_path).map_err(|e| {
+                    PluginError::LoadFailed(format!(
+                        "Failed to read translation file '{}': {}",
+                        translation_path.display(),
+                        e
+                    ))
+                })?;
+                let translation: TranslationMap = toml::from_str(&content).map_err(|e| {
+                    PluginError::LoadFailed(format!(
+                        "Invalid translation file syntax in '{}': {}",
+                        translation_path.display(),
+                        e
+                    ))
+                })?;
+                i18n.merge(lang.clone(), translation);
+            }
+        }
+
+        Ok(())
     }
 
     /// Low-level execution using raw bytes.

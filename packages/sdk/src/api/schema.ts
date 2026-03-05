@@ -536,6 +536,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/i18n/locales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get available locales
+         * @description Returns a list of available locales for translations.
+         */
+        get: operations["getLocales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/i18n/translations/{locale}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get translations for a specific locale
+         * @description Returns the translation map for the specified locale.
+         */
+        get: operations["getTranslations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/p/{plugin_id}/{*path}": {
         parameters: {
             query?: never;
@@ -657,7 +697,7 @@ export interface paths {
         };
         /**
          * Get a problem by ID
-         * @description Returns the full details of a problem, including its Markdown content and sample test cases. Accessible to users with `problem:create`/`problem:edit` permission, or to participants of any active (started) contest that includes this problem.
+         * @description Returns the full details of a problem, including its Markdown content and sample test case metadata. Accessible to users with `problem:create`/`problem:edit` permission, or to participants of any active (started) contest that includes this problem.
          */
         get: operations["getProblem"];
         put?: never;
@@ -1004,11 +1044,6 @@ export interface components {
              *     ]
              */
             slots: components["schemas"]["WebSlotConfig"][];
-            /**
-             * @description Translations for i18n, where the key is the locale (e.g., "en-US") and
-             *     the value is a map of translation keys to translated strings.
-             */
-            translations: components["schemas"]["TranslationMap"];
         };
         /** @description Request body for adding a problem to a contest. */
         AddContestProblemRequest: {
@@ -1949,7 +1984,7 @@ export interface components {
              */
             memory_limit: number;
             /** @description Sample test case metadata (is_sample = true). */
-            samples: components["schemas"]["SampleTestCase"][];
+            samples: components["schemas"]["SampleTestCaseMeta"][];
             /**
              * @description Whether contestants see full input/output for all test cases.
              * @example false
@@ -2021,7 +2056,7 @@ export interface components {
             test_case_ids: number[];
         };
         /** @description A sample test case metadata included in problem detail responses. */
-        SampleTestCase: {
+        SampleTestCaseMeta: {
             /**
              * Format: int32
              * @example 1
@@ -2277,16 +2312,12 @@ export interface components {
         };
         /**
          * @example {
-         *       "zh-CN": {
-         *         "sidebar.plugins": "插件",
-         *         "sidebar.problems": "题目"
-         *       }
+         *       "sidebar.plugins": "插件",
+         *       "sidebar.problems": "题目"
          *     }
          */
         TranslationMap: {
-            [key: string]: {
-                [key: string]: string;
-            };
+            [key: string]: string;
         };
         /** @description PATCH body for updating a contest problem's label or position. */
         UpdateContestProblemRequest: {
@@ -4270,6 +4301,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getLocales: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of available locales */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example [
+                     *       "en",
+                     *       "zh-CN"
+                     *     ]
+                     */
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    getTranslations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Locale code (e.g., 'en', 'zh-CN') */
+                locale: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Translation map for the specified locale */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "sidebar.plugins": "Plugins",
+                     *       "sidebar.problems": "Problems"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["TranslationMap"];
                 };
             };
         };

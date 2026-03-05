@@ -26,7 +26,6 @@ import * as LocaleSwitcherPlugin from './plugins/locale-switcher-plugin';
 import * as NotificationPlugin from './plugins/notification-plugin';
 import * as RankingChartsPlugin from './plugins/ranking-charts-plugin';
 import * as ThemePlugin from './plugins/theme-plugin';
-import * as ZhCNPlugin from './plugins/zh-cn-plugin';
 
 const plugins = [
   ThemePlugin,
@@ -35,7 +34,6 @@ const plugins = [
   AmazingButtonPlugin,
   KeyboardShortcutsPlugin,
   RankingChartsPlugin,
-  ZhCNPlugin,
   LocaleSwitcherPlugin,
   ContestCountdownPlugin,
 ];
@@ -70,10 +68,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             baseUrl={appConfig.api.baseUrl}
             authTokenKey={appConfig.api.authTokenKey}
           >
-            <I18nProvider
-              defaultLocale="en"
-              defaultTranslations={{ en, ...ZhCNPlugin.manifest.translations }}
-            >
+            <I18nProvider defaultLocale="en" coreI18n={{ en }}>
               <ThemeProvider defaultTheme="light" storageKey="theme">
                 <AuthProvider>
                   <ContestProvider>

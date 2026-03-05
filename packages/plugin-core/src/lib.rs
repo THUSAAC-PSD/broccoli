@@ -3,6 +3,7 @@ pub mod error;
 pub mod hook;
 pub mod host;
 pub mod http;
+pub mod i18n;
 pub mod manager;
 pub mod manifest;
 pub mod registry;

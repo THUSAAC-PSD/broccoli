@@ -65,7 +65,7 @@ pub async fn list_active_plugins(
         .list_plugins()
         .map_err(AppError::from)?
         .into_iter()
-        .filter(|p| p.status == PluginStatus::Loaded && p.manifest.web.is_some())
+        .filter(|p| p.status == PluginStatus::Loaded && p.manifest.has_web())
         .map(ActivePluginResponse::from)
         .collect();
 
