@@ -303,10 +303,14 @@ const SidebarRail = ({
     <button
       ref={ref}
       data-sidebar="rail"
-      aria-label={state === 'collapsed' ? 'Expand Sidebar' : 'Collapse Sidebar'}
+      aria-label={
+        sidebarState === 'collapsed' ? 'Expand Sidebar' : 'Collapse Sidebar'
+      }
       tabIndex={-1}
       onClick={toggleSidebar}
-      title={state === 'collapsed' ? 'Expand Sidebar' : 'Collapse Sidebar'}
+      title={
+        sidebarState === 'collapsed' ? 'Expand Sidebar' : 'Collapse Sidebar'
+      }
       className={cn(
         'group absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-colors ease-linear after:absolute after:inset-y-0 after:left-1/2 after:z-0 after:-translate-x-1/2 after:w-[2px] after:bg-sidebar-border/45 hover:bg-sidebar-accent/20 hover:after:bg-sidebar-border focus-visible:bg-sidebar-accent/30 focus-visible:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex',
         '[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-e-resize',
