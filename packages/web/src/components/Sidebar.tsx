@@ -9,6 +9,7 @@ import {
   FileText,
   Home,
   LogOut,
+  MessageCircle,
   Puzzle,
   Trophy,
   User,
@@ -95,6 +96,14 @@ function ContestProblemsGroup() {
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={t('sidebar.qa')}>
+              <Link to={`/contests/${contestId}/qa`}>
+                <MessageCircle />
+                <span>{t('sidebar.qa')}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           {problems.map((p) => (
             <SidebarMenuItem key={p.problem_id}>
               <SidebarMenuButton
