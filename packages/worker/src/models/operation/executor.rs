@@ -34,6 +34,7 @@ impl OperationTaskExecutor {
     }
 
     /// Create with a specific sandbox manager (uses NoopFileCacher — for tests).
+    #[allow(dead_code)]
     pub fn new_with_sandbox_manager(
         sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
     ) -> Self {
