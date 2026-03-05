@@ -3,6 +3,7 @@ import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 import { LocaleSwitcher } from './components/LocaleSwitcher';
 
 export const manifest: PluginManifest = {
+  id: 'locale-switcher',
   name: 'locale-switcher',
   version: '1.0.0',
   description: 'Language switcher for the sidebar',

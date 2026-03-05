@@ -5,6 +5,7 @@ import { RankingChartsView } from './components/RankingChartsView';
 import { ScoreDistribution } from './components/ScoreDistribution';
 
 export const manifest: PluginManifest = {
+  id: 'ranking-charts-plugin',
   name: 'ranking-charts-plugin',
   version: '1.0.0',
   description: 'Charts and graphs for ranking visualization',

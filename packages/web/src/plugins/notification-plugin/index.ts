@@ -4,6 +4,7 @@ import { NotificationButton } from './components/NotificationButton';
 import { NotificationCenter } from './components/NotificationCenter';
 
 export const manifest: PluginManifest = {
+  id: 'notification-plugin',
   name: 'notification-plugin',
   version: '1.0.0',
   description: 'In-app notification system',

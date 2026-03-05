@@ -3,6 +3,7 @@ import type { ComponentBundle, PluginManifest } from '@broccoli/sdk';
 import { ThemeToggle } from './components/ThemeToggle';
 
 export const manifest: PluginManifest = {
+  id: 'theme-plugin',
   name: 'theme-plugin',
   version: '1.0.0',
   description: 'Provides theme switching functionality',
