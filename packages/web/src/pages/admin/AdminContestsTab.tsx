@@ -1166,7 +1166,7 @@ function useContestColumns({
   onManageProblems: (contest: ContestListItem) => void;
   onBulkParticipants: (contest: ContestListItem) => void;
 }): DataTableColumn<ContestListItem>[] {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   return [
     { accessorKey: 'id', header: '#', size: 60 },
     {
@@ -1213,7 +1213,7 @@ function useContestColumns({
       sortKey: 'start_time',
       cell: ({ row }) => (
         <span className="text-muted-foreground">
-          {formatDateTime(row.original.start_time)}
+          {formatDateTime(row.original.start_time, locale)}
         </span>
       ),
     },
@@ -1223,7 +1223,7 @@ function useContestColumns({
       size: 180,
       cell: ({ row }) => (
         <span className="text-muted-foreground">
-          {formatDateTime(row.original.end_time)}
+          {formatDateTime(row.original.end_time, locale)}
         </span>
       ),
     },

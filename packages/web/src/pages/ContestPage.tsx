@@ -30,8 +30,14 @@ function getContestStatus(
   return { label: t('contests.ended'), variant: 'secondary' };
 }
 
-function formatDateTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleString();
+function formatDateTime(dateStr: string, locale?: string): string {
+  return new Date(dateStr).toLocaleString(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function useContestData(contestId: number) {
@@ -55,7 +61,7 @@ function useContestData(contestId: number) {
 }
 
 export function ContestInfoCard({ contestId }: { contestId: number }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { contest, isLoading, error } = useContestData(contestId);
 
   const status = contest
@@ -96,7 +102,7 @@ export function ContestInfoCard({ contestId }: { contestId: number }) {
                     {t('contests.startTime')}
                   </div>
                   <div className="font-semibold text-base mt-0.5">
-                    {formatDateTime(contest.start_time)}
+                    {formatDateTime(contest.start_time, locale)}
                   </div>
                 </div>
               </div>
@@ -109,7 +115,7 @@ export function ContestInfoCard({ contestId }: { contestId: number }) {
                     {t('contests.endTime')}
                   </div>
                   <div className="font-semibold text-base mt-0.5">
-                    {formatDateTime(contest.end_time)}
+                    {formatDateTime(contest.end_time, locale)}
                   </div>
                 </div>
               </div>

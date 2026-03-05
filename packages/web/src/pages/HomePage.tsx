@@ -35,7 +35,7 @@ function ContestSelector({
   contests: ContestListItem[];
   onSelect: (contest: ContestListItem) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   return (
     <Card>
@@ -54,8 +54,8 @@ function ContestSelector({
               <div>
                 <div className="font-medium">{contest.title}</div>
                 <div className="text-sm text-muted-foreground">
-                  {new Date(contest.start_time).toLocaleDateString()} -{' '}
-                  {new Date(contest.end_time).toLocaleDateString()}
+                  {new Date(contest.start_time).toLocaleDateString(locale)} -{' '}
+                  {new Date(contest.end_time).toLocaleDateString(locale)}
                 </div>
               </div>
             </button>
