@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = []
 sea-orm = ["dep:sea-orm"]
+object-storage = ["dep:rust-s3", "dep:tokio-util"]
 
 [dependencies]
 anyhow.workspace = true
@@ -13,7 +14,9 @@ async-trait.workspace = true
 chrono.workspace = true
 config.workspace = true
 rand.workspace = true
+rust-s3 = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
