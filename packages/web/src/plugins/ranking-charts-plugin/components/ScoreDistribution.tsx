@@ -1,3 +1,4 @@
+import { useTheme } from '@broccoli/sdk/theme';
 import {
   Bar,
   BarChart,
@@ -10,7 +11,6 @@ import {
 } from 'recharts';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useTheme } from '@/hooks/use-theme';
 
 export interface DistributionEntry {
   solved: string; // e.g. "0", "1", "2"

@@ -1,5 +1,6 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
+import { useTheme } from '@broccoli/sdk/theme';
 import Editor from '@monaco-editor/react';
 import { ChevronDown, Maximize2, Minimize2, Play } from 'lucide-react';
 import type { editor } from 'monaco-editor';
@@ -13,7 +14,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useTheme } from '@/hooks/use-theme';
 
 interface Language {
   id: string;
@@ -193,7 +193,7 @@ export function CodeEditor({
             value={code}
             onChange={(value) => setCode(value || '')}
             onMount={handleEditorDidMount}
-            theme={theme === 'dark' ? 'vs-dark' : 'light'}
+            theme={theme === 'dark' ? 'vs-dark' : 'vs'}
             options={{
               minimap: { enabled: false },
               fontSize: 14,

@@ -1,3 +1,4 @@
+import { useTheme } from '@broccoli/sdk/theme';
 import {
   CartesianGrid,
   Legend,
@@ -10,7 +11,6 @@ import {
 } from 'recharts';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useTheme } from '@/hooks/use-theme';
 
 const COLORS = [
   '#3b82f6', // blue

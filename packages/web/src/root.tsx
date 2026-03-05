@@ -4,6 +4,7 @@ import './App.css';
 import { ApiClientProvider } from '@broccoli/sdk/api';
 import { I18nProvider } from '@broccoli/sdk/i18n';
 import { PluginRegistryProvider } from '@broccoli/sdk/plugin';
+import { ThemeProvider } from '@broccoli/sdk/theme';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
@@ -70,16 +71,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
               defaultLocale="en"
               defaultTranslations={{ en, ...ZhCNPlugin.manifest.translations }}
             >
-              <AuthProvider>
-                <ContestProvider>
-                  <PluginRegistryProvider
-                    backendUrl={appConfig.plugin.backendUrl}
-                    pluginModules={plugins}
-                  >
-                    <AppLayout>{children}</AppLayout>
-                  </PluginRegistryProvider>
-                </ContestProvider>
-              </AuthProvider>
+              <ThemeProvider defaultTheme="light" storageKey="theme">
+                <AuthProvider>
+                  <ContestProvider>
+                    <PluginRegistryProvider
+                      backendUrl={appConfig.plugin.backendUrl}
+                      pluginModules={plugins}
+                    >
+                      <AppLayout>{children}</AppLayout>
+                    </PluginRegistryProvider>
+                  </ContestProvider>
+                </AuthProvider>
+              </ThemeProvider>
             </I18nProvider>
           </ApiClientProvider>
         </QueryClientProvider>
