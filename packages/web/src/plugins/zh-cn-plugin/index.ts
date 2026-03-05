@@ -138,6 +138,17 @@ export const manifest: ActivePluginManifest = {
       'contests.hoursAgo': '{{count}} 小时前',
       'contests.minutesAgo': '{{count}} 分钟前',
 
+      // Contest countdown
+      'countdown.startsIn': '距离开始',
+      'countdown.endsIn': '距离结束',
+      'countdown.contestOver': '比赛已结束',
+      'countdown.finishedMessage': '本场比赛已圆满结束。',
+      'countdown.days': '天',
+      'countdown.hours': '时',
+      'countdown.minutes': '分',
+      'countdown.seconds': '秒',
+      'countdown.elapsed': '已用时',
+
       // Ranking
       'ranking.title': '排名',
       'ranking.user': '用户',
