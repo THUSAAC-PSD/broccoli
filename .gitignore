@@ -13,6 +13,7 @@ coverage/
 
 tmp/
 
+/config/config.toml
 .env
 .env.local
 .env.*.local
