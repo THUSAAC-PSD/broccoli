@@ -1,6 +1,7 @@
 import type { PluginDetailResponse } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { usePluginRegistry } from '@broccoli/sdk/plugin';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -32,6 +33,7 @@ export function PluginsPage() {
   const queryClient = useQueryClient();
 
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
+  const { unloadPlugin } = usePluginRegistry();
 
   const {
     data: plugins,
@@ -60,6 +62,12 @@ export function PluginsPage() {
 
         if (!error) {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
+
+          // Unnecessary to load the plugin immediately, as it will be lazily
+          // loaded when the user navigates to a page that uses it.
+          if (!enable) {
+            unloadPlugin(plugin.id);
+          }
         }
       } finally {
         setTogglingIds((prev) => {
@@ -69,7 +77,7 @@ export function PluginsPage() {
         });
       }
     },
-    [apiClient, queryClient],
+    [apiClient, queryClient, unloadPlugin],
   );
 
   if (
