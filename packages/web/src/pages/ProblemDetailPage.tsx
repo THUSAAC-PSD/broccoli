@@ -1,4 +1,4 @@
-import type { ProblemResponse } from '@broccoli/sdk';
+import type { ContestProblemResponse, ProblemResponse } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
@@ -57,6 +57,19 @@ export function ProblemDetailPage() {
       });
       if (error) throw error;
       return data as ProblemResponse;
+    },
+  });
+
+  const { data: contestProblems = [] } = useQuery({
+    queryKey: ['contest-problems', cId],
+    enabled: Number.isFinite(cId),
+    queryFn: async () => {
+      if (!cId) return [] as ContestProblemResponse[];
+      const { data, error } = await apiClient.GET('/contests/{id}/problems', {
+        params: { path: { id: cId } },
+      });
+      if (error || !data) return [] as ContestProblemResponse[];
+      return data as ContestProblemResponse[];
     },
   });
 
@@ -122,7 +135,10 @@ export function ProblemDetailPage() {
     );
   }
 
-  const headerId = problem ? String(problem.id) : '—';
+  const contestProblemLabel = cId
+    ? contestProblems.find((item) => item.problem_id === id)?.label
+    : undefined;
+  const headerId = contestProblemLabel ?? (problem ? String(problem.id) : '—');
   const timeLimit = problem ? `${problem.time_limit} ms` : '—';
   const memoryLimit = problem ? formatMemoryLimit(problem.memory_limit) : '—';
 
