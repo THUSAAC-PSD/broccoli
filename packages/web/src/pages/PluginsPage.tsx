@@ -42,7 +42,7 @@ export function PluginsPage() {
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/admin/plugins');
       if (error) throw error;
-      return data as PluginDetailResponse[];
+      return data;
     },
   });
 
@@ -54,12 +54,9 @@ export function PluginsPage() {
           ? '/admin/plugins/{id}/enable'
           : '/admin/plugins/{id}/disable';
 
-        const { error } = await apiClient.POST(
-          endpoint as '/admin/plugins/{id}/enable',
-          {
-            params: { path: { id: plugin.id } },
-          },
-        );
+        const { error } = await apiClient.POST(endpoint, {
+          params: { path: { id: plugin.id } },
+        });
 
         if (!error) {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
