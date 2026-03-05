@@ -14,6 +14,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       <SidebarProvider>
         <Sidebar />
         <SidebarInset>
+          <div className="fixed bottom-8 right-8 z-50">
+            <Slot name="app.NotificationButton" as="div" />
+          </div>
           <div className="flex flex-1 flex-col pt-12 container mx-auto px-4">
             {children}
           </div>

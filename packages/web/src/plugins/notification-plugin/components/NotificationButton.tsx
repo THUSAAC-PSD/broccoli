@@ -10,7 +10,11 @@ export function NotificationButton() {
   const { user } = useAuth();
 
   return (
-    <Button variant="ghost" size="icon" className="relative">
+    <Button
+      variant="ghost"
+      size="icon"
+      className="relative fixed bottom-8 right-8 z-50 flex items-center justify-center w-10 h-10 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 hover:shadow-xl hover:-translate-y-1 transition-all duration-200"
+    >
       <Link to={!user ? '/login' : '/'}>
         <Bell className="h-5 w-5" />
         {count > 0 && (
