@@ -98,7 +98,7 @@ export function HomePage() {
       return;
     }
     if (user && user.role === 'admin') {
-      navigate('/admin');
+      navigate('/overview');
       return;
     }
     if (contests && contests.length === 1 && !contestId) {
