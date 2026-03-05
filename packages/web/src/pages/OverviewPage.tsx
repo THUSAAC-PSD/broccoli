@@ -16,7 +16,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -107,7 +106,7 @@ export function OverviewPage() {
   const apiClient = useApiClient();
 
   const { data: contests, isLoading: isContestsLoading } = useQuery({
-    queryKey: ['dashboard-contests'],
+    queryKey: ['overview-contests'],
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests', {
         params: {
@@ -125,7 +124,7 @@ export function OverviewPage() {
   });
 
   const { data: problems, isLoading: isProblemsLoading } = useQuery({
-    queryKey: ['dashboard-problems'],
+    queryKey: ['overview-problems'],
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/problems', {
         params: {
@@ -143,7 +142,7 @@ export function OverviewPage() {
   });
 
   const { data: submissions, isLoading: isSubmissionsLoading } = useQuery({
-    queryKey: ['dashboard-submissions', user?.id],
+    queryKey: ['overview-submissions', user?.id],
     enabled: !!user,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/submissions', {
@@ -165,40 +164,20 @@ export function OverviewPage() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
         <Home className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
+        <h1 className="text-2xl font-bold">{t('overview.title')}</h1>
       </div>
 
-      {!user && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('dashboard.welcome')}</CardTitle>
-            <CardDescription>
-              {t('dashboard.welcomeDescription')}
-            </CardDescription>
-          </CardHeader>
-          <CardFooter className="gap-2">
-            <Button asChild>
-              <Link to="/login">{t('nav.signIn')}</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/register">{t('nav.signUp')}</Link>
-            </Button>
-          </CardFooter>
-        </Card>
-      )}
-
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Contests */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Trophy className="h-4 w-4" />
-                {t('dashboard.contests')}
+                {t('overview.contests')}
               </CardTitle>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/contests">
-                  {t('dashboard.viewAll')}
+                  {t('overview.viewAll')}
                   <ArrowRight className="ml-1 h-3 w-3" />
                 </Link>
               </Button>
@@ -209,7 +188,7 @@ export function OverviewPage() {
               <ListSkeleton />
             ) : !contests?.length ? (
               <p className="text-sm text-muted-foreground">
-                {t('dashboard.noContests')}
+                {t('overview.noContests')}
               </p>
             ) : (
               <div className="space-y-3">
@@ -247,11 +226,11 @@ export function OverviewPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Code2 className="h-4 w-4" />
-                {t('dashboard.problems')}
+                {t('overview.problems')}
               </CardTitle>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/problems">
-                  {t('dashboard.viewAll')}
+                  {t('overview.viewAll')}
                   <ArrowRight className="ml-1 h-3 w-3" />
                 </Link>
               </Button>
@@ -262,7 +241,7 @@ export function OverviewPage() {
               <ListSkeleton />
             ) : !problems?.length ? (
               <p className="text-sm text-muted-foreground">
-                {t('dashboard.noProblems')}
+                {t('overview.noProblems')}
               </p>
             ) : (
               <div className="space-y-3">
@@ -300,10 +279,10 @@ export function OverviewPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              {t('dashboard.recentSubmissions')}
+              {t('overview.recentSubmissions')}
             </CardTitle>
             <CardDescription>
-              {t('dashboard.recentSubmissionsDescription')}
+              {t('overview.recentSubmissionsDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -311,7 +290,7 @@ export function OverviewPage() {
               <ListSkeleton />
             ) : !submissions?.length ? (
               <p className="text-sm text-muted-foreground">
-                {t('dashboard.noSubmissions')}
+                {t('overview.noSubmissions')}
               </p>
             ) : (
               <div className="rounded-md border">
@@ -319,16 +298,16 @@ export function OverviewPage() {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="px-4 py-2 text-left font-medium">
-                        {t('dashboard.problem')}
+                        {t('overview.problem')}
                       </th>
                       <th className="px-4 py-2 text-left font-medium">
-                        {t('dashboard.language')}
+                        {t('overview.language')}
                       </th>
                       <th className="px-4 py-2 text-left font-medium">
-                        {t('dashboard.verdict')}
+                        {t('overview.verdict')}
                       </th>
                       <th className="px-4 py-2 text-left font-medium">
-                        {t('dashboard.submitted')}
+                        {t('overview.submitted')}
                       </th>
                     </tr>
                   </thead>

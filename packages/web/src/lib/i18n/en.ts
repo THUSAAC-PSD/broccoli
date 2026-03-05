@@ -12,7 +12,6 @@ export const en: Record<string, string> = {
   'sidebar.tutorials': 'Tutorials',
   'sidebar.profile': 'Profile',
   'sidebar.settings': 'Settings',
-  'sidebar.qa': 'Q & A',
 
   // Navbar
   'nav.contestInfo': 'Contest Info',
@@ -56,6 +55,28 @@ export const en: Record<string, string> = {
   'error.title.default': 'Unknown Error',
   'error.desc.default': 'Something went wrong.',
   'error.backToHome': 'Return to Home Page',
+
+  // Overview
+  'overview.title': 'Overview',
+  'overview.problems': 'Problems',
+  'overview.viewAll': 'View All',
+  'overview.noProblems': 'No problems found.',
+  'overview.recentSubmissions': 'Recent Submissions',
+  'overview.recentSubmissionsDescription':
+    'Latest submissions across all contests and problems.',
+  'overview.noSubmissions': 'No submissions yet.',
+  'overview.problem': 'Problem',
+  'overview.language': 'Language',
+  'overview.verdict': 'Verdict',
+  'overview.submitted': 'Submitted',
+  'overview.contests': 'Contests',
+  'overview.noContests': 'No contests found.',
+
+  // Sidebar (contest-specific)
+  'sidebar.contestshomepage': 'Contest Homepage',
+  'sidebar.submissions': 'Submissions',
+  'sidebar.rankings': 'Rankings',
+  'sidebar.qa': 'Q & A',
 
   // Problem description
   'problem.title': 'Problem',
@@ -297,22 +318,6 @@ export const en: Record<string, string> = {
   'admin.testCases.field.sample': 'Sample',
   'admin.testCases.field.description': 'Description',
   'admin.testCases.field.isSample': 'Sample Test Case',
-
-  // Dashboard
-  'dashboard.title': 'Dashboard',
-  'dashboard.welcome': 'Welcome to Broccoli OJ',
-  'dashboard.welcomeDescription':
-    'Sign in to track your submissions and participate in contests.',
-  'dashboard.selectContest': 'Select Contest',
-  'dashboard.selectContestDesc':
-    'You are enrolled in multiple contests. Please select one.',
-  'dashboard.noActiveContest': 'You are not enrolled in any contest.',
-  'dashboard.all': 'All',
-  'dashboard.noSubmissions': 'No submissions yet. Start solving problems!',
-  'dashboard.problem': 'Problem',
-  'dashboard.language': 'Language',
-  'dashboard.verdict': 'Verdict',
-  'dashboard.submitted': 'Submitted',
 
   // Plugins management
   'plugins.title': 'Plugins',
