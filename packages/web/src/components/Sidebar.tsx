@@ -96,10 +96,28 @@ function ContestProblemsGroup() {
       <SidebarGroupContent>
         <SidebarMenu>
           <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={t('sidebar.contestshomepage')}>
+              <Link to={`/contests/${contestId}`}>
+                <Home />
+                <span>Contest Page</span>
+              </Link>
+            </SidebarMenuButton>
             <SidebarMenuButton asChild tooltip={t('sidebar.qa')}>
               <Link to={`/contests/${contestId}/qa`}>
                 <MessageCircle />
-                <span>{t('sidebar.qa')}</span>
+                <span>Q & A</span>
+              </Link>
+            </SidebarMenuButton>
+            <SidebarMenuButton asChild tooltip={t('sidebar.submissions')}>
+              <Link to={`/contests/${contestId}/submissions`}>
+                <Code2 />
+                <span>Submissions</span>
+              </Link>
+            </SidebarMenuButton>
+            <SidebarMenuButton asChild tooltip={t('sidebar.rankings')}>
+              <Link to={`/contests/${contestId}/rankings`}>
+                <Trophy />
+                <span>Rankings</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
