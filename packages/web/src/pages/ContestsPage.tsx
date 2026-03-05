@@ -10,11 +10,7 @@ export function ContestsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
 
-  if (
-    !user ||
-    !user.permissions.includes('contest:create') ||
-    !user.permissions.includes('contest:edit')
-  ) {
+  if (!user || !user.permissions.includes('contest:manage')) {
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="max-w-md">
