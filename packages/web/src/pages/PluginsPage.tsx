@@ -3,15 +3,7 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { usePluginRegistry } from '@broccoli/sdk/plugin';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  AlertCircle,
-  Cpu,
-  Globe,
-  Loader2,
-  Puzzle,
-  Server,
-  Shield,
-} from 'lucide-react';
+import { AlertCircle, Cpu, Globe, Loader2, Puzzle, Server } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +16,7 @@ import {
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/contexts/auth-context';
 
 export function PluginsPage() {
@@ -82,18 +75,7 @@ export function PluginsPage() {
   );
 
   if (!user || !user.permissions.includes('plugin:manage')) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <Shield className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-destructive text-lg font-medium">
-              {t('admin.unauthorized')}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <Unauthorized />;
   }
 
   return (
