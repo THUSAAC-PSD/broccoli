@@ -81,7 +81,7 @@ export function PluginsPage() {
     [apiClient, queryClient, unloadPlugin],
   );
 
-  if (!user || !user.permissions.includes('plugin:list')) {
+  if (!user || !user.permissions.includes('plugin:manage')) {
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="max-w-md">
