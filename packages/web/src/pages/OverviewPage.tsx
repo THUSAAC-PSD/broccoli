@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowRight, Clock, Code2, Home, Trophy } from 'lucide-react';
 import { Link } from 'react-router';
 
+import { PageLayout } from '@/components/PageLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -161,12 +162,11 @@ export function OverviewPage() {
   });
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <Home className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">{t('overview.title')}</h1>
-      </div>
-
+    <PageLayout
+      pageId="overview"
+      title={t('overview.title')}
+      icon={<Home className="h-6 w-6 text-primary" />}
+    >
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -343,6 +343,6 @@ export function OverviewPage() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </PageLayout>
   );
 }
