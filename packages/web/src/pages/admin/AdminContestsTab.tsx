@@ -410,9 +410,16 @@ export function ContestFormDialog({
 // ── Contest Problems Dialog ──
 
 function nextLabel(usedLabels: Set<string>): string {
+  // A-Z, then AA-AZ, BA-BZ, ..., ZZ (max 702)
   for (let i = 0; i < 26; i++) {
-    const ch = String.fromCharCode(65 + i);
-    if (!usedLabels.has(ch)) return ch;
+    const label = String.fromCharCode(65 + i);
+    if (!usedLabels.has(label)) return label;
+  }
+  for (let i = 0; i < 26; i++) {
+    for (let j = 0; j < 26; j++) {
+      const label = String.fromCharCode(65 + i) + String.fromCharCode(65 + j);
+      if (!usedLabels.has(label)) return label;
+    }
   }
   return '';
 }
@@ -534,7 +541,7 @@ export function ContestProblemsDialog({
         </DialogHeader>
 
         {!isLoading && contestProblems.length > 0 && (
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-y-auto max-h-60">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
