@@ -1,6 +1,7 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Trophy } from 'lucide-react';
 
+import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminContestsTab } from '@/pages//admin/AdminContestsTab';
@@ -14,13 +15,12 @@ export function ContestsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div className="flex items-center gap-3">
-        <Trophy className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">{t('contests.title')}</h1>
-      </div>
-
+    <PageLayout
+      pageId="contests"
+      title={t('contests.title')}
+      icon={<Trophy className="h-6 w-6 text-primary" />}
+    >
       <AdminContestsTab />
-    </div>
+    </PageLayout>
   );
 }

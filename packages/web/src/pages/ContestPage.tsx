@@ -1,12 +1,12 @@
 import type { ContestProblemResponse, ContestResponse } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { AlignLeft, CalendarClock, Clock, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
 import { Markdown } from '@/components/Markdown';
+import { PageLayout } from '@/components/PageLayout';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -232,21 +232,13 @@ export function ContestPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Trophy className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">
-            {contest?.title ?? t('contests.title')}
-          </h1>
-        </div>
-      </div>
-      <Slot name="contest-detail.header" as="div" />
-
+    <PageLayout
+      pageId="contest-overview"
+      title={contest?.title ?? t('contests.title')}
+      icon={<Trophy className="h-6 w-6 text-primary" />}
+    >
       <ContestInfoCard contestId={id} />
       <ContestProblemsCard contestId={id} />
-
-      <Slot name="contest-detail.scoreboard" as="div" />
-    </div>
+    </PageLayout>
   );
 }

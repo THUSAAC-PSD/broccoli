@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Cpu, Globe, Loader2, Puzzle, Server } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
+import { PageLayout } from '@/components/PageLayout';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -79,17 +80,12 @@ export function PluginsPage() {
   }
 
   return (
-    <div className="mx-auto w-[75%] p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Puzzle className="h-6 w-6 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {t('plugins.title')}
-          </h1>
-          <p className="text-muted-foreground">{t('plugins.subtitle')}</p>
-        </div>
-      </div>
-
+    <PageLayout
+      pageId="plugins"
+      icon={<Puzzle className="h-6 w-6 text-primary" />}
+      title={t('plugins.title')}
+      subtitle={t('plugins.subtitle')}
+    >
       {isLoading && (
         <div className="grid gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -137,7 +133,7 @@ export function PluginsPage() {
           ))}
         </div>
       )}
-    </div>
+    </PageLayout>
   );
 }
 

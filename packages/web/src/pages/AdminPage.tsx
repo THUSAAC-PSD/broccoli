@@ -1,6 +1,7 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Code2, Trophy } from 'lucide-react';
 
+import { PageLayout } from '@/components/PageLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/contexts/auth-context';
@@ -16,14 +17,11 @@ export function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {t('admin.title')}
-        </h1>
-        <p className="text-muted-foreground">{t('admin.subtitle')}</p>
-      </div>
-
+    <PageLayout
+      pageId="admin"
+      title={t('admin.title')}
+      subtitle={t('admin.subtitle')}
+    >
       <Tabs defaultValue="contests">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
           <TabsTrigger value="contests" className="gap-2">
@@ -44,6 +42,6 @@ export function AdminPage() {
           <AdminProblemsTab />
         </TabsContent>
       </Tabs>
-    </div>
+    </PageLayout>
   );
 }

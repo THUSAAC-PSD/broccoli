@@ -17,14 +17,14 @@ export const manifest: ActivePluginManifest = {
   },
   slots: [
     {
-      name: 'contest-detail.header',
-      position: 'prepend',
+      name: 'contest-overview.content',
+      position: 'before',
       component: 'contest/Countdown',
       priority: 100,
     },
     {
-      name: 'problem-detail.header',
-      position: 'append',
+      name: 'problem-overview.content',
+      position: 'before',
       component: 'contest/CountdownMini',
       priority: 100,
     },
