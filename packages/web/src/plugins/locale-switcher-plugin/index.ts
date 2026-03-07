@@ -14,7 +14,7 @@ export const manifest: ActivePluginManifest = {
   slots: [
     {
       name: 'sidebar.footer',
-      position: 'prepend',
+      position: 'append',
       component: 'locale/LocaleSwitcher',
       priority: 90,
     },
