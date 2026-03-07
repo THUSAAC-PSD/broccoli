@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
 import { createContext, type ReactNode, use, useState } from 'react';
+
+import { useAuth } from '@/contexts/auth-context';
 
 export type DashboardTab = 'problems' | 'submissions' | 'ranking';
 
@@ -17,6 +20,7 @@ interface ContestContextValue {
 const ContestContext = createContext<ContestContextValue | null>(null);
 
 export function ContestProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [contestId, setContestId] = useState<number | null>(null);
   const [contestTitle, setContestTitle] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DashboardTab>('problems');
@@ -35,6 +39,13 @@ export function ContestProvider({ children }: { children: ReactNode }) {
     setActiveTab('problems');
     setFilterProblemId(null);
   };
+
+  // Clear contest state when user logs out
+  useEffect(() => {
+    if (!user) {
+      clearContest();
+    }
+  }, [user]);
 
   const viewSubmissions = (problemId?: number) => {
     setFilterProblemId(problemId ?? null);
