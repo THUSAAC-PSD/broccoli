@@ -22,16 +22,23 @@ export function I18nProvider({
 
   const [locale, setLocaleState] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem(localeKey) ?? defaultLocale;
+      const stored = localStorage.getItem(localeKey);
+      // Prevent "undefined" string from being stored
+      if (stored && stored !== 'undefined') {
+        return stored;
+      }
     }
     return defaultLocale;
   });
 
   const setLocale = useCallback(
     (newLocale: string) => {
-      setLocaleState(newLocale);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(localeKey, newLocale);
+      // Prevent invalid locales from being stored
+      if (newLocale && newLocale !== 'undefined' && newLocale.length > 0) {
+        setLocaleState(newLocale);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(localeKey, newLocale);
+        }
       }
     },
     [localeKey],
