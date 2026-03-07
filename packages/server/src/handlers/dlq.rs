@@ -197,6 +197,7 @@ pub async fn retry_dlq_message(
         executor_name: "native".into(),
         task_type: "judge".into(),
         payload: message.payload.clone(),
+        result_queue: state.config.mq.result_queue_name.clone(),
     };
 
     let submission_update = submission::ActiveModel {
@@ -439,6 +440,7 @@ pub async fn bulk_retry_dlq(
             executor_name: "native".into(),
             task_type: "judge".into(),
             payload: message.payload.clone(),
+            result_queue: state.config.mq.result_queue_name.clone(),
         });
 
         retried += 1;

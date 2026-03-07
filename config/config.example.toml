@@ -36,7 +36,6 @@ retry_max_age_secs = 600
 jwt_secret = "generate-a-long-random-string-here"
 
 [storage]
-backend = "filesystem"
 data_dir = "./data"
 max_blob_size = 134217728 # 128MB
 
@@ -53,3 +52,68 @@ temp_dir = ""
 [plugin]
 plugins_dir = "./plugins"
 enable_wasi = true
+
+# Language definitions — required. Add one [languages.<id>] section per language
+# you want to support. The id is what users submit as "language" in the API.
+#
+# Template variables available in compile_cmd, run_cmd, source_filename, binary_name:
+#   {basename}  — stem of the submitted filename; falls back to basename_fallback
+#   {source}    — resolved source_filename (after {basename} expansion)
+#   {binary}    — resolved binary_name   (after {basename} expansion)
+
+[languages.cpp]
+compile_cmd     = ["/usr/bin/g++", "-O2", "-std=c++17", "-o", "{binary}", "{source}"]
+run_cmd         = ["./{binary}"]
+source_filename = "solution.cpp"
+binary_name     = "solution"
+version_cmd     = ["/usr/bin/g++", "--version"]
+basename_fallback = "solution"
+
+[languages.c]
+compile_cmd     = ["/usr/bin/gcc", "-O2", "-std=c11", "-o", "{binary}", "{source}"]
+run_cmd         = ["./{binary}"]
+source_filename = "solution.c"
+binary_name     = "solution"
+version_cmd     = ["/usr/bin/gcc", "--version"]
+basename_fallback = "solution"
+
+[languages.java]
+# {basename} expands to the Java class name (stem of the submitted filename).
+# basename_fallback = "Main" is the conventional CP class name used when no
+# submitted filename is provided. Add JVM flags to run_cmd freely (e.g. -Xmx512m).
+compile_cmd     = ["/usr/bin/javac", "-d", ".", "{source}"]
+run_cmd         = ["/usr/bin/java", "-cp", ".", "{basename}"]
+source_filename = "{basename}.java"
+binary_name     = "{basename}.class"
+version_cmd     = ["/usr/bin/javac", "--version"]
+basename_fallback = "Main"
+
+[languages.python3]
+run_cmd         = ["/usr/bin/python3", "{source}"]
+source_filename = "solution.py"
+binary_name     = "solution.py"
+version_cmd     = ["/usr/bin/python3", "--version"]
+basename_fallback = "solution"
+
+[languages.javascript]
+run_cmd         = ["/usr/bin/node", "{source}"]
+source_filename = "solution.js"
+binary_name     = "solution.js"
+version_cmd     = ["/usr/bin/node", "--version"]
+basename_fallback = "solution"
+
+[languages.rust]
+compile_cmd     = ["/usr/bin/rustc", "-O", "-o", "{binary}", "{source}"]
+run_cmd         = ["./{binary}"]
+source_filename = "solution.rs"
+binary_name     = "solution"
+version_cmd     = ["/usr/bin/rustc", "--version"]
+basename_fallback = "solution"
+
+[languages.go]
+compile_cmd     = ["/usr/bin/go", "build", "-trimpath", "-o", "{binary}", "{source}"]
+run_cmd         = ["./{binary}"]
+source_filename = "solution.go"
+binary_name     = "solution"
+version_cmd     = ["/usr/bin/go", "version"]
+basename_fallback = "solution"

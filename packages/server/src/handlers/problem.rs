@@ -43,6 +43,12 @@ pub async fn create_problem(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:create")?;
     validate_create_problem(&payload)?;
+    validate_problem_type(&payload.problem_type, &state.registries.evaluator_registry).await?;
+    validate_checker_format(
+        &payload.checker_format,
+        &state.registries.checker_format_registry,
+    )
+    .await?;
 
     let now = chrono::Utc::now();
     let new_problem = problem::ActiveModel {
@@ -51,6 +57,9 @@ pub async fn create_problem(
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
         show_test_details: Set(payload.show_test_details.unwrap_or(false)),
+        problem_type: Set(payload.problem_type),
+        checker_format: Set(payload.checker_format),
+
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -132,6 +141,8 @@ pub async fn list_problems(
         .column(problem::Column::TimeLimit)
         .column(problem::Column::MemoryLimit)
         .column(problem::Column::ShowTestDetails)
+        .column(problem::Column::ProblemType)
+        .column(problem::Column::CheckerFormat)
         .column(problem::Column::CreatedAt)
         .column(problem::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -206,6 +217,12 @@ pub async fn update_problem(
 ) -> Result<Json<ProblemResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
     validate_update_problem(&payload)?;
+    if let Some(ref pt) = payload.problem_type {
+        validate_problem_type(pt, &state.registries.evaluator_registry).await?;
+    }
+    if let Some(ref cf) = payload.checker_format {
+        validate_checker_format(cf, &state.registries.checker_format_registry).await?;
+    }
 
     if payload == UpdateProblemRequest::default() {
         let mut existing = ProblemResponse::from(find_problem(&state.db, id).await?);
@@ -232,6 +249,12 @@ pub async fn update_problem(
     }
     if let Some(show_test_details) = payload.show_test_details {
         active.show_test_details = Set(show_test_details);
+    }
+    if let Some(problem_type) = payload.problem_type {
+        active.problem_type = Set(problem_type);
+    }
+    if let Some(checker_format) = payload.checker_format {
+        active.checker_format = Set(checker_format);
     }
     active.updated_at = Set(chrono::Utc::now());
 

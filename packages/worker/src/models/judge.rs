@@ -201,7 +201,7 @@ fn compile(job: &JudgeJob, tmp_dir: &str) -> Result<String, CompileError> {
             // For Java, the "executable" is the class name
             Ok(format!("{}/Main", tmp_dir))
         }
-        "python" => {
+        "python3" => {
             // No compilation needed; syntax check
             let output = Command::new("python3")
                 .args(["-m", "py_compile", &source_path])
@@ -378,22 +378,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compare_output_exact() {
+    fn exact_match_is_accepted() {
         assert!(compare_output("3\n", "3\n"));
     }
 
     #[test]
-    fn test_compare_output_trailing_whitespace() {
+    fn trailing_whitespace_per_line_is_ignored() {
         assert!(compare_output("3  \n", "3\n"));
     }
 
     #[test]
-    fn test_compare_output_trailing_newlines() {
+    fn trailing_empty_lines_are_ignored() {
         assert!(compare_output("3\n\n\n", "3\n"));
     }
 
     #[test]
-    fn test_compare_output_mismatch() {
+    fn different_content_is_rejected() {
         assert!(!compare_output("4\n", "3\n"));
+    }
+
+    #[test]
+    fn both_empty_is_accepted() {
+        assert!(compare_output("", ""));
+    }
+
+    #[test]
+    fn nonempty_actual_vs_empty_expected_is_rejected() {
+        assert!(!compare_output("3\n", ""));
+    }
+
+    #[test]
+    fn multiline_exact_match_is_accepted() {
+        assert!(compare_output("1\n2\n3\n", "1\n2\n3\n"));
+    }
+
+    #[test]
+    fn multiline_trailing_whitespace_is_ignored() {
+        assert!(compare_output("1  \n2  \n", "1\n2\n"));
+    }
+
+    #[test]
+    fn multiline_mismatch_in_middle_is_rejected() {
+        assert!(!compare_output("1\n9\n3\n", "1\n2\n3\n"));
     }
 }

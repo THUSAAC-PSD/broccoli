@@ -256,11 +256,11 @@ pub trait PluginManager: Send + Sync {
             .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?;
 
         let plugin = pool
-            .get(Duration::new(1, 0))
-            .map_err(|_| {
+            .get(Duration::new(30, 0))
+            .map_err(|e| {
                 PluginError::Internal(format!(
-                    "Failed to acquire runtime instance for plugin '{}'",
-                    plugin_id
+                    "Failed to acquire runtime instance for plugin '{}': {}",
+                    plugin_id, e
                 ))
             })?
             .ok_or_else(|| {
@@ -269,6 +269,13 @@ pub trait PluginManager: Send + Sync {
                     plugin_id
                 ))
             })?;
+
+        if !plugin.plugin().function_exists(func_name) {
+            return Err(PluginError::FunctionNotFound {
+                plugin_id: plugin_id.to_string(),
+                func_name: func_name.to_string(),
+            });
+        }
 
         let result = plugin
             .call(func_name, input)

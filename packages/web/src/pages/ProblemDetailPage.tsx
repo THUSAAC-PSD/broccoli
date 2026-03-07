@@ -366,7 +366,7 @@ export function ProblemDetailPage() {
         </div>
       )}
 
-      {/* ── Fixed header section (never scrolls) ── */}
+      {/* -- Fixed header section (never scrolls) -- */}
       <div className="flex-shrink-0 px-6 pt-3 pb-0 relative">
         <ProblemHeader
           id={headerId}
@@ -379,7 +379,7 @@ export function ProblemDetailPage() {
         <Slot name="problem-detail.header" as="div" className="relative" />
       </div>
 
-      {/* ── Fixed action bar (never scrolls) ── */}
+      {/* -- Fixed action bar (never scrolls) -- */}
       <div className="flex-shrink-0 px-6 py-1.5 border-b flex items-center justify-between bg-background">
         {!showCodingPanel ? (
           <>
@@ -413,7 +413,7 @@ export function ProblemDetailPage() {
         )}
       </div>
 
-      {/* ── Scrollable / flexible content area ── */}
+      {/* -- Scrollable / flexible content area -- */}
       {!showCodingPanel ? (
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-4xl mx-auto">{descriptionBody}</div>

@@ -125,6 +125,9 @@ async fn is_problem_in_contest<C: ConnectionTrait>(
 }
 
 /// Enqueue a judge job for a submission.
+///
+/// DEPRECATED: This is the legacy judge path, replaced by dispatch_to_plugin.
+#[allow(dead_code)]
 #[instrument(skip(state, files), fields(submission_id = submission.id))]
 async fn enqueue_judge_job(
     state: &AppState,
@@ -201,6 +204,7 @@ async fn enqueue_judge_job(
                 return;
             }
         },
+        result_queue: state.config.mq.result_queue_name.clone(),
     };
 
     match mq
@@ -218,6 +222,203 @@ async fn enqueue_judge_job(
             warn!(error = %e, "Failed to enqueue judge job");
         }
     }
+}
+
+/// Dispatch submission to plugin-based judging system.
+#[instrument(skip(state), fields(submission_id = submission.id))]
+async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
+    use common::submission_dispatch::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
+
+    let contest_type = if let Some(contest_id) = submission.contest_id {
+        match contest::Entity::find_by_id(contest_id).one(&state.db).await {
+            Ok(Some(c)) => c.contest_type,
+            Ok(None) => {
+                error!(contest_id, "Contest not found for submission");
+                let _ = crate::consumers::mark_submission_system_error(
+                    &state.db,
+                    submission.id,
+                    "CONTEST_NOT_FOUND",
+                    &format!("Contest {} not found", contest_id),
+                )
+                .await;
+                return;
+            }
+            Err(e) => {
+                error!(error = %e, "DB error fetching contest");
+                let _ = crate::consumers::mark_submission_system_error(
+                    &state.db,
+                    submission.id,
+                    "DATABASE_ERROR",
+                    &format!("Failed to fetch contest: {}", e),
+                )
+                .await;
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    let handler = {
+        let registry = state.registries.contest_type_registry.read().await;
+        contest_type.as_ref().and_then(|t| registry.get(t)).cloned()
+    };
+
+    let handler = match handler {
+        Some(h) => h,
+        None => {
+            warn!(
+                submission_id = submission.id,
+                contest_type = ?contest_type,
+                "No plugin registered for contest type"
+            );
+            let _ = crate::consumers::mark_submission_system_error(
+                &state.db,
+                submission.id,
+                "NO_HANDLER_REGISTERED",
+                &format!("No plugin registered for contest type {:?}", contest_type),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let problem = match problem::Entity::find_by_id(submission.problem_id)
+        .one(&state.db)
+        .await
+    {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            error!(problem_id = submission.problem_id, "Problem not found");
+            let _ = crate::consumers::mark_submission_system_error(
+                &state.db,
+                submission.id,
+                "PROBLEM_NOT_FOUND",
+                &format!("Problem {} not found", submission.problem_id),
+            )
+            .await;
+            return;
+        }
+        Err(e) => {
+            error!(error = %e, "DB error fetching problem");
+            let _ = crate::consumers::mark_submission_system_error(
+                &state.db,
+                submission.id,
+                "DATABASE_ERROR",
+                &format!("Failed to fetch problem: {}", e),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let files: Vec<SourceFile> = match serde_json::from_value(submission.files.clone()) {
+        Ok(f) => f,
+        Err(e) => {
+            error!(error = %e, "Failed to parse submission files");
+            let _ = crate::consumers::mark_submission_system_error(
+                &state.db,
+                submission.id,
+                "INVALID_FILES",
+                &format!("Failed to parse submission files: {}", e),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let input = OnSubmissionInput {
+        submission_id: submission.id,
+        problem_id: submission.problem_id,
+        contest_id: submission.contest_id,
+        files,
+        language: submission.language.clone(),
+        time_limit_ms: problem.time_limit,
+        memory_limit_kb: problem.memory_limit,
+        problem_type: problem.problem_type.clone(),
+    };
+
+    let input_bytes = match serde_json::to_vec(&input) {
+        Ok(b) => b,
+        Err(e) => {
+            error!(error = %e, "Failed to serialize plugin input");
+            let _ = crate::consumers::mark_submission_system_error(
+                &state.db,
+                submission.id,
+                "SERIALIZATION_ERROR",
+                &format!("Failed to serialize input: {}", e),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let plugin_id = handler.plugin_id.clone();
+    let function_name = handler.function_name.clone();
+    let plugins = state.plugins.clone();
+    let db = state.db.clone();
+    let submission_id = submission.id;
+
+    info!(
+        submission_id,
+        plugin_id = %plugin_id,
+        function_name = %function_name,
+        "Dispatching submission to plugin"
+    );
+
+    tokio::spawn(async move {
+        let result = plugins
+            .call_raw(&plugin_id, &function_name, input_bytes)
+            .await;
+
+        match result {
+            Ok(output_bytes) => {
+                match serde_json::from_slice::<OnSubmissionOutput>(&output_bytes) {
+                    Ok(output) => {
+                        if !output.success {
+                            // Plugin-level error
+                            error!(
+                                submission_id,
+                                error = ?output.error_message,
+                                "Plugin reported failure"
+                            );
+                            let _ = crate::consumers::mark_submission_system_error(
+                                &db,
+                                submission_id,
+                                "PLUGIN_ERROR",
+                                &output
+                                    .error_message
+                                    .unwrap_or_else(|| "Unknown plugin error".to_string()),
+                            )
+                            .await;
+                        } else {
+                            info!(submission_id, "Plugin completed successfully");
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to parse plugin output");
+                        let _ = crate::consumers::mark_submission_system_error(
+                            &db,
+                            submission_id,
+                            "PLUGIN_INVALID_OUTPUT",
+                            &format!("Plugin returned invalid output: {}", e),
+                        )
+                        .await;
+                    }
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "Plugin execution failed");
+                let _ = crate::consumers::mark_submission_system_error(
+                    &db,
+                    submission_id,
+                    "PLUGIN_EXECUTION_ERROR",
+                    &e.to_string(),
+                )
+                .await;
+            }
+        }
+    });
 }
 
 /// Convert files to JSON value for storage.
@@ -488,15 +689,11 @@ pub async fn create_submission(
     let model = new_submission.insert(&txn).await?;
     txn.commit().await?;
 
-    let judge_files: Vec<JudgeFile> = payload
-        .files
-        .iter()
-        .map(|f| JudgeFile {
-            filename: f.filename.trim().to_string(),
-            content: f.content.clone(),
-        })
-        .collect();
-    enqueue_judge_job(&state, &model, judge_files).await;
+    let state_clone = state.clone();
+    let model_clone = model.clone();
+    tokio::spawn(async move {
+        dispatch_to_plugin(state_clone, model_clone).await;
+    });
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -696,15 +893,11 @@ pub async fn rejudge_submission(
 
     txn.commit().await?;
 
-    let files = files_from_json(&sub.files);
-    let judge_files: Vec<JudgeFile> = files
-        .iter()
-        .map(|f| JudgeFile {
-            filename: f.filename.clone(),
-            content: f.content.clone(),
-        })
-        .collect();
-    enqueue_judge_job(&state, &updated, judge_files).await;
+    let state_clone = state.clone();
+    let updated_clone = updated.clone();
+    tokio::spawn(async move {
+        dispatch_to_plugin(state_clone, updated_clone).await;
+    });
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -744,6 +937,8 @@ pub async fn create_contest_submission(
     Path((id, problem_id)): Path<(i32, i32)>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let contest_id = id;
+
     auth_user.require_permission("submission:submit")?;
     validate_create_submission(&payload, state.config.submission.max_size)?;
     check_rate_limit(
@@ -794,15 +989,11 @@ pub async fn create_contest_submission(
     let model = new_submission.insert(&txn).await?;
     txn.commit().await?;
 
-    let judge_files: Vec<JudgeFile> = payload
-        .files
-        .iter()
-        .map(|f| JudgeFile {
-            filename: f.filename.trim().to_string(),
-            content: f.content.clone(),
-        })
-        .collect();
-    enqueue_judge_job(&state, &model, judge_files).await;
+    let state_clone = state.clone();
+    let model_clone = model.clone();
+    tokio::spawn(async move {
+        dispatch_to_plugin(state_clone, model_clone).await;
+    });
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -1059,8 +1250,11 @@ pub async fn bulk_rejudge_submissions(
 
     let queued = all_enqueue_data.len();
 
-    for (sub, files) in &all_enqueue_data {
-        enqueue_judge_job(&state, sub, files.clone()).await;
+    for (sub, _files) in all_enqueue_data {
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            dispatch_to_plugin(state_clone, sub).await;
+        });
     }
 
     info!(

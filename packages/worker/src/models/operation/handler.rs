@@ -1,12 +1,18 @@
 use super::file_cacher::FileCacher;
 use super::models::*;
-use super::sandbox::{ExecutionResult, RunOptions, SandboxManager, SandboxOptions};
+use super::sandbox::{ExecutionResult, RunOptions, SandboxManager};
+use super::task_cache::{TaskCacheStore, compute_cache_key};
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, instrument, warn};
+
+/// Strip the `/box` prefix from sandbox paths so they become relative.
+fn strip_box_prefix(path: &Path) -> &Path {
+    path.strip_prefix("/box").unwrap_or(path)
+}
 
 /// Environment instance with sandbox and file management
 struct EnvironmentList {
@@ -28,22 +34,28 @@ impl EnvironmentList {
 pub struct OperationHandler {
     sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
     file_cacher: Box<dyn FileCacher>,
+    task_cache: Box<dyn TaskCacheStore>,
+    toolchain_fingerprint: String,
 }
 
 impl OperationHandler {
     pub fn new(
         sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
         file_cacher: Box<dyn FileCacher>,
+        task_cache: Box<dyn TaskCacheStore>,
+        toolchain_fingerprint: String,
     ) -> Self {
         Self {
             sandbox_manager,
             file_cacher,
+            task_cache,
+            toolchain_fingerprint,
         }
     }
 
     /// Execute an operation
     #[instrument(skip(self, operation))]
-    pub async fn execute(&mut self, operation: &OperationTask) -> Result<OperationResult> {
+    pub async fn execute(&self, operation: &OperationTask) -> Result<OperationResult> {
         info!(
             "Starting operation execution with {} environments and {} tasks",
             operation.environments.len(),
@@ -57,16 +69,23 @@ impl OperationHandler {
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 
             // Create sandbox
-            let sandbox_options = env_config.conf.clone();
             let sandbox_path = self
-                .create_sandbox(&box_id, &sandbox_options)
+                .create_sandbox(&box_id)
                 .await
                 .context("Failed to create sandbox")?;
 
-            // Load initial files
-            self.load_environment_files(&sandbox_path, &env_config.files_in)
+            // Load initial files — clean up sandbox on failure since it's not yet
+            // tracked in `environments` and would be orphaned.
+            if let Err(e) = self
+                .load_environment_files(&sandbox_path, &env_config.files_in)
                 .await
-                .context("Failed to load environment files")?;
+            {
+                if let Err(cleanup_err) = self.sandbox_manager.remove_sandbox(&box_id).await {
+                    error!(box_id = %box_id, error = %cleanup_err, "Failed to clean up sandbox after file loading failure");
+                }
+                self.cleanup_environments(&environments).await?;
+                return Err(e.context("Failed to load environment files"));
+            }
 
             environments.insert(
                 env_config.id.clone(),
@@ -74,39 +93,37 @@ impl OperationHandler {
             );
         }
 
-        // Get execution order as layers of independent tasks
+        // Get execution order
         let execution_layers = self.get_execution_order(operation)?;
         debug!(layers = ?execution_layers, "Task execution layers determined");
 
         let mut task_results = HashMap::new();
         let mut global_success = true;
 
-        // Reborrow self as shared reference for parallel execution phase.
-        // Mutable access is only needed for create/cleanup, not for task execution.
-        let this = &*self;
-
         // Execute layers sequentially; tasks within each layer run in parallel
         for layer in execution_layers {
-            let futures: Vec<_> = layer
-                .iter()
-                .map(|task_id| {
-                    let task = operation
-                        .tasks
-                        .iter()
-                        .find(|t| t.id == *task_id)
-                        .expect("Task should exist");
+            let mut futures = Vec::new();
+            for task_id in &layer {
+                let task = operation
+                    .tasks
+                    .iter()
+                    .find(|t| t.id == *task_id)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Task '{}' not found — dependency graph inconsistency",
+                            task_id
+                        )
+                    })?;
 
-                    // Check if all dependencies succeeded
-                    let deps_ok = task.depends_on.iter().all(|dep_id| {
-                        task_results
-                            .get(dep_id)
-                            .map(|r: &TaskExecutionResult| r.success)
-                            .unwrap_or(false)
-                    });
+                let deps_ok = task.depends_on.iter().all(|dep_id| {
+                    task_results
+                        .get(dep_id)
+                        .map(|r: &TaskExecutionResult| r.success)
+                        .unwrap_or(false)
+                });
 
-                    this.execute_step_with_deps(task, &environments, deps_ok)
-                })
-                .collect();
+                futures.push(self.execute_step_with_deps(task, &environments, deps_ok));
+            }
 
             let results = join_all(futures).await;
             for result in results {
@@ -134,10 +151,10 @@ impl OperationHandler {
     }
 
     /// Create a sandbox instance
-    async fn create_sandbox(&mut self, box_id: &str, options: &SandboxOptions) -> Result<PathBuf> {
+    async fn create_sandbox(&self, box_id: &str) -> Result<PathBuf> {
         let sandbox_path = self
             .sandbox_manager
-            .create_sandbox(Some(box_id), options)
+            .create_sandbox(Some(box_id))
             .await
             .context("Sandbox creation failed")?;
         Ok(sandbox_path)
@@ -150,28 +167,34 @@ impl OperationHandler {
         files: &[(String, SessionFile)],
     ) -> Result<()> {
         for (target_path, source) in files {
-            let dest = sandbox_path.join(target_path);
+            let dest = sandbox_path.join(strip_box_prefix(Path::new(target_path)));
             if let Some(parent) = dest.parent() {
                 tokio::fs::create_dir_all(parent)
                     .await
                     .context("Failed to create parent directory")?;
             }
             match source {
-                SessionFile::Path(src) => {
+                SessionFile::Path { path: src } => {
                     tokio::fs::copy(src, &dest).await.with_context(|| {
                         format!("Failed to copy file {} -> {}", src, dest.display())
                     })?;
                 }
-                SessionFile::Content(content) => {
+                SessionFile::Content { content } => {
                     tokio::fs::write(&dest, content).await.with_context(|| {
                         format!("Failed to write content to {}", dest.display())
                     })?;
                 }
-                SessionFile::DbFile(content_hash) => {
+                SessionFile::Blob { hash: content_hash } => {
                     self.file_cacher
                         .fetch_to_path(content_hash, &dest)
                         .await
-                        .map_err(|e| anyhow!("Failed to fetch db file {}: {}", content_hash, e))?;
+                        .map_err(|e| anyhow!("Failed to fetch blob {}: {}", content_hash, e))?;
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ =
+                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
+                    }
                 }
             }
             debug!(target = %target_path, dest = %dest.display(), "Loaded environment file");
@@ -191,8 +214,6 @@ impl OperationHandler {
     }
 
     /// Get execution order as layers using topological sort (Kahn's algorithm).
-    /// Each layer contains tasks whose dependencies are all in prior layers,
-    /// allowing tasks within the same layer to execute in parallel.
     fn get_execution_order(&self, operation: &OperationTask) -> Result<Vec<Vec<String>>> {
         let graph = self.build_dependency_graph(operation);
         let mut in_degree: HashMap<String, usize> = HashMap::new();
@@ -219,7 +240,7 @@ impl OperationHandler {
             in_degree.insert(task_id.clone(), degree);
         }
 
-        // Kahn's algorithm — collect nodes by layer
+        // Kahn's algorithm
         let mut current_layer: Vec<_> = in_degree
             .iter()
             .filter(|(_, degree)| **degree == 0)
@@ -259,33 +280,195 @@ impl OperationHandler {
         Ok(layers)
     }
 
-    /// Execute a task, skipping if dependencies failed
+    /// Execute a task, skipping if dependencies failed.
     async fn execute_step_with_deps(
         &self,
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
         deps_ok: bool,
     ) -> TaskExecutionResult {
-        if deps_ok {
-            match self.execute_step(step, environments).await {
-                Ok(result) => result,
-                Err(e) => {
-                    error!(task_id = %step.id, error = %e, "Task execution error");
-                    TaskExecutionResult {
-                        task_id: step.id.clone(),
-                        success: false,
-                        sandbox_result: ExecutionResult::default(),
-                    }
-                }
-            }
-        } else {
+        if !deps_ok {
             warn!(task_id = %step.id, "Skipping task due to dependency failure");
-            TaskExecutionResult {
+            return TaskExecutionResult {
                 task_id: step.id.clone(),
                 success: false,
                 sandbox_result: ExecutionResult::default(),
+                collected_outputs: HashMap::new(),
+            };
+        }
+
+        if let Some(cache_spec) = &step.cache
+            && let Some(cached) = self.try_cache_hit(step, environments, cache_spec).await
+        {
+            return cached;
+        }
+
+        let result = match self.execute_step(step, environments).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!(task_id = %step.id, error = %e, "Task execution error");
+                return TaskExecutionResult {
+                    task_id: step.id.clone(),
+                    success: false,
+                    sandbox_result: ExecutionResult::default(),
+                    collected_outputs: HashMap::new(),
+                };
+            }
+        };
+
+        if result.success
+            && let Some(cache_spec) = &step.cache
+        {
+            self.store_in_cache(step, environments, cache_spec, &result.collected_outputs)
+                .await;
+        }
+
+        result
+    }
+
+    /// Attempt to restore a step's outputs from the task cache.
+    ///
+    /// Returns `Some(TaskExecutionResult)` on cache hit, `None` on miss.
+    async fn try_cache_hit(
+        &self,
+        step: &Step,
+        environments: &HashMap<String, EnvironmentList>,
+        cache_spec: &StepCacheConfig,
+    ) -> Option<TaskExecutionResult> {
+        let env = environments.get(&step.env_ref)?;
+        let cache_key = match self
+            .build_cache_key(&env.sandbox_path, &step.argv, &cache_spec.key_inputs)
+            .await
+        {
+            Ok(key) => key,
+            Err(e) => {
+                debug!(step_id = %step.id, error = %e, "Failed to compute cache key, skipping cache");
+                return None;
+            }
+        };
+
+        let cached_outputs = match self.task_cache.get(&cache_key).await {
+            Ok(Some(outputs)) => outputs,
+            Ok(None) => {
+                debug!(step_id = %step.id, cache_key = %cache_key, "Cache miss");
+                return None;
+            }
+            Err(e) => {
+                warn!(step_id = %step.id, error = %e, "Cache lookup failed, executing normally");
+                return None;
+            }
+        };
+
+        for (filename, content_hash) in &cached_outputs {
+            let dest = env.sandbox_path.join(strip_box_prefix(Path::new(filename)));
+            if let Some(parent) = dest.parent()
+                && let Err(e) = tokio::fs::create_dir_all(parent).await
+            {
+                warn!(step_id = %step.id, error = %e, "Failed to create parent dir for cached output");
+                return None;
+            }
+            if let Err(e) = self.file_cacher.fetch_to_path(content_hash, &dest).await {
+                warn!(
+                    step_id = %step.id,
+                    file = %filename,
+                    error = %e,
+                    "Failed to restore cached output, falling back to execution"
+                );
+                return None;
+            }
+            // Set execute permission for binaries
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
             }
         }
+
+        info!(step_id = %step.id, cache_key = %cache_key, "Cache hit — skipped execution");
+        Some(TaskExecutionResult {
+            task_id: step.id.clone(),
+            success: true,
+            sandbox_result: ExecutionResult::default(),
+            collected_outputs: cached_outputs,
+        })
+    }
+
+    /// Store step outputs in the task cache after successful execution.
+    ///
+    /// `existing_hashes` maps filenames to already-uploaded content hashes from
+    /// `collect_output`; files present there are reused without re-uploading.
+    async fn store_in_cache(
+        &self,
+        step: &Step,
+        environments: &HashMap<String, EnvironmentList>,
+        cache_spec: &StepCacheConfig,
+        existing_hashes: &HashMap<String, String>,
+    ) {
+        let env = match environments.get(&step.env_ref) {
+            Some(e) => e,
+            None => return,
+        };
+
+        let cache_key = match self
+            .build_cache_key(&env.sandbox_path, &step.argv, &cache_spec.key_inputs)
+            .await
+        {
+            Ok(key) => key,
+            Err(e) => {
+                warn!(step_id = %step.id, error = %e, "Failed to compute cache key for storage");
+                return;
+            }
+        };
+
+        let mut output_hashes = HashMap::new();
+        for filename in &cache_spec.outputs {
+            if let Some(hash) = existing_hashes.get(filename) {
+                output_hashes.insert(filename.clone(), hash.clone());
+                continue;
+            }
+            let src = env.sandbox_path.join(strip_box_prefix(Path::new(filename)));
+            if !tokio::fs::try_exists(&src).await.unwrap_or(false) {
+                debug!(step_id = %step.id, file = %filename, "Cache output file not found, skipping cache store");
+                return;
+            }
+            match self.file_cacher.upload_from_path(&src).await {
+                Ok(hash) => {
+                    output_hashes.insert(filename.clone(), hash);
+                }
+                Err(e) => {
+                    warn!(step_id = %step.id, file = %filename, error = %e, "Failed to upload output for cache");
+                    return;
+                }
+            }
+        }
+
+        if let Err(e) = self.task_cache.put(&cache_key, output_hashes).await {
+            warn!(step_id = %step.id, error = %e, "Failed to store task cache entry");
+        } else {
+            info!(step_id = %step.id, cache_key = %cache_key, "Stored step outputs in task cache");
+        }
+    }
+
+    /// Build a deterministic cache key from argv + input file contents.
+    async fn build_cache_key(
+        &self,
+        sandbox_path: &Path,
+        argv: &[String],
+        key_inputs: &[String],
+    ) -> Result<String> {
+        let mut input_files = Vec::new();
+        for filename in key_inputs {
+            let path = sandbox_path.join(strip_box_prefix(Path::new(filename)));
+            let content = tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("Failed to read cache key input: {}", path.display()))?;
+            input_files.push((filename.clone(), content));
+        }
+        Ok(compute_cache_key(
+            &self.toolchain_fingerprint,
+            argv,
+            &input_files,
+        ))
     }
 
     /// Execute a single step
@@ -312,8 +495,8 @@ impl OperationHandler {
             stdin: stdin_path,
             stdout: stdout_path,
             stderr: stderr_path,
+            env_rules: step.conf.env_rules.clone(),
             directory_rules: step.conf.directory_rules.clone(),
-            ..Default::default()
         };
 
         let exec_result = self
@@ -326,15 +509,15 @@ impl OperationHandler {
             })?;
 
         let success = exec_result.exit_code == Some(0);
-        if success {
-            self.collect_output(&env.sandbox_path, &step.collect)
-                .await?;
-        }
+        let collected_outputs = self
+            .collect_output(&env.sandbox_path, &step.collect)
+            .await?;
 
         Ok(TaskExecutionResult {
             task_id: step.id.clone(),
             success,
             sandbox_result: exec_result,
+            collected_outputs,
         })
     }
 
@@ -365,8 +548,11 @@ impl OperationHandler {
     ) -> Result<Option<PathBuf>> {
         match target {
             IOTarget::Null | IOTarget::Inherit => Ok(None),
-            IOTarget::File(path) => Ok(Some(path.into())),
-            IOTarget::Pipe(name) => {
+            IOTarget::File { path } => {
+                let p = Path::new(path);
+                Ok(Some(strip_box_prefix(p).to_path_buf()))
+            }
+            IOTarget::Pipe { name } => {
                 if name.is_empty() {
                     return Err(anyhow!("Pipe name cannot be empty"));
                 }
@@ -407,9 +593,14 @@ impl OperationHandler {
         }
     }
 
-    async fn collect_output(&self, sandbox_path: &Path, collect_files: &[String]) -> Result<()> {
+    async fn collect_output(
+        &self,
+        sandbox_path: &Path,
+        collect_files: &[String],
+    ) -> Result<HashMap<String, String>> {
+        let mut collected = HashMap::new();
         for file_path in collect_files {
-            let src = sandbox_path.join(file_path);
+            let src = sandbox_path.join(strip_box_prefix(Path::new(file_path)));
             if tokio::fs::try_exists(&src).await.unwrap_or(false) {
                 let hash = self.file_cacher.upload_from_path(&src).await.map_err(|e| {
                     anyhow!("Failed to upload output file {}: {}", src.display(), e)
@@ -419,16 +610,17 @@ impl OperationHandler {
                     hash = %hash,
                     "Collected output file"
                 );
+                collected.insert(file_path.clone(), hash);
             } else {
                 warn!(path = %src.display(), "Collect target not found, skipping");
             }
         }
-        Ok(())
+        Ok(collected)
     }
 
     /// Cleanup all sandboxes
     async fn cleanup_environments(
-        &mut self,
+        &self,
         environments: &HashMap<String, EnvironmentList>,
     ) -> Result<()> {
         for env in environments.values() {

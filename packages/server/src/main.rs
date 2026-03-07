@@ -1,21 +1,24 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
 use common::storage::BlobStore;
-use common::storage::filesystem::FilesystemBlobStore;
+use common::storage::database::DatabaseBlobStore;
+use dashmap::DashMap;
 use mq::{MqConfig as MqConnConfig, init_mq};
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{Level, info, warn};
+use tracing::{Level, info};
 
 use server::build_router;
 use server::config::AppConfig;
-use server::consumers::{consume_judge_results, consume_worker_dlq};
+use server::consumers::{consume_judge_results, consume_operation_results, consume_worker_dlq};
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
+use server::registry;
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
 
@@ -33,21 +36,19 @@ async fn main() -> anyhow::Result<()> {
     server::seed::ensure_indexes(&db).await?;
 
     let mq = if app_config.mq.enabled {
-        match init_mq(MqConnConfig {
+        let queue = init_mq(MqConnConfig {
             url: app_config.mq.url.clone(),
             pool_size: app_config.mq.pool_size,
         })
         .await
-        {
-            Ok(queue) => {
-                info!("MQ connected to {}", app_config.mq.url);
-                Some(Arc::new(queue))
-            }
-            Err(e) => {
-                warn!("MQ connection failed, submissions won't be queued: {}", e);
-                None
-            }
-        }
+        .with_context(|| {
+            format!(
+                "MQ is enabled but failed to connect to {}",
+                app_config.mq.url
+            )
+        })?;
+        info!("MQ connected to {}", app_config.mq.url);
+        Some(Arc::new(queue))
     } else {
         info!("MQ disabled by configuration");
         None
@@ -81,26 +82,63 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
-    let blob_store: Arc<dyn BlobStore> = {
-        let blob_path = PathBuf::from(&app_config.storage.data_dir).join("blobs");
-        Arc::new(
-            FilesystemBlobStore::new(blob_path, app_config.storage.max_blob_size)
-                .await
-                .context("Failed to initialize blob storage")?,
-        )
-    };
-    info!(
-        "Blob storage initialized at {}/blobs",
-        app_config.storage.data_dir
-    );
+    let blob_store: Arc<dyn BlobStore> = Arc::new(DatabaseBlobStore::new(
+        db.clone(),
+        app_config.storage.max_blob_size,
+    ));
+    info!("Blob storage initialized (database-backed)");
+
+    let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
+    let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
+    let checker_format_registry = Arc::new(RwLock::new(HashMap::new()));
+    let operation_batches = Arc::new(DashMap::new());
+    let operation_waiters = Arc::new(DashMap::new());
+    let evaluate_batches = Arc::new(DashMap::new());
+
+    let batch_max_age = Duration::from_secs(app_config.batch_max_age_secs);
+    registry::spawn_batch_reaper("operation", operation_batches.clone(), batch_max_age);
+    registry::spawn_batch_reaper("evaluate", evaluate_batches.clone(), batch_max_age);
+
+    if let Some(ref mq_arc) = mq {
+        let op_consumer_mq = Arc::clone(mq_arc);
+        let op_result_queue = app_config.mq.operation_result_queue_name.clone();
+        let op_waiters = operation_waiters.clone();
+        tokio::spawn(async move {
+            consume_operation_results(op_consumer_mq, op_waiters, op_result_queue).await;
+        });
+        info!("Operation result consumer started");
+    }
+
+    let manager = ServerManager::new(
+        app_config.plugin.clone(),
+        db.clone(),
+        mq.clone(),
+        operation_batches.clone(),
+        operation_waiters.clone(),
+        contest_type_registry.clone(),
+        evaluator_registry.clone(),
+        checker_format_registry.clone(),
+        evaluate_batches.clone(),
+        app_config.clone(),
+    )
+    .context("Failed to initialize plugin manager")?;
 
     let state = AppState {
-        plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
-        db,
+        plugins: manager,
+        db: db.clone(),
         config: app_config.clone(),
-        mq,
+        mq: mq.clone(),
         blob_store,
+        registries: server::state::RegistryState {
+            contest_type_registry: contest_type_registry.clone(),
+            evaluator_registry: evaluator_registry.clone(),
+            checker_format_registry: checker_format_registry.clone(),
+            operation_batches: operation_batches.clone(),
+            operation_waiters: operation_waiters.clone(),
+            evaluate_batches: evaluate_batches.clone(),
+        },
     };
+
     sync_plugins(&state).await?;
 
     let mut allow_origins = Vec::new();

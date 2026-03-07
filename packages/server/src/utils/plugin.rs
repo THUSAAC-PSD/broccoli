@@ -30,6 +30,21 @@ pub async fn sync_plugins(state: &AppState) -> anyhow::Result<()> {
         if plugin_model.is_enabled {
             state.plugins.load_plugin(&plugin.id)?;
             tracing::info!("Plugin '{}' loaded successfully", plugin.id);
+
+            match state.plugins.call_raw(&plugin.id, "init", vec![]).await {
+                Ok(_) => {
+                    tracing::info!("Plugin '{}' init() complete", plugin.id);
+                }
+                Err(plugin_core::error::PluginError::NoRuntime(_)) => {
+                    tracing::debug!("Plugin '{}' is frontend-only, skipping init()", plugin.id);
+                }
+                Err(plugin_core::error::PluginError::FunctionNotFound { .. }) => {
+                    tracing::debug!("Plugin '{}' has no init() function (optional)", plugin.id);
+                }
+                Err(e) => {
+                    tracing::error!("Plugin '{}' init() failed: {}", plugin.id, e);
+                }
+            }
         } else {
             tracing::info!("Plugin '{}' is disabled, skipping load", plugin.id);
         }

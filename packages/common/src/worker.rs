@@ -10,6 +10,7 @@ pub struct Task {
     pub task_type: String,
     pub executor_name: String,
     pub payload: serde_json::Value,
+    pub result_queue: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

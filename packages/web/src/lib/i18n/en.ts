@@ -326,6 +326,22 @@ export const en: Record<string, string> = {
   'admin.testCases.field.description': 'Description',
   'admin.testCases.field.isSample': 'Sample Test Case',
 
+  // Dashboard
+  'dashboard.title': 'Dashboard',
+  'dashboard.welcome': 'Welcome to Broccoli OJ',
+  'dashboard.welcomeDescription':
+    'Sign in to track your submissions and participate in contests.',
+  'dashboard.selectContest': 'Select Contest',
+  'dashboard.selectContestDesc':
+    'You are enrolled in multiple contests. Please select one.',
+  'dashboard.noActiveContest': 'You are not enrolled in any contest.',
+  'dashboard.all': 'All',
+  'dashboard.noSubmissions': 'No submissions yet. Start solving problems!',
+  'dashboard.problem': 'Problem',
+  'dashboard.language': 'Language',
+  'dashboard.verdict': 'Verdict',
+  'dashboard.submitted': 'Submitted',
+
   // Plugins management
   'plugins.title': 'Plugins',
   'plugins.subtitle': 'Manage and configure installed plugins',

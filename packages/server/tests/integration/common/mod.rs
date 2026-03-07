@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -11,18 +12,23 @@ use sea_orm::{
 };
 use serde_json::Value;
 use testcontainers::ContainerAsync;
+use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell, RwLock};
 
 use common::storage::BlobStore;
-use common::storage::filesystem::FilesystemBlobStore;
+use common::storage::database::DatabaseBlobStore;
 use server::config::{
     AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig, StorageConfig,
     SubmissionConfig,
 };
 use server::entity::user;
 use server::manager::ServerManager;
+use server::registry::{
+    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    OperationBatches, OperationWaiters,
+};
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
 
@@ -32,9 +38,13 @@ static SHARED_PG: OnceCell<(ContainerAsync<Postgres>, u16)> = OnceCell::const_ne
 /// Monotonic counter for unique database names.
 static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Serializes CREATE DATABASE operations to prevent connection exhaustion.
+static CREATE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 /// Container ID for atexit cleanup.
 static CONTAINER_ID: OnceLock<String> = OnceLock::new();
 
+/// Shared admin connection pool for CREATE DATABASE operations.
 extern "C" fn cleanup_container() {
     if let Some(id) = CONTAINER_ID.get() {
         let _ = std::process::Command::new("docker")
@@ -49,6 +59,8 @@ async fn shared_pg_port() -> u16 {
     let (_, port) = SHARED_PG
         .get_or_init(|| async {
             let container = Postgres::default()
+                .with_tag("17-alpine")
+                .with_cmd(["postgres", "-c", "max_connections=500"])
                 .start()
                 .await
                 .expect("Failed to start PostgreSQL container");
@@ -58,17 +70,35 @@ async fn shared_pg_port() -> u16 {
                 .expect("Failed to get PostgreSQL port");
 
             let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
-            let admin_db = Database::connect(ConnectOptions::new(&admin_url))
-                .await
-                .expect("Failed to connect to admin database for template setup");
-            admin_db
-                .execute_raw(Statement::from_string(
-                    DbBackend::Postgres,
-                    "CREATE DATABASE \"template_test\"".to_string(),
-                ))
-                .await
-                .expect("Failed to create template database");
-            drop(admin_db);
+            let mut template_created = false;
+            for attempt in 0..15u32 {
+                if attempt > 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        500 * u64::from(attempt),
+                    ))
+                    .await;
+                }
+                let Ok(admin_db) = Database::connect(ConnectOptions::new(&admin_url)).await else {
+                    continue;
+                };
+                if admin_db
+                    .execute_raw(Statement::from_string(
+                        DbBackend::Postgres,
+                        "CREATE DATABASE \"template_test\"".to_string(),
+                    ))
+                    .await
+                    .is_ok()
+                {
+                    drop(admin_db);
+                    template_created = true;
+                    break;
+                }
+                drop(admin_db);
+            }
+            assert!(
+                template_created,
+                "Failed to create template_test database after 15 attempts"
+            );
 
             let _ = CONTAINER_ID.set(container.id().to_string());
 
@@ -244,8 +274,17 @@ pub struct TestApp {
     pub addr: SocketAddr,
     pub client: Client,
     pub db: DatabaseConnection,
-    /// Kept alive to prevent temp dir deletion during the test.
-    _blob_dir: tempfile::TempDir,
+    /// Handle to the spawned axum server task. Aborted on Drop to free connections.
+    server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        // Abort the server task immediately (non-blocking).
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+        }
+    }
 }
 
 /// Path to the test fixtures directory.
@@ -265,38 +304,54 @@ pub struct TestResponse {
 }
 
 impl TestApp {
+    /// Spawn a test server WITHOUT loading plugins (fast path for most tests).
     pub async fn spawn() -> Self {
+        Self::spawn_internal(false).await
+    }
+
+    /// Spawn a test server WITH plugins loaded (slow, only for plugin-specific tests).
+    pub async fn spawn_with_plugins() -> Self {
+        Self::spawn_internal(true).await
+    }
+
+    async fn spawn_internal(load_plugins: bool) -> Self {
         let port = shared_pg_port().await;
         let db_name = format!("test_{}", DB_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-        let admin_opts = ConnectOptions::new(format!(
-            "postgres://postgres:postgres@127.0.0.1:{port}/postgres"
-        ));
-        let admin_db = Database::connect(admin_opts)
+        let _lock = CREATE_DB_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+
+        let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+        let mut admin_opts = ConnectOptions::new(&admin_url);
+        admin_opts
+            .max_connections(1) // Only need 1 connection for CREATE DATABASE
+            .min_connections(0); // Don't maintain idle connections
+        let admin_conn = Database::connect(admin_opts)
             .await
             .expect("Failed to connect to admin database");
-        admin_db
+
+        admin_conn
             .execute_raw(Statement::from_string(
                 DbBackend::Postgres,
                 format!("CREATE DATABASE \"{db_name}\" TEMPLATE template_test"),
             ))
             .await
             .expect("Failed to create test database from template");
-        drop(admin_db);
+
+        admin_conn.close().await.ok();
+
+        drop(_lock);
 
         let db_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/{db_name}");
         let mut opts = ConnectOptions::new(&db_url);
-        opts.max_connections(5).min_connections(1);
+        opts.max_connections(2)
+            .min_connections(0)
+            .idle_timeout(std::time::Duration::from_secs(2));
         let db = Database::connect(opts)
             .await
             .expect("Failed to connect to test database");
 
-        let blob_dir = tempfile::tempdir().expect("Failed to create temp dir for blob storage");
-        let blob_store: Arc<dyn BlobStore> = Arc::new(
-            FilesystemBlobStore::new(blob_dir.path().join("blobs"), 128 * 1024 * 1024)
-                .await
-                .expect("Failed to init blob store"),
-        );
+        let blob_store: Arc<dyn BlobStore> =
+            Arc::new(DatabaseBlobStore::new(db.clone(), 128 * 1024 * 1024));
 
         let app_config = AppConfig {
             server: ServerConfig {
@@ -323,16 +378,51 @@ impl TestApp {
                 enabled: false,
                 ..Default::default()
             },
+            languages: HashMap::new(),
+            batch_max_age_secs: 600,
         };
 
+        let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let evaluator_registry: EvaluatorRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let checker_format_registry: CheckerFormatRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
+        let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
+        let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
+
+        let plugins = ServerManager::new(
+            app_config.plugin.clone(),
+            db.clone(),
+            None, // mq
+            operation_batches.clone(),
+            operation_waiters.clone(),
+            contest_type_registry.clone(),
+            evaluator_registry.clone(),
+            checker_format_registry.clone(),
+            evaluate_batches.clone(),
+            app_config.clone(),
+        )
+        .expect("Failed to initialize plugin manager");
+
         let state = AppState {
-            plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
+            plugins,
             db: db.clone(),
             config: app_config,
             mq: None,
             blob_store,
+            registries: server::state::RegistryState {
+                contest_type_registry,
+                evaluator_registry,
+                checker_format_registry,
+                operation_batches,
+                operation_waiters,
+                evaluate_batches,
+            },
         };
         sync_plugins(&state).await.expect("Failed to sync plugins");
+
+        if load_plugins {
+            sync_plugins(&state).await.expect("Failed to sync plugins");
+        }
 
         let app = server::build_router(state);
 
@@ -341,7 +431,7 @@ impl TestApp {
             .expect("Failed to bind to random port");
         let addr = listener.local_addr().unwrap();
 
-        tokio::spawn(async move {
+        let server_handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
 
@@ -349,7 +439,7 @@ impl TestApp {
             addr,
             client: Client::new(),
             db,
-            _blob_dir: blob_dir,
+            server_handle: Some(server_handle),
         }
     }
 

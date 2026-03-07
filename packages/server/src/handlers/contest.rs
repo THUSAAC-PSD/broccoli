@@ -53,6 +53,7 @@ pub async fn create_contest(
         submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
         show_compile_output: Set(payload.show_compile_output.unwrap_or(true)),
         show_participants_list: Set(payload.show_participants_list.unwrap_or(true)),
+        contest_type: Set(payload.contest_type),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -266,6 +267,9 @@ pub async fn update_contest(
     }
     if let Some(show_participants_list) = payload.show_participants_list {
         active.show_participants_list = Set(show_participants_list);
+    }
+    if let Some(contest_type) = payload.contest_type {
+        active.contest_type = Set(Some(contest_type));
     }
     active.updated_at = Set(chrono::Utc::now());
 

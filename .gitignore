@@ -19,8 +19,11 @@ tmp/
 .env.local
 .env.*.local
 
+config/config.toml
+
 /plugins/*
 !/plugins/broccoli-zh-cn/
 !/plugins/.gitkeep
 
 /data
+/vendor

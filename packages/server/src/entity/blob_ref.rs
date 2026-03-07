@@ -20,9 +20,6 @@ pub struct Model {
 
     pub content_hash: String,
 
-    #[sea_orm(belongs_to, from = "content_hash", to = "content_hash")]
-    pub blob_object: Option<super::blob_object::Entity>,
-
     /// Original upload filename.
     pub filename: String,
 

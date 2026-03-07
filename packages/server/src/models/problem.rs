@@ -29,6 +29,14 @@ pub struct CreateProblemRequest {
     /// If omitted, defaults to false.
     #[schema(example = false)]
     pub show_test_details: Option<bool>,
+    /// Problem type for evaluator dispatch, e.g. "standard" or "interactive".
+    #[serde(default = "default_problem_type")]
+    #[schema(example = "standard")]
+    pub problem_type: String,
+    /// Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
+    #[serde(default = "default_checker_format")]
+    #[schema(example = "exact")]
+    pub checker_format: String,
 }
 
 /// PATCH body for updating a problem. Only provided fields are modified.
@@ -49,6 +57,12 @@ pub struct UpdateProblemRequest {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = true)]
     pub show_test_details: Option<bool>,
+    /// Problem type for evaluator dispatch: "standard" or "interactive".
+    #[schema(example = "standard")]
+    pub problem_type: Option<String>,
+    /// Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
+    #[schema(example = "ignore_case")]
+    pub checker_format: Option<String>,
 }
 
 /// Full problem details.
@@ -67,6 +81,14 @@ pub struct ProblemResponse {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
+    /// Problem type for evaluator dispatch.
+    #[schema(example = "standard")]
+    pub problem_type: String,
+    /// Custom checker source files (read-only, uploaded via separate endpoint).
+    pub checker_source: Option<serde_json::Value>,
+    /// Checker format for output comparison.
+    #[schema(example = "exact")]
+    pub checker_format: String,
     /// Sample test case metadata (is_sample = true).
     pub samples: Vec<SampleTestCaseMeta>,
     #[schema(example = "2025-09-01T08:00:00Z")]
@@ -102,6 +124,12 @@ pub struct ProblemListItem {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
+    /// Problem type for evaluator dispatch.
+    #[schema(example = "standard")]
+    pub problem_type: String,
+    /// Checker format for output comparison.
+    #[schema(example = "exact")]
+    pub checker_format: String,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
@@ -252,6 +280,9 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
             show_test_details: m.show_test_details,
+            problem_type: m.problem_type,
+            checker_source: m.checker_source,
+            checker_format: m.checker_format,
             samples: vec![],
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -284,6 +315,50 @@ pub fn truncate_preview(s: &str) -> String {
     }
 }
 
+fn default_problem_type() -> String {
+    "standard".into()
+}
+
+fn default_checker_format() -> String {
+    "exact".into()
+}
+
+use crate::registry::{CheckerFormatRegistry, EvaluatorRegistry};
+
+/// Validates checker_format against the registry of registered checker format handlers.
+pub async fn validate_checker_format(
+    format: &str,
+    registry: &CheckerFormatRegistry,
+) -> Result<(), AppError> {
+    let reg = registry.read().await;
+    if !reg.contains_key(format) {
+        let mut valid: Vec<_> = reg.keys().cloned().collect();
+        valid.sort();
+        return Err(AppError::Validation(format!(
+            "checker_format must be one of: {}",
+            valid.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+/// Validates problem_type against the registry of registered evaluator handlers.
+pub async fn validate_problem_type(
+    problem_type: &str,
+    registry: &EvaluatorRegistry,
+) -> Result<(), AppError> {
+    let reg = registry.read().await;
+    if !reg.contains_key(problem_type) {
+        let mut valid: Vec<_> = reg.keys().cloned().collect();
+        valid.sort();
+        return Err(AppError::Validation(format!(
+            "problem_type must be one of: {}",
+            valid.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppError> {
     validate_title(&req.title)?;
     if req.content.trim().is_empty() || req.content.len() > 1_000_000 {
@@ -299,6 +374,8 @@ pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppErro
             "Memory limit must be 1-1048576 KB".into(),
         ));
     }
+    // problem_type and checker_format are validated async in the handler
+    // via validate_problem_type() and validate_checker_format() with registries.
     Ok(())
 }
 
@@ -325,6 +402,7 @@ pub fn validate_update_problem(req: &UpdateProblemRequest) -> Result<(), AppErro
             "Memory limit must be 1-1048576 KB".into(),
         ));
     }
+
     Ok(())
 }
 

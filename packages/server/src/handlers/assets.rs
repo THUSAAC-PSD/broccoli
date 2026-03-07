@@ -12,7 +12,6 @@ pub async fn serve_plugin_asset(
     State(state): State<AppState>,
     Path((plugin_id, file_path)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Resolve absolute path
     let safe_path = state
         .plugins
         .resolve_plugin_asset(&plugin_id, &file_path)

@@ -6,7 +6,10 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
+worker = { path = "../worker" }
 common = { workspace = true, features = ["sea-orm"] }
+crossbeam.workspace = true
+dashmap.workspace = true
 mq.workspace = true
 axum = { workspace = true, features = ["multipart"] }
 chrono.workspace = true

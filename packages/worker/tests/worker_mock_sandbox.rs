@@ -1,20 +1,14 @@
-use common::storage::BlobStore;
-use common::storage::object_storage::{ObjectStorageBlobStore, ObjectStorageConfig};
 use common::worker::Task;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use worker::models::operation::executor::OperationTaskExecutor;
-use worker::models::operation::file_cacher::BlobStoreFileCacher;
-use worker::models::operation::handler::OperationHandler;
 use worker::models::operation::models::{
-    Environment, IOConfig, IOTarget, OperationResult, OperationTask, SessionFile, Step,
+    Environment, IOConfig, IOTarget, OperationResult, OperationTask, Step,
 };
 use worker::models::operation::sandbox::mock::MockSandboxManager;
-use worker::models::operation::sandbox::{
-    DirectoryOptions, DirectoryRule, RunOptions, SandboxOptions,
-};
+use worker::models::operation::sandbox::{DirectoryOptions, DirectoryRule, RunOptions};
 use worker::models::worker::Worker;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -48,7 +42,6 @@ fn build_operation_task(command: &str) -> OperationTask {
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![Step {
             id: "step-1".to_string(),
@@ -58,51 +51,9 @@ fn build_operation_task(command: &str) -> OperationTask {
             io: IOConfig::default(),
             collect: vec![],
             depends_on: vec![],
+            cache: None,
         }],
         channels: vec![],
-    }
-}
-
-fn object_storage_env(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
-}
-
-async fn try_object_storage_store_for_test() -> Option<Arc<dyn BlobStore>> {
-    let endpoint = object_storage_env("BROCCOLI_S3_ENDPOINT", "http://127.0.0.1:8333");
-    let bucket = object_storage_env("BROCCOLI_S3_BUCKET", "broccoli-blobs");
-    let region = object_storage_env("BROCCOLI_S3_REGION", "us-east-1");
-    let access_key = object_storage_env("BROCCOLI_S3_ACCESS_KEY", "broccoli_s3_access");
-    let secret_key = object_storage_env("BROCCOLI_S3_SECRET_KEY", "broccoli_s3_secret");
-    let path_style = object_storage_env("BROCCOLI_S3_PATH_STYLE", "true")
-        .trim()
-        .eq_ignore_ascii_case("true");
-
-    let store = match ObjectStorageBlobStore::new(ObjectStorageConfig {
-        bucket,
-        region,
-        endpoint: Some(endpoint),
-        access_key: Some(access_key),
-        secret_key: Some(secret_key),
-        path_style,
-        max_size: 128 * 1024 * 1024,
-        temp_dir: None,
-    }) {
-        Ok(store) => Arc::new(store) as Arc<dyn BlobStore>,
-        Err(err) => {
-            eprintln!("skip object storage test: invalid config: {err}");
-            return None;
-        }
-    };
-
-    match store.put(b"worker-object-storage-probe").await {
-        Ok(hash) => {
-            let _ = store.delete(&hash).await;
-            Some(store)
-        }
-        Err(err) => {
-            eprintln!("skip object storage test: backend unavailable: {err}");
-            None
-        }
     }
 }
 
@@ -127,6 +78,7 @@ async fn execute_operation_with_mock(
         task_type: "operation".to_string(),
         executor_name: "operation".to_string(),
         payload: serde_json::to_value(operation).unwrap(),
+        result_queue: "test_results".into(),
     };
 
     let result = worker.execute_task(task).await.unwrap();
@@ -216,7 +168,6 @@ printf '2 40\n' > input.txt
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![
             Step {
@@ -231,6 +182,7 @@ printf '2 40\n' > input.txt
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
+                cache: None,
             },
             Step {
                 id: "compile".to_string(),
@@ -247,6 +199,7 @@ printf '2 40\n' > input.txt
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["prepare".to_string()],
+                cache: None,
             },
             Step {
                 id: "run".to_string(),
@@ -254,12 +207,13 @@ printf '2 40\n' > input.txt
                 argv: vec!["./main".to_string()],
                 conf: RunOptions::default(),
                 io: IOConfig {
-                    stdin: IOTarget::File("input.txt".to_string()),
-                    stdout: IOTarget::File("output.txt".to_string()),
-                    stderr: IOTarget::File("error.txt".to_string()),
+                    stdin: IOTarget::File { path: "input.txt".to_string() },
+                    stdout: IOTarget::File { path: "output.txt".to_string() },
+                    stderr: IOTarget::File { path: "error.txt".to_string() },
                 },
                 collect: vec![],
                 depends_on: vec!["compile".to_string()],
+                cache: None,
             },
             Step {
                 id: "verify".to_string(),
@@ -274,6 +228,7 @@ printf '2 40\n' > input.txt
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["run".to_string()],
+                cache: None,
             },
         ],
         channels: vec![],
@@ -325,7 +280,6 @@ CPP
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![
             Step {
@@ -340,6 +294,7 @@ CPP
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
+                cache: None,
             },
             Step {
                 id: "compile-bad".to_string(),
@@ -355,6 +310,7 @@ CPP
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["prepare-bad".to_string()],
+                cache: None,
             },
             Step {
                 id: "run-should-skip".to_string(),
@@ -368,6 +324,7 @@ CPP
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["compile-bad".to_string()],
+                cache: None,
             },
         ],
         channels: vec![],
@@ -398,7 +355,6 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail() {
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![Step {
             id: "pipe-invalid".to_string(),
@@ -411,11 +367,14 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail() {
             conf: RunOptions::default(),
             io: IOConfig {
                 stdin: IOTarget::Inherit,
-                stdout: IOTarget::Pipe(String::new()),
+                stdout: IOTarget::Pipe {
+                    name: String::new(),
+                },
                 stderr: IOTarget::Inherit,
             },
             collect: vec![],
             depends_on: vec![],
+            cache: None,
         }],
         channels: vec![],
     };
@@ -449,12 +408,10 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
             Environment {
                 id: "env-a".to_string(),
                 files_in: vec![],
-                conf: SandboxOptions {},
             },
             Environment {
                 id: "env-b".to_string(),
                 files_in: vec![],
-                conf: SandboxOptions {},
             },
         ],
         tasks: vec![
@@ -473,6 +430,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
+                cache: None,
             },
             Step {
                 id: "consumer".to_string(),
@@ -490,6 +448,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["producer".to_string()],
+                cache: None,
             },
         ],
         channels: vec![],
@@ -508,82 +467,4 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
     let consumer = operation_result.task_results.get("consumer").unwrap();
     assert!(consumer.success);
     assert_eq!(consumer.sandbox_result.exit_code, Some(0));
-}
-
-#[tokio::test]
-async fn execute_operation_with_file_pulled_from_object_storage() {
-    let Some(store) = try_object_storage_store_for_test().await else {
-        eprintln!("skip object storage worker test: backend unavailable");
-        return;
-    };
-
-    let hash = store
-        .put(b"40 2\n")
-        .await
-        .expect("put test object should succeed");
-    let hash_hex = hash.to_hex();
-
-    let cache_root = tempfile::tempdir().expect("create temp cache dir");
-    let cacher = BlobStoreFileCacher::new(store, cache_root.path().join("cache"), 64 * 1024 * 1024)
-        .await
-        .expect("create blob store file cacher should succeed");
-
-    let mut handler = OperationHandler::new(
-        Box::new(MockSandboxManager::new(unique_mock_base_dir())),
-        Box::new(cacher),
-    );
-
-    let operation = OperationTask {
-        environments: vec![Environment {
-            id: "env-1".to_string(),
-            files_in: vec![("input.txt".to_string(), SessionFile::DbFile(hash_hex))],
-            conf: SandboxOptions::default(),
-        }],
-        tasks: vec![
-            Step {
-                id: "run".to_string(),
-                env_ref: "env-1".to_string(),
-                argv: vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "awk '{print $1 + $2}' input.txt > output.txt".to_string(),
-                ],
-                conf: RunOptions::default(),
-                io: IOConfig::default(),
-                collect: vec![],
-                depends_on: vec![],
-            },
-            Step {
-                id: "verify".to_string(),
-                env_ref: "env-1".to_string(),
-                argv: vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "grep -qx '42' output.txt && echo pulled-ok".to_string(),
-                ],
-                conf: RunOptions::default(),
-                io: IOConfig::default(),
-                collect: vec![],
-                depends_on: vec!["run".to_string()],
-            },
-        ],
-        channels: vec![],
-    };
-
-    let result = handler
-        .execute(&operation)
-        .await
-        .expect("operation execution should succeed");
-    assert!(result.success, "operation should succeed: {result:?}");
-
-    let verify = result
-        .task_results
-        .get("verify")
-        .expect("verify step should exist");
-    assert!(verify.success, "verify step should succeed: {verify:?}");
-    assert!(
-        verify.sandbox_result.stdout.contains("pulled-ok"),
-        "verify output should indicate object file was pulled"
-    );
-    eprintln!("successfully fetch file from object storage and use in mock sandbox");
 }

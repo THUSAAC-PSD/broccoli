@@ -19,6 +19,19 @@ pub struct Model {
     #[sea_orm(default_value = false)]
     pub show_test_details: bool,
 
+    /// Problem type for evaluator dispatch (e.g., "standard", "interactive").
+    #[sea_orm(default_value = "standard")]
+    pub problem_type: String,
+
+    /// Source files for custom checker (if any)
+    /// Stored as JSON: [{"filename": "checker.cpp", "content": "..."}]
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub checker_source: Option<serde_json::Value>,
+
+    /// Checker format for output comparison: "exact", "ignore_case", "ignore_whitespace", "floating_point".
+    #[sea_orm(column_type = "Text", default_value = "exact")]
+    pub checker_format: String,
+
     #[sea_orm(has_many)]
     pub submissions: HasMany<super::submission::Entity>,
 

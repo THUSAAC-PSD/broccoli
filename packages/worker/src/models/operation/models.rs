@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::models::operation::sandbox::{ExecutionResult, RunOptions, SandboxOptions};
+use crate::models::operation::sandbox::{ExecutionResult, RunOptions};
 
 /// File source for initial environment setup
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,13 +9,13 @@ use crate::models::operation::sandbox::{ExecutionResult, RunOptions, SandboxOpti
 pub enum SessionFile {
     /// File path in the system
     #[serde(rename = "path")]
-    Path(String),
+    Path { path: String },
     /// Inline content
     #[serde(rename = "content")]
-    Content(String),
-    /// File from database BlobStore, identified by ContentHash hex string
-    #[serde(rename = "db")]
-    DbFile(String),
+    Content { content: String },
+    /// File from BlobStore, identified by content hash hex string
+    #[serde(rename = "blob")]
+    Blob { hash: String },
 }
 
 /// Environment configuration - represents a sandbox instance
@@ -24,7 +24,6 @@ pub struct Environment {
     pub id: String,
     /// Initial files: (target_path, source)
     pub files_in: Vec<(String, SessionFile)>,
-    pub conf: SandboxOptions,
 }
 
 /// IO target for task stdin/stdout/stderr
@@ -44,10 +43,10 @@ pub enum IOTarget {
     Inherit,
     /// File path in sandbox
     #[serde(rename = "file")]
-    File(String),
+    File { path: String },
     /// Read/Write from pipe
     #[serde(rename = "pipe")]
-    Pipe(String),
+    Pipe { name: String },
 }
 
 /// IO configuration for task execution
@@ -60,6 +59,19 @@ pub struct IOConfig {
 
 pub type RunConfig = RunOptions;
 
+/// Configuration for step-level caching.
+///
+/// When present on a step, the handler computes a cache key from the
+/// `key_inputs` files + architecture + argv, and skips execution if a
+/// matching entry exists. On cache miss, successful outputs are stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepCacheConfig {
+    /// Files whose content determines the cache key.
+    pub key_inputs: Vec<String>,
+    /// Files to cache on successful execution.
+    pub outputs: Vec<String>,
+}
+
 /// Task definition within an operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
@@ -71,6 +83,9 @@ pub struct Step {
     pub collect: Vec<String>, // Files to collect after execution
     #[serde(default)]
     pub depends_on: Vec<String>, // Task IDs to wait for
+    /// Optional step-level cache configuration.
+    #[serde(default)]
+    pub cache: Option<StepCacheConfig>,
 }
 
 /// Channel/Pipe definition for inter-task communication
@@ -110,4 +125,7 @@ pub struct TaskExecutionResult {
     pub task_id: String,
     pub success: bool,
     pub sandbox_result: ExecutionResult,
+    // filename -> content hash hex.
+    #[serde(default)]
+    pub collected_outputs: std::collections::HashMap<String, String>,
 }

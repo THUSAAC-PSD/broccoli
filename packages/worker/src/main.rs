@@ -35,13 +35,13 @@ async fn main() -> anyhow::Result<()> {
 
     info!(
         queue_name = %config.mq.queue_name,
+        operation_queue_name = %config.mq.operation_queue_name,
         result_queue_name = %config.mq.result_queue_name,
         dlq_queue_name = %config.mq.dlq_queue_name,
         max_retries = config.mq.dlq.max_retries,
         "MQ connected"
     );
 
-    let result_queue = config.mq.result_queue_name.clone();
     let dlq_queue = config.mq.dlq_queue_name.clone();
     let dlq_config = config.mq.dlq.clone();
     let mq_for_handler = Arc::clone(&mq);
@@ -55,23 +55,25 @@ async fn main() -> anyhow::Result<()> {
         Duration::from_secs(dlq_config.retry_max_age_secs),
     );
 
-    // Main loop: reconnect on MQ errors, exit on graceful shutdown
     loop {
         let mq_for_handler = Arc::clone(&mq_for_handler);
+        let mq_for_op_handler = Arc::clone(&mq_for_handler);
         let worker = Arc::clone(&worker);
-        let result_queue = result_queue.clone();
+        let worker_for_op = Arc::clone(&worker);
         let dlq_queue = dlq_queue.clone();
+        let dlq_queue_for_op = dlq_queue.clone();
         let dlq_config = dlq_config.clone();
+        let dlq_config_for_op = dlq_config.clone();
         let retry_tracker = Arc::clone(&retry_tracker);
+        let retry_tracker_for_op = Arc::clone(&retry_tracker);
 
-        let consume_fut = mq.process_messages(
+        let judge_fut = mq.process_messages(
             &config.mq.queue_name,
             None,
             None,
             move |message: BrokerMessage<Task>| {
                 let mq = Arc::clone(&mq_for_handler);
                 let worker = Arc::clone(&worker);
-                let result_queue = result_queue.clone();
                 let dlq_queue = dlq_queue.clone();
                 let dlq_config = dlq_config.clone();
                 let retry_tracker = Arc::clone(&retry_tracker);
@@ -80,7 +82,30 @@ async fn main() -> anyhow::Result<()> {
                         message,
                         &worker,
                         &mq,
-                        &result_queue,
+                        &dlq_queue,
+                        &dlq_config,
+                        &retry_tracker,
+                    )
+                    .await
+                }
+            },
+        );
+
+        let op_fut = mq.process_messages(
+            &config.mq.operation_queue_name,
+            None,
+            None,
+            move |message: BrokerMessage<Task>| {
+                let mq = Arc::clone(&mq_for_op_handler);
+                let worker = Arc::clone(&worker_for_op);
+                let dlq_queue = dlq_queue_for_op.clone();
+                let dlq_config = dlq_config_for_op.clone();
+                let retry_tracker = Arc::clone(&retry_tracker_for_op);
+                async move {
+                    process_message(
+                        message,
+                        &worker,
+                        &mq,
                         &dlq_queue,
                         &dlq_config,
                         &retry_tracker,
@@ -91,15 +116,33 @@ async fn main() -> anyhow::Result<()> {
         );
 
         let should_break = tokio::select! {
-            result = consume_fut => {
+            result = judge_fut => {
                 match result {
                     Ok(()) => {
-                        info!("Consumer exited normally");
+                        info!("Judge consumer exited normally");
                         true
                     }
                     Err(e) => {
-                        error!(error = %e, "MQ error, reconnecting in 5s...");
-                        // Sleep also under select so ctrl_c can interrupt it
+                        error!(error = %e, "Judge MQ error, reconnecting in 5s...");
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                            _ = tokio::signal::ctrl_c() => {
+                                info!("Shutdown signal received during reconnect wait");
+                                return Ok(());
+                            }
+                        }
+                        false
+                    }
+                }
+            }
+            result = op_fut => {
+                match result {
+                    Ok(()) => {
+                        info!("Operation consumer exited normally");
+                        true
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Operation MQ error, reconnecting in 5s...");
                         tokio::select! {
                             _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                             _ = tokio::signal::ctrl_c() => {
@@ -130,7 +173,6 @@ async fn process_message(
     message: BrokerMessage<Task>,
     worker: &Arc<Worker>,
     mq: &Arc<mq::Mq>,
-    result_queue: &str,
     dlq_queue: &str,
     dlq_config: &DlqConfig,
     retry_tracker: &Arc<Mutex<RetryTracker>>,
@@ -148,7 +190,7 @@ async fn process_message(
     let mut cleanup_guard = RetryCleanupGuard::new(retry_tracker, &task_id);
 
     loop {
-        match process_task(&task, worker, mq, result_queue).await {
+        match process_task(&task, worker, mq).await {
             Ok(()) => {
                 retry_tracker.lock().await.clear(&task_id);
                 cleanup_guard.defuse();
@@ -221,7 +263,6 @@ async fn process_task(
     task: &Task,
     worker: &Arc<Worker>,
     mq: &Arc<mq::Mq>,
-    result_queue: &str,
 ) -> Result<(), WorkerError> {
     info!(
         job_id = %task.id,
@@ -229,7 +270,6 @@ async fn process_task(
         "Processing task"
     );
 
-    // Panic isolation: run task in a spawned task to catch panics
     let worker = Arc::clone(worker);
     let task_clone = task.clone();
     let result = tokio::spawn(async move { worker.execute_task(task_clone).await })
@@ -245,11 +285,11 @@ async fn process_task(
     // Judge tasks: publish the inner JudgeResult directly (server consumer expects it)
     // Other tasks: publish the full TaskResult wrapper
     if task.task_type == "judge" {
-        mq.publish(result_queue, None, &result.output, None)
+        mq.publish(&task.result_queue, None, &result.output, None)
             .await
             .map_err(|e| WorkerError::Mq(e.to_string()))?;
     } else {
-        mq.publish(result_queue, None, &result, None)
+        mq.publish(&task.result_queue, None, &result, None)
             .await
             .map_err(|e| WorkerError::Mq(e.to_string()))?;
     }
@@ -258,7 +298,7 @@ async fn process_task(
         job_id = %task.id,
         task_result_id = %result.task_id,
         success = result.success,
-        result_queue = %result_queue,
+        result_queue = %task.result_queue,
         "Task finished"
     );
 

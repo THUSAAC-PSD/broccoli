@@ -167,8 +167,7 @@ impl From<StorageError> for AppError {
             StorageError::SizeLimitExceeded { .. } => AppError::Validation(err.to_string()),
             StorageError::InvalidHash(_) => AppError::Validation(err.to_string()),
             StorageError::Io(_) => AppError::Internal(err.to_string()),
-            StorageError::Database(_) => AppError::Internal(err.to_string()),
-            StorageError::ObjectStorage(_) => AppError::Internal(err.to_string()),
+            StorageError::Backend(_) => AppError::Internal(err.to_string()),
         }
     }
 }

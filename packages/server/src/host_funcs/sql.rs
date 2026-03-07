@@ -3,8 +3,8 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use tracing::error;
 
 // Executes a raw SQL statement (INSERT, UPDATE, DELETE, DDL).
-// Returns the number of affected rows.
-host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String) -> u64 {
+// Returns the number of affected rows as a string for WASM compatibility.
+host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String) -> String {
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (_, db) = &*user_data;
@@ -25,7 +25,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String) ->
         extism::Error::msg(format!("DB Error: {}", e))
     })?;
 
-    Ok(exec_result.rows_affected())
+    Ok(exec_result.rows_affected().to_string())
 });
 
 // Executes a raw SQL query (SELECT).

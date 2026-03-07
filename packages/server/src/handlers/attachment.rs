@@ -5,13 +5,13 @@ use axum::{Json, body::Body};
 use chrono::Utc;
 use common::storage::{BlobStore, BoxReader, ContentHash};
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait};
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::entity::{blob_object, blob_ref};
+use crate::entity::blob_ref;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
@@ -51,11 +51,6 @@ pub async fn upload_attachment(
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
-
-    crate::entity::problem::Entity::find_by_id(problem_id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
 
     let mut file_result: Option<(ContentHash, i64)> = None;
     let mut file_name: Option<String> = None;
@@ -109,20 +104,6 @@ pub async fn upload_attachment(
         .first()
         .map(|m| m.to_string());
 
-    let blob_obj = blob_object::ActiveModel {
-        content_hash: Set(hash.to_hex()),
-        size: Set(size),
-        created_at: Set(Utc::now()),
-    };
-    blob_object::Entity::insert(blob_obj)
-        .on_conflict(
-            OnConflict::column(blob_object::Column::ContentHash)
-                .do_nothing()
-                .to_owned(),
-        )
-        .exec_without_returning(&state.db)
-        .await?;
-
     // Dual-write: also store blob data in the blob_data table so workers
     // can fetch via DatabaseBlobStore (direct DB access).
     let blob_bytes = state.blob_store.get(&hash).await?;
@@ -136,6 +117,13 @@ pub async fn upload_attachment(
     let now = Utc::now();
     let owner_type = "problem".to_string();
     let owner_id = problem_id.to_string();
+
+    let txn = state.db.begin().await?;
+
+    crate::entity::problem::Entity::find_by_id(problem_id)
+        .one(&txn)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
 
     let blob_ref_model = blob_ref::ActiveModel {
         id: Set(ref_id),
@@ -165,16 +153,18 @@ pub async fn upload_attachment(
             ])
             .to_owned(),
         )
-        .exec_without_returning(&state.db)
+        .exec_without_returning(&txn)
         .await?;
 
     let saved_ref = blob_ref::Entity::find()
         .filter(blob_ref::Column::OwnerType.eq(&owner_type))
         .filter(blob_ref::Column::OwnerId.eq(&owner_id))
         .filter(blob_ref::Column::Path.eq(&path))
-        .one(&state.db)
+        .one(&txn)
         .await?
         .ok_or_else(|| AppError::Internal("blob_ref missing after upsert".into()))?;
+
+    txn.commit().await?;
 
     Ok((
         StatusCode::CREATED,

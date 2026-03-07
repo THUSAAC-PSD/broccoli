@@ -162,12 +162,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validate_flat_filename_accepts_valid_names() {
+    fn flat_filename_accepts_typical_source_filenames() {
         assert!(validate_flat_filename("solution.cpp").is_ok());
         assert!(validate_flat_filename("Main.java").is_ok());
         assert!(validate_flat_filename("test_file.py").is_ok());
         assert!(validate_flat_filename("file-name.rs").is_ok());
-        assert!(validate_flat_filename("  padded.txt  ").is_ok());
+    }
+
+    #[test]
+    fn flat_filename_returns_trimmed_value() {
+        assert_eq!(
+            validate_flat_filename("  padded.txt  ").unwrap(),
+            "padded.txt"
+        );
     }
 
     #[test]
@@ -251,27 +258,48 @@ mod tests {
     }
 
     #[test]
-    fn extract_stem_works() {
+    fn extract_stem_splits_name_and_extension() {
         assert_eq!(extract_stem("1.in"), Some(("1", "in")));
         assert_eq!(extract_stem("sample/1.in"), Some(("sample/1", "in")));
-        assert_eq!(extract_stem("no_ext"), None);
-        assert_eq!(extract_stem(".hidden"), None); // stem is empty
     }
 
     #[test]
-    fn split_dir_filename_works() {
+    fn extract_stem_returns_none_for_no_extension() {
+        assert_eq!(extract_stem("no_ext"), None);
+    }
+
+    #[test]
+    fn extract_stem_returns_none_for_dotfile() {
+        // ".hidden" has an empty stem, so it's not a valid stem+ext pair
+        assert_eq!(extract_stem(".hidden"), None);
+    }
+
+    #[test]
+    fn split_dir_filename_separates_at_last_slash() {
         assert_eq!(split_dir_filename("sample/1.in"), ("sample", "1.in"));
         assert_eq!(split_dir_filename("a/b/c.txt"), ("a/b", "c.txt"));
+    }
+
+    #[test]
+    fn split_dir_filename_returns_empty_dir_for_bare_filename() {
         assert_eq!(split_dir_filename("file.txt"), ("", "file.txt"));
     }
 
     #[test]
-    fn is_sample_directory_works() {
+    fn is_sample_directory_matches_case_insensitively() {
         assert!(is_sample_directory("sample"));
         assert!(is_sample_directory("Sample"));
         assert!(is_sample_directory("SAMPLE"));
+    }
+
+    #[test]
+    fn is_sample_directory_matches_trailing_sample_segment() {
         assert!(is_sample_directory("tests/sample"));
-        assert!(!is_sample_directory("samples"));
+    }
+
+    #[test]
+    fn is_sample_directory_rejects_non_sample_dirs() {
+        assert!(!is_sample_directory("samples")); // "samples" ≠ "sample"
         assert!(!is_sample_directory("main"));
     }
 

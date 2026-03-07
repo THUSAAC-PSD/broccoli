@@ -53,6 +53,7 @@ pub struct ResourceLimits {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RunOptions {
     pub resource_limits: ResourceLimits,
     pub wait: bool,
@@ -90,9 +91,6 @@ impl Default for RunOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SandboxOptions {}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
     pub exit_code: Option<i32>,
@@ -128,12 +126,8 @@ impl Default for ExecutionResult {
 
 #[async_trait]
 pub trait SandboxManager {
-    async fn create_sandbox(
-        &mut self,
-        id: Option<&str>,
-        options: &SandboxOptions,
-    ) -> Result<PathBuf, SandboxError>;
-    async fn remove_sandbox(&mut self, id: &str) -> Result<(), SandboxError>;
+    async fn create_sandbox(&self, id: Option<&str>) -> Result<PathBuf, SandboxError>;
+    async fn remove_sandbox(&self, id: &str) -> Result<(), SandboxError>;
     async fn execute(
         &self,
         box_id: &str,

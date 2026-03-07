@@ -1,4 +1,3 @@
-pub mod blob_object;
 pub mod blob_ref;
 pub mod contest;
 pub mod contest_problem;

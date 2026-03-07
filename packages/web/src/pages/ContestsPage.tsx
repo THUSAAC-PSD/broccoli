@@ -4,7 +4,7 @@ import { Trophy } from 'lucide-react';
 import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/contexts/auth-context';
-import { AdminContestsTab } from '@/pages//admin/AdminContestsTab';
+import { AdminContestsTab } from '@/pages/admin/AdminContestsTab';
 
 export function ContestsPage() {
   const { t } = useTranslation();

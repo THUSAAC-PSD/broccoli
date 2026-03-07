@@ -6,7 +6,14 @@ members = [
   "packages/server",
   "packages/worker",
 ]
-exclude = ["examples", "plugins"]
+exclude = [
+  "examples",
+  "plugins",
+  "packages/plugins/ioi-contest",
+  "packages/plugins/icpc-contest",
+  "packages/plugins/standard-evaluators",
+  "packages/plugins/standard-checkers",
+]
 resolver = "3"
 
 [workspace.dependencies]
@@ -46,3 +53,5 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
 tokio-util = { version = "0.7", features = ["io"] }
 zip = { version = "7", default-features = false, features = ["deflate"] }
+crossbeam = "0.8"
+dashmap = "6.1"

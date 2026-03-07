@@ -143,12 +143,20 @@ pub enum Verdict {
     /// Internal judge error during test execution.
     #[default]
     SystemError,
+    /// Test case deliberately skipped (e.g., ICPC stop-on-failure).
+    Skipped,
 }
 
 impl Verdict {
     /// Returns true if this is an accepted verdict.
     pub fn is_accepted(&self) -> bool {
         matches!(self, Self::Accepted)
+    }
+
+    /// All possible verdict values.
+    /// Returns true if this is a skipped verdict.
+    pub fn is_skipped(&self) -> bool {
+        matches!(self, Self::Skipped)
     }
 
     /// All possible verdict values.
@@ -159,6 +167,7 @@ impl Verdict {
         Self::MemoryLimitExceeded,
         Self::RuntimeError,
         Self::SystemError,
+        Self::Skipped,
     ];
 
     /// Returns the string representation.
@@ -170,6 +179,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => "MemoryLimitExceeded",
             Self::RuntimeError => "RuntimeError",
             Self::SystemError => "SystemError",
+            Self::Skipped => "Skipped",
         }
     }
 
@@ -177,6 +187,7 @@ impl Verdict {
     pub fn severity(&self) -> u8 {
         match self {
             Self::Accepted => 0,
+            Self::Skipped => 0,
             Self::WrongAnswer => 1,
             Self::TimeLimitExceeded => 2,
             Self::MemoryLimitExceeded => 3,
@@ -226,9 +237,25 @@ impl FromStr for Verdict {
             "MemoryLimitExceeded" => Ok(Self::MemoryLimitExceeded),
             "RuntimeError" => Ok(Self::RuntimeError),
             "SystemError" => Ok(Self::SystemError),
+            "Skipped" => Ok(Self::Skipped),
             _ => Err(ParseVerdictError {
                 invalid: s.to_string(),
             }),
+        }
+    }
+}
+
+impl From<broccoli_server_sdk::types::Verdict> for Verdict {
+    fn from(v: broccoli_server_sdk::types::Verdict) -> Self {
+        use broccoli_server_sdk::types::Verdict as Sdk;
+        match v {
+            Sdk::Accepted => Self::Accepted,
+            Sdk::WrongAnswer => Self::WrongAnswer,
+            Sdk::TimeLimitExceeded => Self::TimeLimitExceeded,
+            Sdk::MemoryLimitExceeded => Self::MemoryLimitExceeded,
+            Sdk::RuntimeError => Self::RuntimeError,
+            Sdk::SystemError | Sdk::CompileError | Sdk::JudgeError => Self::SystemError,
+            Sdk::Skipped => Self::Skipped,
         }
     }
 }

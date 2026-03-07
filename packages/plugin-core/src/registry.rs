@@ -62,7 +62,11 @@ impl From<&PluginEntry> for PluginInfo {
 }
 
 impl PluginEntry {
-    pub fn new(id: String, root_dir: PathBuf, manifest: PluginManifest) -> Self {
+    pub fn new(
+        id: String,
+        root_dir: PathBuf,
+        manifest: PluginManifest,
+    ) -> Result<Self, PluginError> {
         let mut router = Router::new();
 
         if let Some(server_config) = &manifest.server {
@@ -82,20 +86,23 @@ impl PluginEntry {
                 );
             }
             for (path, info) in path_map {
-                router.insert(&path, info).unwrap_or_else(|e| {
-                    panic!("Failed to insert route '{}' into router: {}", path, e)
-                });
+                router.insert(&path, info).map_err(|e| {
+                    PluginError::LoadFailed(format!(
+                        "Invalid route '{}' in plugin '{}': {}",
+                        path, id, e
+                    ))
+                })?;
             }
         }
 
-        Self {
+        Ok(Self {
             id,
             root_dir,
             manifest,
             status: PluginStatus::Unloaded,
             runtime: None,
             router,
-        }
+        })
     }
 
     /// Loads a plugin from a directory by parsing the plugin.toml.
@@ -120,7 +127,7 @@ impl PluginEntry {
         let manifest: PluginManifest = toml::from_str(&toml_content)
             .map_err(|e| PluginError::LoadFailed(format!("Invalid manifest syntax: {}", e)))?;
 
-        Ok(Self::new(id, plugin_dir.to_path_buf(), manifest))
+        Self::new(id, plugin_dir.to_path_buf(), manifest)
     }
 
     /// Resolves a web asset path based on the plugin's manifest configuration.

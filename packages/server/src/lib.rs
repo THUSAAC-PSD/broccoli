@@ -9,6 +9,7 @@ pub mod handlers;
 pub mod host_funcs;
 pub mod manager;
 pub mod models;
+pub mod registry;
 pub mod routes;
 pub mod seed;
 pub mod state;
