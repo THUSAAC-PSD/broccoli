@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { appConfig } from '@/config';
 import { AuthContext } from '@/contexts/auth-context';
+import { queryClient } from '@/lib/query-client';
 
 /**
  * AuthProvider component that manages user session state.
@@ -16,6 +17,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem(appConfig.api.authTokenKey);
     setUser(null);
+    queryClient.clear();
   }, []);
 
   const login = useCallback(
@@ -34,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: resData.role,
         permissions: resData.permissions,
       });
+      queryClient.clear();
     },
     [apiClient],
   );
