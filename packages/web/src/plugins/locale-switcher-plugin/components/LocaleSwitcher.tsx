@@ -12,6 +12,7 @@ export function LocaleSwitcher() {
   const { locale, setLocale, availableLocales, t } = useTranslation();
 
   const cycleLocale = () => {
+    if (availableLocales.length === 0) return;
     const currentIndex = availableLocales.indexOf(locale);
     const nextIndex = (currentIndex + 1) % availableLocales.length;
     setLocale(availableLocales[nextIndex]);

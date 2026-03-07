@@ -31,7 +31,8 @@ function getContestStatus(
 }
 
 function formatDateTime(dateStr: string, locale?: string): string {
-  return new Date(dateStr).toLocaleString(locale, {
+  const validLocale = locale && locale !== 'undefined' ? locale : 'en-US';
+  return new Date(dateStr).toLocaleString(validLocale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
