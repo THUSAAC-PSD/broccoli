@@ -1,6 +1,12 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { Languages } from 'lucide-react';
+import { ChevronUp, Languages } from 'lucide-react';
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 
 const LOCALE_LABELS: Record<string, string> = {
@@ -9,27 +15,35 @@ const LOCALE_LABELS: Record<string, string> = {
 };
 
 export function LocaleSwitcher() {
-  const { locale, setLocale, availableLocales, t } = useTranslation();
-
-  const cycleLocale = () => {
-    if (availableLocales.length === 0) return;
-    const currentIndex = availableLocales.indexOf(locale);
-    const nextIndex = (currentIndex + 1) % availableLocales.length;
-    setLocale(availableLocales[nextIndex]);
-  };
+  const { locale, setLocale, availableLocales } = useTranslation();
 
   const currentLabel = LOCALE_LABELS[locale] ?? locale;
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton
-        onClick={cycleLocale}
-        tooltip={t('locale.switch')}
-        className="bg-sidebar-accent/50 hover:bg-sidebar-accent"
-      >
-        <Languages />
-        <span>{currentLabel}</span>
-      </SidebarMenuButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton>
+            <Languages className="h-4 w-4" />
+            <span className="flex-1">{currentLabel}</span>
+            <ChevronUp className="ml-auto h-4 w-4" />
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="top"
+          className="w-[--radix-dropdown-menu-trigger-width]"
+        >
+          {availableLocales.map((loc) => (
+            <DropdownMenuItem
+              key={loc}
+              onClick={() => setLocale(loc)}
+              className={locale === loc ? 'bg-accent' : ''}
+            >
+              {LOCALE_LABELS[loc] ?? loc}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </SidebarMenuItem>
   );
 }
