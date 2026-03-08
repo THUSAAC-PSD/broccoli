@@ -9,6 +9,8 @@ export function NotificationButton() {
   const [count] = useState(3); // TODO: 实现通知计数的动态获取
   const { user } = useAuth();
 
+  return <div></div>;
+
   return (
     <Button
       variant="default"
