@@ -22,50 +22,42 @@ const VERDICT_CONFIG: Record<
   VerdictKey,
   {
     icon: typeof CheckCircle2;
-    labelKey: string;
     color: string;
     bgColor: string;
   }
 > = {
   accepted: {
     icon: CheckCircle2,
-    labelKey: 'result.accepted',
     color: 'text-green-500',
     bgColor: 'bg-green-500/10',
   },
   wrong_answer: {
     icon: XCircle,
-    labelKey: 'result.wrongAnswer',
     color: 'text-red-500',
     bgColor: 'bg-red-500/10',
   },
   time_limit: {
     icon: Clock,
-    labelKey: 'result.timeLimit',
     color: 'text-yellow-500',
     bgColor: 'bg-yellow-500/10',
   },
   memory_limit: {
     icon: Clock,
-    labelKey: 'result.memoryLimit',
     color: 'text-yellow-500',
     bgColor: 'bg-yellow-500/10',
   },
   runtime_error: {
     icon: AlertCircle,
-    labelKey: 'result.runtimeError',
     color: 'text-orange-500',
     bgColor: 'bg-orange-500/10',
   },
   system_error: {
     icon: AlertCircle,
-    labelKey: 'result.systemError',
     color: 'text-gray-500',
     bgColor: 'bg-gray-500/10',
   },
   pending: {
     icon: Clock,
-    labelKey: 'result.pending',
     color: 'text-gray-500',
     bgColor: 'bg-gray-500/10',
   },
@@ -212,8 +204,11 @@ export function SubmissionResult({
 
         {/* System error message */}
         {status === 'SystemError' && result?.error_message && (
-          <div className="mb-4 text-sm text-destructive">
-            {result.error_message}
+          <div className="mb-4 text-sm text-destructive space-y-1">
+            <div className="font-medium">{t('result.systemMessage')}</div>
+            <pre className="text-xs bg-muted p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
+              {result.error_message}
+            </pre>
           </div>
         )}
 
@@ -255,15 +250,23 @@ function TestCaseRow({
             </div>
             {testCase.checker_output && (
               <div className="text-xs text-muted-foreground mt-1">
-                {testCase.checker_output}
+                {t('result.checkerOutput')}: {testCase.checker_output}
               </div>
             )}
           </div>
         </div>
         <div className="text-right text-sm text-muted-foreground">
-          {testCase.time_used != null && <div>{testCase.time_used}ms</div>}
+          {testCase.time_used != null && (
+            <div>
+              {t('result.timeValue', { value: String(testCase.time_used) })}
+            </div>
+          )}
           {testCase.memory_used != null && (
-            <div>{formatMemory(testCase.memory_used)}MB</div>
+            <div>
+              {t('result.memoryValue', {
+                value: formatMemory(testCase.memory_used),
+              })}
+            </div>
           )}
         </div>
       </div>
@@ -330,8 +333,22 @@ function getVerdictLabel(
   }
   const verdict = submission.result?.verdict;
   if (!verdict) return null;
-  const key = VERDICT_MAP[verdict];
-  return key ? t(VERDICT_CONFIG[key].labelKey) : verdict;
+  switch (verdict) {
+    case 'Accepted':
+      return t('result.accepted');
+    case 'WrongAnswer':
+      return t('result.wrongAnswer');
+    case 'TimeLimitExceeded':
+      return t('result.timeLimit');
+    case 'MemoryLimitExceeded':
+      return t('result.memoryLimit');
+    case 'RuntimeError':
+      return t('result.runtimeError');
+    case 'SystemError':
+      return t('result.systemError');
+    default:
+      return t('result.unknownVerdict');
+  }
 }
 
 function getVerdictBadgeVariant(

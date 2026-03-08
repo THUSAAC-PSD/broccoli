@@ -233,7 +233,7 @@ export default function OverviewPage() {
                   </thead>
                   <tbody>
                     {submissions.map((s) => {
-                      const vb = getVerdictBadge(s.verdict, s.status);
+                      const vb = getVerdictBadge(s.verdict, s.status, t);
                       return (
                         <tr key={s.id} className="border-b last:border-b-0">
                           <td className="px-4 py-2">
