@@ -5,8 +5,11 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { useAuth } from '@/contexts/auth-context';
-import { type DashboardTab, useContest } from '@/contexts/contest-context';
+import { useAuth } from '@/features/auth/hooks/use-auth';
+import {
+  type DashboardTab,
+  useContest,
+} from '@/features/contest/contexts/contest-context';
 
 const defaultNavLinks = [
   { textKey: 'nav.contestInfo', href: '#' },

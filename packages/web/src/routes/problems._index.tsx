@@ -1,5 +1,5 @@
-import { ProblemsPage } from '@/pages/ProblemsPage';
+import { ProblemsPage } from '@/features/problem/components/ProblemsPage';
 
-export default function ProblemsIndex() {
+export default function ProblemListPage() {
   return <ProblemsPage />;
 }
