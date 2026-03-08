@@ -11,6 +11,10 @@ pub struct BuildPluginArgs {
     /// Path to the plugin directory (defaults to current directory)
     #[arg(default_value = ".")]
     pub path: PathBuf,
+
+    /// Build in release mode (optimized)
+    #[arg(long)]
+    pub release: bool,
 }
 
 /// Minimal manifest struct — avoids pulling in plugin-core's transitive deps.
@@ -62,8 +66,13 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
             style(plugin_name).cyan()
         );
 
+        let mut cargo_args = vec!["build", "--target", "wasm32-wasip1"];
+        if args.release {
+            cargo_args.push("--release");
+        }
+
         let status = Command::new("cargo")
-            .args(["build", "--target", "wasm32-wasip1", "--release"])
+            .args(&cargo_args)
             .current_dir(&plugin_dir)
             .status()
             .context("Failed to run cargo build. Is Rust installed?")?;
