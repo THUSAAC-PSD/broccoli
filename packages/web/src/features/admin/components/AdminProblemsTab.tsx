@@ -1,38 +1,36 @@
-import type { ProblemListItem } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { useQueryClient } from '@tanstack/react-query';
-import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
-
-import { MarkdownEditor } from '@/components/MarkdownEditor';
-import { Button } from '@/components/ui/button';
-import type { DataTableColumn } from '@/components/ui/data-table';
-import { DataTable } from '@/components/ui/data-table';
+import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 import {
+  Button,
+  DataTable,
+  type DataTableColumn,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
+  Input,
+  Label,
+  Separator,
+} from '@broccoli/web-sdk/ui';
+import { formatDateTime } from '@broccoli/web-sdk/utils';
+import { useQueryClient } from '@tanstack/react-query';
+import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
+
+import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { TestCasesDialog } from '@/features/admin/components/TestCasesDialog';
 import { fetchContestProblems } from '@/features/contest/api/fetch-contest-problems';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
-import { formatDateTime } from '@/lib/utils';
 
 // ── Problem Form Dialog ──
 
@@ -41,7 +39,7 @@ export function ProblemFormDialog({
   open,
   onOpenChange,
 }: {
-  problem?: ProblemListItem;
+  problem?: ProblemSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -238,10 +236,10 @@ function useProblemColumns({
   onDelete,
   onManageTestCases,
 }: {
-  onEdit: (problem: ProblemListItem) => void;
-  onDelete: (problem: ProblemListItem) => void;
-  onManageTestCases: (problem: ProblemListItem) => void;
-}): DataTableColumn<ProblemListItem>[] {
+  onEdit: (problem: ProblemSummary) => void;
+  onDelete: (problem: ProblemSummary) => void;
+  onManageTestCases: (problem: ProblemSummary) => void;
+}): DataTableColumn<ProblemSummary>[] {
   const { t, locale } = useTranslation();
   return [
     { accessorKey: 'id', header: '#', size: 60 },
@@ -333,11 +331,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
 
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<
-    ProblemListItem | undefined
+    ProblemSummary | undefined
   >();
   const [testCasesDialogOpen, setTestCasesDialogOpen] = useState(false);
   const [managingProblem, setManagingProblem] = useState<
-    ProblemListItem | undefined
+    ProblemSummary | undefined
   >();
 
   function handleCreateProblem() {
@@ -345,17 +343,17 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     setProblemDialogOpen(true);
   }
 
-  function handleEditProblem(problem: ProblemListItem) {
+  function handleEditProblem(problem: ProblemSummary) {
     setEditingProblem(problem);
     setProblemDialogOpen(true);
   }
 
-  function handleManageTestCases(problem: ProblemListItem) {
+  function handleManageTestCases(problem: ProblemSummary) {
     setManagingProblem(problem);
     setTestCasesDialogOpen(true);
   }
 
-  async function handleDeleteProblem(problem: ProblemListItem) {
+  async function handleDeleteProblem(problem: ProblemSummary) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
     const { error } = await apiClient.DELETE('/problems/{id}', {
       params: { path: { id: problem.id } },

@@ -1,5 +1,5 @@
-import type { SubmissionResponse } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { Submission } from '@broccoli/web-sdk/submission';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const POLL_INTERVAL_MS = 1000;
@@ -22,7 +22,7 @@ interface SubmissionFile {
 }
 
 interface UseSubmissionReturn {
-  submission: SubmissionResponse | null;
+  submission: Submission | null;
   isSubmitting: boolean;
   error: string | null;
   submit: (files: SubmissionFile[], language: string) => Promise<void>;
@@ -34,7 +34,7 @@ export function useSubmission({
   contestId,
 }: UseSubmissionOptions): UseSubmissionReturn {
   const apiClient = useApiClient();
-  const [submission, setSubmission] = useState<SubmissionResponse | null>(null);
+  const [submission, setSubmission] = useState<Submission | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -73,7 +73,7 @@ export function useSubmission({
             return;
           }
 
-          const resp = data as SubmissionResponse;
+          const resp = data as Submission;
           setSubmission(resp);
 
           if (TERMINAL_STATUSES.has(resp.status)) {
@@ -101,7 +101,7 @@ export function useSubmission({
       };
 
       try {
-        let data: SubmissionResponse;
+        let data: Submission;
 
         if (contestId) {
           const res = await apiClient.POST(
@@ -114,14 +114,14 @@ export function useSubmission({
             },
           );
           if (res.error) throw res.error;
-          data = res.data as SubmissionResponse;
+          data = res.data as Submission;
         } else {
           const res = await apiClient.POST('/problems/{id}/submissions', {
             params: { path: { id: problemId } },
             body,
           });
           if (res.error) throw res.error;
-          data = res.data as SubmissionResponse;
+          data = res.data as Submission;
         }
 
         setSubmission(data);

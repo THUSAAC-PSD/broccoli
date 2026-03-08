@@ -1,24 +1,23 @@
-import type { ProblemListItem } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
-
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 import {
+  Badge,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from '@broccoli/web-sdk/ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 
-import { TestCaseFormDialog } from './TestCaseFormDialog';
+import { TestCaseFormDialog } from '@/features/admin/components/TestCaseFormDialog';
 
 interface TestCasesDialogProps {
-  problem: ProblemListItem;
+  problem: ProblemSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }

@@ -1,11 +1,11 @@
-import './index.css';
-import './App.css';
+import '@/index.css';
+import '@/App.css';
 
-import type { LazyPluginLoader } from '@broccoli/web-sdk';
 import { ApiClientProvider } from '@broccoli/web-sdk/api';
 import { I18nProvider } from '@broccoli/web-sdk/i18n';
+import type { LazyPluginLoader } from '@broccoli/web-sdk/plugin';
 import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
-import { SidebarProvider } from '@broccoli/web-sdk/sidebar';
+import { SidebarStateProvider } from '@broccoli/web-sdk/sidebar';
 import { ThemeProvider } from '@broccoli/web-sdk/theme';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -13,19 +13,16 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
 import { SlotPermissionsBridge } from '@/components/SlotPermissionsBridge';
+import { appConfig } from '@/config';
 import { AuthProvider } from '@/features/auth/components/AuthProvider';
 import { ContestProvider } from '@/features/contest/contexts/contest-context';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
-import { appConfig } from './config';
-
 // Lazy-loaded plugins — each is code-split into its own chunk by Vite.
 const lazyPlugins: LazyPluginLoader[] = [
   () => import('./plugins/theme-plugin'),
-  () => import('./plugins/notification-plugin'),
   () => import('./plugins/analytics-plugin'),
-  () => import('./plugins/amazing-button'),
   () => import('./plugins/ranking-charts-plugin'),
   () => import('./plugins/locale-switcher-plugin'),
   () => import('./plugins/contest-countdown-plugin'),
@@ -78,7 +75,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <ThemeProvider defaultTheme="light" storageKey="theme">
                 <AuthProvider>
                   <ContestProvider>
-                    <SidebarProvider
+                    <SidebarStateProvider
                       defaultState="expanded"
                       storageKey="sidebar-state"
                     >
@@ -90,7 +87,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           <AppLayout>{children}</AppLayout>
                         </PluginRegistryProvider>
                       </SlotPermissionsBridge>
-                    </SidebarProvider>
+                    </SidebarStateProvider>
                   </ContestProvider>
                 </AuthProvider>
               </ThemeProvider>

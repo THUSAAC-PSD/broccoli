@@ -1,23 +1,22 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-
-import { Button } from '@/components/ui/button';
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
+  Input,
+  Label,
+  Separator,
+  Textarea,
+} from '@broccoli/web-sdk/ui';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
-import { SwitchField } from './SwitchField';
+import { SwitchField } from '@/features/admin/components/SwitchField';
 
 interface TestCaseFormDialogProps {
   problemId: number;

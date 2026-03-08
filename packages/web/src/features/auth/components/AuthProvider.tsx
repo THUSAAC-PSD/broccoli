@@ -1,5 +1,5 @@
-import type { LoginRequest, User } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { LoginRequest, User } from '@broccoli/web-sdk/auth';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { appConfig } from '@/config';

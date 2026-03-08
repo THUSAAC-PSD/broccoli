@@ -1,5 +1,5 @@
-import type { ContestResponse } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { Contest } from '@broccoli/web-sdk/contest';
 import { useQuery } from '@tanstack/react-query';
 
 export function useContestInfo(contestId: number) {
@@ -16,7 +16,7 @@ export function useContestInfo(contestId: number) {
         params: { path: { id: contestId } },
       });
       if (error) throw error;
-      return data as ContestResponse;
+      return data as Contest;
     },
   });
   return { contest, isLoading, error };

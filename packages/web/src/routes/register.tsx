@@ -1,18 +1,18 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { type FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
-
-import { Button } from '@/components/ui/button';
 import {
+  Button,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+  Input,
+  Label,
+} from '@broccoli/web-sdk/ui';
+import { type FormEvent, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
+
 import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export default function RegisterPage() {

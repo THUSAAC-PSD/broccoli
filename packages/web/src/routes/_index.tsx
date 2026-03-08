@@ -1,20 +1,19 @@
-import type { ContestListItem } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Badge, Button } from '@broccoli/web-sdk/ui';
+import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarDays, ChevronRight, Code2, Trophy } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContest } from '@/features/contest/contexts/contest-context';
 import { getContestStatus } from '@/features/contest/utils/status';
-import { formatDateTime } from '@/lib/utils';
 
-function ContestSelector({ contests }: { contests: ContestListItem[] }) {
+function ContestSelector({ contests }: { contests: ContestSummary[] }) {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
 
@@ -110,7 +109,7 @@ export default function Index() {
         },
       });
       if (error) throw error;
-      return data.data as ContestListItem[];
+      return data.data as ContestSummary[];
     },
   });
 

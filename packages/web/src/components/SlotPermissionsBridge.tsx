@@ -1,4 +1,4 @@
-import { SlotPermissionsContext } from '@broccoli/web-sdk/react';
+import { SlotPermissionsContext } from '@broccoli/web-sdk/slot';
 import type { ReactNode } from 'react';
 
 import { useAuth } from '@/features/auth/hooks/use-auth';

@@ -1,25 +1,24 @@
-import type { PluginDetailResponse } from '@broccoli/web-sdk';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Cpu, Globe, Loader2, Server } from 'lucide-react';
-
-import { Badge } from '@/components/ui/badge';
+import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import {
+  Badge,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
+  Switch,
+} from '@broccoli/web-sdk/ui';
+import { Cpu, Globe, Loader2, Server } from 'lucide-react';
 
 export function PluginCard({
   plugin,
   toggling,
   onToggle,
 }: {
-  plugin: PluginDetailResponse;
+  plugin: PluginDetail;
   toggling: boolean;
-  onToggle: (plugin: PluginDetailResponse, enable: boolean) => void;
+  onToggle: (plugin: PluginDetail, enable: boolean) => void;
 }) {
   const { t } = useTranslation();
   const isEnabled = plugin.status === 'Loaded';

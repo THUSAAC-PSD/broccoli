@@ -1,22 +1,19 @@
-import type {
-  ContestProblemResponse,
-  ProblemResponse,
-} from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestProblem } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Slot } from '@broccoli/web-sdk/react';
+import type { Problem } from '@broccoli/web-sdk/problem';
+import { Slot } from '@broccoli/web-sdk/slot';
+import { Button, Skeleton } from '@broccoli/web-sdk/ui';
+import { formatBytes, formatKibibytes } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Check, Code2, Copy } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ProblemHeader } from '@/features/problem/components/ProblemHeader';
 import { SubmissionResult } from '@/features/submission/components/SubmissionResult';
 import { useSubmission } from '@/features/submission/hooks/use-submission';
-import { formatBytes, formatKibibytes } from '@/lib/utils';
 
 const INLINE_SAMPLE_MAX_SIZE = 1024;
 type SampleContentMap = Record<number, { input?: string; output?: string }>;
@@ -58,7 +55,7 @@ export default function ProblemView({
         params: { path: { id: problemId } },
       });
       if (error) throw error;
-      return data as ProblemResponse;
+      return data as Problem;
     },
   });
 
@@ -66,12 +63,12 @@ export default function ProblemView({
     queryKey: ['contest-problems', contestId],
     enabled: Number.isFinite(contestId),
     queryFn: async () => {
-      if (!contestId) return [] as ContestProblemResponse[];
+      if (!contestId) return [] as ContestProblem[];
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId } },
       });
-      if (error || !data) return [] as ContestProblemResponse[];
-      return data as ContestProblemResponse[];
+      if (error || !data) return [] as ContestProblem[];
+      return data as ContestProblem[];
     },
   });
 

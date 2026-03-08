@@ -1,15 +1,14 @@
-import type { SubmissionListItem } from '@broccoli/web-sdk';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
+import { Badge, type DataTableColumn } from '@broccoli/web-sdk/ui';
+import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { Link } from 'react-router';
 
-import { Badge } from '@/components/ui/badge';
-import type { DataTableColumn } from '@/components/ui/data-table';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
-import { formatRelativeDatetime } from '@/lib/utils';
 
 export function useSubmissionColumns(
   contestId: number,
-): DataTableColumn<SubmissionListItem>[] {
+): DataTableColumn<SubmissionSummary>[] {
   const { t } = useTranslation();
 
   return [

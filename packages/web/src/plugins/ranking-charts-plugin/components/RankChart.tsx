@@ -1,4 +1,5 @@
 import { useTheme } from '@broccoli/web-sdk/theme';
+import { Card, CardContent, CardHeader, CardTitle } from '@broccoli/web-sdk/ui';
 import {
   CartesianGrid,
   Legend,
@@ -9,8 +10,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const COLORS = [
   '#3b82f6', // blue

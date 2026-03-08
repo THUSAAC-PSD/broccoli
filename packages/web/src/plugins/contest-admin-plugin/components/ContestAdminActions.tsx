@@ -1,12 +1,12 @@
-import type { ContestListItem } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Button } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { List, Pencil, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
-import { Button } from '@/components/ui/button';
 import {
   ContestFormDialog,
   ContestProblemsDialog,
@@ -32,7 +32,7 @@ export function ContestAdminActions() {
         params: { path: { id } },
       });
       if (error) throw error;
-      return data as ContestListItem;
+      return data as ContestSummary;
     },
     staleTime: 60_000,
   });

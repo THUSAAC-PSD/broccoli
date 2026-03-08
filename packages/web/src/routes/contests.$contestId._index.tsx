@@ -1,12 +1,12 @@
-import type { ContestProblemResponse } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestProblem } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
 import { PageLayout } from '@/components/PageLayout';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
 
 export function ContestProblemsCard({ contestId }: { contestId: number }) {
@@ -25,7 +25,7 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
         params: { path: { id: contestId } },
       });
       if (error) throw error;
-      return data as ContestProblemResponse[];
+      return data as ContestProblem[];
     },
   });
 

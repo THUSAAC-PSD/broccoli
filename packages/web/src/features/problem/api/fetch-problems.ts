@@ -1,6 +1,5 @@
 import type { ApiClient } from '@broccoli/web-sdk/api';
-
-import type { ServerTableParams } from '@/hooks/use-server-table';
+import type { ServerTableParams } from '@broccoli/web-sdk/hooks';
 
 export async function fetchProblems(
   apiClient: ApiClient,

@@ -1,9 +1,9 @@
 import { useTheme } from '@broccoli/web-sdk/theme';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@broccoli/web-sdk/ui';
 import Editor from '@monaco-editor/react';
 import { useState } from 'react';
 
 import { Markdown } from '@/components/Markdown';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface MarkdownEditorProps {
   id?: string;

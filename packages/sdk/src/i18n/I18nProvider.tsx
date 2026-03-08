@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useMemo, useState } from 'react';
 
 import { useApiClient } from '@/api';
 import { I18nContext } from '@/i18n/i18n-context';
-import type { TranslationMap } from '@/index';
+import type { TranslationMap } from '@/i18n/types';
 
 interface I18nProviderProps {
   children: ReactNode;

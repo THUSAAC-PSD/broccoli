@@ -1,5 +1,5 @@
-import type { ContestResponse } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { Contest } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useState } from 'react';
@@ -41,7 +41,7 @@ function useCountdownData(contestId: number) {
         params: { path: { id: contestId } },
       });
       if (error) throw error;
-      return data as ContestResponse;
+      return data as Contest;
     },
     staleTime: 60_000,
   });

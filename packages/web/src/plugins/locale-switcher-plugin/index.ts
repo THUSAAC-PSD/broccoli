@@ -1,4 +1,4 @@
-import type { ActivePluginManifest } from '@broccoli/web-sdk';
+import type { ActivePluginManifest } from '@broccoli/web-sdk/plugin';
 
 import { LocaleSwitcher } from './components/LocaleSwitcher';
 

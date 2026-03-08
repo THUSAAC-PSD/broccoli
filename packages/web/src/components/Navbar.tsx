@@ -1,10 +1,14 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Slot } from '@broccoli/web-sdk/react';
+import { Slot } from '@broccoli/web-sdk/slot';
+import {
+  Button,
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+} from '@broccoli/web-sdk/ui';
 import { Menu } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import {
   type DashboardTab,

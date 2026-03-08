@@ -1,4 +1,4 @@
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@broccoli/web-sdk/ui';
 
 export function ListSkeleton() {
   return (
