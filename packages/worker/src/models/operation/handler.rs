@@ -68,7 +68,7 @@ impl OperationHandler {
 
         // Initialize environments
         let mut environments = HashMap::new();
-        for (_idx, env_config) in operation.environments.iter().enumerate() {
+        for env_config in operation.environments.iter() {
             let box_id = allocate_box_id();
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 

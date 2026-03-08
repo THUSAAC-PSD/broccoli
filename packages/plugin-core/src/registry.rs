@@ -124,8 +124,10 @@ impl PluginEntry {
         let toml_content = std::fs::read_to_string(&toml_path)
             .map_err(|e| PluginError::LoadFailed(format!("Failed to read manifest: {}", e)))?;
 
-        let manifest: PluginManifest = toml::from_str(&toml_content)
+        let mut manifest: PluginManifest = toml::from_str(&toml_content)
             .map_err(|e| PluginError::LoadFailed(format!("Invalid manifest syntax: {}", e)))?;
+
+        manifest.resolve_schema_includes(plugin_dir)?;
 
         Self::new(id, plugin_dir.to_path_buf(), manifest)
     }

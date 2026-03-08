@@ -71,6 +71,24 @@ pub struct PluginDetailResponse {
     /// Indicates if the plugin has a web (frontend) component.
     #[schema(example = true)]
     pub has_web: bool,
+
+    /// Config schemas declared by this plugin.
+    pub config_schemas: Vec<ConfigSchemaResponse>,
+}
+
+/// Config schema for a single namespace declared by a plugin.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ConfigSchemaResponse {
+    /// Namespace name, e.g. "testlib".
+    #[schema(example = "testlib")]
+    pub namespace: String,
+    /// Human-readable description of what this config controls.
+    #[schema(example = "Testlib checker compiler settings")]
+    pub description: Option<String>,
+    /// Scopes where this config applies.
+    pub scopes: Vec<String>,
+    /// JSON Schema generated from the plugin's TOML schema definition.
+    pub json_schema: serde_json::Value,
 }
 
 /// Plugin status for API responses, abstracting away error details.
@@ -117,6 +135,18 @@ impl From<PluginInfo> for PluginDetailResponse {
         let has_worker = info.manifest.has_worker();
         let has_web = info.manifest.has_web();
 
+        let config_schemas = info
+            .manifest
+            .config
+            .iter()
+            .map(|(ns, entry)| ConfigSchemaResponse {
+                namespace: ns.clone(),
+                description: entry.description.clone(),
+                scopes: entry.scopes.clone(),
+                json_schema: entry.to_json_schema(),
+            })
+            .collect();
+
         Self {
             id: info.id,
             status: info.status.into(),
@@ -126,6 +156,7 @@ impl From<PluginInfo> for PluginDetailResponse {
             has_server,
             has_worker,
             has_web,
+            config_schemas,
         }
     }
 }

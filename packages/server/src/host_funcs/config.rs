@@ -19,18 +19,29 @@ fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(
     if ref_id.is_empty() {
         return Err(extism::Error::msg("ref_id must not be empty"));
     }
-    if namespace.is_empty() || namespace.len() > 128 {
-        return Err(extism::Error::msg("namespace must be 1-128 characters"));
+    if namespace.is_empty() || namespace.len() > 256 {
+        return Err(extism::Error::msg("namespace must be 1-256 characters"));
     }
+    // Allow alphanumeric, hyphen, underscore, and colon (colon appears in auto-prefixed namespaces)
     if !namespace
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':')
     {
         return Err(extism::Error::msg(
-            "namespace must contain only alphanumeric, hyphen, or underscore characters",
+            "namespace must contain only alphanumeric, hyphen, underscore, or colon characters",
         ));
     }
     Ok(())
+}
+
+/// For non-plugin scopes, prefix the namespace with `{plugin_id}:` to prevent
+/// cross-plugin collisions in shared resource configs.
+fn resolve_namespace(scope: &str, plugin_id: &str, namespace: String) -> String {
+    if scope == "plugin" {
+        namespace
+    } else {
+        format!("{}:{}", plugin_id, namespace)
+    }
 }
 
 #[derive(Deserialize)]
@@ -88,16 +99,17 @@ fn config_get_fn(
     };
 
     let ref_id = if input.scope == "plugin" {
-        plugin_id
+        plugin_id.clone()
     } else {
         input.ref_id
     };
 
-    validate_config_input(&input.scope, &ref_id, &input.namespace)?;
+    let namespace = resolve_namespace(&input.scope, &plugin_id, input.namespace);
+    validate_config_input(&input.scope, &ref_id, &namespace)?;
 
     let result = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
-            plugin_config::Entity::find_by_id((input.scope, ref_id, input.namespace))
+            plugin_config::Entity::find_by_id((input.scope, ref_id, namespace))
                 .one(&db)
                 .await
         })
@@ -137,19 +149,20 @@ fn config_set_fn(
     };
 
     let ref_id = if input.scope == "plugin" {
-        plugin_id
+        plugin_id.clone()
     } else {
         input.ref_id
     };
 
-    validate_config_input(&input.scope, &ref_id, &input.namespace)?;
+    let namespace = resolve_namespace(&input.scope, &plugin_id, input.namespace);
+    validate_config_input(&input.scope, &ref_id, &namespace)?;
 
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let active = plugin_config::ActiveModel {
                 scope: Set(input.scope),
                 ref_id: Set(ref_id),
-                namespace: Set(input.namespace),
+                namespace: Set(namespace),
                 config: Set(input.config),
                 updated_at: Set(Utc::now()),
             };

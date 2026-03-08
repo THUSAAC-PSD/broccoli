@@ -4,7 +4,6 @@ members = [
   "packages/mq",
   "packages/plugin-core",
   "packages/server",
-  "packages/server-sdk",
   "packages/worker",
   "packages/cli",
 ]
@@ -55,6 +54,6 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
 tokio-util = { version = "0.7", features = ["io"] }
 zip = { version = "7", default-features = false, features = ["deflate"] }
-broccoli-server-sdk = { path = "packages/server-sdk" }
+broccoli-server-sdk = { version = "0.1" }
 crossbeam = "0.8"
 dashmap = "6.1"
