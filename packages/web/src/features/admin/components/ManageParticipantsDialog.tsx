@@ -465,8 +465,27 @@ function BulkImportTab({
         setErrorMsg(t('admin.bulkParticipantsExistingWithPassword'));
       }
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith('admin.')) {
-        setErrorMsg(t(error.message));
+      if (error instanceof Error) {
+        switch (error.message) {
+          case 'admin.bulkParticipantsError':
+            setErrorMsg(t('admin.bulkParticipantsError'));
+            break;
+          case 'admin.bulkParticipantsInvalidJson':
+            setErrorMsg(t('admin.bulkParticipantsInvalidJson'));
+            break;
+          case 'admin.bulkParticipantsInvalidUsername':
+            setErrorMsg(t('admin.bulkParticipantsInvalidUsername'));
+            break;
+          case 'admin.bulkParticipantsDuplicate':
+            setErrorMsg(t('admin.bulkParticipantsDuplicate'));
+            break;
+          case 'admin.bulkParticipantsEmpty':
+            setErrorMsg(t('admin.bulkParticipantsEmpty'));
+            break;
+          default:
+            setErrorMsg(t('admin.bulkParticipantsInvalidJson'));
+            break;
+        }
       } else {
         setErrorMsg(t('admin.bulkParticipantsInvalidJson'));
       }

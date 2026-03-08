@@ -6,12 +6,8 @@ export const en: Record<string, string> = {
   // Sidebar
   'sidebar.platform': 'Platform',
   'sidebar.account': 'Account',
-  'sidebar.homepage': 'Homepage',
   'sidebar.problems': 'Problems',
   'sidebar.contests': 'Contests',
-  'sidebar.tutorials': 'Tutorials',
-  'sidebar.profile': 'Profile',
-  'sidebar.settings': 'Settings',
   'sidebar.selector': 'Contest Selector',
 
   // Navbar
@@ -55,7 +51,6 @@ export const en: Record<string, string> = {
   'error.desc.504': 'The server took too long to respond.',
   'error.title.default': 'Unknown Error',
   'error.desc.default': 'Something went wrong.',
-  'error.backToHome': 'Return to Home Page',
 
   // Overview
   'overview.title': 'Overview',
@@ -131,47 +126,44 @@ export const en: Record<string, string> = {
   'result.pending': 'Pending',
   'result.compiling': 'Compiling...',
   'result.running': 'Running...',
+  'result.compilingShort': 'Compiling',
+  'result.runningShort': 'Running',
+  'result.judged': 'Judged',
   'result.compilationError': 'Compilation Error',
   'result.systemError': 'System Error',
+  'result.systemMessage': 'System Message',
   'result.memoryLimit': 'Memory Limit',
+  'result.unknownStatus': 'Unknown Status',
+  'result.unknownVerdict': 'Unknown Verdict',
   'result.submitError': 'Failed to submit. Please try again.',
   'result.compileOutput': 'Compile Output',
   'result.input': 'Input',
   'result.expectedOutput': 'Expected Output',
   'result.stdout': 'Your Output',
   'result.stderr': 'Stderr',
+  'result.checkerOutput': 'Checker Output',
+  'result.timeValue': '{value}ms',
+  'result.memoryValue': '{value}MB',
 
   // Problems
   'problems.title': 'Problems',
-  'problems.id': '#',
   'problems.titleColumn': 'Title',
   'problems.label': 'Label',
-  'problems.contest': 'Contest',
-  'problems.due': 'Due',
-  'problems.dueInDays': 'in {count} days',
-  'problems.dueInHours': 'in {count} hours',
-  'problems.dueInMinutes': 'in {count} min',
-  'problems.dueEnded': 'Ended',
   'problems.searchPlaceholder': 'Search problems...',
   'problems.empty': 'No problems found.',
   'problems.contestProblems': 'Contest Problems',
 
   // Contests
   'contests.title': 'Contests',
-  'contests.titleColumn': 'Contest',
   'contests.status': 'Status',
   'contests.startTime': 'Start',
   'contests.endTime': 'End',
   'contests.searchPlaceholder': 'Search contests...',
-  'contests.empty': 'No contests found.',
   'contests.upcoming': 'Upcoming',
   'contests.running': 'Running',
   'contests.ended': 'Ended',
-  'contests.description': 'Description',
-  'contests.noDescription': 'No description provided.',
   'contests.problems': 'Problems',
   'contests.notFound': 'Contest not found.',
-  'contests.loadError': 'Failed to load contest details.',
   'contests.loadProblemsError': 'Failed to load contest problems.',
   'contests.inDays': 'in {count} days',
   'contests.inHours': 'in {count} hours',
@@ -189,7 +181,9 @@ export const en: Record<string, string> = {
   'countdown.hours': 'Hours',
   'countdown.minutes': 'Min',
   'countdown.seconds': 'Sec',
-  'countdown.elapsed': 'Elapsed',
+
+  // Contest Q&A
+  'contest.qa.empty': 'No questions yet.',
 
   // Ranking
   'ranking.title': 'Ranking',
@@ -228,36 +222,25 @@ export const en: Record<string, string> = {
   'sidebar.admin': 'Admin',
 
   // Admin
-  'admin.title': 'Administration',
-  'admin.contests': 'Contests',
-  'admin.problems': 'Problems',
-  'admin.subtitle': 'Manage contests, problems, and platform settings.',
   'admin.createContest': 'Create Contest',
   'admin.createContestDesc':
     'Set up a new programming contest with custom rules and timing.',
   'admin.createProblem': 'Create Problem',
   'admin.createProblemDesc': 'Add a new problem to the problem bank.',
-  'admin.createContestSuccess': 'Contest created successfully.',
-  'admin.createProblemSuccess': 'Problem created successfully.',
   'admin.createError': 'Failed to create. Please check your input.',
-  'admin.creating': 'Creating...',
   'admin.unauthorized': 'You do not have permission to access this page.',
   'admin.noContests': 'No contests yet. Create one to get started.',
   'admin.noProblems': 'No problems yet. Create one to get started.',
-  'admin.new': 'New',
   'admin.edit': 'Edit',
   'admin.delete': 'Delete',
   'admin.deleteConfirm':
     'Are you sure you want to delete this item? This action cannot be undone.',
-  'admin.deleteSuccess': 'Deleted successfully.',
   'admin.editContest': 'Edit Contest',
   'admin.editProblem': 'Edit Problem',
-  'admin.editSuccess': 'Updated successfully.',
   'admin.editError': 'Failed to update. Please check your input.',
   'admin.actions': 'Actions',
   'admin.saving': 'Saving...',
   'admin.contestProblems': 'Contest Problems',
-  'admin.contestProblemsDesc': 'Manage problems associated with this contest.',
   'admin.bulkParticipants': 'Bulk Add Participants',
   'admin.bulkParticipantsAction': 'Manage Participants',
 
@@ -277,8 +260,6 @@ export const en: Record<string, string> = {
   'admin.participants.registeredAt': 'Registered',
   'admin.participants.add': 'Add',
   'admin.participants.removeConfirm': 'Remove {username} from this contest?',
-  'admin.bulkParticipantsDesc':
-    'Import a JSON user list, preview actions, then confirm enrollment.',
   'admin.bulkParticipantsJsonLabel': 'JSON File or JSON Content',
   'admin.bulkParticipantsJsonPlaceholder':
     '["alice", "bob", { "username": "charlie", "password": "custom_pass123" }]',
@@ -311,11 +292,9 @@ export const en: Record<string, string> = {
   'admin.bulkParticipantsError':
     'Bulk enrollment failed. Please check the data and try again.',
   'admin.addProblem': 'Add Problem',
-  'admin.field.problemId': 'Problem ID',
   'admin.field.label': 'Label',
   'admin.field.password': 'Password',
   'admin.field.role': 'Role',
-  'admin.noContestProblems': 'No problems in this contest yet.',
   'admin.addProblemError': 'Failed to add problem. Check the ID and label.',
   'admin.adding': 'Adding...',
   'admin.availableProblems': 'Available Problems',
@@ -357,9 +336,6 @@ export const en: Record<string, string> = {
   'plugins.subtitle': 'Manage and configure installed plugins',
   'plugins.loadError': 'Failed to load plugins',
   'plugins.empty': 'No plugins discovered',
-  'plugins.status.loaded': 'Loaded',
-  'plugins.status.failed': 'Failed',
-  'plugins.status.discovered': 'Discovered',
   'plugins.enable': 'Enable plugin',
   'plugins.disable': 'Disable plugin',
   'plugins.component.server': 'Server',
@@ -367,6 +343,8 @@ export const en: Record<string, string> = {
   'plugins.component.worker': 'Worker',
   'sidebar.plugins': 'Plugins',
 
-  // Language switcher
-  'locale.switch': 'Language',
+  // Amazing button plugin
+  'plugin.amazingButton.label': 'Amazing Button',
+  'plugin.amazingButton.alert': 'Amazing!',
+  'plugin.amazingButton.pageTitle': 'Amazing Page!',
 };

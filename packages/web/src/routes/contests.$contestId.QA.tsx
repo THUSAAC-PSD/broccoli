@@ -273,7 +273,7 @@ export default function ContestQAPage() {
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-10 text-muted-foreground">
               <MessageCircle className="h-10 w-10 mb-2 opacity-20" />
-              <p>{t('contest.qa.empty') || 'No questions yet.'}</p>
+              <p>{t('contest.qa.empty')}</p>
             </CardContent>
           </Card>
         ) : (
