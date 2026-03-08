@@ -1,4 +1,7 @@
-import type { ContestProblemResponse } from '@broccoli/web-sdk';
+import type {
+  ContestListItem,
+  ContestProblemResponse,
+} from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/react';
@@ -8,6 +11,7 @@ import {
   ChevronUp,
   Code2,
   Home,
+  LayoutGrid,
   LogOut,
   MessageCircle,
   Presentation,
@@ -38,6 +42,7 @@ import {
 } from '@/components/ui/sidebar';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContest } from '@/features/contest/contexts/contest-context';
+import { PERMISSIONS } from '@/lib/utils/permission';
 
 interface MenuItem {
   titleKey: string;
@@ -207,23 +212,17 @@ function ContestProblemsGroup() {
   );
 }
 
-function isActivePath(pathname: string, url: string) {
-  if (url === '/') return pathname === '/';
-  return pathname.startsWith(url);
-}
-
-export function Sidebar() {
+function PlatformGroup() {
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { pathname } = useLocation();
-  const permissions = user?.permissions || [];
-  const menuItems = getMenuItems(permissions);
-
-  // query contests so we can know when there is exactly one available
   const apiClient = useApiClient();
+  const menuItems = getMenuItems(user?.permissions || []);
+
   const { data: contests } = useQuery({
     queryKey: ['dashboard-contests'],
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests', {
         params: {
@@ -236,23 +235,67 @@ export function Sidebar() {
         },
       });
       if (error) throw error;
-      return data.data;
+      return data.data as ContestListItem[];
     },
   });
 
-  // hide homepage link when user has access to exactly one contest; we'll
-  // still render it when contests is undefined (loading) or there are zero or
-  // multiple contests.  Additionally administrators should never see the
-  // generic homepage link because they get redirected to /admin.
-  const showHomepage =
-    user?.role !== 'admin' && !(contests && contests.length === 1);
+  const multipleContests = contests ? contests.length > 1 : false;
+  const havePermissions = user
+    ? PERMISSIONS.some((perm) => user.permissions.includes(perm))
+    : false;
 
-  // when a contestant has only one contest, the entire "Platform" tab group
-  // becomes irrelevant – we collapse it completely. Admins or other roles can
-  // still see it regardless of contest count.
-  const hidePlatformGroup =
-    user?.role === 'contestant' && contests && contests.length === 1;
-  const showPlatformGroup = !hidePlatformGroup;
+  return (
+    <SidebarGroup>
+      {(multipleContests || havePermissions) && (
+        <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
+      )}
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {multipleContests && !havePermissions && (
+            <SidebarMenuItem key="sidebar.selector">
+              <SidebarMenuButton asChild isActive={pathname === '/'}>
+                <Link to="/">
+                  <LayoutGrid
+                    className={
+                      pathname === '/' ? 'text-sidebar-primary' : undefined
+                    }
+                  />
+                  <span>{t('sidebar.selector')}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          {menuItems.map((item) => {
+            const title = t(item.titleKey);
+            const active = isActivePath(pathname, item.url);
+            return (
+              <SidebarMenuItem key={item.titleKey}>
+                <SidebarMenuButton asChild isActive={active} tooltip={title}>
+                  <Link to={item.url}>
+                    <item.icon
+                      className={active ? 'text-sidebar-primary' : undefined}
+                    />
+                    <span>{title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+          <Slot name="sidebar.platform.menu" as="div" />
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+function isActivePath(pathname: string, url: string) {
+  if (url === '/') return pathname === '/';
+  return pathname.startsWith(url);
+}
+
+export function Sidebar() {
+  const { t } = useTranslation();
+  const { user, logout } = useAuth();
 
   return (
     <SidebarUI collapsible="icon">
@@ -277,60 +320,7 @@ export function Sidebar() {
 
       <SidebarContent>
         <Slot name="sidebar.content.before" as="div" />
-
-        {showPlatformGroup && (
-          <SidebarGroup>
-            <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {showHomepage && (
-                  <SidebarMenuItem key="sidebar.homepage">
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActivePath(pathname, '/')}
-                      tooltip={t('sidebar.homepage')}
-                    >
-                      <Link to="/">
-                        <Home
-                          className={
-                            isActivePath(pathname, '/')
-                              ? 'text-sidebar-primary'
-                              : undefined
-                          }
-                        />
-                        <span>{t('sidebar.homepage')}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-
-                {menuItems.map((item) => {
-                  const title = t(item.titleKey);
-                  const active = isActivePath(pathname, item.url);
-                  return (
-                    <SidebarMenuItem key={item.titleKey}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={title}
-                      >
-                        <Link to={item.url}>
-                          <item.icon
-                            className={
-                              active ? 'text-sidebar-primary' : undefined
-                            }
-                          />
-                          <span>{title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-                <Slot name="sidebar.platform.menu" as="div" />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        <PlatformGroup />
 
         <ContestProblemsGroup />
 

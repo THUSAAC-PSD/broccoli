@@ -12,6 +12,7 @@ export const en: Record<string, string> = {
   'sidebar.tutorials': 'Tutorials',
   'sidebar.profile': 'Profile',
   'sidebar.settings': 'Settings',
+  'sidebar.selector': 'Contest Selector',
 
   // Navbar
   'nav.contestInfo': 'Contest Info',
