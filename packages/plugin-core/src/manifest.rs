@@ -145,6 +145,11 @@ pub struct WebSlotConfig {
 
     /// Priority for ordering when multiple plugins target the same slot.
     pub priority: Option<u32>,
+
+    /// Permission required to render this slot entry, e.g., "problem:create".
+    /// If not specified, the slot is visible to everyone.
+    #[serde(default)]
+    pub permission: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]

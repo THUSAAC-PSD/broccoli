@@ -1,6 +1,6 @@
-import type { ProblemListItem } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import type { ProblemListItem } from '@broccoli/web-sdk';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';

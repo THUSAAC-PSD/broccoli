@@ -114,7 +114,7 @@ export function PluginRegistryProvider({
           const resolvedComponents: ComponentBundle = {};
           for (const [key, name] of Object.entries(manifest.components)) {
             if (module[name]) {
-              resolvedComponents[key] = module[name];
+              resolvedComponents[key] = module[name] as React.ElementType;
             } else {
               console.warn(
                 `Component '${name}' specified in plugin '${manifest.name}' not found in module. Skipping component '${key}'.`,

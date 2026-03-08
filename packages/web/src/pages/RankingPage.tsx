@@ -1,7 +1,7 @@
-import type { SubmissionStatus, Verdict } from '@broccoli/sdk';
-import type { ApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
+import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk';
+import type { ApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Slot } from '@broccoli/web-sdk/react';
 import { Trophy } from 'lucide-react';
 
 import type { DataTableColumn } from '@/components/ui/data-table';

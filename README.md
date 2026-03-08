@@ -44,7 +44,7 @@ broccoli/
 
 ## Features
 
-### SDK Package (`@broccoli/sdk`)
+### SDK Package (`@broccoli/web-sdk`)
 
 The SDK provides a plugin system with:
 
@@ -63,8 +63,8 @@ import {
   PluginRegistryProvider,
   Slot,
   usePluginRegistry,
-} from '@broccoli/sdk/react';
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+} from '@broccoli/web-sdk/react';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 
 // Define plugin manifest
 const manifest: PluginManifest = {
@@ -107,7 +107,7 @@ The web application demonstrates:
 pnpm install
 
 # Build SDK
-pnpm --filter @broccoli/sdk build
+pnpm --filter @broccoli/web-sdk build
 
 # Or build all packages
 pnpm build
@@ -123,7 +123,7 @@ pnpm dev
 pnpm --filter @broccoli/web dev
 
 # Start only SDK in watch mode
-pnpm --filter @broccoli/sdk dev
+pnpm --filter @broccoli/web-sdk dev
 ```
 
 ### Building
@@ -133,7 +133,7 @@ pnpm --filter @broccoli/sdk dev
 pnpm build
 
 # Build specific package
-pnpm --filter @broccoli/sdk build
+pnpm --filter @broccoli/web-sdk build
 pnpm --filter @broccoli/web build
 ```
 
@@ -152,7 +152,7 @@ plugins/
 2. **Define plugin manifest** (`index.ts`):
 
 ```typescript
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 import { MyComponent } from './components/MyComponent';
 
 export const manifest: PluginManifest = {

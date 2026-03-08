@@ -1,5 +1,5 @@
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
 

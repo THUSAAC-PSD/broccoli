@@ -1,6 +1,6 @@
-import type { ProblemResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import type { ProblemResponse } from '@broccoli/web-sdk';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 

@@ -2505,6 +2505,11 @@ export interface components {
             component: string;
             /** @description Name of the slot to render into, e.g., "sidebar.footer". */
             name: string;
+            /**
+             * @description Permission required to render this slot entry, e.g., "problem:create".
+             *     If not specified, the slot is visible to everyone.
+             */
+            permission?: string | null;
             /** @description Positioning strategy for the component in the slot. */
             position: components["schemas"]["WebSlotPosition"];
             /**

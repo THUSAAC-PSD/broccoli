@@ -1,11 +1,11 @@
-# @broccoli/sdk
+# @broccoli/web-sdk
 
 Core SDK for the Broccoli plugin system with slot architecture.
 
 ## Installation
 
 ```bash
-pnpm add @broccoli/sdk
+pnpm add @broccoli/web-sdk
 ```
 
 ## Usage
@@ -13,7 +13,7 @@ pnpm add @broccoli/sdk
 ### Setting up the Provider
 
 ```tsx
-import { PluginRegistryProvider } from '@broccoli/sdk/react';
+import { PluginRegistryProvider } from '@broccoli/web-sdk/react';
 
 function App() {
   return (
@@ -27,7 +27,7 @@ function App() {
 ### Creating Slots
 
 ```tsx
-import { Slot } from '@broccoli/sdk/react';
+import { Slot } from '@broccoli/web-sdk/react';
 
 function Header() {
   return (
@@ -41,8 +41,8 @@ function Header() {
 ### Registering Plugins
 
 ```tsx
-import { usePluginRegistry } from '@broccoli/sdk/react';
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import { usePluginRegistry } from '@broccoli/web-sdk/react';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 
 const manifest: PluginManifest = {
   name: 'my-plugin',

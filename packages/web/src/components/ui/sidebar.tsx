@@ -1,4 +1,4 @@
-import { useSidebarState } from '@broccoli/sdk/sidebar';
+import { useSidebarState } from '@broccoli/web-sdk/sidebar';
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { ChevronsLeftRight, PanelLeft } from 'lucide-react';

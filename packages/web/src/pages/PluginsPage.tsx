@@ -1,7 +1,7 @@
-import type { PluginDetailResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { usePluginRegistry } from '@broccoli/sdk/plugin';
+import type { PluginDetailResponse } from '@broccoli/web-sdk';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Cpu, Globe, Loader2, Puzzle, Server } from 'lucide-react';
 import { useCallback, useState } from 'react';

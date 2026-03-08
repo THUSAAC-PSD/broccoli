@@ -1,5 +1,5 @@
 /**
- * @broccoli/sdk/react
+ * @broccoli/web-sdk/react
  * React-specific exports and hooks
  */
 
@@ -7,8 +7,14 @@ import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import type { SlotConfig } from '@/index';
 import { usePluginRegistry } from '@/plugin/use-plugin-registry';
+import { useSlotPermissions } from '@/slot-permissions-context';
 
 export { usePluginRegistry };
+export {
+  SlotPermissionsContext,
+  type SlotPermissionsContextValue,
+  useSlotPermissions,
+} from '@/slot-permissions-context';
 
 // ── Plugin Error Boundary ──
 
@@ -72,7 +78,18 @@ export function Slot({
   slotProps = {},
 }: SlotProps) {
   const { getSlots, components } = usePluginRegistry();
-  const slots = getSlots(name);
+  const slotPermissions = useSlotPermissions();
+  const userPermissions = slotPermissions?.permissions ?? [];
+
+  const allSlots = getSlots(name);
+
+  // Filter out slots that require a permission the user doesn't have.
+  // Slots without a `permission` field are visible to everyone.
+  const slots = allSlots.filter((slot) => {
+    if (!slot.permission) return true;
+    return userPermissions.includes(slot.permission);
+  });
+
   const Container = as;
 
   // Render slots based on their position

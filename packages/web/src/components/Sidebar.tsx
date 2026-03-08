@@ -1,7 +1,7 @@
-import type { ContestProblemResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
+import type { ContestProblemResponse } from '@broccoli/web-sdk';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Slot } from '@broccoli/web-sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,

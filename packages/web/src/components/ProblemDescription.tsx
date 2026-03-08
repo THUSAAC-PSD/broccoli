@@ -1,4 +1,4 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Maximize2, Minimize2 } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';

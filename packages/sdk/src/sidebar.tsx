@@ -1,5 +1,5 @@
 /*
-  @broccoli/sdk/sidebar
+  @broccoli/web-sdk/sidebar
   sidebar management
 */
 import { createContext, type ReactNode, use, useEffect, useState } from 'react';

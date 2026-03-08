@@ -1,4 +1,4 @@
-import type { ApiClient } from '@broccoli/sdk/api';
+import type { ApiClient } from '@broccoli/web-sdk/api';
 import {
   type ColumnDef,
   flexRender,

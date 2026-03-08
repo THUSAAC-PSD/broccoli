@@ -1,4 +1,4 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Trophy } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';

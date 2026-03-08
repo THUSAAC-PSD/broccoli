@@ -1,4 +1,4 @@
-import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
+import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 

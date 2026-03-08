@@ -2,9 +2,9 @@ import type {
   ContestListItem,
   ContestProblemItem,
   ProblemListItem,
-} from '@broccoli/sdk';
-import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
+} from '@broccoli/web-sdk';
+import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
