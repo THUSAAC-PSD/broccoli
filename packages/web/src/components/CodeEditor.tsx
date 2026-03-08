@@ -196,6 +196,35 @@ export function CodeEditor({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { theme } = useTheme();
 
+  // Reset editor state when storageKey changes (switching problems)
+  const prevStorageKey = useRef(storageKey);
+  useEffect(() => {
+    if (storageKey === prevStorageKey.current) return;
+    prevStorageKey.current = storageKey;
+
+    // Load saved language
+    let lang = LANGUAGES[0];
+    if (storageKey) {
+      const savedLang = localStorage.getItem(getStorageKeys(storageKey).lang);
+      if (savedLang) {
+        const found = LANGUAGES.find((l) => l.id === savedLang);
+        if (found) lang = found;
+      }
+    }
+    setSelectedLanguage(lang);
+
+    // Load saved code
+    const defaultFilename = FILENAME_MAP[lang.id] ?? 'solution.txt';
+    let content = lang.template;
+    if (storageKey) {
+      const savedCode = localStorage.getItem(getStorageKeys(storageKey).code);
+      if (savedCode != null) content = savedCode;
+    }
+    const newFile = { id: nextFileId(), filename: defaultFilename, content };
+    setFiles([newFile]);
+    setActiveFileId(newFile.id);
+  }, [storageKey]);
+
   // Auto-save primary file to localStorage
   useEffect(() => {
     if (!storageKey) return;
