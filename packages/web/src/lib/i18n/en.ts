@@ -75,9 +75,14 @@ export const en: Record<string, string> = {
 
   // Homepage
   'homepage.title': 'Broccoli Online Judge',
+  'homepage.welcome': 'Welcome to Broccoli',
+  'homepage.welcomeDesc':
+    'An online judge platform for competitive programming contests. Sign in to view your contests and start solving problems.',
   'homepage.selectContest': 'Select a Contest',
   'homepage.selectContestDesc':
-    'Select a contest to view its details and problems.',
+    'Choose a contest below to view problems and start competing.',
+  'homepage.noContests':
+    'There are no contests available for you at the moment. Please check back later or contact an administrator.',
 
   // Sidebar (contest-specific)
   'sidebar.contestshomepage': 'Contest Homepage',

@@ -2,57 +2,89 @@ import type { ContestListItem } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
+import { CalendarDays, ChevronRight, Code2, Trophy } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContest } from '@/features/contest/contexts/contest-context';
+import { getContestStatus } from '@/features/contest/utils/status';
+import { formatDateTime } from '@/lib/utils';
 
-function ContestSelector({
-  contests,
-  onSelect,
-}: {
-  contests: ContestListItem[];
-  onSelect: (contest: ContestListItem) => void;
-}) {
+function ContestSelector({ contests }: { contests: ContestListItem[] }) {
   const { t, locale } = useTranslation();
+  const navigate = useNavigate();
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('homepage.selectContest')}</CardTitle>
-        <CardDescription>{t('homepage.selectContestDesc')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {contests.map((contest) => (
+    <div>
+      <h2 className="text-lg font-semibold mb-3">
+        {t('homepage.selectContest')}
+      </h2>
+      <p className="text-sm text-muted-foreground mb-4">
+        {t('homepage.selectContestDesc')}
+      </p>
+      <div className="space-y-2">
+        {contests.map((contest) => {
+          const { label, variant } = getContestStatus(
+            contest.start_time,
+            contest.end_time,
+            t,
+          );
+          return (
             <button
               key={contest.id}
-              onClick={() => onSelect(contest)}
-              className="flex w-full items-center justify-between rounded-lg border p-4 text-left transition-colors hover:bg-accent"
+              onClick={() => navigate(`/contests/${contest.id}`)}
+              className="group flex w-full items-center gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-muted/50"
             >
-              <div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                <Trophy className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
                 <div className="font-medium">{contest.title}</div>
-                <div className="text-sm text-muted-foreground">
-                  {new Date(contest.start_time).toLocaleDateString(locale)} -{' '}
-                  {new Date(contest.end_time).toLocaleDateString(locale)}
+                <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                  <CalendarDays className="h-3 w-3" />
+                  {formatDateTime(contest.start_time, locale)} —{' '}
+                  {formatDateTime(contest.end_time, locale)}
                 </div>
               </div>
+              <Badge variant={variant} className="shrink-0">
+                {label}
+              </Badge>
+              <ChevronRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-primary transition-colors shrink-0" />
             </button>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GuestWelcome() {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 mb-6">
+        <Code2 className="h-8 w-8 text-primary" />
+      </div>
+      <h1 className="text-3xl font-bold tracking-tight mb-2">
+        {t('homepage.welcome')}
+      </h1>
+      <p className="text-muted-foreground max-w-md mb-8">
+        {t('homepage.welcomeDesc')}
+      </p>
+      <div className="flex gap-3">
+        <Button size="lg" asChild>
+          <Link to="/login">{t('nav.signIn')}</Link>
+        </Button>
+        <Button size="lg" variant="outline" asChild>
+          <Link to="/register">{t('nav.signUp')}</Link>
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -88,7 +120,6 @@ export default function Index() {
       return;
     }
     if (user && user.role === 'admin') {
-      // No api to judge if the user has access to overview page, waiting
       navigate('/admin');
       return;
     }
@@ -104,34 +135,13 @@ export default function Index() {
   }
 
   // Avoid rendering homepage content when we're about to auto-redirect
-  // (contest list has been loaded and contains a single entry).
   if (contests && contests.length === 1 && user && !contestId) {
     return null;
   }
 
   // Not logged in
   if (!user) {
-    return (
-      <div className="flex flex-col gap-6 p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>welcome</CardTitle>
-            <CardDescription>
-              Welcome to use Broccoli! Please sign in to view your contests and
-              start competing.
-            </CardDescription>
-          </CardHeader>
-          <CardFooter className="gap-2">
-            <Button asChild>
-              <Link to="/login">{t('nav.signIn')}</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/register">{t('nav.signUp')}</Link>
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    );
+    return <GuestWelcome />;
   }
 
   // Loading contests
@@ -151,29 +161,25 @@ export default function Index() {
   // No contests
   if (!contests?.length) {
     return (
-      <div className="flex flex-col gap-6 p-6">
-        <h1 className="text-2xl font-bold">Broccoli Online Judge</h1>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              There's no contest available for you at the moment. Please check
-              back later or contact the administrator if you think this is a
-              mistake.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mb-6">
+          <Trophy className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight mb-2">
+          {t('homepage.title')}
+        </h1>
+        <p className="text-muted-foreground max-w-md">
+          {t('homepage.noContests')}
+        </p>
       </div>
     );
   }
 
-  // Multiple contests, none selected yet
+  // Multiple contests
   if (contests.length > 1 && !contestId) {
     return (
-      <div className="flex flex-col gap-6 p-6">
-        <ContestSelector
-          contests={contests}
-          onSelect={(c) => navigate(`/contests/${c.id}`)}
-        />
+      <div className="flex flex-col gap-6 p-6 max-w-2xl mx-auto">
+        <ContestSelector contests={contests} />
       </div>
     );
   }
