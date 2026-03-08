@@ -7,7 +7,7 @@ import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Check, Code2, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
@@ -38,6 +38,13 @@ export default function ProblemView({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
   const apiClient = useApiClient();
+
+  useEffect(() => {
+    setShowCodingPanel(false);
+    setIsCodeFullscreen(false);
+    setCopiedKey(null);
+    setCopiedNotice(null);
+  }, [problemId]);
 
   const {
     data: problem,
