@@ -10,7 +10,7 @@ import { ArrowLeft, Check, Code2, Copy } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 
-import { CodeEditor } from '@/components/CodeEditor';
+import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
 import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
@@ -126,8 +126,15 @@ export function ProblemDetailPage() {
     submission,
     isSubmitting,
     error: submitError,
-    submit,
+    submit: rawSubmit,
   } = useSubmission({ problemId: id, contestId: cId });
+
+  const handleSubmit = (files: EditorFile[], language: string) => {
+    rawSubmit(
+      files.map(({ filename, content }) => ({ filename, content })),
+      language,
+    );
+  };
 
   if (!problemId || Number.isNaN(id)) {
     return (
@@ -427,8 +434,8 @@ export function ProblemDetailPage() {
             className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'col-span-2' : ''}`}
           >
             <CodeEditor
-              onSubmit={submit}
-              onRun={submit}
+              onSubmit={handleSubmit}
+              onRun={handleSubmit}
               isFullscreen={isCodeFullscreen}
               onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
               storageKey={

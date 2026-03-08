@@ -11,23 +11,21 @@ const TERMINAL_STATUSES = new Set([
   'SystemError',
 ]);
 
-const FILENAME_MAP: Record<string, string> = {
-  cpp: 'solution.cpp',
-  c: 'solution.c',
-  python: 'solution.py',
-  java: 'Main.java',
-};
-
 interface UseSubmissionOptions {
   problemId: number;
   contestId?: number;
+}
+
+interface SubmissionFile {
+  filename: string;
+  content: string;
 }
 
 interface UseSubmissionReturn {
   submission: SubmissionResponse | null;
   isSubmitting: boolean;
   error: string | null;
-  submit: (code: string, language: string) => Promise<void>;
+  submit: (files: SubmissionFile[], language: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -91,15 +89,14 @@ export function useSubmission({
   );
 
   const submit = useCallback(
-    async (code: string, language: string) => {
+    async (files: SubmissionFile[], language: string) => {
       stopPolling();
       setError(null);
       setIsSubmitting(true);
       setSubmission(null);
 
-      const filename = FILENAME_MAP[language] ?? `solution.${language}`;
       const body = {
-        files: [{ filename, content: code }],
+        files,
         language,
       };
 

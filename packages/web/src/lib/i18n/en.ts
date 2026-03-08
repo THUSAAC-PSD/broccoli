@@ -105,6 +105,8 @@ export const en: Record<string, string> = {
   'editor.title': 'Code',
   'editor.run': 'Run',
   'editor.submit': 'Submit',
+  'editor.upload': 'Upload files',
+  'editor.addFile': 'Add file',
   'editor.toggleFullscreen': 'Toggle fullscreen',
 
   // Submission result
