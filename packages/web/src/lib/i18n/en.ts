@@ -68,6 +68,12 @@ export const en: Record<string, string> = {
   'overview.contests': 'Contests',
   'overview.noContests': 'No contests found.',
 
+  // Submissions filters
+  'submissions.filters.allProblems': 'All Problems',
+  'submissions.filters.allLanguages': 'All Languages',
+  'submissions.filters.allStatuses': 'All Statuses',
+  'submissions.filters.search': 'Search',
+
   // Homepage
   'homepage.title': 'Broccoli Online Judge',
   'homepage.welcome': 'Welcome to Broccoli',
