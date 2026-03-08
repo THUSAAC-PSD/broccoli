@@ -37,8 +37,12 @@ impl PluginManifest {
         self.web.is_some()
     }
 
+    pub fn has_translations(&self) -> bool {
+        !self.translations.is_empty()
+    }
+
     pub fn is_hollow(&self) -> bool {
-        !self.has_server() && !self.has_worker() && !self.has_web()
+        !self.has_server() && !self.has_worker() && !self.has_web() && !self.has_translations()
     }
 }
 
