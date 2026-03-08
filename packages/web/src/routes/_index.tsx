@@ -103,6 +103,12 @@ export default function Index() {
     return <></>;
   }
 
+  // Avoid rendering homepage content when we're about to auto-redirect
+  // (contest list has been loaded and contains a single entry).
+  if (contests && contests.length === 1 && user && !contestId) {
+    return null;
+  }
+
   // Not logged in
   if (!user) {
     return (
