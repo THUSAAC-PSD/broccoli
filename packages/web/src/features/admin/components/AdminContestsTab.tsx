@@ -22,6 +22,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
 import { Markdown } from '@/components/Markdown';
+import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
@@ -44,7 +45,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { getContestStatus } from '@/features/contest/utils/status';
@@ -251,12 +251,11 @@ export function ContestFormDialog({
               <Label htmlFor="contest-description">
                 {t('admin.field.description')}
               </Label>
-              <Textarea
+              <MarkdownEditor
                 id="contest-description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                required
-                rows={4}
+                onChange={setDescription}
+                minHeight={150}
                 placeholder="Contest description (Markdown supported)"
               />
             </div>
