@@ -6,6 +6,7 @@ import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
+import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
@@ -27,7 +28,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { TestCasesDialog } from '@/features/admin/components/TestCasesDialog';
 import { fetchContestProblems } from '@/features/contest/api/fetch-contest-problems';
@@ -153,12 +153,11 @@ export function ProblemFormDialog({
               <Label htmlFor="problem-content">
                 {t('admin.field.content')}
               </Label>
-              <Textarea
+              <MarkdownEditor
                 id="problem-content"
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
-                required
-                rows={8}
+                onChange={setContent}
+                minHeight={250}
                 placeholder="Problem statement (Markdown supported)"
               />
             </div>
