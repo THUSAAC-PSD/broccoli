@@ -112,6 +112,7 @@ export default function ContestOverviewPage() {
       title={contest?.title ?? t('contests.title')}
       subtitle={contest?.description}
       icon={<Trophy className="h-6 w-6 text-primary" />}
+      contentClassName="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start"
     >
       <ContestProblemsCard contestId={id} />
     </PageLayout>

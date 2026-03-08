@@ -17,7 +17,7 @@ export const manifest: ActivePluginManifest = {
   },
   slots: [
     {
-      name: 'contest-overview.header',
+      name: 'contest-overview.content',
       position: 'after',
       component: 'contest/Countdown',
       priority: 100,
