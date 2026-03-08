@@ -1,5 +1,5 @@
 /**
- * @broccoli/sdk
+ * @broccoli/web-sdk
  * Core SDK exports
  */
 
@@ -37,7 +37,10 @@ export type User = components['schemas']['MeResponse'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 
 export type ActivePluginManifest =
-  components['schemas']['ActivePluginResponse'];
+  components['schemas']['ActivePluginResponse'] & {
+    /** Translations provided by local plugins (not part of the API schema). */
+    translations?: Record<string, string | Record<string, string>>;
+  };
 export type SlotConfig = components['schemas']['WebSlotConfig'] & {
   _pluginName: string;
 };

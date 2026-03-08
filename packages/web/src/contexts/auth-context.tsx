@@ -1,4 +1,4 @@
-import type { LoginRequest, User } from '@broccoli/sdk';
+import type { LoginRequest, User } from '@broccoli/web-sdk';
 import { createContext, use } from 'react';
 
 export interface AuthContextValue {

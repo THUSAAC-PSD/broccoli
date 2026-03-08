@@ -1,4 +1,4 @@
-import type { ActivePluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/web-sdk';
 
 import { KeyboardShortcutsHandler } from './components/KeyboardShortcutsHandler';
 

@@ -1,4 +1,4 @@
-import { usePluginRegistry } from '@broccoli/sdk/react';
+import { usePluginRegistry } from '@broccoli/web-sdk/react';
 import { matchPath, useLocation } from 'react-router';
 
 import { ErrorCatcher } from '@/components/ErrorCatcher';

@@ -81,7 +81,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@broccoli/sdk':
+      '@broccoli/web-sdk':
         specifier: workspace:*
         version: link:../sdk
       '@monaco-editor/react':

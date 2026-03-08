@@ -1,4 +1,4 @@
-import type { ActivePluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/web-sdk';
 
 import { NotificationButton } from './components/NotificationButton';
 import { NotificationCenter } from './components/NotificationCenter';

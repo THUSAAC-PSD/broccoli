@@ -1,16 +1,17 @@
 import './index.css';
 import './App.css';
 
-import { ApiClientProvider } from '@broccoli/sdk/api';
-import { I18nProvider } from '@broccoli/sdk/i18n';
-import { PluginRegistryProvider } from '@broccoli/sdk/plugin';
-import { SidebarProvider } from '@broccoli/sdk/sidebar';
-import { ThemeProvider } from '@broccoli/sdk/theme';
+import { ApiClientProvider } from '@broccoli/web-sdk/api';
+import { I18nProvider } from '@broccoli/web-sdk/i18n';
+import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
+import { SidebarProvider } from '@broccoli/web-sdk/sidebar';
+import { ThemeProvider } from '@broccoli/web-sdk/theme';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
+import { SlotPermissionsBridge } from '@/components/SlotPermissionsBridge';
 import { AuthProvider } from '@/contexts/AuthProvider';
 import { ContestProvider } from '@/contexts/contest-context';
 import { en } from '@/lib/i18n/en';
@@ -43,13 +44,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
     document.documentElement.style.opacity = '';
   }, []);
 
+  // Read theme and locale from localStorage on the client to match the inline
+  // script that runs before hydration. This ensures React's virtual DOM agrees
+  // with the real DOM, preventing hydration mismatches.
+  const initialTheme =
+    typeof window !== 'undefined'
+      ? ((localStorage.getItem('theme') as string | null) ??
+        (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'))
+      : 'light';
+
+  const initialLocale =
+    typeof window !== 'undefined'
+      ? (localStorage.getItem('broccoli-locale') ?? 'en')
+      : 'en';
+
   return (
     <html
-      lang={
-        typeof window !== 'undefined'
-          ? (localStorage.getItem('broccoli-locale') ?? 'en')
-          : 'en'
-      }
+      lang={initialLocale}
+      className={initialTheme}
+      suppressHydrationWarning
     >
       <head>
         <meta charSet="UTF-8" />
@@ -62,7 +75,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           }}
         />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <QueryClientProvider client={queryClient}>
           <ApiClientProvider
             baseUrl={appConfig.api.baseUrl}
@@ -76,12 +89,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       defaultState="expanded"
                       storageKey="sidebar-state"
                     >
-                      <PluginRegistryProvider
-                        backendUrl={appConfig.plugin.backendUrl}
-                        pluginModules={plugins}
-                      >
-                        <AppLayout>{children}</AppLayout>
-                      </PluginRegistryProvider>
+                      <SlotPermissionsBridge>
+                        <PluginRegistryProvider
+                          backendUrl={appConfig.plugin.backendUrl}
+                          pluginModules={plugins}
+                        >
+                          <AppLayout>{children}</AppLayout>
+                        </PluginRegistryProvider>
+                      </SlotPermissionsBridge>
                     </SidebarProvider>
                   </ContestProvider>
                 </AuthProvider>

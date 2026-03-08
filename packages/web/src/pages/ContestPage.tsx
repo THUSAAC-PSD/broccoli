@@ -1,6 +1,9 @@
-import type { ContestProblemResponse, ContestResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import type {
+  ContestProblemResponse,
+  ContestResponse,
+} from '@broccoli/web-sdk';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { AlignLeft, CalendarClock, Clock, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';

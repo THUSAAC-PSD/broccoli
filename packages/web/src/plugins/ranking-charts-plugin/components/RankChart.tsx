@@ -1,4 +1,4 @@
-import { useTheme } from '@broccoli/sdk/theme';
+import { useTheme } from '@broccoli/web-sdk/theme';
 import {
   CartesianGrid,
   Legend,

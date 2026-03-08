@@ -16,7 +16,7 @@ export interface SlotRenderContext {
   props?: Record<string, unknown>;
 }
 
-export type PluginModule = {
+export interface PluginModule {
   manifest: ActivePluginManifest;
   /**
    * Plugin initialization function called when plugin is registered
@@ -26,6 +26,6 @@ export type PluginModule = {
    * Plugin cleanup function called when plugin is unregistered
    */
   onDestroy?: () => void | Promise<void>;
-} & {
-  [key in string as key extends 'manifest' ? never : key]: ElementType;
-};
+  /** Dynamic component exports keyed by name */
+  [key: string]: unknown;
+}

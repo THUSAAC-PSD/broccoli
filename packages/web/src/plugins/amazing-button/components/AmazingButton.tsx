@@ -1,4 +1,4 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Sparkles } from 'lucide-react';
 
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';

@@ -1,5 +1,5 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Slot } from '@broccoli/web-sdk/react';
 import { Menu } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 

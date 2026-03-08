@@ -1,6 +1,6 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
-import { useTheme } from '@broccoli/sdk/theme';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Slot } from '@broccoli/web-sdk/react';
+import { useTheme } from '@broccoli/web-sdk/theme';
 import Editor from '@monaco-editor/react';
 import { ChevronDown, Maximize2, Minimize2, Play } from 'lucide-react';
 import type { editor } from 'monaco-editor';

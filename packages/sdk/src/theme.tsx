@@ -1,5 +1,5 @@
 /*
-  @broccoli/sdk/theme
+  @broccoli/web-sdk/theme
   Simple theme management hook that syncs with localStorage
 */
 import { createContext, type ReactNode, use, useEffect, useState } from 'react';

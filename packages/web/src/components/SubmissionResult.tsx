@@ -2,8 +2,8 @@ import type {
   SubmissionResponse,
   TestCaseResultResponse,
   Verdict,
-} from '@broccoli/sdk';
-import { useTranslation } from '@broccoli/sdk/i18n';
+} from '@broccoli/web-sdk';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';

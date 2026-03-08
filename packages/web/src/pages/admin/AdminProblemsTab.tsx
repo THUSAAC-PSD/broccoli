@@ -1,6 +1,9 @@
-import type { ContestProblemResponse, ProblemListItem } from '@broccoli/sdk';
-import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import type {
+  ContestProblemResponse,
+  ProblemListItem,
+} from '@broccoli/web-sdk';
+import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQueryClient } from '@tanstack/react-query';
 import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';

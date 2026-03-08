@@ -3,7 +3,7 @@
  * This demonstrates how plugins work with the slot system
  */
 
-import type { ActivePluginManifest } from '@broccoli/sdk';
+import type { ActivePluginManifest } from '@broccoli/web-sdk';
 
 import { AmazingButton } from './components/AmazingButton';
 import { AmazingPage } from './pages/AmazingPage';

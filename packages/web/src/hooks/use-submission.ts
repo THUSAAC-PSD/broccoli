@@ -1,5 +1,5 @@
-import type { SubmissionResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
+import type { SubmissionResponse } from '@broccoli/web-sdk';
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const POLL_INTERVAL_MS = 1000;
