@@ -31,13 +31,23 @@ import { useSubmissionColumns } from '@/features/submission/hooks/use-submission
 
 type SubmissionStatusFilterValue = 'all' | SubmissionStatus;
 
-const SUBMISSION_STATUS_FILTER_OPTIONS: Array<{
-  value: SubmissionStatusFilterValue;
-  label: string;
-}> = [
-  { value: 'all', label: 'All Statuses' },
-  ...SUBMISSION_STATUSES.map((status) => ({ value: status, label: status })),
+const SUBMISSION_STATUS_FILTER_OPTIONS: SubmissionStatusFilterValue[] = [
+  'all',
+  ...SUBMISSION_STATUSES,
 ];
+
+function getStatusLabel(
+  status: SubmissionStatusFilterValue,
+  t: (key: string) => string,
+) {
+  if (status === 'all') return t('submissions.filters.allStatuses');
+  if (status === 'Pending') return t('result.pending');
+  if (status === 'Compiling') return t('result.compilingShort');
+  if (status === 'Running') return t('result.runningShort');
+  if (status === 'Judged') return t('result.judged');
+  if (status === 'CompilationError') return t('result.compilationError');
+  return t('result.systemError');
+}
 
 function FilterDropdown({
   icon,
@@ -148,32 +158,32 @@ function SubmissionsTab({ contestId }: { contestId: number }) {
 
   const problemOptions = useMemo(
     () => [
-      { value: 'all', label: 'All Problems' },
+      { value: 'all', label: t('submissions.filters.allProblems') },
       ...problems.map((p) => ({
         value: String(p.problem_id),
         label: `${p.label}. ${p.problem_title}`,
       })),
     ],
-    [problems],
+    [problems, t],
   );
 
   const statusOptions = useMemo(
     () =>
-      SUBMISSION_STATUS_FILTER_OPTIONS.map((option) => ({
-        value: option.value,
-        label: option.label,
+      SUBMISSION_STATUS_FILTER_OPTIONS.map((status) => ({
+        value: status,
+        label: getStatusLabel(status, t),
       })),
-    [],
+    [t],
   );
 
   const languageDropdownOptions = useMemo(
     () => [
-      { value: 'all', label: 'All Languages' },
+      { value: 'all', label: t('submissions.filters.allLanguages') },
       ...languageOptions
         .filter((v) => v !== 'all')
         .map((lang) => ({ value: lang, label: lang })),
     ],
-    [languageOptions],
+    [languageOptions, t],
   );
 
   if (isProblemsLoading) {
@@ -226,7 +236,7 @@ function SubmissionsTab({ contestId }: { contestId: number }) {
           }}
         >
           <Search className="mr-1 h-4 w-4" />
-          Search
+          {t('submissions.filters.search')}
         </Button>
       </div>
 
