@@ -1,0 +1,7 @@
+name = "standard-checkers"
+version = "0.1.0"
+description = "Standard output comparison checkers for Broccoli judge"
+
+[server]
+entry = "standard_checkers.wasm"
+permissions = ["logger", "plugin:register", "operations:dispatch"]
