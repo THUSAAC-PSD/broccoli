@@ -1,40 +1,23 @@
 use crate::error::SdkError;
 use crate::host;
-use crate::types::Verdict;
-
-/// Data for updating a submission after judging.
-pub struct SubmissionUpdate<'a> {
-    pub submission_id: i32,
-    pub status: &'a str,
-    pub verdict: Option<Verdict>,
-    pub score: f64,
-    pub time_used: Option<i32>,
-    pub memory_used: Option<i32>,
-}
-
-/// Data for inserting a single test case result row.
-pub struct TestCaseResultRow {
-    pub submission_id: i32,
-    pub test_case_id: i32,
-    pub verdict: Verdict,
-    pub score: f64,
-    pub time_used: Option<i32>,
-    pub memory_used: Option<i32>,
-    pub message: Option<String>,
-}
+use crate::types::{SubmissionUpdate, TestCaseResultRow};
 
 /// Update a submission's status, verdict, score, and resource usage.
-pub fn update_submission(update: &SubmissionUpdate<'_>) -> Result<(), SdkError> {
+pub fn update_submission(update: &SubmissionUpdate) -> Result<(), SdkError> {
     let verdict_sql = match update.verdict {
         Some(v) => format!("'{}'", v.to_db_str()),
         None => "NULL".to_string(),
     };
 
-    let score_int = update.score.round() as i64;
+    let score_int = if update.score.is_finite() {
+        update.score.round() as i64
+    } else {
+        0
+    };
     let sql = format!(
         "UPDATE submission SET status = '{}', verdict = {}, score = {}, \
          time_used = {}, memory_used = {}, judged_at = NOW() WHERE id = {}",
-        update.status,
+        update.status.as_str(),
         verdict_sql,
         score_int,
         update
@@ -57,7 +40,11 @@ pub fn insert_test_case_results(results: &[TestCaseResultRow]) -> Result<(), Sdk
             .map(|m| format!("'{}'", m.replace('\0', "").replace('\'', "''")))
             .unwrap_or_else(|| "NULL".to_string());
 
-        let score_int = r.score.round() as i64;
+        let score_int = if r.score.is_finite() {
+            r.score.round() as i64
+        } else {
+            0
+        };
         let sql = format!(
             "INSERT INTO test_case_result \
              (submission_id, test_case_id, verdict, score, time_used, memory_used, checker_output, created_at) \

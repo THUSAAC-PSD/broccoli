@@ -35,6 +35,19 @@ pub fn interpret_sandbox_result(
                     ),
                 });
             }
+        } else if !compile_result.success {
+            // Sandbox failure before execution (no exit code available)
+            return Ok(TestCaseVerdict {
+                test_case_id,
+                verdict: Verdict::JudgeError,
+                score: 0.0,
+                time_used_ms: None,
+                memory_used_kb: None,
+                message: truncate_stderr(
+                    &compile_result.sandbox_result.stderr,
+                    "Compilation step failed (sandbox error)",
+                ),
+            });
         }
     }
 
@@ -68,15 +81,16 @@ pub fn interpret_sandbox_result(
 
         match sandbox.status.as_str() {
             "TO" => {
+                let time_ms = extract_time_used(result);
                 return Ok(TestCaseVerdict {
                     test_case_id,
                     verdict: Verdict::TimeLimitExceeded,
                     score: 0.0,
-                    time_used_ms: extract_time_used(result),
+                    time_used_ms: time_ms,
                     memory_used_kb: extract_memory_used(result),
                     message: Some(format!(
-                        "Time limit exceeded ({:.0}ms)",
-                        sandbox.time_used * 1000.0
+                        "Time limit exceeded ({}ms)",
+                        time_ms.map_or("?".into(), |t| t.to_string())
                     )),
                 });
             }

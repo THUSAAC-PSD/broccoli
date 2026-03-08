@@ -24,10 +24,13 @@ pub struct SandboxResult {
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub signal: Option<i32>,
+    /// CPU time used, in seconds.
     #[serde(default)]
     pub time_used: f64,
+    /// Wall-clock time used, in seconds.
     #[serde(default)]
     pub wall_time_used: f64,
+    /// Peak memory usage, in kilobytes.
     #[serde(default)]
     pub memory_used: Option<u32>,
     #[serde(default)]
