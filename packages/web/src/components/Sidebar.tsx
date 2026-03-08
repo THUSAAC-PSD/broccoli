@@ -36,8 +36,8 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
-import { useAuth } from '@/contexts/auth-context';
-import { useContest } from '@/contexts/contest-context';
+import { useAuth } from '@/features/auth/hooks/use-auth';
+import { useContest } from '@/features/contest/contexts/contest-context';
 
 const defaultMenuItems = [
   { titleKey: 'sidebar.homepage', icon: Home, url: '/' },

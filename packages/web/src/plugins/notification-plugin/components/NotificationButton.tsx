@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/contexts/auth-context';
+import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export function NotificationButton() {
   const [count] = useState(3); // TODO: 实现通知计数的动态获取

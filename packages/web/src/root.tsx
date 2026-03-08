@@ -13,8 +13,8 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
 import { SlotPermissionsBridge } from '@/components/SlotPermissionsBridge';
-import { AuthProvider } from '@/contexts/AuthProvider';
-import { ContestProvider } from '@/contexts/contest-context';
+import { AuthProvider } from '@/features/auth/components/AuthProvider';
+import { ContestProvider } from '@/features/contest/contexts/contest-context';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
