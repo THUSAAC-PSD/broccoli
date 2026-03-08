@@ -36,7 +36,11 @@ export function useSubmissionColumns(
       accessorKey: 'verdict',
       header: t('contests.status'),
       cell: ({ row }) => {
-        const vb = getVerdictBadge(row.original.verdict, row.original.status);
+        const vb = getVerdictBadge(
+          row.original.verdict,
+          row.original.status,
+          t,
+        );
         return <Badge variant={vb.variant}>{vb.label}</Badge>;
       },
     },
