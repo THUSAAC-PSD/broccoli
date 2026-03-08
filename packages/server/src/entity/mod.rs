@@ -4,6 +4,7 @@ pub mod contest_problem;
 pub mod contest_user;
 pub mod dead_letter_message;
 pub mod plugin;
+pub mod plugin_config;
 pub mod plugin_storage;
 pub mod problem;
 pub mod role;

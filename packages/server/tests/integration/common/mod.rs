@@ -267,6 +267,38 @@ pub mod routes {
     pub fn attachment(problem_id: i32, ref_id: &str) -> String {
         format!("/api/v1/problems/{problem_id}/attachments/{ref_id}")
     }
+
+    pub fn problem_config(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/config")
+    }
+
+    pub fn problem_config_ns(problem_id: i32, namespace: &str) -> String {
+        format!("/api/v1/problems/{problem_id}/config/{namespace}")
+    }
+
+    pub fn contest_config(contest_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/config")
+    }
+
+    pub fn contest_config_ns(contest_id: i32, namespace: &str) -> String {
+        format!("/api/v1/contests/{contest_id}/config/{namespace}")
+    }
+
+    pub fn plugin_global_config(plugin_id: &str) -> String {
+        format!("/api/v1/admin/plugins/{plugin_id}/config")
+    }
+
+    pub fn plugin_global_config_ns(plugin_id: &str, namespace: &str) -> String {
+        format!("/api/v1/admin/plugins/{plugin_id}/config/{namespace}")
+    }
+
+    pub fn contest_problem_config(contest_id: i32, problem_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/problems/{problem_id}/config")
+    }
+
+    pub fn contest_problem_config_ns(contest_id: i32, problem_id: i32, namespace: &str) -> String {
+        format!("/api/v1/contests/{contest_id}/problems/{problem_id}/config/{namespace}")
+    }
 }
 
 /// A running test server.

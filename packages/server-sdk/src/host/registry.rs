@@ -23,7 +23,7 @@ pub fn register_evaluator(evaluator_type: &str, handler: &str) -> Result<(), Sdk
 /// Register a checker format handler with the plugin registry.
 pub fn register_checker_format(format: &str, handler: &str) -> Result<(), SdkError> {
     let input = serde_json::json!({
-        "type": format,
+        "format": format,
         "handler": handler,
     });
     unsafe { super::raw::register_checker_format(serde_json::to_string(&input)?)? };

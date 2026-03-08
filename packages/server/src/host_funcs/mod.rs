@@ -1,4 +1,5 @@
 pub mod checker;
+pub mod config;
 pub mod dispatch;
 pub mod evaluate;
 pub mod language;
@@ -90,7 +91,6 @@ pub fn init_host_functions(
         )
     });
 
-    // Plugin registration — 3 functions in one call
     let contest_reg = contest_type_registry.clone();
     let eval_reg = evaluator_registry.clone();
     let checker_reg = checker_format_registry.clone();
@@ -103,7 +103,6 @@ pub fn init_host_functions(
         )
     });
 
-    // Evaluator evaluate — 3 functions in one call
     let eval_reg = evaluator_registry.clone();
     let pm = plugin_manager.clone();
     let eval_batches = evaluate_batches;
@@ -116,7 +115,6 @@ pub fn init_host_functions(
         )
     });
 
-    // Operations dispatch — 3 functions in one call
     let mq_clone = mq;
     let batches = operation_batches;
     let waiters = operation_waiters;
@@ -133,17 +131,25 @@ pub fn init_host_functions(
         )
     });
 
-    // Checker — single function
     let checker_reg = checker_format_registry;
     let pm = plugin_manager.clone();
     hr.register("checker:run", move |plugin_id| {
         checker::create_checker_function(plugin_id.to_string(), pm.clone(), checker_reg.clone())
     });
 
-    // Language config — single function
     let languages = config.languages;
     hr.register("language:config", move |plugin_id| {
         language::create_language_function(plugin_id.to_string(), languages.clone())
+    });
+
+    let db_clone = db.clone();
+    hr.register("config:read", move |plugin_id| {
+        config::create_config_get_function(plugin_id.to_string(), db_clone.clone())
+    });
+
+    let db_clone = db;
+    hr.register("config:write", move |plugin_id| {
+        config::create_config_set_function(plugin_id.to_string(), db_clone.clone())
     });
 
     hr

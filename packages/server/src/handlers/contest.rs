@@ -11,6 +11,7 @@ use crate::entity::{contest, contest_problem, contest_user, problem, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::contest::*;
 use crate::models::shared::{Pagination, escape_like};
 use crate::state::AppState;
@@ -316,6 +317,16 @@ pub async fn delete_contest(
         .filter(contest_user::Column::ContestId.eq(id))
         .exec(&txn)
         .await?;
+
+    // Clean up plugin config for this contest and its contest_problem entries
+    delete_config_by_scope(&txn, "contest", &id.to_string()).await?;
+    delete_config_by_scope_like(
+        &txn,
+        "contest_problem",
+        &crate::models::plugin_config::config_key::contest_problem_by_contest_like(id),
+    )
+    .await?;
+
     contest::Entity::delete_by_id(id).exec(&txn).await?;
 
     txn.commit().await?;
@@ -557,6 +568,14 @@ pub async fn remove_contest_problem(
     let cp = find_contest_problem(&txn, contest_id, problem_id).await?;
     let active: contest_problem::ActiveModel = cp.into();
     active.delete(&txn).await?;
+
+    delete_config_by_scope(
+        &txn,
+        "contest_problem",
+        &crate::models::plugin_config::config_key::contest_problem(contest_id, problem_id),
+    )
+    .await?;
+
     txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)

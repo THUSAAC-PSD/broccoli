@@ -1,4 +1,5 @@
 pub mod checker;
+pub mod config;
 pub mod db;
 pub mod evaluate;
 pub mod language;

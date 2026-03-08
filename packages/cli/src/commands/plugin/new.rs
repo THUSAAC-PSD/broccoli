@@ -20,6 +20,7 @@ const TMPL_RUST_TOOLCHAIN: &str =
 const TMPL_CARGO_CONFIG: &str =
     include_str!("../../../templates/backend/dot-cargo/config.toml.tmpl");
 const TMPL_LIB_RS: &str = include_str!("../../../templates/backend/src/lib.rs.tmpl");
+const TMPL_GITIGNORE: &str = include_str!("../../../templates/backend/.gitignore.tmpl");
 
 const TMPL_PACKAGE_JSON: &str = include_str!("../../../templates/frontend/package.json.tmpl");
 const TMPL_TSCONFIG: &str = include_str!("../../../templates/frontend/tsconfig.json.tmpl");
@@ -175,6 +176,7 @@ fn write_backend_files(dir: &Path, vars: &TemplateVars, files: &mut Vec<String>)
         ("rust-toolchain.toml", TMPL_RUST_TOOLCHAIN),
         (".cargo/config.toml", TMPL_CARGO_CONFIG),
         ("src/lib.rs", TMPL_LIB_RS),
+        (".gitignore", TMPL_GITIGNORE),
     ];
 
     for (rel_path, template) in templates {

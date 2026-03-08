@@ -14,6 +14,10 @@ pub struct CheckerParseInput {
     pub test_input: String,
     #[serde(default)]
     pub checker_source: Option<Vec<SourceFile>>,
+    /// Opaque config blob from the plugin_config table (namespace="checker").
+    /// Checkers that support configuration (e.g., float tolerances) deserialize this.
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
 }
 
 /// Output from checker format plugin handlers (returned by run_checker host fn).

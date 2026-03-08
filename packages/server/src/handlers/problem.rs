@@ -14,6 +14,7 @@ use crate::entity::{blob_ref, contest_problem, problem, submission, test_case, t
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::problem::*;
 use crate::state::AppState;
 use crate::utils::contest::require_problem_read_access;
@@ -338,6 +339,15 @@ pub async fn delete_problem(
         .filter(test_case::Column::ProblemId.eq(id))
         .exec(&txn)
         .await?;
+
+    delete_config_by_scope(&txn, "problem", &id.to_string()).await?;
+    delete_config_by_scope_like(
+        &txn,
+        "contest_problem",
+        &crate::models::plugin_config::config_key::contest_problem_by_problem_like(id),
+    )
+    .await?;
+
     problem::Entity::delete_by_id(id).exec(&txn).await?;
 
     txn.commit().await?;

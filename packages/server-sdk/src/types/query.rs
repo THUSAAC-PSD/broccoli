@@ -22,4 +22,7 @@ pub struct ProblemCheckerInfo {
     pub id: i32,
     pub checker_source: Option<serde_json::Value>,
     pub checker_format: Option<String>,
+    /// Opaque checker config from plugin_config table (namespace="checker").
+    #[serde(default)]
+    pub checker_config: Option<serde_json::Value>,
 }

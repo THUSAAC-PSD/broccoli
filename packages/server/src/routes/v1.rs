@@ -37,6 +37,17 @@ fn admin_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::admin::get_plugin_details))
         .routes(routes!(handlers::admin::enable_plugin))
         .routes(routes!(handlers::admin::disable_plugin))
+        .nest("/plugins/{id}/config", plugin_global_config_routes())
+}
+
+fn plugin_global_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::plugin_config::list_plugin_global_config))
+        .routes(routes!(
+            handlers::plugin_config::get_plugin_global_config,
+            handlers::plugin_config::upsert_plugin_global_config,
+            handlers::plugin_config::delete_plugin_global_config,
+        ))
 }
 
 fn plugin_routes() -> OpenApiRouter<AppState> {
@@ -68,6 +79,7 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         ))
         .nest("/{id}/test-cases", test_case_routes())
         .nest("/{id}/attachments", attachment_routes())
+        .nest("/{id}/config", problem_config_routes())
         .nest(
             "/{id}/submissions",
             problem_submission_routes(submission_max_size),
@@ -136,6 +148,7 @@ fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         )
         .nest("/{id}/participants", contest_participant_routes())
         .nest("/{id}/submissions", contest_submission_routes())
+        .nest("/{id}/config", contest_config_routes())
         .routes(routes!(
             handlers::contest::register_for_contest,
             handlers::contest::unregister_from_contest,
@@ -158,6 +171,7 @@ fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState>
             handlers::contest::update_contest_problem,
             handlers::contest::remove_contest_problem,
         ))
+        .nest("/{problem_id}/config", contest_problem_config_routes())
         .nest(
             "/{problem_id}/submissions",
             contest_problem_submission_routes(submission_max_size),
@@ -188,6 +202,38 @@ fn submission_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::submission::bulk_rejudge_submissions))
         .routes(routes!(handlers::submission::get_submission))
         .routes(routes!(handlers::submission::rejudge_submission))
+}
+
+fn problem_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::plugin_config::list_problem_config))
+        .routes(routes!(
+            handlers::plugin_config::get_problem_config,
+            handlers::plugin_config::upsert_problem_config,
+            handlers::plugin_config::delete_problem_config,
+        ))
+}
+
+fn contest_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::plugin_config::list_contest_config))
+        .routes(routes!(
+            handlers::plugin_config::get_contest_config,
+            handlers::plugin_config::upsert_contest_config,
+            handlers::plugin_config::delete_contest_config,
+        ))
+}
+
+fn contest_problem_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(
+            handlers::plugin_config::list_contest_problem_config
+        ))
+        .routes(routes!(
+            handlers::plugin_config::get_contest_problem_config,
+            handlers::plugin_config::upsert_contest_problem_config,
+            handlers::plugin_config::delete_contest_problem_config,
+        ))
 }
 
 fn dlq_routes() -> OpenApiRouter<AppState> {
