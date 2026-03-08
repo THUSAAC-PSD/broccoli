@@ -124,6 +124,7 @@ export const en: Record<string, string> = {
   'result.running': 'Running...',
   'result.compilationError': 'Compilation Error',
   'result.systemError': 'System Error',
+  'result.skipped': 'Skipped',
   'result.memoryLimit': 'Memory Limit',
   'result.submitError': 'Failed to submit. Please try again.',
   'result.compileOutput': 'Compile Output',

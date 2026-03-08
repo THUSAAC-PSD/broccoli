@@ -2480,7 +2480,7 @@ export interface components {
          * @description Execution verdict for a test case or submission.
          * @enum {string}
          */
-        Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError";
+        Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError" | "Skipped";
         WebRouteConfig: {
             /**
              * @description Component to render for this route, which must match a key in the

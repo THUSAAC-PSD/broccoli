@@ -4,7 +4,13 @@ import type {
   Verdict,
 } from '@broccoli/sdk';
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  MinusCircle,
+  XCircle,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +22,7 @@ type VerdictKey =
   | 'memory_limit'
   | 'runtime_error'
   | 'system_error'
+  | 'skipped'
   | 'pending';
 
 const VERDICT_CONFIG: Record<
@@ -63,6 +70,12 @@ const VERDICT_CONFIG: Record<
     color: 'text-gray-500',
     bgColor: 'bg-gray-500/10',
   },
+  skipped: {
+    icon: MinusCircle,
+    labelKey: 'result.skipped',
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-400/10',
+  },
   pending: {
     icon: Clock,
     labelKey: 'result.pending',
@@ -78,6 +91,7 @@ const VERDICT_MAP: Record<Verdict, VerdictKey> = {
   MemoryLimitExceeded: 'memory_limit',
   RuntimeError: 'runtime_error',
   SystemError: 'system_error',
+  Skipped: 'skipped',
 };
 
 function formatMemory(kb: number): string {
