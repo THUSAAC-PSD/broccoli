@@ -29,6 +29,7 @@ const lazyPlugins: LazyPluginLoader[] = [
   () => import('./plugins/ranking-charts-plugin'),
   () => import('./plugins/locale-switcher-plugin'),
   () => import('./plugins/contest-countdown-plugin'),
+  () => import('./plugins/contest-admin-plugin'),
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
