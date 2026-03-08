@@ -23,6 +23,8 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 [[package]]
 name = "broccoli-server-sdk"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc6d22cf88ffd9a79e68a02c49564a5ae068687a2875d71ebc6915f68eec2724"
 dependencies = [
  "extism-pdk",
  "serde",

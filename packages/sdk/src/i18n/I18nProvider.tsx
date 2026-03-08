@@ -71,7 +71,7 @@ export function I18nProvider({
       let value = pluginTranslations[key] ?? coreI18n[locale]?.[key] ?? key;
       if (params) {
         for (const [param, replacement] of Object.entries(params)) {
-          value = value.replace(`{${param}}`, replacement);
+          value = value.replace(`{{${param}}}`, replacement);
         }
       }
       return value;

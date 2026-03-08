@@ -26,7 +26,7 @@ struct RegisterEvaluatorInput {
 /// Input for register_checker_format
 #[derive(Deserialize)]
 struct RegisterCheckerFormatInput {
-    #[serde(rename = "type")]
+    #[serde(rename = "format")]
     checker_format: String,
     handler: String,
 }

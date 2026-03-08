@@ -52,10 +52,32 @@ impl PluginManifest {
     /// When a namespace declares `schema = "path/to/file.toml"`, the file is
     /// read and its contents replace the inline `properties`.
     pub fn resolve_schema_includes(&mut self, root_dir: &Path) -> Result<(), PluginError> {
+        let canonical_root = root_dir.canonicalize().map_err(|e| {
+            PluginError::LoadFailed(format!(
+                "Failed to canonicalize plugin root '{}': {}",
+                root_dir.display(),
+                e
+            ))
+        })?;
+
         for (ns_name, ns) in &mut self.config {
             if let Some(ref schema_path) = ns.schema {
                 let full_path = root_dir.join(schema_path);
-                let content = std::fs::read_to_string(&full_path).map_err(|e| {
+                let canonical_path = full_path.canonicalize().map_err(|e| {
+                    PluginError::LoadFailed(format!(
+                        "Failed to resolve schema file '{}' for config namespace '{}': {}",
+                        full_path.display(),
+                        ns_name,
+                        e
+                    ))
+                })?;
+                if !canonical_path.starts_with(&canonical_root) {
+                    return Err(PluginError::LoadFailed(format!(
+                        "Schema path '{}' for config namespace '{}' escapes plugin directory",
+                        schema_path, ns_name
+                    )));
+                }
+                let content = std::fs::read_to_string(&canonical_path).map_err(|e| {
                     PluginError::LoadFailed(format!(
                         "Failed to read schema file '{}' for config namespace '{}': {}",
                         full_path.display(),
@@ -520,6 +542,51 @@ mod tests {
         assert_eq!(ns.properties.len(), 2);
         assert_eq!(ns.properties["timeout"].schema_type, "number");
         assert_eq!(ns.properties["name"].schema_type, "string");
+    }
+
+    #[test]
+    fn resolve_schema_includes_rejects_path_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        // Write the file *outside* the plugin directory
+        let outside_file = dir.path().join("secret.toml");
+        std::fs::write(
+            &outside_file,
+            r#"
+                [timeout]
+                type = "number"
+            "#,
+        )
+        .unwrap();
+
+        let plugin_dir = dir.path().join("my-plugin");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+
+        let mut manifest = PluginManifest {
+            name: "test".into(),
+            version: "1.0.0".into(),
+            description: None,
+            server: None,
+            worker: None,
+            web: None,
+            translations: HashMap::new(),
+            config: HashMap::from([(
+                "evil".into(),
+                ConfigNamespace {
+                    description: None,
+                    scopes: vec!["plugin".into()],
+                    schema: Some("../secret.toml".into()),
+                    properties: HashMap::new(),
+                },
+            )]),
+        };
+
+        let err = manifest.resolve_schema_includes(&plugin_dir).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("escapes plugin directory"),
+            "Expected path traversal error, got: {}",
+            msg,
+        );
     }
 
     #[test]

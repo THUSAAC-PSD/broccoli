@@ -135,7 +135,7 @@ impl From<PluginInfo> for PluginDetailResponse {
         let has_worker = info.manifest.has_worker();
         let has_web = info.manifest.has_web();
 
-        let config_schemas = info
+        let mut config_schemas: Vec<_> = info
             .manifest
             .config
             .iter()
@@ -146,6 +146,7 @@ impl From<PluginInfo> for PluginDetailResponse {
                 json_schema: entry.to_json_schema(),
             })
             .collect();
+        config_schemas.sort_by(|a, b| a.namespace.cmp(&b.namespace));
 
         Self {
             id: info.id,

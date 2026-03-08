@@ -3,11 +3,20 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { usePluginRegistry } from '@broccoli/sdk/plugin';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Cpu, Globe, Loader2, Puzzle, Server } from 'lucide-react';
+import {
+  AlertCircle,
+  Cpu,
+  Globe,
+  Loader2,
+  Puzzle,
+  Server,
+  Settings,
+} from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { PageLayout } from '@/components/PageLayout';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -19,6 +28,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/contexts/auth-context';
+
+import { PluginConfigDialog } from './PluginConfigDialog';
 
 export function PluginsPage() {
   const { t } = useTranslation();
@@ -137,6 +148,30 @@ export function PluginsPage() {
   );
 }
 
+/** Wrapper that manages the config dialog state for a single plugin. */
+function PluginConfigButton({ plugin }: { plugin: PluginDetailResponse }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  if (!plugin.config_schemas || plugin.config_schemas.length === 0) return null;
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => setOpen(true)}
+        aria-label={t('plugins.configure')}
+        title={t('plugins.configure')}
+      >
+        <Settings className="h-4 w-4" />
+      </Button>
+      <PluginConfigDialog plugin={plugin} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
 function PluginCard({
   plugin,
   toggling,
@@ -192,7 +227,8 @@ function PluginCard({
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
+            <PluginConfigButton plugin={plugin} />
             {toggling && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}

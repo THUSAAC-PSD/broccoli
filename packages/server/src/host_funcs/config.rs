@@ -8,6 +8,24 @@ type ConfigUserData = (String, DatabaseConnection);
 
 const VALID_SCOPES: &[&str] = &["problem", "contest_problem", "contest", "plugin"];
 
+/// Validate the raw namespace provided by the plugin, BEFORE auto-prefixing.
+/// Rejects `:` so plugins cannot craft ambiguous composite namespaces.
+fn validate_raw_namespace(namespace: &str) -> Result<(), extism::Error> {
+    if namespace.is_empty() || namespace.len() > 128 {
+        return Err(extism::Error::msg("namespace must be 1-128 characters"));
+    }
+    if !namespace
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(extism::Error::msg(
+            "namespace must contain only alphanumeric, hyphen, or underscore characters",
+        ));
+    }
+    Ok(())
+}
+
+/// Validate the resolved (possibly prefixed) config input.
 fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(), extism::Error> {
     if !VALID_SCOPES.contains(&scope) {
         return Err(extism::Error::msg(format!(
@@ -22,7 +40,7 @@ fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(
     if namespace.is_empty() || namespace.len() > 256 {
         return Err(extism::Error::msg("namespace must be 1-256 characters"));
     }
-    // Allow alphanumeric, hyphen, underscore, and colon (colon appears in auto-prefixed namespaces)
+    // After resolve_namespace, colons appear in auto-prefixed namespaces (e.g. "plugin_id:ns")
     if !namespace
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':')
@@ -104,6 +122,7 @@ fn config_get_fn(
         input.ref_id
     };
 
+    validate_raw_namespace(&input.namespace)?;
     let namespace = resolve_namespace(&input.scope, &plugin_id, input.namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
@@ -154,6 +173,7 @@ fn config_set_fn(
         input.ref_id
     };
 
+    validate_raw_namespace(&input.namespace)?;
     let namespace = resolve_namespace(&input.scope, &plugin_id, input.namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 

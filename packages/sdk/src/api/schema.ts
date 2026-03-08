@@ -44,6 +44,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/plugins/{id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all config namespaces for a plugin */
+        get: operations["listPluginGlobalConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/plugins/{id}/config/{namespace}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get config for a specific namespace on a plugin */
+        get: operations["getPluginGlobalConfig"];
+        /** Create or update config for a namespace on a plugin */
+        put: operations["upsertPluginGlobalConfig"];
+        post?: never;
+        /** Delete config for a namespace on a plugin */
+        delete: operations["deletePluginGlobalConfig"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/plugins/{id}/disable": {
         parameters: {
             query?: never;
@@ -196,6 +232,42 @@ export interface paths {
         patch: operations["updateContest"];
         trace?: never;
     };
+    "/contests/{id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all config namespaces for a contest */
+        get: operations["listContestConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{id}/config/{namespace}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get config for a specific namespace on a contest */
+        get: operations["getContestConfig"];
+        /** Create or update config for a namespace on a contest */
+        put: operations["upsertContestConfig"];
+        post?: never;
+        /** Delete config for a namespace on a contest */
+        delete: operations["deleteContestConfig"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{id}/participants": {
         parameters: {
             query?: never;
@@ -346,6 +418,42 @@ export interface paths {
          * @description Updates the label or position of a problem within a contest. Requires `contest:manage` permission. Returns 409 CONFLICT on duplicate labels.
          */
         patch: operations["updateContestProblem"];
+        trace?: never;
+    };
+    "/contests/{id}/problems/{problem_id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all config namespaces for a contest-problem */
+        get: operations["listContestProblemConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{id}/problems/{problem_id}/config/{namespace}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get config for a specific namespace on a contest-problem */
+        get: operations["getContestProblemConfig"];
+        /** Create or update config for a namespace on a contest-problem */
+        put: operations["upsertContestProblemConfig"];
+        post?: never;
+        /** Delete config for a namespace on a contest-problem */
+        delete: operations["deleteContestProblemConfig"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/contests/{id}/problems/{problem_id}/submissions": {
@@ -759,6 +867,42 @@ export interface paths {
          * @description Removes the attachment reference. The underlying blob is preserved for GC.
          */
         delete: operations["deleteAttachment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/problems/{id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all config namespaces for a problem */
+        get: operations["listProblemConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/problems/{id}/config/{namespace}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get config for a specific namespace on a problem */
+        get: operations["getProblemConfig"];
+        /** Create or update config for a namespace on a problem */
+        put: operations["upsertProblemConfig"];
+        post?: never;
+        /** Delete config for a namespace on a problem */
+        delete: operations["deleteProblemConfig"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1309,8 +1453,30 @@ export interface components {
         ComponentMap: {
             [key: string]: string;
         };
+        /** @description Config schema for a single namespace declared by a plugin. */
+        ConfigSchemaResponse: {
+            /**
+             * @description Human-readable description of what this config controls.
+             * @example Testlib checker compiler settings
+             */
+            description?: string | null;
+            /** @description JSON Schema generated from the plugin's TOML schema definition. */
+            json_schema: unknown;
+            /**
+             * @description Namespace name, e.g. "testlib".
+             * @example testlib
+             */
+            namespace: string;
+            /** @description Scopes where this config applies. */
+            scopes: string[];
+        };
         /** @description Contest summary for list views (description omitted). */
         ContestListItem: {
+            /**
+             * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+             * @example ioi
+             */
+            contest_type?: string | null;
             /**
              * Format: date-time
              * @example 2025-09-25T10:00:00Z
@@ -1406,6 +1572,11 @@ export interface components {
         /** @description Full contest details. */
         ContestResponse: {
             /**
+             * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+             * @example ioi
+             */
+            contest_type?: string | null;
+            /**
              * Format: date-time
              * @example 2025-09-25T10:00:00Z
              */
@@ -1455,6 +1626,11 @@ export interface components {
         /** @description Request body for creating a contest. */
         CreateContestRequest: {
             /**
+             * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+             * @example ioi
+             */
+            contest_type?: string | null;
+            /**
              * @description Contest description (non-empty, max 1 MB).
              * @example Welcome to this week's programming contest.
              */
@@ -1500,6 +1676,11 @@ export interface components {
         /** @description Request body for creating a problem. */
         CreateProblemRequest: {
             /**
+             * @description Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
+             * @example exact
+             */
+            checker_format?: string;
+            /**
              * @description Problem statement in Markdown (non-empty, max 1 MB).
              * @example Given an array of integers `nums` and an integer `target`...
              */
@@ -1510,6 +1691,11 @@ export interface components {
              * @example 262144
              */
             memory_limit: number;
+            /**
+             * @description Problem type for evaluator dispatch, e.g. "standard" or "interactive".
+             * @example standard
+             */
+            problem_type?: string;
             /**
              * @description Whether contestants see full input/output for all test cases.
              *     If omitted, defaults to false.
@@ -1879,8 +2065,25 @@ export interface components {
              */
             total_pages: number;
         };
+        /** @description Response for a single plugin config entry. */
+        PluginConfigResponse: {
+            /** @description Config JSON blob */
+            config: unknown;
+            /**
+             * @description Plugin namespace (e.g., "checker", "ioi-contest")
+             * @example checker
+             */
+            namespace: string;
+            /**
+             * Format: date-time
+             * @description Last update timestamp
+             */
+            updated_at: string;
+        };
         /** @description Detailed information about a plugin. */
         PluginDetailResponse: {
+            /** @description Config schemas declared by this plugin. */
+            config_schemas: components["schemas"]["ConfigSchemaResponse"][];
             /**
              * @description Plugin description.
              * @example This plugin does awesome things!
@@ -1927,6 +2130,11 @@ export interface components {
         /** @description Problem summary for list views (content omitted). */
         ProblemListItem: {
             /**
+             * @description Checker format for output comparison.
+             * @example exact
+             */
+            checker_format: string;
+            /**
              * Format: date-time
              * @example 2025-09-01T08:00:00Z
              */
@@ -1941,6 +2149,11 @@ export interface components {
              * @example 262144
              */
             memory_limit: number;
+            /**
+             * @description Problem type for evaluator dispatch.
+             * @example standard
+             */
+            problem_type: string;
             /**
              * @description Whether contestants see full input/output for all test cases.
              * @example false
@@ -1966,6 +2179,13 @@ export interface components {
         };
         /** @description Full problem details. */
         ProblemResponse: {
+            /**
+             * @description Checker format for output comparison.
+             * @example exact
+             */
+            checker_format: string;
+            /** @description Custom checker source files (read-only, uploaded via separate endpoint). */
+            checker_source?: unknown;
             /** @example Given an array of integers... */
             content: string;
             /**
@@ -1983,6 +2203,11 @@ export interface components {
              * @example 262144
              */
             memory_limit: number;
+            /**
+             * @description Problem type for evaluator dispatch.
+             * @example standard
+             */
+            problem_type: string;
             /** @description Sample test case metadata (is_sample = true). */
             samples: components["schemas"]["SampleTestCaseMeta"][];
             /**
@@ -2336,6 +2561,11 @@ export interface components {
         /** @description PATCH body for updating a contest. Only provided fields are modified. */
         UpdateContestRequest: {
             /**
+             * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+             * @example icpc
+             */
+            contest_type?: string | null;
+            /**
              * @description Contest description (non-empty, max 1 MB).
              * @example Updated description...
              */
@@ -2381,6 +2611,11 @@ export interface components {
         /** @description PATCH body for updating a problem. Only provided fields are modified. */
         UpdateProblemRequest: {
             /**
+             * @description Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
+             * @example ignore_case
+             */
+            checker_format?: string | null;
+            /**
              * @description Problem statement in Markdown (non-empty, max 1 MB).
              * @example Updated problem statement...
              */
@@ -2391,6 +2626,11 @@ export interface components {
              * @example 524288
              */
             memory_limit?: number | null;
+            /**
+             * @description Problem type for evaluator dispatch: "standard" or "interactive".
+             * @example standard
+             */
+            problem_type?: string | null;
             /**
              * @description Whether contestants see full input/output for all test cases.
              * @example true
@@ -2453,6 +2693,11 @@ export interface components {
              */
             created: number;
             test_cases: components["schemas"]["TestCaseListItem"][];
+        };
+        /** @description Request body for upserting config (raw JSON value). */
+        UpsertPluginConfigRequest: {
+            /** @description Config JSON blob to store */
+            config: unknown;
         };
         /** @description User details returned by admin listing endpoint. */
         UserResponse: {
@@ -2602,6 +2847,232 @@ export interface operations {
                 };
             };
             /** @description Plugin not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listPluginGlobalConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"][];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getPluginGlobalConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    upsertPluginGlobalConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertPluginConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Config upserted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deletePluginGlobalConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3082,6 +3553,214 @@ export interface operations {
                 };
             };
             /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listContestConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"][];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getContestConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    upsertContestConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertPluginConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Config upserted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteContestConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3670,6 +4349,222 @@ export interface operations {
             };
             /** @description Duplicate label in contest (CONFLICT) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listContestProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Problem ID */
+                problem_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"][];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest problem not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getContestProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Problem ID */
+                problem_id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    upsertContestProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Problem ID */
+                problem_id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertPluginConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Config upserted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest problem not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteContestProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+                /** @description Problem ID */
+                problem_id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4961,6 +5856,214 @@ export interface operations {
                 };
             };
             /** @description Attachment not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Problem ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"][];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Problem not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Problem ID */
+                id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    upsertProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Problem ID */
+                id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertPluginConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Config upserted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginConfigResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Problem not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteProblemConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Problem ID */
+                id: number;
+                /** @description Config namespace */
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Config not found (NOT_FOUND) */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -47,5 +47,7 @@ export type PluginDetailResponse =
   components['schemas']['PluginDetailResponse'];
 export type PluginStatusResponse =
   components['schemas']['PluginStatusResponse'];
+export type ConfigSchemaResponse =
+  components['schemas']['ConfigSchemaResponse'];
 
 export type TranslationMap = components['schemas']['TranslationMap'];
