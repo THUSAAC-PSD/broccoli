@@ -1,0 +1,16 @@
+[package]
+name = "{{plugin_name}}"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+broccoli-server-sdk = { {{server_sdk_dep}}, features = ["guest"] }
+extism-pdk = "1.0"
+serde_json = "1.0"
+
+[profile.release]
+opt-level = "z"
+lto = true

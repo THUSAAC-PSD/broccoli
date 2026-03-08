@@ -1,18 +1,6 @@
-// Contract types re-exported from the SDK.
-// These are the canonical definitions for WASM plugin ↔ host communication.
 pub use broccoli_server_sdk::types::{
-    BuildEvalOpsInput,
-    CheckerParseInput,
-    CheckerVerdict,
-    OnSubmissionInput,
-    OnSubmissionOutput,
-    RunCheckerInput,
-    SourceFile,
-    StartEvaluateBatchInput,
-    TestCaseVerdict,
-    // SDK's 9-variant Verdict used by TestCaseVerdict/CheckerVerdict.
-    // Distinct from common::Verdict (7-variant, with SeaORM/utoipa derives).
-    Verdict as SdkVerdict,
+    BuildEvalOpsInput, CheckerParseInput, CheckerVerdict, OnSubmissionInput, OnSubmissionOutput,
+    RunCheckerInput, SourceFile, StartEvaluateBatchInput, TestCaseVerdict, Verdict as SdkVerdict,
 };
 
 use serde::{Deserialize, Serialize};

@@ -1,0 +1,27 @@
+use broccoli_server_sdk::prelude::*;
+use extism_pdk::{plugin_fn, FnResult};
+
+#[plugin_fn]
+pub fn init() -> FnResult<String> {
+    // Register your plugin's capabilities here. Examples:
+    //
+    //   // Register a contest type (judging strategy):
+    //   host::registry::register_contest_type("my-type", "on_submission")?;
+    //
+    //   // Register an evaluator (test case execution):
+    //   host::registry::register_evaluator("my-evaluator", "evaluate_test_case")?;
+    //
+    //   // Register an API endpoint:
+    //   host::registry::register_api_endpoint("GET", "/api/plugins/{{plugin_name}}/hello", "api_hello", false)?;
+    //
+    // See existing plugins (ioi-contest, standard-evaluator) for full examples.
+
+    host::logger::log_info("{{plugin_name_pascal}} plugin initialized")?;
+    Ok("ok".into())
+}
+
+#[plugin_fn]
+pub fn hello(input: String) -> FnResult<String> {
+    host::logger::log_info(&format!("{{plugin_name_pascal}} received: {input}"))?;
+    Ok(format!("Hello from {{plugin_name_pascal}}!"))
+}

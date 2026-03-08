@@ -6,6 +6,7 @@ members = [
   "packages/server",
   "packages/server-sdk",
   "packages/worker",
+  "packages/cli",
 ]
 exclude = [
   "examples",

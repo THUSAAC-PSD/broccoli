@@ -1,0 +1,16 @@
+[package]
+name = "broccoli-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "broccoli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+toml.workspace = true
+serde = { workspace = true, features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
+dialoguer = "0.11"
+console = "0.15"

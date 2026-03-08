@@ -1,0 +1,22 @@
+
+[web]
+root = "{{web_root}}"
+entry = "index.js"
+
+# Map exported component names to their identifiers.
+# Keys must match exports from your entry file; values are used in slots/routes.
+[web.components]
+HelloPage = "HelloPage"
+
+# Inject components into named UI slots.
+# Positions: append, prepend, replace, before, after, wrap
+[[web.slots]]
+name = "sidebar.footer"
+position = "append"
+component = "HelloPage"
+priority = 10
+
+# Register client-side routes.
+# [[web.routes]]
+# path = "/{{plugin_name}}"
+# component = "HelloPage"
