@@ -39,15 +39,51 @@ import {
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContest } from '@/features/contest/contexts/contest-context';
 
-const defaultMenuItems = [
-  { titleKey: 'sidebar.homepage', icon: Home, url: '/' },
+interface MenuItem {
+  titleKey: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  url: string;
+  requiredPermissions?: string[];
+}
+
+const allMenuItems: MenuItem[] = [
+  {
+    titleKey: 'sidebar.admin',
+    icon: Home,
+    url: '/admin',
+    requiredPermissions: [
+      'user:manage',
+      'problem:create',
+      'contest:manage',
+      'plugin:manage',
+    ],
+  },
+  {
+    titleKey: 'sidebar.problems',
+    icon: Code2,
+    url: '/problems',
+    requiredPermissions: ['problem:create', 'problem:edit', 'problem:delete'],
+  },
+  {
+    titleKey: 'sidebar.contests',
+    icon: Trophy,
+    url: '/contests',
+    requiredPermissions: ['contest:manage'],
+  },
+  {
+    titleKey: 'sidebar.plugins',
+    icon: Puzzle,
+    url: '/plugins',
+    requiredPermissions: ['plugin:manage'],
+  },
 ];
 
-const adminMenuItems = [
-  { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
-  { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
-  { titleKey: 'sidebar.plugins', icon: Puzzle, url: '/plugins' },
-];
+const getMenuItems = (permissions: string[]): MenuItem[] => {
+  return allMenuItems.filter((item) => {
+    if (!item.requiredPermissions) return true;
+    return item.requiredPermissions.some((perm) => permissions.includes(perm));
+  });
+};
 
 function ContestProblemsGroup() {
   const { t } = useTranslation();
@@ -181,6 +217,7 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const permissions = user?.permissions || [];
+  const menuItems = getMenuItems(permissions);
 
   return (
     <SidebarUI collapsible="icon">
@@ -210,7 +247,7 @@ export function Sidebar() {
           <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {defaultMenuItems.map((item) => {
+              {menuItems.map((item) => {
                 const title = t(item.titleKey);
                 const active = isActivePath(pathname, item.url);
                 return (
@@ -232,30 +269,6 @@ export function Sidebar() {
                   </SidebarMenuItem>
                 );
               })}
-              {(permissions.includes('problem:create') ||
-                permissions.includes('problem:edit')) &&
-                adminMenuItems.map((item) => {
-                  const title = t(item.titleKey);
-                  const active = isActivePath(pathname, item.url);
-                  return (
-                    <SidebarMenuItem key={item.titleKey}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={title}
-                      >
-                        <Link to={item.url}>
-                          <item.icon
-                            className={
-                              active ? 'text-sidebar-primary' : undefined
-                            }
-                          />
-                          <span>{title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
               <Slot name="sidebar.platform.menu" as="div" />
             </SidebarMenu>
           </SidebarGroupContent>
