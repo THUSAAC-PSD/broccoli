@@ -106,12 +106,14 @@ pub fn init_host_functions(
     let eval_reg = evaluator_registry.clone();
     let pm = plugin_manager.clone();
     let eval_batches = evaluate_batches;
+    let db_for_eval = db.clone();
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(
             plugin_id.to_string(),
             pm.clone(),
             eval_reg.clone(),
             eval_batches.clone(),
+            db_for_eval.clone(),
         )
     });
 

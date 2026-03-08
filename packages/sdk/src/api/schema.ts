@@ -2076,9 +2076,9 @@ export interface components {
             namespace: string;
             /**
              * Format: date-time
-             * @description Last update timestamp
+             * @description Last update timestamp. `null` when no config has been saved yet (using defaults).
              */
-            updated_at: string;
+            updated_at: string | null;
         };
         /** @description Detailed information about a plugin. */
         PluginDetailResponse: {

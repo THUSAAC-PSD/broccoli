@@ -1,0 +1,7 @@
+name = "batch-evaluator"
+version = "0.1.0"
+description = "Batch problem evaluator for Broccoli judge — compile, run, check"
+
+[server]
+entry = "batch_evaluator.wasm"
+permissions = ["logger", "plugin:register", "operations:dispatch", "checker:run", "language:config"]

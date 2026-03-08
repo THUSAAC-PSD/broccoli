@@ -10,8 +10,8 @@ pub struct PluginConfigResponse {
     pub namespace: String,
     /// Config JSON blob
     pub config: serde_json::Value,
-    /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
+    /// Last update timestamp. `null` when no config has been saved yet (using defaults).
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 /// Request body for upserting config (raw JSON value).

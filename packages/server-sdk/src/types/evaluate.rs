@@ -12,6 +12,22 @@ pub struct BuildEvalOpsInput {
     pub solution_language: String,
     pub time_limit_ms: i32,
     pub memory_limit_kb: i32,
+
+    /// Test case input (stdin content). Server-enriched.
+    #[serde(default)]
+    pub test_input: String,
+    /// Expected output for checker. Server-enriched.
+    #[serde(default)]
+    pub expected_output: String,
+    /// Checker format name (e.g. "exact", "tokens"). Server-enriched.
+    #[serde(default)]
+    pub checker_format: Option<String>,
+    /// Opaque checker config blob. Server-enriched.
+    #[serde(default)]
+    pub checker_config: Option<serde_json::Value>,
+    /// Checker source files (for custom/testlib checkers). Server-enriched.
+    #[serde(default)]
+    pub checker_source: Option<Vec<SourceFile>>,
 }
 
 /// Input for start_evaluate_batch host function.

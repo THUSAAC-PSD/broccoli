@@ -274,6 +274,12 @@ pub struct SchemaProperty {
     pub properties: HashMap<String, SchemaProperty>,
     pub required: Option<Vec<String>>,
     pub additional_properties: Option<bool>,
+    /// Stepper increment for numeric fields. Maps to JSON Schema `multipleOf`.
+    pub step: Option<f64>,
+    /// Number of decimal places to display in the UI.
+    pub precision: Option<u32>,
+    /// Unit suffix label for numeric fields (e.g., "s", "KB", "MB").
+    pub unit: Option<String>,
 }
 
 impl SchemaProperty {
@@ -327,6 +333,15 @@ impl SchemaProperty {
         }
         if let Some(v) = self.additional_properties {
             schema.insert("additionalProperties".into(), v.into());
+        }
+        if let Some(v) = self.step {
+            schema.insert("multipleOf".into(), v.into());
+        }
+        if let Some(v) = self.precision {
+            schema.insert("x-precision".into(), v.into());
+        }
+        if let Some(ref v) = self.unit {
+            schema.insert("x-unit".into(), v.clone().into());
         }
 
         schema.into()
@@ -401,6 +416,9 @@ mod tests {
             properties: HashMap::new(),
             required: None,
             additional_properties: None,
+            step: None,
+            precision: None,
+            unit: None,
         };
 
         let schema = prop.to_json_schema();
@@ -475,6 +493,9 @@ mod tests {
             properties: HashMap::new(),
             required: None,
             additional_properties: None,
+            step: None,
+            precision: None,
+            unit: None,
         };
 
         let schema = prop.to_json_schema();
@@ -614,5 +635,16 @@ mod tests {
                 .as_f64()
                 .is_some()
         );
+
+        // Verify step/precision/unit → multipleOf/x-precision/x-unit
+        let compile_time = &schema["properties"]["compile_time_limit_s"];
+        assert_eq!(compile_time["multipleOf"], 0.5);
+        assert_eq!(compile_time["x-precision"], 1);
+        assert_eq!(compile_time["x-unit"], "s");
+
+        let compile_mem = &schema["properties"]["compile_memory_limit_kb"];
+        assert_eq!(compile_mem["multipleOf"], 1024.0);
+        assert_eq!(compile_mem["x-unit"], "KB");
+        assert!(compile_mem.get("x-precision").is_none());
     }
 }

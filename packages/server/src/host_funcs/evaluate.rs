@@ -1,8 +1,13 @@
+use crate::entity::{plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
-use common::submission_dispatch::{SdkVerdict, StartEvaluateBatchInput, TestCaseVerdict};
+use common::submission_dispatch::{
+    SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
+};
 use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -27,6 +32,7 @@ struct EvaluateContext {
     plugin_manager: Arc<dyn PluginManager>,
     evaluator_registry: EvaluatorRegistry,
     evaluate_batches: EvaluateBatches,
+    db: DatabaseConnection,
 }
 
 type EvaluateUserData = EvaluateContext;
@@ -36,12 +42,14 @@ pub fn create_evaluate_functions(
     plugin_manager: Arc<dyn PluginManager>,
     evaluator_registry: EvaluatorRegistry,
     evaluate_batches: EvaluateBatches,
+    db: DatabaseConnection,
 ) -> Vec<Function> {
     let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext {
         plugin_id,
         plugin_manager,
         evaluator_registry,
         evaluate_batches,
+        db,
     });
 
     vec![
@@ -79,7 +87,7 @@ fn start_evaluate_batch_fn(
     let input: StartEvaluateBatchInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (caller_plugin_id, plugin_manager, evaluator_registry, evaluate_batches) = {
+    let (caller_plugin_id, plugin_manager, evaluator_registry, evaluate_batches, db) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
@@ -89,6 +97,7 @@ fn start_evaluate_batch_fn(
             guard.plugin_manager.clone(),
             guard.evaluator_registry.clone(),
             guard.evaluate_batches.clone(),
+            guard.db.clone(),
         )
     };
 
@@ -105,6 +114,100 @@ fn start_evaluate_batch_fn(
             input.problem_type
         ))
     })?;
+
+    let mut input = input;
+    if !input.test_cases.is_empty() {
+        let tc_ids: Vec<i32> = input.test_cases.iter().map(|tc| tc.test_case_id).collect();
+        let problem_id = input.test_cases[0].problem_id;
+
+        if input
+            .test_cases
+            .iter()
+            .any(|tc| tc.problem_id != problem_id)
+        {
+            return Err(extism::Error::msg(
+                "All test cases in a batch must belong to the same problem",
+            ));
+        }
+
+        let (tc_data_map, problem_model, checker_config_model) =
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    // Get test case input + expected_output
+                    let tc_models = test_case::Entity::find()
+                        .filter(test_case::Column::Id.is_in(tc_ids))
+                        .all(&db)
+                        .await
+                        .map_err(|e| {
+                            extism::Error::msg(format!("Failed to query test case data: {}", e))
+                        })?;
+
+                    let tc_data: HashMap<i32, (String, String)> = tc_models
+                        .into_iter()
+                        .map(|m| (m.id, (m.input, m.expected_output)))
+                        .collect();
+
+                    // Get problem checker info
+                    let problem_model = problem::Entity::find_by_id(problem_id)
+                        .one(&db)
+                        .await
+                        .map_err(|e| {
+                            extism::Error::msg(format!("Failed to query problem: {}", e))
+                        })?;
+
+                    // Get checker config
+                    let checker_config = plugin_config::Entity::find_by_id((
+                        "problem".to_string(),
+                        problem_id.to_string(),
+                        "checker".to_string(),
+                    ))
+                    .one(&db)
+                    .await
+                    .map_err(|e| {
+                        extism::Error::msg(format!("Failed to query checker config: {}", e))
+                    })?;
+
+                    Ok::<_, extism::Error>((tc_data, problem_model, checker_config))
+                })
+            })?;
+
+        let problem_model = problem_model
+            .ok_or_else(|| extism::Error::msg(format!("Problem {} not found", problem_id)))?;
+
+        let checker_format = Some(problem_model.checker_format.clone());
+        let parsed_checker_source: Option<Vec<SourceFile>> =
+            problem_model.checker_source.as_ref().and_then(|v| {
+                match serde_json::from_value::<Vec<SourceFile>>(v.clone()) {
+                    Ok(parsed) => Some(parsed),
+                    Err(e) => {
+                        tracing::warn!(
+                            problem_id,
+                            error = %e,
+                            "Failed to parse checker_source JSON"
+                        );
+                        None
+                    }
+                }
+            });
+
+        let checker_config_value: Option<serde_json::Value> =
+            checker_config_model.map(|pc| pc.config);
+
+        for tc in &mut input.test_cases {
+            let (test_input, expected_output) =
+                tc_data_map.get(&tc.test_case_id).ok_or_else(|| {
+                    extism::Error::msg(format!(
+                        "Test case {} not found in database",
+                        tc.test_case_id
+                    ))
+                })?;
+            tc.test_input = test_input.clone();
+            tc.expected_output = expected_output.clone();
+            tc.checker_format = checker_format.clone();
+            tc.checker_config = checker_config_value.clone();
+            tc.checker_source = parsed_checker_source.clone();
+        }
+    }
 
     let test_case_count = input.test_cases.len();
     let batch_id = Uuid::new_v4().to_string();
