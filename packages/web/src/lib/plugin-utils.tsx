@@ -4,11 +4,10 @@
  */
 
 import type {
-  ActivePluginManifest,
   ComponentBundle,
+  PluginManifest,
+  SlotConfig,
 } from '@broccoli/sdk';
-
-type ManifestSlotConfig = ActivePluginManifest['slots'][number];
 import type { ReactNode } from 'react';
 
 /**
@@ -16,19 +15,21 @@ import type { ReactNode } from 'react';
  */
 export function createPlugin(config: {
   name: string;
-  slots: ManifestSlotConfig[];
+  version: string;
+  slots: SlotConfig[];
   components: ComponentBundle;
   onInit?: () => void | Promise<void>;
   onDestroy?: () => void | Promise<void>;
-}): { manifest: ActivePluginManifest; components: ComponentBundle } {
+  enabled?: boolean;
+}): { manifest: PluginManifest; components: ComponentBundle } {
   return {
     manifest: {
-      id: config.name,
       name: config.name,
-      entry: '',
+      version: config.version,
       slots: config.slots,
-      routes: [],
-      components: {},
+      onInit: config.onInit,
+      onDestroy: config.onDestroy,
+      enabled: config.enabled ?? true,
     },
     components: config.components,
   };
@@ -46,12 +47,14 @@ export function createWrapper(
 /**
  * Create a slot config with common defaults
  */
-export function createSlot(config: {
+export function createSlot<TContext = unknown>(config: {
   name: string;
   component: string;
-  position?: ManifestSlotConfig['position'];
+  position?: SlotConfig<TContext>['position'];
   priority?: number;
-}): ManifestSlotConfig {
+  condition?: (context?: TContext) => boolean;
+  props?: Record<string, unknown>;
+}): SlotConfig<TContext> {
   return {
     position: 'append',
     priority: 0,

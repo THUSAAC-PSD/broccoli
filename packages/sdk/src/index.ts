@@ -37,9 +37,7 @@ export type User = components['schemas']['MeResponse'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 
 export type ActivePluginManifest =
-  components['schemas']['ActivePluginResponse'] & {
-    translations?: Record<string, Record<string, string>>;
-  };
+  components['schemas']['ActivePluginResponse'];
 export type SlotConfig = components['schemas']['WebSlotConfig'] & {
   _pluginName: string;
 };

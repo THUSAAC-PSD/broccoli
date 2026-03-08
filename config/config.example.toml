@@ -13,7 +13,7 @@ isolate_bin = "isolate"
 enable_cgroups = true
 
 [database]
-url = "postgres://postgres:broccoli_pg_secret@localhost:5432/broccoli"
+url = "postgres://postgres:broccoli_pg_secret@localhost:5433/broccoli"
 
 [mq]
 enabled = true
@@ -36,6 +36,7 @@ retry_max_age_secs = 600
 jwt_secret = "generate-a-long-random-string-here"
 
 [storage]
+backend = "database"  # Options: "filesystem", "database", "object_storage"
 data_dir = "./data"
 max_blob_size = 134217728 # 128MB
 

@@ -7,7 +7,7 @@ edition = "2024"
 anyhow.workspace = true
 argon2.workspace = true
 worker = { path = "../worker" }
-common = { workspace = true, features = ["sea-orm"] }
+common = { workspace = true, features = ["sea-orm", "object-storage"] }
 crossbeam.workspace = true
 dashmap.workspace = true
 mq.workspace = true

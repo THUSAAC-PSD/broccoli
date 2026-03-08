@@ -418,8 +418,6 @@ impl TestApp {
                 evaluate_batches,
             },
         };
-        sync_plugins(&state).await.expect("Failed to sync plugins");
-
         if load_plugins {
             sync_plugins(&state).await.expect("Failed to sync plugins");
         }

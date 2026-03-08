@@ -23,9 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -122,8 +120,7 @@ export function ContestQAPage() {
   const { contestId } = useParams();
   const id = Number(contestId);
   const queryClient = useQueryClient();
-
-  const [isAdminMode, setIsAdminMode] = useState(false);
+  const isAdminMode = true; // For demo purposes, you can toggle this to false to see participant view
 
   const userId = user?.id || -1;
   const userName = user?.username || 'Unknown User';
@@ -266,20 +263,6 @@ export function ContestQAPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-full border">
-            <Switch
-              id="admin-mode"
-              checked={isAdminMode}
-              onCheckedChange={setIsAdminMode}
-            />
-            <Label
-              htmlFor="admin-mode"
-              className="text-xs cursor-pointer font-medium"
-            >
-              Admin View {isAdminMode ? '(On)' : '(Off)'}
-            </Label>
-          </div>
-
           <AskQuestionDialog
             onSubmit={(content) => askMutation.mutate(content)}
           />

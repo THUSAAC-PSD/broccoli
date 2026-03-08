@@ -38,7 +38,7 @@ export function PluginsPage() {
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/admin/plugins');
       if (error) throw error;
-      return data as PluginDetailResponse[];
+      return data;
     },
   });
 

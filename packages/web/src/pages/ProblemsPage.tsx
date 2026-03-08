@@ -1,5 +1,4 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
 import { Code2 } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
@@ -27,8 +26,6 @@ export function ProblemsPage({ contestId }: { contestId?: number }) {
       title={title}
       icon={<Code2 className="h-6 w-6 text-primary" />}
     >
-      <Slot name="problem-list.toolbar" as="div" />
-
       <AdminProblemsTab contestId={contestId} />
     </PageLayout>
   );

@@ -7,11 +7,14 @@ use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
 use common::storage::BlobStore;
 use common::storage::database::DatabaseBlobStore;
+use common::storage::filesystem::FilesystemBlobStore;
+use common::storage::object_storage::{ObjectStorageBlobStore, ObjectStorageConfig};
 use dashmap::DashMap;
 use mq::{MqConfig as MqConnConfig, init_mq};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{Level, info};
+use std::path::PathBuf;
+use tracing::{Level, info, warn};
 
 use server::build_router;
 use server::config::AppConfig;
@@ -36,19 +39,21 @@ async fn main() -> anyhow::Result<()> {
     server::seed::ensure_indexes(&db).await?;
 
     let mq = if app_config.mq.enabled {
-        let queue = init_mq(MqConnConfig {
+        match init_mq(MqConnConfig {
             url: app_config.mq.url.clone(),
             pool_size: app_config.mq.pool_size,
         })
         .await
-        .with_context(|| {
-            format!(
-                "MQ is enabled but failed to connect to {}",
-                app_config.mq.url
-            )
-        })?;
-        info!("MQ connected to {}", app_config.mq.url);
-        Some(Arc::new(queue))
+        {
+            Ok(queue) => {
+                info!("MQ connected to {}", app_config.mq.url);
+                Some(Arc::new(queue))
+            }
+            Err(e) => {
+                warn!("MQ connection failed, submissions won't be queued: {}", e);
+                None
+            }
+        }
     } else {
         info!("MQ disabled by configuration");
         None
@@ -82,11 +87,40 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
-    let blob_store: Arc<dyn BlobStore> = Arc::new(DatabaseBlobStore::new(
-        db.clone(),
-        app_config.storage.max_blob_size,
-    ));
-    info!("Blob storage initialized (database-backed)");
+    let blob_store: Arc<dyn BlobStore> = match app_config.storage.backend.as_str() {
+        "filesystem" => {
+            let blob_path = PathBuf::from(&app_config.storage.data_dir).join("blobs");
+            Arc::new(
+                FilesystemBlobStore::new(blob_path, app_config.storage.max_blob_size)
+                    .await
+                    .context("Failed to initialize filesystem blob storage")?,
+            )
+        }
+        "object_storage" => {
+            let os_toml = app_config
+                .storage
+                .object_storage
+                .as_ref()
+                .context("storage.backend is 'object_storage' but [storage.object_storage] section is missing")?;
+            Arc::new(
+                ObjectStorageBlobStore::new(ObjectStorageConfig {
+                    bucket: os_toml.bucket.clone(),
+                    region: os_toml.region.clone(),
+                    endpoint: os_toml.endpoint.clone(),
+                    access_key: os_toml.access_key.clone(),
+                    secret_key: os_toml.secret_key.clone(),
+                    path_style: os_toml.path_style,
+                    max_size: app_config.storage.max_blob_size,
+                    temp_dir: os_toml.temp_dir.as_ref().filter(|s| !s.is_empty()).map(PathBuf::from),
+                })
+                .context("Failed to initialize object storage")?,
+            )
+        }
+        "database" | _ => {
+            Arc::new(DatabaseBlobStore::new(db.clone(), app_config.storage.max_blob_size))
+        }
+    };
+    info!("Blob storage initialized (backend: {})", app_config.storage.backend);
 
     let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
     let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));

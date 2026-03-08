@@ -1,7 +1,6 @@
 import type { ContestProblemResponse, ContestResponse } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { AlignLeft, CalendarClock, Clock, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
@@ -239,12 +238,8 @@ export function ContestPage() {
       title={contest?.title ?? t('contests.title')}
       icon={<Trophy className="h-6 w-6 text-primary" />}
     >
-      <Slot name="contest-detail.header" as="div" />
-
       <ContestInfoCard contestId={id} />
       <ContestProblemsCard contestId={id} />
-
-      <Slot name="contest-detail.scoreboard" as="div" />
     </PageLayout>
   );
 }

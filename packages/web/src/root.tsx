@@ -4,12 +4,15 @@ import './App.css';
 import { ApiClientProvider } from '@broccoli/sdk/api';
 import { I18nProvider } from '@broccoli/sdk/i18n';
 import { PluginRegistryProvider } from '@broccoli/sdk/plugin';
+import { SidebarProvider } from '@broccoli/sdk/sidebar';
+import { ThemeProvider } from '@broccoli/sdk/theme';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 
 import { AppLayout } from '@/components/AppLayout';
 import { AuthProvider } from '@/contexts/AuthProvider';
+import { ContestProvider } from '@/contexts/contest-context';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
@@ -66,14 +69,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
             authTokenKey={appConfig.api.authTokenKey}
           >
             <I18nProvider defaultLocale="en" coreI18n={{ en }}>
-              <AuthProvider>
-                <PluginRegistryProvider
-                  backendUrl={appConfig.plugin.backendUrl}
-                  pluginModules={plugins}
-                >
-                  <AppLayout>{children}</AppLayout>
-                </PluginRegistryProvider>
-              </AuthProvider>
+              <ThemeProvider defaultTheme="light" storageKey="theme">
+                <AuthProvider>
+                  <ContestProvider>
+                    <SidebarProvider
+                      defaultState="expanded"
+                      storageKey="sidebar-state"
+                    >
+                      <PluginRegistryProvider
+                        backendUrl={appConfig.plugin.backendUrl}
+                        pluginModules={plugins}
+                      >
+                        <AppLayout>{children}</AppLayout>
+                      </PluginRegistryProvider>
+                    </SidebarProvider>
+                  </ContestProvider>
+                </AuthProvider>
+              </ThemeProvider>
             </I18nProvider>
           </ApiClientProvider>
         </QueryClientProvider>

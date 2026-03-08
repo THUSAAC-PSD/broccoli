@@ -65,7 +65,7 @@ impl ObjectStorageBlobStore {
             None => config
                 .region
                 .parse::<Region>()
-                .map_err(|e| StorageError::ObjectStorage(format!("invalid region: {e}")))?,
+                .map_err(|e| StorageError::Backend(format!("invalid region: {e}")))?,
         };
 
         let credentials = Credentials::new(
@@ -75,10 +75,10 @@ impl ObjectStorageBlobStore {
             None, // session_token
             None, // profile
         )
-        .map_err(|e| StorageError::ObjectStorage(format!("invalid credentials: {e}")))?;
+        .map_err(|e| StorageError::Backend(format!("invalid credentials: {e}")))?;
 
         let mut bucket = Bucket::new(&config.bucket, region, credentials)
-            .map_err(|e| StorageError::ObjectStorage(format!("failed to create bucket: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("failed to create bucket: {e}")))?;
 
         if config.path_style {
             bucket.set_path_style();
@@ -155,13 +155,13 @@ impl BlobStore for ObjectStorageBlobStore {
                 .put_object_stream(&mut upload_file, &key)
                 .await
                 .map_err(|e| {
-                    StorageError::ObjectStorage(format!("put_object_stream failed: {e}"))
+                    StorageError::Backend(format!("put_object_stream failed: {e}"))
                 })?;
 
             let status_code = put_response.status_code();
 
             if !(200..300).contains(&status_code) {
-                return Err(StorageError::ObjectStorage(format!(
+                return Err(StorageError::Backend(format!(
                     "S3 put returned status {status_code}"
                 )));
             }
@@ -181,14 +181,14 @@ impl BlobStore for ObjectStorageBlobStore {
 
         let response =
             self.bucket.get_object_stream(&key).await.map_err(|e| {
-                StorageError::ObjectStorage(format!("get_object_stream failed: {e}"))
+                StorageError::Backend(format!("get_object_stream failed: {e}"))
             })?;
 
         if response.status_code == 404 {
             return Err(StorageError::NotFound(hash.to_hex()));
         }
         if !(200..300).contains(&response.status_code) {
-            return Err(StorageError::ObjectStorage(format!(
+            return Err(StorageError::Backend(format!(
                 "S3 get returned status {}",
                 response.status_code
             )));
@@ -209,7 +209,7 @@ impl BlobStore for ObjectStorageBlobStore {
                 if err_str.contains("404") || err_str.contains("Not Found") {
                     Ok(false)
                 } else {
-                    Err(StorageError::ObjectStorage(format!(
+                    Err(StorageError::Backend(format!(
                         "head_object failed: {e}"
                     )))
                 }
@@ -224,7 +224,7 @@ impl BlobStore for ObjectStorageBlobStore {
             .bucket
             .delete_object(&key)
             .await
-            .map_err(|e| StorageError::ObjectStorage(format!("delete_object failed: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("delete_object failed: {e}")))?;
 
         // S3 returns 204 on successful delete, 404 if not found.
         Ok(response.status_code() == 204)
@@ -238,12 +238,12 @@ impl BlobStore for ObjectStorageBlobStore {
             if err_str.contains("404") || err_str.contains("Not Found") {
                 StorageError::NotFound(hash.to_hex())
             } else {
-                StorageError::ObjectStorage(format!("head_object failed: {e}"))
+                StorageError::Backend(format!("head_object failed: {e}"))
             }
         })?;
 
         let size = head.content_length.ok_or_else(|| {
-            StorageError::ObjectStorage("HEAD response missing content-length".into())
+            StorageError::Backend("HEAD response missing content-length".into())
         })?;
 
         Ok(size as u64)
