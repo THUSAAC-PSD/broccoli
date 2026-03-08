@@ -129,7 +129,7 @@ function ContestProblemsGroup() {
     },
   });
 
-  if (!contestId || problems.length === 0) return <></>;
+  if (!contestId) return <></>;
 
   return (
     <SidebarGroup>

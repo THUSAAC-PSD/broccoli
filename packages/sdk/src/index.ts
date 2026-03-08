@@ -52,3 +52,13 @@ export type PluginStatusResponse =
   components['schemas']['PluginStatusResponse'];
 
 export type TranslationMap = components['schemas']['TranslationMap'];
+
+// for submission status filter dropdown
+export const SUBMISSION_STATUSES: SubmissionStatus[] = [
+  'Pending',
+  'Compiling',
+  'Running',
+  'Judged',
+  'CompilationError',
+  'SystemError',
+];
