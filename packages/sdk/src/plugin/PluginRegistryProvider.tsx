@@ -8,23 +8,30 @@ import {
 
 import { useApiClient } from '@/api/use-api-client';
 import { PluginRegistryContext } from '@/plugin/plugin-registry-context';
-import type { ComponentBundle, PluginModule } from '@/types';
+import type { ComponentBundle, LazyPluginLoader, PluginModule } from '@/types';
 
 import type { ActivePluginManifest, RouteConfig, SlotConfig } from '..';
 
 interface PluginRegistryProviderProps {
   children: ReactNode;
   backendUrl: string;
-  // WARN: `pluginModules` is for legacy plugins that need to be loaded from
-  // local modules instead of remote URLs. This is a temporary solution until
-  // all plugins are migrated to the new system. Will be deprecated.
+  /**
+   * Eagerly loaded plugin modules (included in the main bundle).
+   * @deprecated Use `lazyPlugins` for code-splitting.
+   */
   pluginModules?: PluginModule[];
+  /**
+   * Lazy plugin loaders. Each loader is a function returning a dynamic
+   * `import()` so Vite can code-split them into separate chunks.
+   */
+  lazyPlugins?: LazyPluginLoader[];
 }
 
 export function PluginRegistryProvider({
   children,
   backendUrl,
   pluginModules,
+  lazyPlugins,
 }: PluginRegistryProviderProps) {
   const [plugins, setPlugins] = useState<Map<string, ActivePluginManifest>>(
     () => new Map(),
@@ -204,14 +211,25 @@ export function PluginRegistryProvider({
     [plugins],
   );
 
-  // Load local plugin modules on mount
+  // Load local plugin modules on mount (eager + lazy)
   useEffect(() => {
     const loadInitialPlugins = async () => {
-      await Promise.all(
-        (pluginModules ?? []).map(async (module) => {
+      // Load eagerly-imported plugins
+      const eagerLoads = (pluginModules ?? []).map(async (module) => {
+        await loadPlugin(module.manifest, module);
+      });
+
+      // Load lazy plugins (code-split via dynamic import)
+      const lazyLoads = (lazyPlugins ?? []).map(async (loader) => {
+        try {
+          const module = await loader();
           await loadPlugin(module.manifest, module);
-        }),
-      );
+        } catch (error) {
+          console.error('Failed to load lazy plugin:', error);
+        }
+      });
+
+      await Promise.all([...eagerLoads, ...lazyLoads]);
       setLocalLoaded(true);
     };
     loadInitialPlugins();
