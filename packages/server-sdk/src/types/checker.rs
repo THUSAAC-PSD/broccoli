@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::submission::SourceFile;
 use super::verdict::Verdict;
 
 /// Input to checker format plugin's parse_verdict handler.
@@ -8,7 +9,11 @@ pub struct CheckerParseInput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
-    pub metadata: serde_json::Value,
+    pub expected_output: String,
+    #[serde(default)]
+    pub test_input: String,
+    #[serde(default)]
+    pub checker_source: Option<Vec<SourceFile>>,
 }
 
 /// Output from checker format plugin handlers (returned by run_checker host fn).

@@ -922,12 +922,18 @@ mod bulk_rejudge {
         let s1 = app
             .get_with_token(&routes::submission(sub1), &admin_token)
             .await;
-        assert_ne!(s1.body["verdict"], "WrongAnswer", "verdict should have been cleared");
+        assert_ne!(
+            s1.body["verdict"], "WrongAnswer",
+            "verdict should have been cleared"
+        );
 
         let s2 = app
             .get_with_token(&routes::submission(sub2), &admin_token)
             .await;
-        assert_ne!(s2.body["verdict"], "WrongAnswer", "verdict should have been cleared");
+        assert_ne!(
+            s2.body["verdict"], "WrongAnswer",
+            "verdict should have been cleared"
+        );
     }
 
     #[tokio::test]

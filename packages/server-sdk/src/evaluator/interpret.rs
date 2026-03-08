@@ -7,7 +7,7 @@ pub fn interpret_sandbox_result(
     test_case_id: i32,
     result: &OperationResult,
     checker_format: &str,
-    expected_output: &str,
+    checker_input: &CheckerParseInput,
 ) -> Result<TestCaseVerdict, SdkError> {
     if !result.success && result.task_results.is_empty() {
         return Ok(TestCaseVerdict {
@@ -32,24 +32,6 @@ pub fn interpret_sandbox_result(
                     message: truncate_stderr(
                         &compile_result.sandbox_result.stderr,
                         "Compilation failed",
-                    ),
-                });
-            }
-        }
-    }
-
-    if let Some(cc_result) = result.task_results.get("compile_checker") {
-        if let Some(exit_code) = cc_result.sandbox_result.exit_code {
-            if exit_code != 0 {
-                return Ok(TestCaseVerdict {
-                    test_case_id,
-                    verdict: Verdict::JudgeError,
-                    score: 0.0,
-                    time_used_ms: None,
-                    memory_used_kb: None,
-                    message: truncate_stderr(
-                        &cc_result.sandbox_result.stderr,
-                        "Checker compilation failed",
                     ),
                 });
             }
@@ -136,29 +118,15 @@ pub fn interpret_sandbox_result(
         }
     };
 
-    let (format, stdout, stderr, exit_code) = match result.task_results.get("check") {
-        Some(check) => (
-            "testlib",
-            check.sandbox_result.stdout.as_str(),
-            check.sandbox_result.stderr.as_str(),
-            check.sandbox_result.exit_code.unwrap_or(-1),
-        ),
-        None => (
-            checker_format,
-            exec_result.sandbox_result.stdout.as_str(),
-            exec_result.sandbox_result.stderr.as_str(),
-            exec_result.sandbox_result.exit_code.unwrap_or(-1),
-        ),
-    };
-
-    let metadata = serde_json::json!({
-        "expected_output": expected_output,
-    });
+    let mut input = checker_input.clone();
+    input.stdout = exec_result.sandbox_result.stdout.clone();
+    input.stderr = exec_result.sandbox_result.stderr.clone();
+    input.exit_code = exec_result.sandbox_result.exit_code.unwrap_or(-1);
 
     let time_used_ms = extract_time_used(result);
     let memory_used_kb = extract_memory_used(result);
 
-    match host::checker::run_checker(format, stdout, stderr, exit_code, &metadata) {
+    match host::checker::run_checker(checker_format, &input) {
         Ok(v) => Ok(TestCaseVerdict {
             test_case_id,
             verdict: v.verdict,

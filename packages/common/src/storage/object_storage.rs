@@ -154,9 +154,7 @@ impl BlobStore for ObjectStorageBlobStore {
                 .bucket
                 .put_object_stream(&mut upload_file, &key)
                 .await
-                .map_err(|e| {
-                    StorageError::Backend(format!("put_object_stream failed: {e}"))
-                })?;
+                .map_err(|e| StorageError::Backend(format!("put_object_stream failed: {e}")))?;
 
             let status_code = put_response.status_code();
 
@@ -179,10 +177,11 @@ impl BlobStore for ObjectStorageBlobStore {
     async fn get_stream(&self, hash: &ContentHash) -> Result<BoxReader, StorageError> {
         let key = Self::object_key(hash);
 
-        let response =
-            self.bucket.get_object_stream(&key).await.map_err(|e| {
-                StorageError::Backend(format!("get_object_stream failed: {e}"))
-            })?;
+        let response = self
+            .bucket
+            .get_object_stream(&key)
+            .await
+            .map_err(|e| StorageError::Backend(format!("get_object_stream failed: {e}")))?;
 
         if response.status_code == 404 {
             return Err(StorageError::NotFound(hash.to_hex()));
@@ -209,9 +208,7 @@ impl BlobStore for ObjectStorageBlobStore {
                 if err_str.contains("404") || err_str.contains("Not Found") {
                     Ok(false)
                 } else {
-                    Err(StorageError::Backend(format!(
-                        "head_object failed: {e}"
-                    )))
+                    Err(StorageError::Backend(format!("head_object failed: {e}")))
                 }
             }
         }
@@ -242,9 +239,9 @@ impl BlobStore for ObjectStorageBlobStore {
             }
         })?;
 
-        let size = head.content_length.ok_or_else(|| {
-            StorageError::Backend("HEAD response missing content-length".into())
-        })?;
+        let size = head
+            .content_length
+            .ok_or_else(|| StorageError::Backend("HEAD response missing content-length".into()))?;
 
         Ok(size as u64)
     }

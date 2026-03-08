@@ -545,7 +545,10 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
     let operation = OperationTask {
         environments: vec![Environment {
             id: "env-1".to_string(),
-            files_in: vec![("input.txt".to_string(), SessionFile::Blob { hash: hash_hex })],
+            files_in: vec![(
+                "input.txt".to_string(),
+                SessionFile::Blob { hash: hash_hex },
+            )],
         }],
         tasks: vec![
             Step {

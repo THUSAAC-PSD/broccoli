@@ -11,9 +11,9 @@ use common::storage::filesystem::FilesystemBlobStore;
 use common::storage::object_storage::{ObjectStorageBlobStore, ObjectStorageConfig};
 use dashmap::DashMap;
 use mq::{MqConfig as MqConnConfig, init_mq};
+use std::path::PathBuf;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use std::path::PathBuf;
 use tracing::{Level, info, warn};
 
 use server::build_router;
@@ -111,16 +111,24 @@ async fn main() -> anyhow::Result<()> {
                     secret_key: os_toml.secret_key.clone(),
                     path_style: os_toml.path_style,
                     max_size: app_config.storage.max_blob_size,
-                    temp_dir: os_toml.temp_dir.as_ref().filter(|s| !s.is_empty()).map(PathBuf::from),
+                    temp_dir: os_toml
+                        .temp_dir
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                        .map(PathBuf::from),
                 })
                 .context("Failed to initialize object storage")?,
             )
         }
-        "database" | _ => {
-            Arc::new(DatabaseBlobStore::new(db.clone(), app_config.storage.max_blob_size))
-        }
+        "database" | _ => Arc::new(DatabaseBlobStore::new(
+            db.clone(),
+            app_config.storage.max_blob_size,
+        )),
     };
-    info!("Blob storage initialized (backend: {})", app_config.storage.backend);
+    info!(
+        "Blob storage initialized (backend: {})",
+        app_config.storage.backend
+    );
 
     let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
     let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
