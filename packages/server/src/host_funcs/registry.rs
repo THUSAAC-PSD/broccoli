@@ -26,7 +26,8 @@ struct RegisterEvaluatorInput {
 /// Input for register_checker_format
 #[derive(Deserialize)]
 struct RegisterCheckerFormatInput {
-    format: String,
+    #[serde(rename = "type")]
+    checker_format: String,
     handler: String,
 }
 
@@ -189,7 +190,7 @@ fn register_checker_format_fn(
         outputs,
         &plugin_id,
         &registry,
-        |input| (&input.format, &input.handler),
+        |input| (&input.checker_format, &input.handler),
         "Checker format",
     )
 }

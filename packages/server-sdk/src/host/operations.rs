@@ -33,8 +33,19 @@ pub fn wait_for_result(batch_id: &str, timeout_ms: u64) -> Result<OperationResul
         .get("output")
         .ok_or_else(|| SdkError::HostCall("Missing 'output' in TaskResult".into()))?;
 
-    let result: OperationResult = serde_json::from_value(output.clone())?;
-    Ok(result)
+    match serde_json::from_value::<OperationResult>(output.clone()) {
+        Ok(result) => Ok(result),
+        Err(_) => {
+            let error_msg = output
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("Unknown operation error");
+            Err(SdkError::HostCall(format!(
+                "Operation failed at worker: {}",
+                error_msg
+            )))
+        }
+    }
 }
 
 /// Cancel an operation batch (best-effort).

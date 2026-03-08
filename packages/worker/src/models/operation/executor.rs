@@ -258,7 +258,7 @@ impl Executor for OperationTaskExecutor {
             Err(e) => Ok(TaskResult {
                 task_id: task.id,
                 success: false,
-                output: serde_json::json!({ "error": e.to_string() }),
+                output: serde_json::json!({ "error": format!("{e:#}") }),
             }),
         }
     }

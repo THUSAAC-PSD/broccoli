@@ -255,35 +255,37 @@ pub trait PluginManager: Send + Sync {
             .as_ref()
             .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?;
 
-        let plugin = pool
-            .get(Duration::new(30, 0))
-            .map_err(|e| {
-                PluginError::Internal(format!(
-                    "Failed to acquire runtime instance for plugin '{}': {}",
-                    plugin_id, e
-                ))
-            })?
-            .ok_or_else(|| {
-                PluginError::Internal(format!(
-                    "Timeout while acquiring runtime instance for plugin '{}'",
-                    plugin_id
-                ))
-            })?;
+        let result = tokio::task::block_in_place(|| {
+            let plugin = pool
+                .get(Duration::new(120, 0))
+                .map_err(|e| {
+                    PluginError::Internal(format!(
+                        "Failed to acquire runtime instance for plugin '{}': {}",
+                        plugin_id, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    PluginError::Internal(format!(
+                        "Timeout while acquiring runtime instance for plugin '{}'",
+                        plugin_id
+                    ))
+                })?;
 
-        if !plugin.plugin().function_exists(func_name) {
-            return Err(PluginError::FunctionNotFound {
-                plugin_id: plugin_id.to_string(),
-                func_name: func_name.to_string(),
-            });
-        }
+            if !plugin.plugin().function_exists(func_name) {
+                return Err(PluginError::FunctionNotFound {
+                    plugin_id: plugin_id.to_string(),
+                    func_name: func_name.to_string(),
+                });
+            }
 
-        let result = plugin
-            .call(func_name, input)
-            .map_err(|e| PluginError::ExecutionFailed {
-                plugin_id: plugin_id.to_string(),
-                func_name: func_name.to_string(),
-                message: e.to_string(),
-            })?;
+            plugin
+                .call(func_name, input)
+                .map_err(|e| PluginError::ExecutionFailed {
+                    plugin_id: plugin_id.to_string(),
+                    func_name: func_name.to_string(),
+                    message: e.to_string(),
+                })
+        })?;
 
         Ok(result)
     }

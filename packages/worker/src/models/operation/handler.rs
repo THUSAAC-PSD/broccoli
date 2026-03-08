@@ -7,26 +7,30 @@ use futures::future::join_all;
 use std::collections::HashMap;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, error, info, instrument, warn};
 
-/// Strip the `/box` prefix from sandbox paths so they become relative.
-fn strip_box_prefix(path: &Path) -> &Path {
-    path.strip_prefix("/box").unwrap_or(path)
+/// Global counter for unique isolate box IDs (0–999, wraps around).
+static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
+
+fn allocate_box_id() -> String {
+    let id = NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed) % 1000;
+    id.to_string()
 }
 
 /// Environment instance with sandbox and file management
 struct EnvironmentList {
     id: String,
     box_id: String,
-    sandbox_path: PathBuf,
+    working_dir: PathBuf,
 }
 
 impl EnvironmentList {
-    fn new(id: String, box_id: String, sandbox_path: PathBuf) -> Self {
+    fn new(id: String, box_id: String, working_dir: PathBuf) -> Self {
         Self {
             id,
             box_id,
-            sandbox_path,
+            working_dir,
         }
     }
 }
@@ -64,12 +68,12 @@ impl OperationHandler {
 
         // Initialize environments
         let mut environments = HashMap::new();
-        for (idx, env_config) in operation.environments.iter().enumerate() {
-            let box_id = idx.to_string();
+        for (_idx, env_config) in operation.environments.iter().enumerate() {
+            let box_id = allocate_box_id();
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 
             // Create sandbox
-            let sandbox_path = self
+            let working_dir = self
                 .create_sandbox(&box_id)
                 .await
                 .context("Failed to create sandbox")?;
@@ -77,7 +81,7 @@ impl OperationHandler {
             // Load initial files — clean up sandbox on failure since it's not yet
             // tracked in `environments` and would be orphaned.
             if let Err(e) = self
-                .load_environment_files(&sandbox_path, &env_config.files_in)
+                .load_environment_files(&working_dir, &env_config.files_in)
                 .await
             {
                 if let Err(cleanup_err) = self.sandbox_manager.remove_sandbox(&box_id).await {
@@ -89,7 +93,7 @@ impl OperationHandler {
 
             environments.insert(
                 env_config.id.clone(),
-                EnvironmentList::new(env_config.id.clone(), box_id, sandbox_path),
+                EnvironmentList::new(env_config.id.clone(), box_id, working_dir),
             );
         }
 
@@ -163,11 +167,11 @@ impl OperationHandler {
     /// Load files into sandbox environment
     async fn load_environment_files(
         &self,
-        sandbox_path: &Path,
+        working_dir: &Path,
         files: &[(String, SessionFile)],
     ) -> Result<()> {
         for (target_path, source) in files {
-            let dest = sandbox_path.join(strip_box_prefix(Path::new(target_path)));
+            let dest = working_dir.join(Path::new(target_path));
             if let Some(parent) = dest.parent() {
                 tokio::fs::create_dir_all(parent)
                     .await
@@ -337,7 +341,7 @@ impl OperationHandler {
     ) -> Option<TaskExecutionResult> {
         let env = environments.get(&step.env_ref)?;
         let cache_key = match self
-            .build_cache_key(&env.sandbox_path, &step.argv, &cache_spec.key_inputs)
+            .build_cache_key(&env.working_dir, &step.argv, &cache_spec.key_inputs)
             .await
         {
             Ok(key) => key,
@@ -360,7 +364,7 @@ impl OperationHandler {
         };
 
         for (filename, content_hash) in &cached_outputs {
-            let dest = env.sandbox_path.join(strip_box_prefix(Path::new(filename)));
+            let dest = env.working_dir.join(Path::new(filename));
             if let Some(parent) = dest.parent()
                 && let Err(e) = tokio::fs::create_dir_all(parent).await
             {
@@ -410,7 +414,7 @@ impl OperationHandler {
         };
 
         let cache_key = match self
-            .build_cache_key(&env.sandbox_path, &step.argv, &cache_spec.key_inputs)
+            .build_cache_key(&env.working_dir, &step.argv, &cache_spec.key_inputs)
             .await
         {
             Ok(key) => key,
@@ -426,7 +430,7 @@ impl OperationHandler {
                 output_hashes.insert(filename.clone(), hash.clone());
                 continue;
             }
-            let src = env.sandbox_path.join(strip_box_prefix(Path::new(filename)));
+            let src = env.working_dir.join(Path::new(filename));
             if !tokio::fs::try_exists(&src).await.unwrap_or(false) {
                 debug!(step_id = %step.id, file = %filename, "Cache output file not found, skipping cache store");
                 return;
@@ -452,13 +456,13 @@ impl OperationHandler {
     /// Build a deterministic cache key from argv + input file contents.
     async fn build_cache_key(
         &self,
-        sandbox_path: &Path,
+        working_dir: &Path,
         argv: &[String],
         key_inputs: &[String],
     ) -> Result<String> {
         let mut input_files = Vec::new();
         for filename in key_inputs {
-            let path = sandbox_path.join(strip_box_prefix(Path::new(filename)));
+            let path = working_dir.join(Path::new(filename));
             let content = tokio::fs::read(&path)
                 .await
                 .with_context(|| format!("Failed to read cache key input: {}", path.display()))?;
@@ -485,7 +489,7 @@ impl OperationHandler {
             .ok_or_else(|| anyhow!("Environment not found: {}", step.env_ref))?;
 
         let (stdin_path, stdout_path, stderr_path) =
-            self.prepare_io(&env.sandbox_path, &step.io).await?;
+            self.prepare_io(&env.working_dir, &step.io).await?;
 
         let run_opts = RunOptions {
             resource_limits: step.conf.resource_limits.clone(),
@@ -509,9 +513,7 @@ impl OperationHandler {
             })?;
 
         let success = exec_result.exit_code == Some(0);
-        let collected_outputs = self
-            .collect_output(&env.sandbox_path, &step.collect)
-            .await?;
+        let collected_outputs = self.collect_output(&env.working_dir, &step.collect).await?;
 
         Ok(TaskExecutionResult {
             task_id: step.id.clone(),
@@ -524,17 +526,17 @@ impl OperationHandler {
     /// Prepare IO for task execution
     async fn prepare_io(
         &self,
-        sandbox_path: &Path,
+        working_dir: &Path,
         io_config: &IOConfig,
     ) -> Result<(Option<PathBuf>, Option<PathBuf>, Option<PathBuf>)> {
         let stdin = self
-            .prepare_io_target(sandbox_path, &io_config.stdin)
+            .prepare_io_target(working_dir, &io_config.stdin)
             .await?;
         let stdout = self
-            .prepare_io_target(sandbox_path, &io_config.stdout)
+            .prepare_io_target(working_dir, &io_config.stdout)
             .await?;
         let stderr = self
-            .prepare_io_target(sandbox_path, &io_config.stderr)
+            .prepare_io_target(working_dir, &io_config.stderr)
             .await?;
 
         Ok((stdin, stdout, stderr))
@@ -543,21 +545,21 @@ impl OperationHandler {
     /// Prepare single IO target
     async fn prepare_io_target(
         &self,
-        sandbox_path: &Path,
+        working_dir: &Path,
         target: &IOTarget,
     ) -> Result<Option<PathBuf>> {
         match target {
             IOTarget::Null | IOTarget::Inherit => Ok(None),
             IOTarget::File { path } => {
                 let p = Path::new(path);
-                Ok(Some(strip_box_prefix(p).to_path_buf()))
+                Ok(Some(p.to_path_buf()))
             }
             IOTarget::Pipe { name } => {
                 if name.is_empty() {
                     return Err(anyhow!("Pipe name cannot be empty"));
                 }
 
-                let pipes_dir = sandbox_path.join("pipes");
+                let pipes_dir = working_dir.join("pipes");
                 tokio::fs::create_dir_all(&pipes_dir)
                     .await
                     .context("Failed to create pipes directory")?;
@@ -595,12 +597,12 @@ impl OperationHandler {
 
     async fn collect_output(
         &self,
-        sandbox_path: &Path,
+        working_dir: &Path,
         collect_files: &[String],
     ) -> Result<HashMap<String, String>> {
         let mut collected = HashMap::new();
         for file_path in collect_files {
-            let src = sandbox_path.join(strip_box_prefix(Path::new(file_path)));
+            let src = working_dir.join(Path::new(file_path));
             if tokio::fs::try_exists(&src).await.unwrap_or(false) {
                 let hash = self.file_cacher.upload_from_path(&src).await.map_err(|e| {
                     anyhow!("Failed to upload output file {}: {}", src.display(), e)

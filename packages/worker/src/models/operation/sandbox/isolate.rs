@@ -5,14 +5,18 @@ use async_trait::async_trait;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::fs;
 use tokio::process::Command;
+use tokio::sync::RwLock;
 
 #[derive(Debug)]
 pub struct IsolateSandboxManager {
     isolate_bin: String,
     enable_cgroups: bool,
+    /// Maps box_id -> working directory path (the `/box` subdirectory inside isolate's sandbox root).
+    sandboxes: Arc<RwLock<HashMap<String, PathBuf>>>,
 }
 
 impl IsolateSandboxManager {
@@ -20,6 +24,7 @@ impl IsolateSandboxManager {
         Self {
             isolate_bin,
             enable_cgroups,
+            sandboxes: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -33,6 +38,7 @@ impl Default for IsolateSandboxManager {
                 .map(|c| c.worker.isolate_bin.clone())
                 .unwrap_or_else(|| "isolate".to_string()),
             enable_cgroups: cfg.map(|c| c.worker.enable_cgroups).unwrap_or(false),
+            sandboxes: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -211,11 +217,19 @@ impl SandboxManager for IsolateSandboxManager {
             ));
         }
 
-        Ok(PathBuf::from(path_text))
+        let working_dir = PathBuf::from(&path_text).join("box");
+        let box_id = id.unwrap_or("0").to_string();
+        self.sandboxes
+            .write()
+            .await
+            .insert(box_id, working_dir.clone());
+
+        Ok(working_dir)
     }
 
     async fn remove_sandbox(&self, id: &str) -> Result<(), SandboxError> {
         let box_id = parse_box_id(Some(id))?;
+        self.sandboxes.write().await.remove(&box_id);
 
         let mut command = Command::new(&self.isolate_bin);
         command.arg(format!("--box-id={box_id}"));
@@ -306,15 +320,26 @@ impl SandboxManager for IsolateSandboxManager {
             Some(0) | Some(1) => {
                 let mut result = parse_meta_file(&meta_path).await?;
                 let _ = fs::remove_file(&meta_path).await;
+                let box_dir = self
+                    .sandboxes
+                    .read()
+                    .await
+                    .get(&box_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        SandboxError::Execution(format!(
+                            "sandbox working directory not found for box id: {box_id}"
+                        ))
+                    })?;
                 result.stdout = if let Some(stdout_path) = &run_options.stdout {
-                    tokio::fs::read_to_string(stdout_path)
+                    tokio::fs::read_to_string(box_dir.join(stdout_path))
                         .await
                         .unwrap_or_default()
                 } else {
                     String::from_utf8_lossy(&output.stdout).to_string()
                 };
                 result.stderr = if let Some(stderr_path) = &run_options.stderr {
-                    tokio::fs::read_to_string(stderr_path)
+                    tokio::fs::read_to_string(box_dir.join(stderr_path))
                         .await
                         .unwrap_or_default()
                 } else {
