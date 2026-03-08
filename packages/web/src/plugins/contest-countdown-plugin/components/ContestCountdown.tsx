@@ -115,7 +115,7 @@ export function ContestCountdown() {
   };
 
   return (
-    <div className="rounded-lg border p-6 space-y-5 lg:order-1">
+    <div className="rounded-lg border p-6 space-y-5 lg:order-1 lg:col-start-2">
       {/* Phase label */}
       <div className="flex items-center gap-1.5">
         {active && (
