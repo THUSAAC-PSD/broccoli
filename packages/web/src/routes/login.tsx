@@ -1,6 +1,6 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { type FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -74,9 +74,9 @@ export default function LoginPage() {
             </Button>
             <p className="text-sm text-muted-foreground">
               {t('auth.noAccount')}{' '}
-              <a href="/register" className="text-primary underline">
+              <Link to="/register" className="text-primary underline">
                 {t('auth.register')}
-              </a>
+              </Link>
             </p>
           </CardFooter>
         </form>
