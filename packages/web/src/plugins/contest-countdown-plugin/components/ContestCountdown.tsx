@@ -104,93 +104,98 @@ export function ContestCountdown() {
         ? t('countdown.endsIn')
         : t('countdown.contestOver');
 
-  const fmtDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString(locale, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const fmtDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const month = d.toLocaleDateString(locale, { month: 'short' });
+    const day = d.getDate();
+    const year = d.getFullYear();
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return `${month} ${day}, ${year} ${h}:${m}`;
+  };
 
   return (
-    <div className="flex-1 flex items-center min-w-0">
+    <div className="rounded-lg border p-6 space-y-5 lg:order-1">
+      {/* Phase label */}
+      <div className="flex items-center gap-1.5">
+        {active && (
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${phase === 'running' ? 'animate-pulse' : ''}`}
+            style={{ backgroundColor: ACCENT }}
+          />
+        )}
+        <span
+          className="text-[10px] font-semibold uppercase tracking-[0.15em]"
+          style={{ color: active ? ACCENT : undefined }}
+        >
+          {phaseLabel}
+        </span>
+      </div>
+
       {!active ? (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.15em]">
-            {phaseLabel}
-          </span>
-          <p className="text-sm text-muted-foreground">
-            {t('countdown.finishedMessage')}
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          {t('countdown.finishedMessage')}
+        </p>
       ) : (
         <>
-          {/* Center: phase label + big digits */}
-          <div className="flex-1 flex flex-col items-center min-w-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span
-                className={`inline-block h-1.5 w-1.5 rounded-full ${phase === 'running' ? 'animate-pulse' : ''}`}
-                style={{ backgroundColor: ACCENT }}
-              />
-              <span
-                className="text-[10px] font-semibold uppercase tracking-[0.15em]"
-                style={{ color: ACCENT }}
-              >
-                {phaseLabel}
-              </span>
-            </div>
-            <div className="flex items-end gap-2">
-              {segments.map((seg, i) => (
-                <Fragment key={seg.label}>
-                  <div className="flex flex-col items-center">
-                    <span
-                      className="tabular-nums text-4xl font-bold leading-none tracking-tighter"
-                      style={{ color: ACCENT }}
-                    >
-                      {String(seg.value).padStart(2, '0')}
-                    </span>
-                    <span className="mt-0.5 text-[8px] font-medium uppercase tracking-widest text-muted-foreground">
-                      {seg.label}
-                    </span>
-                  </div>
-                  {i < segments.length - 1 && (
-                    <span
-                      className="mb-4 select-none text-xl font-extralight opacity-30"
-                      style={{ color: ACCENT }}
-                    >
-                      :
-                    </span>
-                  )}
-                </Fragment>
-              ))}
-            </div>
+          {/* Countdown digits */}
+          <div className="flex items-end gap-2 justify-center">
+            {segments.map((seg, i) => (
+              <Fragment key={seg.label}>
+                <div className="flex flex-col items-center">
+                  <span
+                    className="tabular-nums text-4xl font-bold leading-none tracking-tighter"
+                    style={{ color: ACCENT }}
+                  >
+                    {String(seg.value).padStart(2, '0')}
+                  </span>
+                  <span className="mt-1 text-[8px] font-medium uppercase tracking-widest text-muted-foreground">
+                    {seg.label}
+                  </span>
+                </div>
+                {i < segments.length - 1 && (
+                  <span
+                    className="mb-4 select-none text-xl font-extralight opacity-30"
+                    style={{ color: ACCENT }}
+                  >
+                    :
+                  </span>
+                )}
+              </Fragment>
+            ))}
           </div>
 
-          {/* Right: schedule + progress */}
-          <div className="hidden sm:flex flex-col items-end gap-2 shrink-0">
-            <div className="text-[11px] text-muted-foreground/70 whitespace-nowrap font-medium">
-              {fmtDate(contest.start_time)} → {fmtDate(contest.end_time)}
-            </div>
-            {phase === 'running' && (
-              <div className="w-full">
-                <div className="w-full h-1 overflow-hidden rounded-full bg-foreground/5">
-                  <div
-                    className="h-full rounded-full transition-none"
-                    style={{
-                      width: `${progress}%`,
-                      backgroundColor: ACCENT,
-                    }}
-                  />
-                </div>
-                <div className="mt-0.5 text-right text-[9px] tabular-nums text-muted-foreground/50">
-                  {Math.round(progress)}%
-                </div>
+          {/* Progress bar */}
+          {phase === 'running' && (
+            <div>
+              <div className="w-full h-1 overflow-hidden rounded-full bg-foreground/5">
+                <div
+                  className="h-full rounded-full transition-none"
+                  style={{
+                    width: `${progress}%`,
+                    backgroundColor: ACCENT,
+                  }}
+                />
               </div>
-            )}
-          </div>
+              <div className="mt-0.5 text-right text-[9px] tabular-nums text-muted-foreground/50">
+                {Math.round(progress)}%
+              </div>
+            </div>
+          )}
         </>
       )}
+
+      {/* Schedule */}
+      <div className="text-xs text-muted-foreground/70 font-medium tabular-nums space-y-1">
+        <div>
+          <span className="text-muted-foreground/40 mr-1.5">Start</span>
+          {fmtDate(contest.start_time)}
+        </div>
+        <div>
+          <span className="text-muted-foreground/40 mr-1.5">End</span>
+          {fmtDate(contest.end_time)}
+        </div>
+      </div>
     </div>
   );
 }

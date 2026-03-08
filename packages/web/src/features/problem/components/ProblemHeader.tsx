@@ -19,7 +19,7 @@ export function ProblemHeader({
   memoryLimit,
 }: ProblemHeaderProps) {
   return (
-    <Card className="w-full shadow-none border-0 bg-transparent">
+    <Card className="w-full shadow-none border-0 bg-transparent pt-3">
       <CardHeader className="px-0 pt-0 pb-4">
         <CardTitle className="text-3xl font-bold tracking-tight">
           {id}. {title}

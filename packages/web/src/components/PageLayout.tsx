@@ -5,6 +5,7 @@ interface PageLayoutProps {
   icon?: React.ReactNode;
   title: string;
   subtitle?: string;
+  contentClassName?: string;
   children: React.ReactNode;
 }
 
@@ -13,6 +14,7 @@ export function PageLayout({
   icon,
   title,
   subtitle,
+  contentClassName,
   children,
 }: PageLayoutProps) {
   return (
@@ -38,7 +40,11 @@ export function PageLayout({
           </p>
         )}
       </div>
-      <Slot name={`${pageId}.content`} as="div" className="flex flex-col gap-4">
+      <Slot
+        name={`${pageId}.content`}
+        as="div"
+        className={contentClassName ?? 'flex flex-col gap-4'}
+      >
         {children}
       </Slot>
     </Slot>
