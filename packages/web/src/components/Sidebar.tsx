@@ -303,7 +303,7 @@ export function Sidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="#">
+              <Link to="/">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <Code2 className="size-4" />
                 </div>
@@ -311,7 +311,7 @@ export function Sidebar() {
                   <span className="font-semibold">{t('app.name')}</span>
                   <span className="text-xs">{t('app.tagline')}</span>
                 </div>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <Slot name="sidebar.header" as="div" />
@@ -356,7 +356,7 @@ export function Sidebar() {
                   </Link>
                 ) : (
                   <DropdownMenuItem asChild>
-                    <a href="/login">{t('nav.signIn')}</a>
+                    <Link to="/login">{t('nav.signIn')}</Link>
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
