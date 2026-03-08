@@ -26,7 +26,6 @@ const lazyPlugins: LazyPluginLoader[] = [
   () => import('./plugins/notification-plugin'),
   () => import('./plugins/analytics-plugin'),
   () => import('./plugins/amazing-button'),
-  () => import('./plugins/keyboard-shortcuts-plugin'),
   () => import('./plugins/ranking-charts-plugin'),
   () => import('./plugins/locale-switcher-plugin'),
   () => import('./plugins/contest-countdown-plugin'),
