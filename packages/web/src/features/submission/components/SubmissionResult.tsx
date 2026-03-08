@@ -1,13 +1,17 @@
-import type {
-  SubmissionResponse,
-  TestCaseResultResponse,
-  Verdict,
-} from '@broccoli/web-sdk';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type {
+  Submission,
+  TestCaseResult,
+  Verdict,
+} from '@broccoli/web-sdk/submission';
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@broccoli/web-sdk/ui';
 import { AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
-
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type VerdictKey =
   | 'accepted'
@@ -78,7 +82,7 @@ function formatMemory(kb: number): string {
 }
 
 interface SubmissionResultProps {
-  submission?: SubmissionResponse | null;
+  submission?: Submission | null;
   isSubmitting?: boolean;
   error?: string | null;
 }
@@ -231,7 +235,7 @@ function TestCaseRow({
   testCase,
   index,
 }: {
-  testCase: TestCaseResultResponse;
+  testCase: TestCaseResult;
   index: number;
 }) {
   const { t } = useTranslation();
@@ -322,7 +326,7 @@ function TestCaseRow({
 }
 
 function getVerdictLabel(
-  submission: SubmissionResponse,
+  submission: Submission,
   t: (key: string) => string,
 ): string | null {
   if (submission.status === 'CompilationError') {
@@ -352,7 +356,7 @@ function getVerdictLabel(
 }
 
 function getVerdictBadgeVariant(
-  submission: SubmissionResponse,
+  submission: Submission,
 ): 'default' | 'destructive' | 'secondary' {
   if (submission.status === 'CompilationError') return 'secondary';
   if (submission.status === 'SystemError') return 'secondary';

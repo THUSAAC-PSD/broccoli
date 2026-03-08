@@ -1,12 +1,11 @@
-import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk';
 import type { ApiClient } from '@broccoli/web-sdk/api';
+import type { ServerTableParams } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Slot } from '@broccoli/web-sdk/react';
+import { Slot } from '@broccoli/web-sdk/slot';
+import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk/submission';
+import type { DataTableColumn } from '@broccoli/web-sdk/ui';
+import { DataTable } from '@broccoli/web-sdk/ui';
 import { Trophy } from 'lucide-react';
-
-import type { DataTableColumn } from '@/components/ui/data-table';
-import { DataTable } from '@/components/ui/data-table';
-import type { ServerTableParams } from '@/hooks/use-server-table';
 
 // --- Types aligned with API schemas ---
 

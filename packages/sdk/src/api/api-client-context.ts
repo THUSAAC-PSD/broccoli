@@ -1,9 +1,6 @@
-import type { Client } from 'openapi-fetch';
 import { createContext } from 'react';
 
-import type { paths } from '@/api/schema';
-
-export type ApiClient = Client<paths>;
+import type { ApiClient } from '@/api/types';
 
 export interface ApiClientContextValue {
   apiClient: ApiClient;

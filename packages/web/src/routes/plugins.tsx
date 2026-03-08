@@ -1,14 +1,13 @@
-import type { PluginDetailResponse } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
+import { Card, CardContent, CardHeader, Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Puzzle } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { PageLayout } from '@/components/PageLayout';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { PluginCard } from '@/features/plugin/components/PluginCard';
@@ -36,7 +35,7 @@ export default function PluginsPage() {
   });
 
   const handleToggle = useCallback(
-    async (plugin: PluginDetailResponse, enable: boolean) => {
+    async (plugin: PluginDetail, enable: boolean) => {
       setTogglingIds((prev) => new Set(prev).add(plugin.id));
       try {
         const endpoint = enable

@@ -1,13 +1,13 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { ChevronUp, Languages } from 'lucide-react';
-
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@broccoli/web-sdk/ui';
+import { ChevronUp, Languages } from 'lucide-react';
 
 const LOCALE_LABELS: Record<string, string> = {
   en: 'English',

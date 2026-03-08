@@ -1,4 +1,4 @@
-import { Slot } from '@broccoli/web-sdk/react';
+import { Slot } from '@broccoli/web-sdk/slot';
 
 interface PageLayoutProps {
   pageId: string;

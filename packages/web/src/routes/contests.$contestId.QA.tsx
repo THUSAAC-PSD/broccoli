@@ -1,4 +1,20 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Skeleton,
+  Textarea,
+} from '@broccoli/web-sdk/ui';
+import { formatTime } from '@broccoli/web-sdk/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
@@ -12,21 +28,7 @@ import {
 import { useState } from 'react';
 import { useParams } from 'react-router';
 
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/features/auth/hooks/use-auth';
-import { formatTime } from '@/lib/utils';
 
 // --- Types ---
 

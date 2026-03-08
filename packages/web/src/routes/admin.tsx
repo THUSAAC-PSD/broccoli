@@ -1,25 +1,26 @@
-import type { ContestListItem, SubmissionListItem } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@broccoli/web-sdk/ui';
+import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowRight, Clock, Code2, Home, Trophy } from 'lucide-react';
 import { Link } from 'react-router';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
 import { PageLayout } from '@/components/PageLayout';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { getContestStatus } from '@/features/contest/utils/status';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
-import { formatRelativeDatetime } from '@/lib/utils';
 
 export default function OverviewPage() {
   const { t } = useTranslation();
@@ -40,7 +41,7 @@ export default function OverviewPage() {
         },
       });
       if (error) throw error;
-      return data.data as ContestListItem[];
+      return data.data as ContestSummary[];
     },
   });
 
@@ -77,7 +78,7 @@ export default function OverviewPage() {
         },
       });
       if (error) throw error;
-      return data.data as SubmissionListItem[];
+      return data.data as SubmissionSummary[];
     },
   });
 

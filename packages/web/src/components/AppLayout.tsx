@@ -1,10 +1,9 @@
-import { Slot } from '@broccoli/web-sdk/react';
-
+import { Slot } from '@broccoli/web-sdk/slot';
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
-} from '@/components/ui/sidebar';
+} from '@broccoli/web-sdk/ui';
 
 import { Sidebar } from './Sidebar';
 

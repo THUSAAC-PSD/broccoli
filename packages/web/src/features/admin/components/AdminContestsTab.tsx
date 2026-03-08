@@ -1,10 +1,29 @@
-import type {
-  ContestListItem,
-  ContestProblemItem,
-  ProblemListItem,
-} from '@broccoli/web-sdk';
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
+import type { ServerTableParams } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { ProblemSummary } from '@broccoli/web-sdk/problem';
+import {
+  Badge,
+  Button,
+  DataTable,
+  type DataTableColumn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Input,
+  Label,
+  Separator,
+} from '@broccoli/web-sdk/ui';
+import { formatDateTime, toLocalDatetimeValue } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -23,33 +42,9 @@ import { Link } from 'react-router';
 
 import { Markdown } from '@/components/Markdown';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import type { DataTableColumn } from '@/components/ui/data-table';
-import { DataTable } from '@/components/ui/data-table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { getContestStatus } from '@/features/contest/utils/status';
-import type { ServerTableParams } from '@/hooks/use-server-table';
-import { formatDateTime, toLocalDatetimeValue } from '@/lib/utils';
 
 // ── Data fetcher ──
 
@@ -127,7 +122,7 @@ export function ContestFormDialog({
   open,
   onOpenChange,
 }: {
-  contest?: ContestListItem;
+  contest?: ContestSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -365,7 +360,7 @@ export function ContestProblemsDialog({
   open,
   onOpenChange,
 }: {
-  contest: ContestListItem;
+  contest: ContestSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -413,20 +408,20 @@ export function ContestProblemsDialog({
   }, [open]);
 
   const addedProblemIds = new Set(
-    contestProblems.map((p: ContestProblemItem) => p.problem_id),
+    contestProblems.map((p: ContestProblem) => p.problem_id),
   );
   const usedLabels = new Set(
-    contestProblems.map((p: ContestProblemItem) => p.label),
+    contestProblems.map((p: ContestProblem) => p.label),
   );
 
   const filteredProblems = allProblems
     .filter(
-      (p: ProblemListItem) =>
+      (p: ProblemSummary) =>
         !search ||
         p.title.toLowerCase().includes(search.toLowerCase()) ||
         String(p.id).includes(search),
     )
-    .sort((a: ProblemListItem, b: ProblemListItem) => {
+    .sort((a: ProblemSummary, b: ProblemSummary) => {
       const aAdded = addedProblemIds.has(a.id) ? 1 : 0;
       const bAdded = addedProblemIds.has(b.id) ? 1 : 0;
       if (aAdded !== bAdded) return aAdded - bAdded;
@@ -491,7 +486,7 @@ export function ContestProblemsDialog({
                 </tr>
               </thead>
               <tbody>
-                {contestProblems.map((p: ContestProblemItem) => (
+                {contestProblems.map((p: ContestProblem) => (
                   <tr
                     key={p.problem_id}
                     className="border-b last:border-0 hover:bg-muted/30"
@@ -555,10 +550,10 @@ export function ContestProblemsDialog({
             ) : (
               <table className="w-full text-sm">
                 <tbody>
-                  {filteredProblems.map((p: ProblemListItem) => {
+                  {filteredProblems.map((p: ProblemSummary) => {
                     const isAdded = addedProblemIds.has(p.id);
                     const contestProblem = contestProblems.find(
-                      (cp: ContestProblemItem) => cp.problem_id === p.id,
+                      (cp: ContestProblem) => cp.problem_id === p.id,
                     );
                     return (
                       <tr
@@ -629,11 +624,11 @@ function useContestColumns({
   onManageProblems,
   onBulkParticipants,
 }: {
-  onEdit: (contest: ContestListItem) => void;
-  onDelete: (contest: ContestListItem) => void;
-  onManageProblems: (contest: ContestListItem) => void;
-  onBulkParticipants: (contest: ContestListItem) => void;
-}): DataTableColumn<ContestListItem>[] {
+  onEdit: (contest: ContestSummary) => void;
+  onDelete: (contest: ContestSummary) => void;
+  onManageProblems: (contest: ContestSummary) => void;
+  onBulkParticipants: (contest: ContestSummary) => void;
+}): DataTableColumn<ContestSummary>[] {
   const { t, locale } = useTranslation();
   return [
     { accessorKey: 'id', header: '#', size: 60 },
@@ -743,16 +738,16 @@ export function AdminContestsTab() {
 
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
   const [editingContest, setEditingContest] = useState<
-    ContestListItem | undefined
+    ContestSummary | undefined
   >();
   const [contestProblemsDialogOpen, setContestProblemsDialogOpen] =
     useState(false);
   const [managingContest, setManagingContest] = useState<
-    ContestListItem | undefined
+    ContestSummary | undefined
   >();
   const [participantsDialogOpen, setParticipantsDialogOpen] = useState(false);
   const [participantsContest, setParticipantsContest] = useState<
-    ContestListItem | undefined
+    ContestSummary | undefined
   >();
 
   function handleCreateContest() {
@@ -760,22 +755,22 @@ export function AdminContestsTab() {
     setContestDialogOpen(true);
   }
 
-  function handleEditContest(contest: ContestListItem) {
+  function handleEditContest(contest: ContestSummary) {
     setEditingContest(contest);
     setContestDialogOpen(true);
   }
 
-  function handleManageProblems(contest: ContestListItem) {
+  function handleManageProblems(contest: ContestSummary) {
     setManagingContest(contest);
     setContestProblemsDialogOpen(true);
   }
 
-  function handleBulkParticipants(contest: ContestListItem) {
+  function handleBulkParticipants(contest: ContestSummary) {
     setParticipantsContest(contest);
     setParticipantsDialogOpen(true);
   }
 
-  async function handleDeleteContest(contest: ContestListItem) {
+  async function handleDeleteContest(contest: ContestSummary) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
     const { error } = await apiClient.DELETE('/contests/{id}', {
       params: { path: { id: contest.id } },

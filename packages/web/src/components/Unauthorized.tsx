@@ -1,7 +1,6 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Card, CardContent } from '@broccoli/web-sdk/ui';
 import { Shield } from 'lucide-react';
-
-import { Card, CardContent } from '@/components/ui/card';
 
 export function Unauthorized() {
   const { t } = useTranslation();

@@ -1,6 +1,17 @@
-import { SUBMISSION_STATUSES, type SubmissionStatus } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  SUBMISSION_STATUSES,
+  type SubmissionStatus,
+} from '@broccoli/web-sdk/submission';
+import {
+  Button,
+  DataTable,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
@@ -15,14 +26,6 @@ import { useParams } from 'react-router';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
 import { PageLayout } from '@/components/PageLayout';
-import { Button } from '@/components/ui/button';
-import { DataTable } from '@/components/ui/data-table';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
 import { useContest } from '@/features/contest/contexts/contest-context';
 import { useContestInfo } from '@/features/contest/hooks/use-contest-info';

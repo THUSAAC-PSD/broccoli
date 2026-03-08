@@ -1,4 +1,4 @@
-import type { ActivePluginManifest } from '@broccoli/web-sdk';
+import type { ActivePluginManifest } from '@broccoli/web-sdk/plugin';
 
 import { ContestAdminActions } from './components/ContestAdminActions';
 

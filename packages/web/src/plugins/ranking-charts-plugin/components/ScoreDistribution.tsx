@@ -1,4 +1,5 @@
 import { useTheme } from '@broccoli/web-sdk/theme';
+import { Card, CardContent, CardHeader, CardTitle } from '@broccoli/web-sdk/ui';
 import {
   Bar,
   BarChart,
@@ -9,8 +10,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export interface DistributionEntry {
   solved: string; // e.g. "0", "1", "2"

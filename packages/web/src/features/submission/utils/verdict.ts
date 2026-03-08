@@ -1,4 +1,4 @@
-import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk';
+import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk/submission';
 
 function getStatusLabel(status: SubmissionStatus, t: (key: string) => string) {
   switch (status) {

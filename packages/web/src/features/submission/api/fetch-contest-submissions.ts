@@ -1,10 +1,12 @@
-import type { SubmissionListItem, SubmissionStatus } from '@broccoli/web-sdk';
 import type { ApiClient } from '@broccoli/web-sdk/api';
-
 import type {
   ServerTableParams,
   ServerTableResponse,
-} from '@/hooks/use-server-table';
+} from '@broccoli/web-sdk/hooks';
+import type {
+  SubmissionStatus,
+  SubmissionSummary,
+} from '@broccoli/web-sdk/submission';
 
 export async function fetchContestSubmissions(
   apiClient: ApiClient,
@@ -14,7 +16,7 @@ export async function fetchContestSubmissions(
     language?: string | null;
     status?: SubmissionStatus | null;
   },
-): Promise<ServerTableResponse<SubmissionListItem>> {
+): Promise<ServerTableResponse<SubmissionSummary>> {
   const { data, error } = await apiClient.GET('/contests/{id}/submissions', {
     params: {
       path: { id: params.contestId },
@@ -33,7 +35,7 @@ export async function fetchContestSubmissions(
   if (error) throw error;
 
   return {
-    data: data.data as SubmissionListItem[],
+    data: data.data as SubmissionSummary[],
     pagination: data.pagination,
   };
 }

@@ -1,25 +1,27 @@
-import type { ContestListItem } from '@broccoli/web-sdk';
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
+  Badge,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { formatDateTime } from '@/lib/utils';
+  Input,
+  Label,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
+} from '@broccoli/web-sdk/ui';
+import { formatDateTime } from '@broccoli/web-sdk/utils';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 // ── Types ──
 
@@ -111,7 +113,7 @@ function EnrolledTab({
   participants,
   isLoading,
 }: {
-  contest: ContestListItem;
+  contest: ContestSummary;
   participants: ParticipantItem[];
   isLoading: boolean;
 }) {
@@ -234,7 +236,7 @@ function AddParticipantsTab({
   contest,
   participants,
 }: {
-  contest: ContestListItem;
+  contest: ContestSummary;
   participants: ParticipantItem[];
 }) {
   const { t } = useTranslation();
@@ -364,7 +366,7 @@ function BulkImportTab({
   contest,
   participants,
 }: {
-  contest: ContestListItem;
+  contest: ContestSummary;
   participants: ParticipantItem[];
 }) {
   const { t } = useTranslation();
@@ -821,7 +823,7 @@ export function ManageParticipantsDialog({
   open,
   onOpenChange,
 }: {
-  contest: ContestListItem;
+  contest: ContestSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {

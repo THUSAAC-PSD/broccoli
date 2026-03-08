@@ -1,6 +1,17 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Slot } from '@broccoli/web-sdk/react';
+import { Slot } from '@broccoli/web-sdk/slot';
 import { useTheme } from '@broccoli/web-sdk/theme';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@broccoli/web-sdk/ui';
 import Editor from '@monaco-editor/react';
 import JSZip from 'jszip';
 import {
@@ -14,15 +25,6 @@ import {
 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 interface Language {
   id: string;

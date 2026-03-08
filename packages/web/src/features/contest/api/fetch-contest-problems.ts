@@ -1,10 +1,7 @@
-import type {
-  ContestProblemResponse,
-  ProblemListItem,
-} from '@broccoli/web-sdk';
 import type { ApiClient } from '@broccoli/web-sdk/api';
-
-import type { ServerTableParams } from '@/hooks/use-server-table';
+import type { ContestProblem } from '@broccoli/web-sdk/contest';
+import type { ServerTableParams } from '@broccoli/web-sdk/hooks';
+import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 
 export async function fetchContestProblems(
   apiClient: ApiClient,
@@ -18,11 +15,11 @@ export async function fetchContestProblems(
 
   if (error) throw error;
 
-  const normalizedData = data.map((p: ContestProblemResponse) => ({
+  const normalizedData = data.map((p: ContestProblem) => ({
     ...p,
     id: p.problem_id,
     title: p.problem_title,
-  })) as unknown as ProblemListItem[];
+  })) as unknown as ProblemSummary[];
 
   return {
     data: normalizedData,

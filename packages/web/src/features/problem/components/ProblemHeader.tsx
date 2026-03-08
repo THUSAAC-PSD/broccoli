@@ -1,6 +1,5 @@
+import { Card, CardContent, CardHeader, CardTitle } from '@broccoli/web-sdk/ui';
 import { Clock, Cpu, FileText } from 'lucide-react';
-
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface ProblemHeaderProps {
   id: string;

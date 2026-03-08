@@ -1,10 +1,25 @@
-import type {
-  ContestListItem,
-  ContestProblemResponse,
-} from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
+import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Slot } from '@broccoli/web-sdk/react';
+import { Slot } from '@broccoli/web-sdk/slot';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Sidebar as SidebarUI,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+} from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,
@@ -21,28 +36,8 @@ import {
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Sidebar as SidebarUI,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarRail,
-} from '@/components/ui/sidebar';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContest } from '@/features/contest/contexts/contest-context';
-import { PERMISSIONS } from '@/lib/utils/permission';
 
 interface MenuItem {
   titleKey: string;
@@ -125,7 +120,7 @@ function ContestProblemsGroup() {
         params: { path: { id: contestId! } },
       });
       if (error) throw error;
-      return data as ContestProblemResponse[];
+      return data as ContestProblem[];
     },
   });
 
@@ -235,13 +230,13 @@ function PlatformGroup() {
         },
       });
       if (error) throw error;
-      return data.data as ContestListItem[];
+      return data.data as ContestSummary[];
     },
   });
 
   const multipleContests = contests ? contests.length > 1 : false;
   const havePermissions = user
-    ? PERMISSIONS.some((perm) => user.permissions.includes(perm))
+    ? USER_PERMISSIONS.some((perm) => user.permissions.includes(perm))
     : false;
 
   return (
