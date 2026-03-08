@@ -219,6 +219,41 @@ export function Sidebar() {
   const permissions = user?.permissions || [];
   const menuItems = getMenuItems(permissions);
 
+  // query contests so we can know when there is exactly one available
+  const apiClient = useApiClient();
+  const { data: contests } = useQuery({
+    queryKey: ['dashboard-contests'],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/contests', {
+        params: {
+          query: {
+            page: 1,
+            per_page: 100,
+            sort_by: 'start_time',
+            sort_order: 'desc',
+          },
+        },
+      });
+      if (error) throw error;
+      return data.data;
+    },
+  });
+
+  // hide homepage link when user has access to exactly one contest; we'll
+  // still render it when contests is undefined (loading) or there are zero or
+  // multiple contests.  Additionally administrators should never see the
+  // generic homepage link because they get redirected to /admin.
+  const showHomepage =
+    user?.role !== 'admin' && !(contests && contests.length === 1);
+
+  // when a contestant has only one contest, the entire "Platform" tab group
+  // becomes irrelevant – we collapse it completely. Admins or other roles can
+  // still see it regardless of contest count.
+  const hidePlatformGroup =
+    user?.role === 'contestant' && contests && contests.length === 1;
+  const showPlatformGroup = !hidePlatformGroup;
+
   return (
     <SidebarUI collapsible="icon">
       <SidebarHeader>
@@ -243,36 +278,59 @@ export function Sidebar() {
       <SidebarContent>
         <Slot name="sidebar.content.before" as="div" />
 
-        <SidebarGroup>
-          <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => {
-                const title = t(item.titleKey);
-                const active = isActivePath(pathname, item.url);
-                return (
-                  <SidebarMenuItem key={item.titleKey}>
+        {showPlatformGroup && (
+          <SidebarGroup>
+            <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {showHomepage && (
+                  <SidebarMenuItem key="sidebar.homepage">
                     <SidebarMenuButton
                       asChild
-                      isActive={active}
-                      tooltip={title}
+                      isActive={isActivePath(pathname, '/')}
+                      tooltip={t('sidebar.homepage')}
                     >
-                      <Link to={item.url}>
-                        <item.icon
+                      <Link to="/">
+                        <Home
                           className={
-                            active ? 'text-sidebar-primary' : undefined
+                            isActivePath(pathname, '/')
+                              ? 'text-sidebar-primary'
+                              : undefined
                           }
                         />
-                        <span>{title}</span>
+                        <span>{t('sidebar.homepage')}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                );
-              })}
-              <Slot name="sidebar.platform.menu" as="div" />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                )}
+
+                {menuItems.map((item) => {
+                  const title = t(item.titleKey);
+                  const active = isActivePath(pathname, item.url);
+                  return (
+                    <SidebarMenuItem key={item.titleKey}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        tooltip={title}
+                      >
+                        <Link to={item.url}>
+                          <item.icon
+                            className={
+                              active ? 'text-sidebar-primary' : undefined
+                            }
+                          />
+                          <span>{title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+                <Slot name="sidebar.platform.menu" as="div" />
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <ContestProblemsGroup />
 

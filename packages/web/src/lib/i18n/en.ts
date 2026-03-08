@@ -73,6 +73,7 @@ export const en: Record<string, string> = {
   'overview.noContests': 'No contests found.',
 
   // Homepage
+  'homepage.title': 'Broccoli Online Judge',
   'homepage.selectContest': 'Select a Contest',
   'homepage.selectContestDesc':
     'Select a contest to view its details and problems.',
