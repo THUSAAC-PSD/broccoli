@@ -2,99 +2,12 @@ import type { ContestProblemResponse } from '@broccoli/web-sdk';
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
-import { AlignLeft, CalendarClock, Clock, Trophy } from 'lucide-react';
+import { ChevronRight, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
-import { Markdown } from '@/components/Markdown';
 import { PageLayout } from '@/components/PageLayout';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
-import { getContestStatus } from '@/features/contest/utils/status';
-import { formatDateTime } from '@/lib/utils';
-
-export function ContestInfoCard({ contestId }: { contestId: number }) {
-  const { t, locale } = useTranslation();
-  const { contest, isLoading, error } = useContestInfo(contestId);
-
-  const status = contest
-    ? getContestStatus(contest.start_time, contest.end_time, t)
-    : null;
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            {'时间'}
-          </div>
-          {status && <Badge variant={status.variant}>{status.label}</Badge>}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-5 w-64" />
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ) : error ? (
-          <div className="text-sm text-destructive">
-            {t('contests.loadError')}
-          </div>
-        ) : contest ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2 rounded-lg border bg-muted/30 p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-md bg-background p-2 shadow-sm">
-                  <CalendarClock className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('contests.startTime')}
-                  </div>
-                  <div className="font-semibold text-base mt-0.5">
-                    {formatDateTime(contest.start_time, locale)}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="rounded-md bg-background p-2 shadow-sm">
-                  <CalendarClock className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">
-                    {t('contests.endTime')}
-                  </div>
-                  <div className="font-semibold text-base mt-0.5">
-                    {formatDateTime(contest.end_time, locale)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Separator className="my-2" />
-
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <AlignLeft className="h-4 w-4" />
-                {t('contests.description')}
-              </div>
-              <div className="prose prose-sm dark:prose-invert max-w-none rounded-lg border bg-muted/10 p-4">
-                <Markdown>
-                  {contest.description || t('contests.noDescription')}
-                </Markdown>
-              </div>
-            </div>
-          </>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
 
 export function ContestProblemsCard({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
@@ -117,58 +30,65 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('contests.problems')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-full" />
-          </div>
-        ) : error ? (
-          <div className="text-sm text-destructive">
-            {t('contests.loadProblemsError')}
-          </div>
-        ) : problems.length === 0 ? (
-          <div className="text-sm text-muted-foreground">
-            {t('problems.empty')}
-          </div>
-        ) : (
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-3 text-left font-medium w-20">
-                    {t('problems.label')}
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium">
-                    {t('problems.titleColumn')}
-                  </th>
+    <div>
+      <h3 className="text-lg font-semibold mb-3">{t('contests.problems')}</h3>
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      ) : error ? (
+        <div className="text-sm text-destructive">
+          {t('contests.loadProblemsError')}
+        </div>
+      ) : problems.length === 0 ? (
+        <div className="text-sm text-muted-foreground">
+          {t('problems.empty')}
+        </div>
+      ) : (
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-16">
+                  {t('problems.label')}
+                </th>
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                  {t('problems.titleColumn')}
+                </th>
+                <th className="w-10" />
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {problems.map((p) => (
+                <tr
+                  key={p.problem_id}
+                  className="group transition-colors hover:bg-muted/50"
+                >
+                  <td className="px-4 py-3">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
+                      {p.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      to={`/contests/${contestId}/problems/${p.problem_id}`}
+                      className="font-medium group-hover:text-primary transition-colors"
+                    >
+                      {p.problem_title}
+                    </Link>
+                  </td>
+                  <td className="px-2 py-3">
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-primary transition-colors" />
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {problems.map((p) => (
-                  <tr key={p.problem_id} className="border-b">
-                    <td className="px-4 py-3 font-semibold">{p.label}</td>
-                    <td className="px-4 py-3">
-                      <Link
-                        to={`/contests/${contestId}/problems/${p.problem_id}`}
-                        className="font-medium hover:text-primary hover:underline"
-                      >
-                        {p.problem_title}
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -190,9 +110,9 @@ export default function ContestOverviewPage() {
     <PageLayout
       pageId="contest-overview"
       title={contest?.title ?? t('contests.title')}
+      subtitle={contest?.description}
       icon={<Trophy className="h-6 w-6 text-primary" />}
     >
-      <ContestInfoCard contestId={id} />
       <ContestProblemsCard contestId={id} />
     </PageLayout>
   );

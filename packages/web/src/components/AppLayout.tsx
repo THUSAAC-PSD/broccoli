@@ -18,13 +18,13 @@ export function AppLayout({ children }: AppLayoutProps) {
       <SidebarProvider>
         <Sidebar />
         <SidebarInset>
-          <div className="fixed left-4 top-4 z-50 md:hidden">
+          <div className="fixed left-4 inset-y-0 z-50 flex items-center md:hidden">
             <SidebarTrigger className="h-9 w-9 rounded-md border bg-background/90 shadow-sm backdrop-blur" />
           </div>
           <div className="fixed bottom-8 right-8 z-50">
             <Slot name="app.NotificationButton" as="div" />
           </div>
-          <div className="flex flex-1 flex-col pt-12 container mx-auto px-4">
+          <div className="flex flex-1 flex-col container mx-auto px-4">
             {children}
           </div>
         </SidebarInset>

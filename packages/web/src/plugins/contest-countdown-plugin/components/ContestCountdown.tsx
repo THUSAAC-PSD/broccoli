@@ -21,9 +21,6 @@ function getTimeLeft(target: Date) {
 
 // CSS-variable-based color tokens — respond to any theme automatically
 const ACCENT = 'hsl(var(--sidebar-ring))';
-const ACCENT_15 = 'hsl(var(--sidebar-ring) / 0.15)';
-const ACCENT_20 = 'hsl(var(--sidebar-ring) / 0.20)';
-const ACCENT_06 = 'hsl(var(--sidebar-ring) / 0.06)';
 
 // ── shared data hook ──────────────────────────────────────────────────────────
 
@@ -79,11 +76,11 @@ function useCountdownData(contestId: number) {
 
 export function ContestCountdown() {
   const { contestId } = useParams();
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const d = useCountdownData(Number(contestId));
 
   if (!d) return null;
-  const { phase, tl, progress } = d;
+  const { contest, phase, tl, progress } = d;
 
   const active = phase !== 'ended';
   const segments =
@@ -107,59 +104,59 @@ export function ContestCountdown() {
         ? t('countdown.endsIn')
         : t('countdown.contestOver');
 
+  const fmtDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString(locale, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
   return (
-    <div
-      className="rounded-xl border px-6 py-6 transition-colors duration-500"
-      style={
-        active
-          ? {
-              borderColor: phase === 'upcoming' ? ACCENT_15 : ACCENT_20,
-              background: `linear-gradient(to bottom, ${ACCENT_06}, transparent)`,
-            }
-          : undefined
-      }
-    >
-      <div className="flex flex-col items-center gap-3">
-        {/* Status label */}
+    <div className="flex-1 flex items-center min-w-0">
+      {!active ? (
         <div className="flex items-center gap-1.5">
-          {active && (
-            <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${phase === 'running' ? 'animate-pulse' : ''}`}
-              style={{ backgroundColor: ACCENT }}
-            />
-          )}
-          <span
-            className="text-[11px] font-semibold uppercase tracking-[0.2em]"
-            style={active ? { color: ACCENT } : undefined}
-          >
+          <span className="text-[10px] font-semibold uppercase tracking-[0.15em]">
             {phaseLabel}
           </span>
-        </div>
-
-        {!active ? (
-          <p className="py-2 text-base font-medium text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('countdown.finishedMessage')}
           </p>
-        ) : (
-          <>
-            {/* Digits */}
-            <div className="flex items-end gap-2 sm:gap-3">
+        </div>
+      ) : (
+        <>
+          {/* Center: phase label + big digits */}
+          <div className="flex-1 flex flex-col items-center min-w-0">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${phase === 'running' ? 'animate-pulse' : ''}`}
+                style={{ backgroundColor: ACCENT }}
+              />
+              <span
+                className="text-[10px] font-semibold uppercase tracking-[0.15em]"
+                style={{ color: ACCENT }}
+              >
+                {phaseLabel}
+              </span>
+            </div>
+            <div className="flex items-end gap-2">
               {segments.map((seg, i) => (
                 <Fragment key={seg.label}>
-                  <div className="flex flex-col items-center gap-2">
+                  <div className="flex flex-col items-center">
                     <span
-                      className="tabular-nums text-5xl font-bold leading-none tracking-tighter sm:text-6xl"
+                      className="tabular-nums text-4xl font-bold leading-none tracking-tighter"
                       style={{ color: ACCENT }}
                     >
                       {String(seg.value).padStart(2, '0')}
                     </span>
-                    <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                    <span className="mt-0.5 text-[8px] font-medium uppercase tracking-widest text-muted-foreground">
                       {seg.label}
                     </span>
                   </div>
                   {i < segments.length - 1 && (
                     <span
-                      className="mb-5 select-none text-2xl font-extralight opacity-30"
+                      className="mb-4 select-none text-xl font-extralight opacity-30"
                       style={{ color: ACCENT }}
                     >
                       :
@@ -168,11 +165,16 @@ export function ContestCountdown() {
                 </Fragment>
               ))}
             </div>
+          </div>
 
-            {/* Progress bar — running only */}
+          {/* Right: schedule + progress */}
+          <div className="hidden sm:flex flex-col items-end gap-2 shrink-0">
+            <div className="text-[11px] text-muted-foreground/70 whitespace-nowrap font-medium">
+              {fmtDate(contest.start_time)} → {fmtDate(contest.end_time)}
+            </div>
             {phase === 'running' && (
-              <div className="mt-1 w-full max-w-[260px]">
-                <div className="h-px w-full overflow-hidden rounded-full bg-foreground/10">
+              <div className="w-full">
+                <div className="w-full h-1 overflow-hidden rounded-full bg-foreground/5">
                   <div
                     className="h-full rounded-full transition-none"
                     style={{
@@ -181,15 +183,14 @@ export function ContestCountdown() {
                     }}
                   />
                 </div>
-                <div className="mt-1.5 flex justify-between text-[9px] text-muted-foreground/50">
-                  <span>{t('countdown.elapsed')}</span>
-                  <span>{Math.round(progress)}%</span>
+                <div className="mt-0.5 text-right text-[9px] tabular-nums text-muted-foreground/50">
+                  {Math.round(progress)}%
                 </div>
               </div>
             )}
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
