@@ -403,6 +403,32 @@ impl TestApp {
         )
         .expect("Failed to initialize plugin manager");
 
+        if !load_plugins {
+            // Register built-in defaults so create_problem validation passes
+            // without needing actual plugins loaded.
+            evaluator_registry.write().await.insert(
+                "standard".into(),
+                server::registry::PluginHandler {
+                    plugin_id: "__test__".into(),
+                    function_name: "noop".into(),
+                },
+            );
+            checker_format_registry.write().await.insert(
+                "exact".into(),
+                server::registry::PluginHandler {
+                    plugin_id: "__test__".into(),
+                    function_name: "noop".into(),
+                },
+            );
+            contest_type_registry.write().await.insert(
+                "standard".into(),
+                server::registry::PluginHandler {
+                    plugin_id: "__test__".into(),
+                    function_name: "noop".into(),
+                },
+            );
+        }
+
         let state = AppState {
             plugins,
             db: db.clone(),
@@ -603,6 +629,8 @@ impl TestApp {
                     "content": "## Description\nSolve this.",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
+                    "checker_format": "exact",
                 }),
                 token,
             )

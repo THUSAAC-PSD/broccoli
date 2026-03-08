@@ -39,7 +39,7 @@ mod plugin_management {
 
     #[tokio::test]
     async fn admin_can_enable_a_valid_plugin() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
@@ -72,7 +72,7 @@ mod plugin_management {
 
     #[tokio::test]
     async fn enabling_same_plugin_twice_returns_conflict() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
@@ -114,7 +114,7 @@ mod plugin_routing {
 
     #[tokio::test]
     async fn public_route_returns_correct_response() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
 
         let res = app
             .get_without_token(&routes::plugin_proxy_with_query(
@@ -153,9 +153,9 @@ mod plugin_routing {
         assert_eq!(res.body["code"], "NOT_FOUND");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn sql_counter_increments_across_calls() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
 
         let res = app
             .post_without_token(
@@ -178,7 +178,7 @@ mod plugin_routing {
 
     #[tokio::test]
     async fn web_plugin_asset_is_served_with_correct_content_type() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
 
         let res = app
             .get_without_token(&routes::plugin_asset("web-plugin", "index.js"))
@@ -219,7 +219,7 @@ mod plugin_routing {
 
     #[tokio::test]
     async fn calling_disabled_plugin_returns_not_found() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;

@@ -179,7 +179,11 @@ impl From<PluginError> for AppError {
                 tracing::warn!("Plugin not found: {detail}");
                 AppError::NotFound(format!("Plugin '{detail}' not found"))
             }
-            PluginError::NotLoaded(_) | PluginError::NoRuntime(_) => {
+            PluginError::NotLoaded(detail) => {
+                tracing::warn!("Plugin not loaded: {detail}");
+                AppError::NotFound(format!("Plugin '{detail}' not found"))
+            }
+            PluginError::NoRuntime(_) => {
                 tracing::warn!("Plugin not ready: {err}");
                 AppError::PluginNotReady(err.to_string())
             }

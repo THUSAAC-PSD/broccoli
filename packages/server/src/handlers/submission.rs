@@ -256,7 +256,7 @@ async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
             }
         }
     } else {
-        None
+        Some("standard".to_string())
     };
 
     let handler = {

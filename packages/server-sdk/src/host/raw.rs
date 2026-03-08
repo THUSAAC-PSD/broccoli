@@ -7,7 +7,7 @@ extern "ExtismHost" {
     pub fn register_evaluator(input: String) -> String;
     pub fn register_checker_format(input: String) -> String;
     pub fn db_query(sql: String) -> String;
-    pub fn db_execute(sql: String) -> String;
+    pub fn db_execute(sql: String) -> u64;
     pub fn start_evaluate_batch(input: String) -> String;
     pub fn get_next_evaluate_result(input: String) -> String;
     pub fn cancel_evaluate_batch(input: String) -> String;
