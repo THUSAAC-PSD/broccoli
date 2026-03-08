@@ -6,7 +6,7 @@ import { Unauthorized } from '@/components/Unauthorized';
 import { AdminProblemsTab } from '@/features/admin/components/AdminProblemsTab';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 
-export function ProblemsPage({ contestId }: { contestId?: number }) {
+export function AdminProblemListView({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
 
