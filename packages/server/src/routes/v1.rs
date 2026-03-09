@@ -58,7 +58,16 @@ fn plugin_routes() -> OpenApiRouter<AppState> {
 }
 
 fn proxy_routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(handlers::proxy::handle_plugin_request))
+    OpenApiRouter::new().routes(routes!(
+        handlers::proxy::get_plugin_request,
+        handlers::proxy::post_plugin_request,
+        handlers::proxy::put_plugin_request,
+        handlers::proxy::delete_plugin_request,
+        handlers::proxy::patch_plugin_request,
+        handlers::proxy::options_plugin_request,
+        handlers::proxy::head_plugin_request,
+        handlers::proxy::trace_plugin_request,
+    ))
 }
 
 fn i18n_routes() -> OpenApiRouter<AppState> {

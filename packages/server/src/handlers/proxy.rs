@@ -14,41 +14,16 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::state::AppState;
 
-/// Dispatch request to a specific plugin.
-///
-/// This endpoint acts as a proxy. The actual request/response structure depends
-/// on the specific plugin's implementation defined in its manifest.
-#[utoipa::path(
-    method(get, post, put, delete, options, head, patch, trace),
-    path = "/{plugin_id}/{*path}",
-    tag = "Plugins",
-    operation_id = "handlePluginRequest",
-    summary = "Proxy request to plugin-defined route",
-    description = "Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.",
-    params(
-        ("plugin_id" = String, Path, description = "The unique identifier of the plugin"),
-        ("path" = String, Path, description = "The sub-path defined in plugin's manifest")
-    ),
-    request_body = serde_json::Value,
-    responses(
-        (status = 200, description = "Success", body = serde_json::Value),
-        (status = 401, description = "Unauthorized", body = ErrorBody),
-        (status = 403, description = "Forbidden", body = ErrorBody),
-        (status = 404, description = "Plugin or Route not found", body = ErrorBody),
-        (status = 405, description = "Method Not Allowed", body = ErrorBody),
-    ),
-    security(("jwt" = []))
-)]
-#[instrument(skip(state, auth_user, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
-pub async fn handle_plugin_request(
-    State(state): State<AppState>,
-    Path((plugin_id, sub_path)): Path<(String, String)>,
+async fn handle_plugin_request_impl(
+    state: AppState,
+    plugin_id: String,
+    sub_path: String,
     auth_user: Option<AuthUser>,
     method: Method,
     headers: HeaderMap,
-    Query(query): Query<HashMap<String, String>>,
+    query: HashMap<String, String>,
     body: String,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<Response<Body>, AppError> {
     let normalized_path = if sub_path.starts_with('/') {
         sub_path
     } else {
@@ -146,3 +121,135 @@ pub async fn handle_plugin_request(
 
     Ok(builder.body(Body::from(resp_body)).unwrap())
 }
+
+/// Generate a per-method proxy handler with its own utoipa operation_id.
+macro_rules! proxy_handler {
+    // With request_body
+    ($fn_name:ident, $method:ident, $op_id:expr, $summary:expr, request_body = $body_type:ty) => {
+        #[utoipa::path(
+            $method,
+            path = "/{plugin_id}/{*path}",
+            tag = "Plugins",
+            operation_id = $op_id,
+            summary = $summary,
+            description = "Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.",
+            params(
+                ("plugin_id" = String, Path, description = "The unique identifier of the plugin"),
+                ("path" = String, Path, description = "The sub-path defined in plugin's manifest")
+            ),
+            request_body = $body_type,
+            responses(
+                (status = 200, description = "Success", body = serde_json::Value),
+                (status = 401, description = "Unauthorized", body = ErrorBody),
+                (status = 403, description = "Forbidden", body = ErrorBody),
+                (status = 404, description = "Plugin or Route not found", body = ErrorBody),
+                (status = 405, description = "Method Not Allowed", body = ErrorBody),
+            ),
+            security(("jwt" = []))
+        )]
+        #[instrument(skip(state, auth_user, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
+        pub async fn $fn_name(
+            State(state): State<AppState>,
+            Path((plugin_id, sub_path)): Path<(String, String)>,
+            auth_user: Option<AuthUser>,
+            method: Method,
+            headers: HeaderMap,
+            Query(query): Query<HashMap<String, String>>,
+            body: String,
+        ) -> Result<impl IntoResponse, AppError> {
+            handle_plugin_request_impl(state, plugin_id, sub_path, auth_user, method, headers, query, body).await
+        }
+    };
+
+    // Without request_body
+    ($fn_name:ident, $method:ident, $op_id:expr, $summary:expr) => {
+        #[utoipa::path(
+            $method,
+            path = "/{plugin_id}/{*path}",
+            tag = "Plugins",
+            operation_id = $op_id,
+            summary = $summary,
+            description = "Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.",
+            params(
+                ("plugin_id" = String, Path, description = "The unique identifier of the plugin"),
+                ("path" = String, Path, description = "The sub-path defined in plugin's manifest")
+            ),
+            responses(
+                (status = 200, description = "Success", body = serde_json::Value),
+                (status = 401, description = "Unauthorized", body = ErrorBody),
+                (status = 403, description = "Forbidden", body = ErrorBody),
+                (status = 404, description = "Plugin or Route not found", body = ErrorBody),
+                (status = 405, description = "Method Not Allowed", body = ErrorBody),
+            ),
+            security(("jwt" = []))
+        )]
+        #[instrument(skip(state, auth_user, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
+        pub async fn $fn_name(
+            State(state): State<AppState>,
+            Path((plugin_id, sub_path)): Path<(String, String)>,
+            auth_user: Option<AuthUser>,
+            method: Method,
+            headers: HeaderMap,
+            Query(query): Query<HashMap<String, String>>,
+            body: String,
+        ) -> Result<impl IntoResponse, AppError> {
+            handle_plugin_request_impl(state, plugin_id, sub_path, auth_user, method, headers, query, body).await
+        }
+    };
+}
+
+// Methods with request body
+proxy_handler!(
+    post_plugin_request,
+    post,
+    "postPluginRequest",
+    "POST proxy to plugin route",
+    request_body = serde_json::Value
+);
+proxy_handler!(
+    put_plugin_request,
+    put,
+    "putPluginRequest",
+    "PUT proxy to plugin route",
+    request_body = serde_json::Value
+);
+proxy_handler!(
+    delete_plugin_request,
+    delete,
+    "deletePluginRequest",
+    "DELETE proxy to plugin route",
+    request_body = serde_json::Value
+);
+proxy_handler!(
+    patch_plugin_request,
+    patch,
+    "patchPluginRequest",
+    "PATCH proxy to plugin route",
+    request_body = serde_json::Value
+);
+
+// Methods without request body
+proxy_handler!(
+    get_plugin_request,
+    get,
+    "getPluginRequest",
+    "GET proxy to plugin route"
+);
+proxy_handler!(
+    head_plugin_request,
+    head,
+    "headPluginRequest",
+    "HEAD proxy to plugin route"
+);
+proxy_handler!(
+    options_plugin_request,
+    options,
+    "optionsPluginRequest",
+    "OPTIONS proxy to plugin route"
+);
+proxy_handler!(
+    trace_plugin_request,
+    trace,
+    "tracePluginRequest",
+    "TRACE proxy to plugin route"
+);
