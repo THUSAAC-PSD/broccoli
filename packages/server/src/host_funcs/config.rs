@@ -91,7 +91,7 @@ pub fn create_config_set_function(plugin_id: String, db: DatabaseConnection) -> 
     Function::new(
         "config_set",
         [ValType::I64],
-        [ValType::I64],
+        [],
         UserData::new((plugin_id, db)),
         config_set_fn,
     )
@@ -151,7 +151,7 @@ fn config_get_fn(
 fn config_set_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
-    outputs: &mut [Val],
+    _outputs: &mut [Val],
     user_data: UserData<ConfigUserData>,
 ) -> Result<(), extism::Error> {
     let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
@@ -207,11 +207,6 @@ fn config_set_fn(
         })
     })
     .map_err(|e| extism::Error::msg(format!("DB error in config_set: {}", e)))?;
-
-    let output_bytes = serde_json::to_vec(&serde_json::json!({}))
-        .map_err(|e| extism::Error::msg(format!("Failed to serialize config_set output: {}", e)))?;
-    let offset = plugin.memory_new(&output_bytes)?;
-    outputs[0] = Val::I64(offset.offset() as i64);
 
     Ok(())
 }

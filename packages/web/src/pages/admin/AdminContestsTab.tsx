@@ -23,7 +23,7 @@ import {
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
-import { ResourceConfigDialog } from '@/components/config';
+import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -439,6 +439,7 @@ export function ContestProblemsDialog({
   const queryClient = useQueryClient();
   const contestProblemsKey = ['contest-problems', contest.id];
   const apiClient = useApiClient();
+  const hasContestProblemConfig = useHasConfigSchemas('contest_problem');
 
   const { data: contestProblems = [], isLoading: loadingContestProblems } =
     useQuery({
@@ -578,17 +579,19 @@ export function ContestProblemsDialog({
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            setConfigProblemId(p.problem_id);
-                            setConfigCPOpen(true);
-                          }}
-                        >
-                          <Settings className="h-3.5 w-3.5" />
-                        </Button>
+                        {hasContestProblemConfig && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              setConfigProblemId(p.problem_id);
+                              setConfigCPOpen(true);
+                            }}
+                          >
+                            <Settings className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1320,6 +1323,7 @@ export function AdminContestsTab() {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const hasContestConfig = useHasConfigSchemas('contest');
 
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
   const [editingContest, setEditingContest] = useState<
@@ -1380,7 +1384,7 @@ export function AdminContestsTab() {
     onDelete: handleDeleteContest,
     onManageProblems: handleManageProblems,
     onBulkParticipants: handleBulkParticipants,
-    onConfigure: handleConfigure,
+    onConfigure: hasContestConfig ? handleConfigure : undefined,
   });
 
   return (

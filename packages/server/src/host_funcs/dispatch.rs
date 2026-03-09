@@ -75,7 +75,7 @@ pub fn create_dispatch_functions(
         Function::new(
             "cancel_operation_batch",
             [ValType::I64],
-            [ValType::I64],
+            [],
             user_data,
             cancel_operation_batch_fn,
         ),
@@ -260,7 +260,7 @@ fn get_next_operation_result_fn(
 fn cancel_operation_batch_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
-    outputs: &mut [Val],
+    _outputs: &mut [Val],
     user_data: UserData<DispatchUserData>,
 ) -> Result<(), extism::Error> {
     let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
@@ -282,13 +282,6 @@ fn cancel_operation_batch_fn(
         batch_id = %input.batch_id,
         "Operation batch cancelled"
     );
-
-    // Return empty JSON object
-    let output = serde_json::json!({});
-    let output_bytes = serde_json::to_vec(&output)
-        .map_err(|e| extism::Error::msg(format!("Failed to serialize output: {}", e)))?;
-    let offset = plugin.memory_new(&output_bytes)?;
-    outputs[0] = Val::I64(offset.offset() as i64);
 
     Ok(())
 }

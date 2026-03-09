@@ -222,6 +222,9 @@ export function ResourceConfigDialog({
   const pluginsWithSchemas = useMemo(
     () =>
       plugins
+        .filter((plugin: PluginDetailResponse) =>
+          scope.scope === 'plugin' ? plugin.id === scope.pluginId : true,
+        )
         .map((plugin: PluginDetailResponse) => ({
           plugin,
           schemas: plugin.config_schemas.filter((s: ConfigSchemaResponse) =>
@@ -234,7 +237,7 @@ export function ResourceConfigDialog({
             schemas: ConfigSchemaResponse[];
           }) => entry.schemas.length > 0,
         ),
-    [plugins, scopeStr],
+    [plugins, scopeStr, scope],
   );
 
   const [activePlugin, setActivePlugin] = useState('');

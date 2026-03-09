@@ -46,12 +46,12 @@ pub fn init_host_functions(
         )
     });
 
-    // Storage permission
+    // Storage permission (single JSON input, matching SDK)
     let db_clone = db.clone();
     hr.register("storage", move |plugin_id| {
         Function::new(
             "store_set",
-            [ValType::I64, ValType::I64, ValType::I64],
+            [ValType::I64],
             [],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             storage::store_set,
@@ -62,7 +62,7 @@ pub fn init_host_functions(
     hr.register("storage", move |plugin_id| {
         Function::new(
             "store_get",
-            [ValType::I64, ValType::I64],
+            [ValType::I64],
             [ValType::I64],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             storage::store_get,

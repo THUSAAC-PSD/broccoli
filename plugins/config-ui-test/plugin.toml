@@ -1,0 +1,338 @@
+name = "config-ui-test"
+version = "0.1.0"
+description = "Stress-test plugin for config UI — exercises every schema feature"
+
+# No [server] or [worker] — config-schema + frontend-only plugin.
+
+[web]
+root = "frontend/dist"
+entry = "index.js"
+
+[web.components]
+ColorPickerField = "ColorPickerField"
+ModeCardSelector = "ModeCardSelector"
+CollapsibleWrapper = "CollapsibleWrapper"
+
+# Replace accent_color text input with a color picker
+[[web.slots]]
+name = "config.field.config-ui-test.appearance.accent_color"
+position = "replace"
+component = "ColorPickerField"
+
+# Replace mode dropdown with visual card selector
+[[web.slots]]
+name = "config.field.config-ui-test.stress-test.mode"
+position = "replace"
+component = "ModeCardSelector"
+
+# Wrap scoring section in a collapsible panel
+[[web.slots]]
+name = "config.field.config-ui-test.stress-test.scoring"
+position = "wrap"
+component = "CollapsibleWrapper"
+
+# ─── Namespace 1: stress-test ───────────────────────────────────────────────────
+# Tests: deep nesting, all field types, arrays of objects, arrays of arrays,
+# numeric extensions, string constraints, enums, defaults.
+
+[config.stress-test]
+description = "Kitchen-sink config schema — every feature the UI supports"
+scopes = ["plugin", "contest", "problem", "contest_problem"]
+
+# ── Top-level scalars ──
+
+[config.stress-test.properties.enabled]
+type = "boolean"
+title = "Enabled"
+description = "Master switch for the stress test plugin"
+default = true
+
+[config.stress-test.properties.mode]
+type = "string"
+title = "Mode"
+description = "Operation mode"
+enum = ["fast", "balanced", "thorough", "experimental"]
+default = "balanced"
+
+[config.stress-test.properties.label]
+type = "string"
+title = "Display Label"
+description = "A label shown in the UI (1-50 chars)"
+default = "Stress Test"
+min_length = 1
+max_length = 50
+
+[config.stress-test.properties.max_attempts]
+type = "integer"
+title = "Max Attempts"
+description = "Maximum number of retry attempts"
+default = 3
+min = 0
+max = 100
+
+[config.stress-test.properties.timeout_s]
+type = "number"
+title = "Timeout"
+description = "Global timeout for operations"
+default = 30.0
+min = 0.5
+max = 600.0
+step = 0.5
+precision = 1
+unit = "s"
+
+# ── Nested object (depth 1) ──
+
+[config.stress-test.properties.scoring]
+type = "object"
+title = "Scoring"
+description = "Scoring configuration with nested rules"
+
+[config.stress-test.properties.scoring.properties.base_score]
+type = "number"
+title = "Base Score"
+default = 100.0
+min = 0.0
+max = 10000.0
+step = 10.0
+precision = 0
+unit = "pts"
+
+[config.stress-test.properties.scoring.properties.penalty_per_wrong]
+type = "number"
+title = "Penalty per Wrong Answer"
+default = 20.0
+min = 0.0
+max = 1000.0
+step = 5.0
+precision = 0
+unit = "pts"
+
+[config.stress-test.properties.scoring.properties.partial_scoring]
+type = "boolean"
+title = "Allow Partial Scoring"
+default = true
+
+# ── Nested object (depth 2) — scoring.weights ──
+
+[config.stress-test.properties.scoring.properties.weights]
+type = "object"
+title = "Score Weights"
+description = "Per-component weights"
+
+[config.stress-test.properties.scoring.properties.weights.properties.correctness]
+type = "number"
+title = "Correctness Weight"
+default = 0.7
+min = 0.0
+max = 1.0
+step = 0.05
+precision = 2
+
+[config.stress-test.properties.scoring.properties.weights.properties.performance]
+type = "number"
+title = "Performance Weight"
+default = 0.2
+min = 0.0
+max = 1.0
+step = 0.05
+precision = 2
+
+[config.stress-test.properties.scoring.properties.weights.properties.style]
+type = "number"
+title = "Style Weight"
+default = 0.1
+min = 0.0
+max = 1.0
+step = 0.05
+precision = 2
+
+# ── Nested object (depth 3) — scoring.weights.bonuses ──
+
+[config.stress-test.properties.scoring.properties.weights.properties.bonuses]
+type = "object"
+title = "Bonus Multipliers"
+description = "Third-level nesting"
+
+[config.stress-test.properties.scoring.properties.weights.properties.bonuses.properties.early_submission]
+type = "number"
+title = "Early Submission Bonus"
+default = 1.5
+min = 1.0
+max = 5.0
+step = 0.1
+precision = 1
+
+[config.stress-test.properties.scoring.properties.weights.properties.bonuses.properties.first_solve]
+type = "number"
+title = "First Solve Bonus"
+default = 2.0
+min = 1.0
+max = 10.0
+step = 0.5
+precision = 1
+
+# ── Array of scalars (strings) ──
+
+[config.stress-test.properties.tags]
+type = "array"
+title = "Tags"
+description = "Free-form labels for categorization"
+default = ["default", "test"]
+
+[config.stress-test.properties.tags.items]
+type = "string"
+min_length = 1
+max_length = 30
+
+# ── Array of scalars (numbers) ──
+
+[config.stress-test.properties.thresholds]
+type = "array"
+title = "Score Thresholds"
+description = "Percentage thresholds for grade boundaries"
+default = [90, 80, 70, 60]
+
+[config.stress-test.properties.thresholds.items]
+type = "integer"
+min = 0
+max = 100
+
+# ── Array of objects ──
+
+[config.stress-test.properties.test_phases]
+type = "array"
+title = "Test Phases"
+description = "Ordered phases, each with its own config"
+
+[config.stress-test.properties.test_phases.items]
+type = "object"
+
+[config.stress-test.properties.test_phases.items.properties.name]
+type = "string"
+title = "Phase Name"
+default = "Phase"
+min_length = 1
+max_length = 40
+
+[config.stress-test.properties.test_phases.items.properties.duration_ms]
+type = "integer"
+title = "Duration"
+default = 5000
+min = 100
+max = 600000
+step = 100.0
+unit = "ms"
+
+[config.stress-test.properties.test_phases.items.properties.weight]
+type = "number"
+title = "Weight"
+default = 1.0
+min = 0.0
+max = 10.0
+step = 0.1
+precision = 1
+
+[config.stress-test.properties.test_phases.items.properties.strategy]
+type = "string"
+title = "Strategy"
+enum = ["sequential", "parallel", "random"]
+default = "sequential"
+
+# ── Array of arrays (tests the I3 fix!) ──
+
+[config.stress-test.properties.matrix]
+type = "array"
+title = "Score Matrix"
+description = "2D matrix — array of arrays of numbers (tests nested array validation)"
+
+[config.stress-test.properties.matrix.items]
+type = "array"
+title = "Row"
+
+[config.stress-test.properties.matrix.items.items]
+type = "number"
+min = 0.0
+max = 100.0
+
+# ── Resource limits (depth 1 object, to test grid alignment) ──
+
+[config.stress-test.properties.resource_limits]
+type = "object"
+title = "Resource Limits"
+
+[config.stress-test.properties.resource_limits.properties.memory_kb]
+type = "integer"
+title = "Memory Limit"
+default = 262144
+min = 1024
+max = 2097152
+step = 1024.0
+unit = "KB"
+
+[config.stress-test.properties.resource_limits.properties.cpu_time_ms]
+type = "integer"
+title = "CPU Time Limit"
+default = 2000
+min = 100
+max = 300000
+step = 100.0
+unit = "ms"
+
+[config.stress-test.properties.resource_limits.properties.wall_time_ms]
+type = "integer"
+title = "Wall Time Limit"
+default = 10000
+min = 100
+max = 600000
+step = 100.0
+unit = "ms"
+
+[config.stress-test.properties.resource_limits.properties.stack_kb]
+type = "integer"
+title = "Stack Size"
+default = 65536
+min = 1024
+max = 1048576
+step = 1024.0
+unit = "KB"
+
+# ─── Namespace 2: appearance ────────────────────────────────────────────────────
+# Tests: multiple namespaces, tab UI
+
+[config.appearance]
+description = "Visual appearance settings (tests multi-namespace tab UI)"
+scopes = ["plugin", "contest"]
+
+[config.appearance.properties.theme]
+type = "string"
+title = "Theme"
+enum = ["light", "dark", "auto", "high-contrast"]
+default = "auto"
+
+[config.appearance.properties.accent_color]
+type = "string"
+title = "Accent Color"
+description = "CSS color value"
+default = "#4f46e5"
+max_length = 20
+
+[config.appearance.properties.font_size_px]
+type = "integer"
+title = "Font Size"
+default = 14
+min = 8
+max = 32
+unit = "px"
+
+[config.appearance.properties.show_logo]
+type = "boolean"
+title = "Show Logo"
+default = true
+
+[config.appearance.properties.custom_css]
+type = "string"
+title = "Custom CSS"
+description = "Injected CSS (careful!)"
+default = ""
+max_length = 5000

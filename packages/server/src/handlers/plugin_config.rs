@@ -106,11 +106,9 @@ async fn get_config_inner<C: ConnectionTrait>(
             config: r.config,
             updated_at: Some(r.updated_at),
         })),
-        None => Ok(Json(PluginConfigResponse {
-            namespace: namespace.to_string(),
-            config: serde_json::json!({}),
-            updated_at: None,
-        })),
+        None => Err(AppError::NotFound(format!(
+            "Config '{namespace}' not found"
+        ))),
     }
 }
 
@@ -267,7 +265,8 @@ pub async fn list_plugin_global_config(
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
-        (status = 200, description = "Config found (empty config with null updated_at if never saved)", body = PluginConfigResponse),
+        (status = 200, description = "Config found", body = PluginConfigResponse),
+        (status = 404, description = "Config not found (NOT_FOUND)", body = crate::error::ErrorBody),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = crate::error::ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = crate::error::ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = crate::error::ErrorBody),
@@ -392,7 +391,8 @@ pub async fn list_problem_config(
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
-        (status = 200, description = "Config found (empty config with null updated_at if never saved)", body = PluginConfigResponse),
+        (status = 200, description = "Config found", body = PluginConfigResponse),
+        (status = 404, description = "Config not found (NOT_FOUND)", body = crate::error::ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = crate::error::ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = crate::error::ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = crate::error::ErrorBody),
@@ -524,7 +524,8 @@ pub async fn list_contest_problem_config(
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
-        (status = 200, description = "Config found (empty config with null updated_at if never saved)", body = PluginConfigResponse),
+        (status = 200, description = "Config found", body = PluginConfigResponse),
+        (status = 404, description = "Config not found (NOT_FOUND)", body = crate::error::ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = crate::error::ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = crate::error::ErrorBody),
         (status = 404, description = "Contest problem not found (NOT_FOUND)", body = crate::error::ErrorBody),
@@ -658,7 +659,8 @@ pub async fn list_contest_config(
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
-        (status = 200, description = "Config found (empty config with null updated_at if never saved)", body = PluginConfigResponse),
+        (status = 200, description = "Config found", body = PluginConfigResponse),
+        (status = 404, description = "Config not found (NOT_FOUND)", body = crate::error::ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = crate::error::ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = crate::error::ErrorBody),
         (status = 404, description = "Contest not found (NOT_FOUND)", body = crate::error::ErrorBody),

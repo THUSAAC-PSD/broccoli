@@ -2,9 +2,11 @@ import { reactRouter } from '@react-router/dev/vite';
 import path from 'path';
 import { defineConfig } from 'vite';
 
+import { sharedDepsPlugin } from './plugins/shared-deps';
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [reactRouter()],
+  plugins: [sharedDepsPlugin(), reactRouter()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

@@ -37,7 +37,7 @@ mod plugin_management {
         assert_eq!(res.body["code"], "TOKEN_MISSING");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn admin_can_enable_a_valid_plugin() {
         let app = TestApp::spawn_with_plugins().await;
         let token = app
@@ -70,7 +70,7 @@ mod plugin_management {
         assert_plugin_status(&app, &token, "server-plugin", "Loaded").await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn enabling_same_plugin_twice_returns_conflict() {
         let app = TestApp::spawn_with_plugins().await;
         let token = app
@@ -89,7 +89,7 @@ mod plugin_management {
         assert_eq!(res.body["code"], "CONFLICT");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn enabling_nonexistent_plugin_returns_not_found() {
         let app = TestApp::spawn_with_plugins().await;
         let token = app
@@ -112,7 +112,7 @@ mod plugin_management {
 mod plugin_routing {
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn public_route_returns_correct_response() {
         let app = TestApp::spawn_with_plugins().await;
 
@@ -176,7 +176,7 @@ mod plugin_routing {
         assert_eq!(res.body["count"], 2);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn web_plugin_asset_is_served_with_correct_content_type() {
         let app = TestApp::spawn_with_plugins().await;
 
@@ -217,7 +217,7 @@ mod plugin_routing {
         assert_eq!(res.status, 404);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn calling_disabled_plugin_returns_not_found() {
         let app = TestApp::spawn_with_plugins().await;
         let token = app

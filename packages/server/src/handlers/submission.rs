@@ -937,8 +937,6 @@ pub async fn create_contest_submission(
     Path((id, problem_id)): Path<(i32, i32)>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let contest_id = id;
-
     auth_user.require_permission("submission:submit")?;
     validate_create_submission(&payload, state.config.submission.max_size)?;
     check_rate_limit(

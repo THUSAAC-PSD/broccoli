@@ -178,11 +178,16 @@ export function PluginRegistryProvider({
       }),
     );
 
-    const failed = results.filter((r) => r.status === 'rejected');
+    const failed = results.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    );
     if (failed.length > 0) {
       console.warn(
         `${failed.length}/${pluginList.length} plugins failed to load.`,
       );
+      for (const r of failed) {
+        console.error('Plugin load error:', r.reason);
+      }
     }
   }, [apiClient, backendUrl, loadPlugin]);
 

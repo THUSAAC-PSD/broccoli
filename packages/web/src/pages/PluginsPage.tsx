@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
+import { ResourceConfigDialog } from '@/components/config';
 import { PageLayout } from '@/components/PageLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,8 +29,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/contexts/auth-context';
-
-import { PluginConfigDialog } from './PluginConfigDialog';
 
 export function PluginsPage() {
   const { t } = useTranslation();
@@ -153,7 +152,10 @@ function PluginConfigButton({ plugin }: { plugin: PluginDetailResponse }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
-  if (!plugin.config_schemas || plugin.config_schemas.length === 0) return null;
+  const hasPluginSchemas = plugin.config_schemas?.some((s) =>
+    s.scopes.includes('plugin'),
+  );
+  if (!hasPluginSchemas) return null;
 
   return (
     <>
@@ -167,7 +169,12 @@ function PluginConfigButton({ plugin }: { plugin: PluginDetailResponse }) {
       >
         <Settings className="h-4 w-4" />
       </Button>
-      <PluginConfigDialog plugin={plugin} open={open} onOpenChange={setOpen} />
+      <ResourceConfigDialog
+        scope={{ scope: 'plugin', pluginId: plugin.id }}
+        resourceLabel={plugin.name}
+        open={open}
+        onOpenChange={setOpen}
+      />
     </>
   );
 }

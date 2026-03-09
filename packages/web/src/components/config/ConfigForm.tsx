@@ -55,9 +55,11 @@ export function ConfigForm({
         setLoadingData(false);
         setValues(deepMerge(defaults, config));
       })
-      .catch(() => {
+      .catch((err) => {
         setLoadingData(false);
-        setMessage({ type: 'error', text: t('plugins.config.loadError') });
+        if (err?.code !== 'NOT_FOUND') {
+          setMessage({ type: 'error', text: t('plugins.config.loadError') });
+        }
         setValues(defaults);
       });
   }, [open, schema.namespace]); // eslint-disable-line react-hooks/exhaustive-deps

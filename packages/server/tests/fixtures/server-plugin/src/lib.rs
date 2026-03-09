@@ -19,8 +19,8 @@ struct PluginHttpResponse {
 
 #[host_fn]
 extern "ExtismHost" {
-    fn store_set(collection: String, key: String, value: String);
-    fn store_get(collection: String, key: String) -> String;
+    fn store_set(input: String);
+    fn store_get(input: String) -> String;
     fn db_execute(sql: String) -> u64;
     fn db_query(sql: String) -> String;
 }
@@ -32,8 +32,12 @@ pub fn kv_write(input: String) -> FnResult<String> {
     let key = req.params.get("key").cloned().unwrap();
     let val = req.body.and_then(|b| b.get("value").cloned()).unwrap();
 
+    let store_input = serde_json::json!({
+        "key": key,
+        "value": val.as_str().unwrap(),
+    });
     unsafe {
-        store_set("tests".into(), key, val.as_str().unwrap().into())?;
+        store_set(serde_json::to_string(&store_input)?)?;
     }
     Ok(serde_json::to_string(&PluginHttpResponse {
         status: 200,
@@ -46,12 +50,15 @@ pub fn kv_write(input: String) -> FnResult<String> {
 pub fn kv_read(input: String) -> FnResult<String> {
     let req: PluginHttpRequest = serde_json::from_str(&input)?;
     let key = req.params.get("key").cloned().unwrap();
-    let raw = unsafe { store_get("tests".into(), key)? };
 
-    let (status, body) = if raw == "null" {
-        (404, serde_json::json!(null))
-    } else {
-        (200, serde_json::json!({ "value": raw }))
+    let store_input = serde_json::json!({ "key": key });
+    let raw = unsafe { store_get(serde_json::to_string(&store_input)?)? };
+
+    // Server returns {"value": "..."} or {"value": null}
+    let result: serde_json::Value = serde_json::from_str(&raw)?;
+    let (status, body) = match result.get("value").and_then(|v| v.as_str()) {
+        Some(v) => (200, serde_json::json!({ "value": v })),
+        None => (404, serde_json::json!(null)),
     };
     Ok(serde_json::to_string(&PluginHttpResponse {
         status,

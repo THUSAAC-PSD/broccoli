@@ -13,7 +13,7 @@ import {
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
-import { ResourceConfigDialog } from '@/components/config';
+import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
@@ -396,6 +396,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const hasProblemConfig = useHasConfigSchemas('problem');
 
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<
@@ -444,7 +445,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onEdit: handleEditProblem,
     onDelete: handleDeleteProblem,
     onManageTestCases: handleManageTestCases,
-    onConfigure: handleConfigure,
+    onConfigure: hasProblemConfig ? handleConfigure : undefined,
   });
 
   return (

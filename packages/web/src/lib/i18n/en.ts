@@ -348,6 +348,7 @@ export const en: Record<string, string> = {
   'plugins.config.defaults': 'Defaults',
   'plugins.config.delete': 'Delete',
   'plugins.config.addItem': 'Add item',
+  'plugins.config.addRow': 'Add row',
   'plugins.config.loading': 'Loading…',
   'plugins.config.saveSuccess': 'Configuration saved.',
   'plugins.config.saveError': 'Failed to save configuration.',

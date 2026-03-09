@@ -49,7 +49,7 @@ export function SchemaField({
     return (
       <Slot
         name={slotName}
-        className="contents"
+        className="grid"
         slotProps={{
           value,
           schema: prop,
@@ -82,7 +82,7 @@ export function SchemaField({
               </p>
             )}
           </div>
-          <div className="p-4">
+          <div className="p-4 pt-5">
             <SchemaFields
               schema={{ type: 'object' as const, properties: prop.properties }}
               values={objValue}
@@ -97,16 +97,19 @@ export function SchemaField({
       );
     }
 
-    // Boolean -> switch in a bordered row
+    // Boolean -> horizontal settings-style card with switch on the right
     if (prop.type === 'boolean') {
       return (
-        <div className="flex items-center justify-between rounded-lg border p-3 sm:col-span-2">
-          <div>
-            <Label htmlFor={fieldId} className="cursor-pointer">
+        <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
+          <div className="space-y-0.5">
+            <Label
+              htmlFor={fieldId}
+              className="text-sm font-medium cursor-pointer"
+            >
               {label}
             </Label>
             {prop.description && (
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 {prop.description}
               </p>
             )}
@@ -137,7 +140,7 @@ export function SchemaField({
               </p>
             )}
           </div>
-          <div className="mt-auto">
+          <div>
             <select
               id={fieldId}
               value={typeof value === 'string' ? value : ''}
@@ -173,7 +176,7 @@ export function SchemaField({
               </p>
             )}
           </div>
-          <div className="mt-auto">
+          <div>
             <NumericInput
               id={fieldId}
               value={typeof value === 'number' ? value : undefined}
@@ -194,6 +197,10 @@ export function SchemaField({
     // Array (generic)
     if (prop.type === 'array' && prop.items) {
       const items = Array.isArray(value) ? (value as unknown[]) : [];
+      const isNestedArray = prop.items.type === 'array';
+      const addLabel = isNestedArray
+        ? t('plugins.config.addRow')
+        : t('plugins.config.addItem');
 
       return (
         <div className="space-y-1.5 sm:col-span-2">
@@ -237,7 +244,7 @@ export function SchemaField({
             ))}
             <Button
               type="button"
-              variant="outline"
+              variant={isNestedArray ? 'secondary' : 'outline'}
               size="sm"
               className="mt-1"
               onClick={() =>
@@ -245,7 +252,7 @@ export function SchemaField({
               }
             >
               <Plus className="h-3 w-3 mr-1.5" />
-              {t('plugins.config.addItem')}
+              {addLabel}
             </Button>
           </div>
           <FieldError message={error} />
@@ -269,7 +276,7 @@ export function SchemaField({
             </p>
           )}
         </div>
-        <div className="mt-auto">
+        <div>
           <Input
             id={fieldId}
             value={typeof value === 'string' ? value : ''}

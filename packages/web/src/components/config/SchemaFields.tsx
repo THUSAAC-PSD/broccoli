@@ -33,7 +33,7 @@ export function SchemaFields({
     <div className="space-y-5">
       {/* Scalar fields in a grid for compact layout */}
       {scalars.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
           {scalars.map(([key, prop]) => (
             <SchemaField
               key={key}

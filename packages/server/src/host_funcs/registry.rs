@@ -58,21 +58,21 @@ pub fn create_registry_functions(
         Function::new(
             "register_contest_type",
             [ValType::I64],
-            [ValType::I64],
+            [],
             user_data.clone(),
             register_contest_type_fn,
         ),
         Function::new(
             "register_evaluator",
             [ValType::I64],
-            [ValType::I64],
+            [],
             user_data.clone(),
             register_evaluator_fn,
         ),
         Function::new(
             "register_checker_format",
             [ValType::I64],
-            [ValType::I64],
+            [],
             user_data,
             register_checker_format_fn,
         ),
@@ -82,7 +82,7 @@ pub fn create_registry_functions(
 fn register_handler<I: serde::de::DeserializeOwned>(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
-    outputs: &mut [Val],
+    _outputs: &mut [Val],
     plugin_id: &str,
     registry: &Arc<RwLock<HashMap<String, PluginHandler>>>,
     extract: impl FnOnce(&I) -> (&str, &str), // (registry_key, handler_name)
@@ -115,18 +115,13 @@ fn register_handler<I: serde::de::DeserializeOwned>(
         })
     });
 
-    let output_bytes = serde_json::to_vec(&serde_json::json!({}))
-        .map_err(|e| extism::Error::msg(format!("Failed to serialize output: {}", e)))?;
-    let offset = plugin.memory_new(&output_bytes)?;
-    outputs[0] = Val::I64(offset.offset() as i64);
-
     Ok(())
 }
 
 fn register_contest_type_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
-    outputs: &mut [Val],
+    _outputs: &mut [Val],
     user_data: UserData<RegistryUserData>,
 ) -> Result<(), extism::Error> {
     let (plugin_id, registry) = {
@@ -139,7 +134,7 @@ fn register_contest_type_fn(
     register_handler::<RegisterContestTypeInput>(
         plugin,
         inputs,
-        outputs,
+        _outputs,
         &plugin_id,
         &registry,
         |input| (&input.contest_type, &input.handler),
@@ -150,7 +145,7 @@ fn register_contest_type_fn(
 fn register_evaluator_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
-    outputs: &mut [Val],
+    _outputs: &mut [Val],
     user_data: UserData<RegistryUserData>,
 ) -> Result<(), extism::Error> {
     let (plugin_id, registry) = {
@@ -163,7 +158,7 @@ fn register_evaluator_fn(
     register_handler::<RegisterEvaluatorInput>(
         plugin,
         inputs,
-        outputs,
+        _outputs,
         &plugin_id,
         &registry,
         |input| (&input.problem_type, &input.handler),
@@ -174,7 +169,7 @@ fn register_evaluator_fn(
 fn register_checker_format_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
-    outputs: &mut [Val],
+    _outputs: &mut [Val],
     user_data: UserData<RegistryUserData>,
 ) -> Result<(), extism::Error> {
     let (plugin_id, registry) = {
@@ -187,7 +182,7 @@ fn register_checker_format_fn(
     register_handler::<RegisterCheckerFormatInput>(
         plugin,
         inputs,
-        outputs,
+        _outputs,
         &plugin_id,
         &registry,
         |input| (&input.checker_format, &input.handler),
