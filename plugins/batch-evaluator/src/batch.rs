@@ -12,6 +12,40 @@ pub struct ResolvedLanguage {
     pub binary_name: String,
 }
 
+/// Admin-configurable sandbox resource limits.
+/// All fields have sensible defaults so zero-config deployments work unchanged.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SandboxConfig {
+    pub compile_time_limit_s: f64,
+    pub compile_memory_limit_kb: u32,
+    pub compile_process_limit: u32,
+    pub compile_open_files_limit: u32,
+    pub compile_file_size_limit_kb: u32,
+    pub exec_process_limit: u32,
+    pub exec_open_files_limit: u32,
+    pub exec_file_size_limit_kb: u32,
+    pub exec_wall_time_multiplier: f64,
+    pub result_timeout_ms: u64,
+}
+
+impl Default for SandboxConfig {
+    fn default() -> Self {
+        Self {
+            compile_time_limit_s: 30.0,
+            compile_memory_limit_kb: 524_288, // 512 MB
+            compile_process_limit: 32,
+            compile_open_files_limit: 256,
+            compile_file_size_limit_kb: 524_288, // 512 MB
+            exec_process_limit: 1,
+            exec_open_files_limit: 64,
+            exec_file_size_limit_kb: 65_536, // 64 MB
+            exec_wall_time_multiplier: 3.0,
+            result_timeout_ms: 30_000, // 30s
+        }
+    }
+}
+
 /// Environment configuration — represents a sandbox instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
@@ -117,6 +151,7 @@ pub struct OperationTask {
 pub fn build_operation(
     req: &BuildEvalOpsInput,
     lang: &ResolvedLanguage,
+    config: &SandboxConfig,
 ) -> Result<String, String> {
     let source = req
         .solution_source
@@ -142,7 +177,9 @@ pub fn build_operation(
         ],
     };
 
-    let time_limit_s = req.time_limit_ms as f64 / 1000.0;
+    let time_limit_ms = u32::try_from(req.time_limit_ms)
+        .map_err(|_| format!("Invalid time_limit_ms: {}", req.time_limit_ms))?;
+    let time_limit_s = time_limit_ms as f64 / 1000.0;
     let memory_limit_kb = u32::try_from(req.memory_limit_kb)
         .map_err(|_| format!("Invalid memory_limit_kb: {}", req.memory_limit_kb))?;
 
@@ -156,10 +193,12 @@ pub fn build_operation(
             argv: compile_cmd.clone(),
             conf: RunConfig {
                 resource_limits: ResourceLimits {
-                    time_limit: Some(30.0),
-                    wall_time_limit: Some(60.0),
-                    memory_limit: Some(524_288), // 512 MB for compilation
-                    process_limit: Some(32),     // compilers may fork
+                    time_limit: Some(config.compile_time_limit_s),
+                    wall_time_limit: Some(config.compile_time_limit_s * 2.0),
+                    memory_limit: Some(config.compile_memory_limit_kb),
+                    process_limit: Some(config.compile_process_limit),
+                    open_files_limit: Some(config.compile_open_files_limit),
+                    file_size_limit: Some(config.compile_file_size_limit_kb),
                     ..Default::default()
                 },
                 wait: true,
@@ -196,9 +235,11 @@ pub fn build_operation(
         conf: RunConfig {
             resource_limits: ResourceLimits {
                 time_limit: Some(time_limit_s),
-                wall_time_limit: Some(time_limit_s * 3.0),
+                wall_time_limit: Some(time_limit_s * config.exec_wall_time_multiplier),
                 memory_limit: Some(memory_limit_kb),
-                process_limit: Some(1), // no forking for user code
+                process_limit: Some(config.exec_process_limit),
+                open_files_limit: Some(config.exec_open_files_limit),
+                file_size_limit: Some(config.exec_file_size_limit_kb),
                 ..Default::default()
             },
             wait: true,
@@ -278,15 +319,17 @@ mod tests {
         }
     }
 
+    fn default_config() -> SandboxConfig {
+        SandboxConfig::default()
+    }
+
     fn parse_ops(json: &str) -> Vec<OperationTask> {
         serde_json::from_str(json).expect("Failed to parse operation JSON")
     }
 
     #[test]
     fn compiled_language_produces_compile_and_exec_steps() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         assert_eq!(ops.len(), 1);
@@ -299,9 +342,7 @@ mod tests {
 
     #[test]
     fn interpreted_language_produces_only_exec_step() {
-        let req = make_req();
-        let lang = interpreted_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &interpreted_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         assert_eq!(ops.len(), 1);
@@ -313,9 +354,7 @@ mod tests {
 
     #[test]
     fn test_input_wired_to_environment_files() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let env = &ops[0].environments[0];
@@ -333,9 +372,7 @@ mod tests {
 
     #[test]
     fn source_file_placed_with_correct_filename() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let env = &ops[0].environments[0];
@@ -353,22 +390,21 @@ mod tests {
 
     #[test]
     fn compile_step_has_cache_config() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let compile = &ops[0].tasks[0];
-        let cache = compile.cache.as_ref().expect("compile step missing cache config");
+        let cache = compile
+            .cache
+            .as_ref()
+            .expect("compile step missing cache config");
         assert_eq!(cache.key_inputs, vec!["solution.cpp"]);
         assert_eq!(cache.outputs, vec!["solution"]);
     }
 
     #[test]
     fn time_limit_converted_from_ms_to_seconds() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let exec = &ops[0].tasks[1];
@@ -377,9 +413,7 @@ mod tests {
 
     #[test]
     fn memory_limit_passed_through() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let exec = &ops[0].tasks[1];
@@ -390,17 +424,14 @@ mod tests {
     fn no_source_file_returns_error() {
         let mut req = make_req();
         req.solution_source.clear();
-        let lang = compiled_lang();
-        let result = build_operation(&req, &lang);
+        let result = build_operation(&req, &compiled_lang(), &default_config());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No source file"));
     }
 
     #[test]
     fn exec_step_collects_stdout_and_stderr() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let exec = &ops[0].tasks[1];
@@ -410,22 +441,22 @@ mod tests {
 
     #[test]
     fn env_rules_are_empty() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
-        // Compile step
-        assert!(ops[0].tasks[0].conf.env_rules.is_empty(), "compile step must not leak env vars");
-        // Exec step
-        assert!(ops[0].tasks[1].conf.env_rules.is_empty(), "exec step must not leak env vars");
+        assert!(
+            ops[0].tasks[0].conf.env_rules.is_empty(),
+            "compile step must not leak env vars"
+        );
+        assert!(
+            ops[0].tasks[1].conf.env_rules.is_empty(),
+            "exec step must not leak env vars"
+        );
     }
 
     #[test]
     fn exec_step_has_process_limit() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let exec = &ops[0].tasks[1];
@@ -434,9 +465,7 @@ mod tests {
 
     #[test]
     fn compile_step_has_process_limit() {
-        let req = make_req();
-        let lang = compiled_lang();
-        let json = build_operation(&req, &lang).unwrap();
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
         let compile = &ops[0].tasks[0];
@@ -447,9 +476,87 @@ mod tests {
     fn negative_memory_limit_returns_error() {
         let mut req = make_req();
         req.memory_limit_kb = -1;
-        let lang = compiled_lang();
-        let result = build_operation(&req, &lang);
+        let result = build_operation(&req, &compiled_lang(), &default_config());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid memory_limit_kb"));
+    }
+
+    #[test]
+    fn negative_time_limit_returns_error() {
+        let mut req = make_req();
+        req.time_limit_ms = -1;
+        let result = build_operation(&req, &compiled_lang(), &default_config());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid time_limit_ms"));
+    }
+
+    #[test]
+    fn exec_step_has_file_size_limit() {
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = parse_ops(&json);
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.file_size_limit, Some(65_536));
+    }
+
+    #[test]
+    fn exec_step_has_open_files_limit() {
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = parse_ops(&json);
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.open_files_limit, Some(64));
+    }
+
+    #[test]
+    fn compile_step_has_file_and_fd_limits() {
+        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = parse_ops(&json);
+
+        let compile = &ops[0].tasks[0];
+        assert_eq!(compile.conf.resource_limits.file_size_limit, Some(524_288));
+        assert_eq!(compile.conf.resource_limits.open_files_limit, Some(256));
+    }
+
+    #[test]
+    fn partial_config_deserializes_with_defaults() {
+        let json = r#"{ "exec_process_limit": 4 }"#;
+        let config: SandboxConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.exec_process_limit, 4);
+        // All other fields should be their defaults
+        assert_eq!(config.compile_time_limit_s, 30.0);
+        assert_eq!(config.compile_memory_limit_kb, 524_288);
+        assert_eq!(config.exec_wall_time_multiplier, 3.0);
+        assert_eq!(config.result_timeout_ms, 30_000);
+    }
+
+    #[test]
+    fn empty_config_deserializes_to_defaults() {
+        let json = "{}";
+        let config: SandboxConfig = serde_json::from_str(json).unwrap();
+        let default = SandboxConfig::default();
+        assert_eq!(config.compile_time_limit_s, default.compile_time_limit_s);
+        assert_eq!(config.exec_process_limit, default.exec_process_limit);
+        assert_eq!(config.result_timeout_ms, default.result_timeout_ms);
+    }
+
+    #[test]
+    fn custom_config_overrides_defaults() {
+        let config = SandboxConfig {
+            exec_process_limit: 4,
+            exec_wall_time_multiplier: 5.0,
+            compile_time_limit_s: 60.0,
+            ..SandboxConfig::default()
+        };
+        let json = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+        let ops = parse_ops(&json);
+
+        let compile = &ops[0].tasks[0];
+        assert_eq!(compile.conf.resource_limits.time_limit, Some(60.0));
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.process_limit, Some(4));
+        // 1000ms = 1.0s, wall_time = 1.0 * 5.0 = 5.0s
+        assert_eq!(exec.conf.resource_limits.wall_time_limit, Some(5.0));
     }
 }

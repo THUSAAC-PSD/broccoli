@@ -7,6 +7,14 @@ use extism_pdk::{plugin_fn, FnResult};
 pub mod batch;
 
 #[cfg(feature = "wasm")]
+fn load_sandbox_config() -> batch::SandboxConfig {
+    match host::config::get_global_config("sandbox") {
+        Ok(Some(value)) => serde_json::from_value(value).unwrap_or_default(),
+        _ => batch::SandboxConfig::default(),
+    }
+}
+
+#[cfg(feature = "wasm")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     host::registry::register_evaluator("batch", "evaluate_batch")?;
@@ -20,7 +28,8 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
     let req: BuildEvalOpsInput = serde_json::from_str(&input)?;
     let tc_id = req.test_case_id;
 
-    // 1. Get language config for compile/run commands
+    let sandbox_config = load_sandbox_config();
+
     let filename = req
         .solution_source
         .first()
@@ -35,19 +44,15 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
         binary_name: host_lang.binary_name,
     };
 
-    // 2. Build sandbox operation (pure logic, no host calls)
-    let ops_json =
-        batch::build_operation(&req, &lang).map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let ops_json = batch::build_operation(&req, &lang, &sandbox_config)
+        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    // 3. Dispatch to worker sandbox
     let batch_id = host::operations::start_batch(&ops_json)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    // 4. Wait for sandbox result (30s timeout)
-    let result = host::operations::wait_for_result(&batch_id, 30_000)
+    let result = host::operations::wait_for_result(&batch_id, sandbox_config.result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    // 5. Interpret sandbox result + run checker (opaque passthrough)
     let checker_format = req.checker_format.as_deref().unwrap_or("exact");
     let checker_input = CheckerParseInput {
         stdout: String::new(),
@@ -58,8 +63,9 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
         checker_source: req.checker_source.clone(),
         config: req.checker_config.clone(),
     };
-    let verdict = evaluator::interpret_sandbox_result(tc_id, &result, checker_format, &checker_input)
-        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let verdict =
+        evaluator::interpret_sandbox_result(tc_id, &result, checker_format, &checker_input)
+            .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     Ok(serde_json::to_string(&verdict)?)
 }
