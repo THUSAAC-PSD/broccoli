@@ -2,6 +2,22 @@ use plugin_core::manifest::{ComponentMap, WebRouteConfig, WebSlotConfig};
 use plugin_core::registry::{PluginInfo, PluginStatus};
 use serde::Serialize;
 
+/// Available registry values for problem types, checker formats, and contest types.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct RegistriesResponse {
+    /// Available problem types (e.g. "standard", "interactive").
+    #[schema(example = json!(["standard", "interactive"]))]
+    pub problem_types: Vec<String>,
+
+    /// Available checker formats (e.g. "exact", "tokens").
+    #[schema(example = json!(["exact", "tokens"]))]
+    pub checker_formats: Vec<String>,
+
+    /// Available contest types (e.g. "icpc", "ioi").
+    #[schema(example = json!(["icpc", "ioi"]))]
+    pub contest_types: Vec<String>,
+}
+
 /// Response model for listing active web plugins.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ActivePluginResponse {

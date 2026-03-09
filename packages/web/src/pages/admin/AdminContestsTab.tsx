@@ -48,6 +48,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { useRegistries } from '@/hooks/use-registries';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
 import {
@@ -208,6 +209,7 @@ export function ContestFormDialog({
   const [submissionsVisible, setSubmissionsVisible] = useState(false);
   const [showCompileOutput, setShowCompileOutput] = useState(true);
   const [showParticipantsList, setShowParticipantsList] = useState(true);
+  const [contestType, setContestType] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [message, setMessage] = useState<{
@@ -215,6 +217,7 @@ export function ContestFormDialog({
     text: string;
   } | null>(null);
   const apiClient = useApiClient();
+  const { data: registries } = useRegistries();
 
   useEffect(() => {
     if (!open) return;
@@ -234,6 +237,7 @@ export function ContestFormDialog({
           setSubmissionsVisible(data.submissions_visible);
           setShowCompileOutput(data.show_compile_output);
           setShowParticipantsList(data.show_participants_list);
+          setContestType(data.contest_type ?? '');
         });
     } else {
       setTitle('');
@@ -244,6 +248,7 @@ export function ContestFormDialog({
       setSubmissionsVisible(false);
       setShowCompileOutput(true);
       setShowParticipantsList(true);
+      setContestType('');
     }
   }, [apiClient, open, contest]);
 
@@ -261,6 +266,7 @@ export function ContestFormDialog({
       submissions_visible: submissionsVisible,
       show_compile_output: showCompileOutput,
       show_participants_list: showParticipantsList,
+      contest_type: contestType || undefined,
     };
 
     const result = isEdit
@@ -349,6 +355,25 @@ export function ContestFormDialog({
                   required
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="contest-type">
+                {t('admin.field.contestType')}
+              </Label>
+              <select
+                id="contest-type"
+                value={contestType}
+                onChange={(e) => setContestType(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">{t('admin.field.contestTypeNone')}</option>
+                {(registries?.contest_types ?? []).map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <Separator />
@@ -1239,6 +1264,17 @@ function useContestColumns({
         );
         return <Badge variant={variant}>{label}</Badge>;
       },
+    },
+    {
+      id: 'contest_type',
+      header: t('admin.field.contestType'),
+      size: 120,
+      cell: ({ row }) =>
+        row.original.contest_type ? (
+          <Badge variant="outline">{row.original.contest_type}</Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
     },
     {
       id: 'visibility',

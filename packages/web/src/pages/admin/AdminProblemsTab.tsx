@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
 import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
@@ -36,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { useRegistries } from '@/hooks/use-registries';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
 import { formatDateTime, SwitchField } from './helpers';
@@ -110,6 +112,8 @@ export function ProblemFormDialog({
   const [content, setContent] = useState('');
   const [timeLimit, setTimeLimit] = useState(1000);
   const [memoryLimit, setMemoryLimit] = useState(262144);
+  const [problemType, setProblemType] = useState('standard');
+  const [checkerFormat, setCheckerFormat] = useState('exact');
   const [showTestDetails, setShowTestDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -118,6 +122,7 @@ export function ProblemFormDialog({
     text: string;
   } | null>(null);
   const apiClient = useApiClient();
+  const { data: registries } = useRegistries();
 
   useEffect(() => {
     if (!open) return;
@@ -133,6 +138,8 @@ export function ProblemFormDialog({
           setContent(data.content);
           setTimeLimit(data.time_limit);
           setMemoryLimit(data.memory_limit);
+          setProblemType(data.problem_type);
+          setCheckerFormat(data.checker_format);
           setShowTestDetails(data.show_test_details);
         });
     } else {
@@ -140,6 +147,8 @@ export function ProblemFormDialog({
       setContent('');
       setTimeLimit(1000);
       setMemoryLimit(262144);
+      setProblemType('standard');
+      setCheckerFormat('exact');
       setShowTestDetails(false);
     }
   }, [apiClient, open, problem]);
@@ -154,6 +163,8 @@ export function ProblemFormDialog({
       content,
       time_limit: timeLimit,
       memory_limit: memoryLimit,
+      problem_type: problemType,
+      checker_format: checkerFormat,
       show_test_details: showTestDetails,
     };
 
@@ -251,6 +262,43 @@ export function ProblemFormDialog({
               </div>
             </div>
 
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="problem-type">
+                  {t('admin.field.problemType')}
+                </Label>
+                <select
+                  id="problem-type"
+                  value={problemType}
+                  onChange={(e) => setProblemType(e.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {(registries?.problem_types ?? ['standard']).map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="checker-format">
+                  {t('admin.field.checkerFormat')}
+                </Label>
+                <select
+                  id="checker-format"
+                  value={checkerFormat}
+                  onChange={(e) => setCheckerFormat(e.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {(registries?.checker_formats ?? ['exact']).map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <Separator />
 
             <div className="space-y-3">
@@ -335,6 +383,24 @@ export function useProblemColumns({
       cell: ({ row }) => (
         <span className="text-muted-foreground">
           {(row.original.memory_limit / 1024).toFixed(0)}MB
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'problem_type',
+      header: t('admin.field.problemType'),
+      size: 120,
+      cell: ({ row }) => (
+        <Badge variant="outline">{row.original.problem_type}</Badge>
+      ),
+    },
+    {
+      accessorKey: 'checker_format',
+      header: t('admin.field.checkerFormat'),
+      size: 120,
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {row.original.checker_format}
         </span>
       ),
     },

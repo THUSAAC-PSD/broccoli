@@ -62,7 +62,7 @@ export function ProblemPage({ problemId }: ProblemPageProps) {
         <ProblemHeader
           id={headerId}
           title={problem?.title ?? t('problem.title')}
-          type="Default"
+          type={problem?.problem_type ?? '—'}
           io="Standard Input / Output"
           timeLimit={timeLimit}
           memoryLimit={memoryLimit}

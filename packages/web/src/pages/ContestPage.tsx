@@ -77,7 +77,12 @@ export function ContestInfoCard({ contestId }: { contestId: number }) {
             <Clock className="h-4 w-4" />
             {'时间'}
           </div>
-          {status && <Badge variant={status.variant}>{status.label}</Badge>}
+          <div className="flex items-center gap-2">
+            {contest?.contest_type && (
+              <Badge variant="outline">{contest.contest_type}</Badge>
+            )}
+            {status && <Badge variant={status.variant}>{status.label}</Badge>}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

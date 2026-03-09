@@ -9,7 +9,7 @@ use tracing::instrument;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
-use crate::models::plugin::ActivePluginResponse;
+use crate::models::plugin::{ActivePluginResponse, RegistriesResponse};
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -43,6 +43,58 @@ pub async fn call_plugin_func(
     let result: Value = state.plugins.call(&plugin_id, &func_name, input).await?;
 
     Ok(Json(result))
+}
+
+#[utoipa::path(
+    get,
+    path = "/registries",
+    tag = "Plugins",
+    operation_id = "listRegistries",
+    summary = "List available registry values",
+    description = "Returns the currently registered problem types, checker formats, and contest types. These values are populated by loaded plugins.",
+    responses(
+        (status = 200, description = "Available registry values", body = RegistriesResponse),
+    ),
+)]
+#[instrument(skip(state))]
+pub async fn list_registries(
+    State(state): State<AppState>,
+) -> Result<Json<RegistriesResponse>, AppError> {
+    let mut problem_types: Vec<String> = state
+        .registries
+        .evaluator_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    problem_types.sort();
+
+    let mut checker_formats: Vec<String> = state
+        .registries
+        .checker_format_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    checker_formats.sort();
+
+    let mut contest_types: Vec<String> = state
+        .registries
+        .contest_type_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    contest_types.sort();
+
+    Ok(Json(RegistriesResponse {
+        problem_types,
+        checker_formats,
+        contest_types,
+    }))
 }
 
 #[utoipa::path(

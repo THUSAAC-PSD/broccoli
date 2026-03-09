@@ -752,6 +752,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plugins/registries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available registry values
+         * @description Returns the currently registered problem types, checker formats, and contest types. These values are populated by loaded plugins.
+         */
+        get: operations["listRegistries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plugins/{id}/call/{func}": {
         parameters: {
             query?: never;
@@ -2078,7 +2098,7 @@ export interface components {
              * Format: date-time
              * @description Last update timestamp. `null` when no config has been saved yet (using defaults).
              */
-            updated_at: string | null;
+            updated_at?: string | null;
         };
         /** @description Detailed information about a plugin. */
         PluginDetailResponse: {
@@ -2254,6 +2274,33 @@ export interface components {
              * @example alice_wonder
              */
             username: string;
+        };
+        /** @description Available registry values for problem types, checker formats, and contest types. */
+        RegistriesResponse: {
+            /**
+             * @description Available checker formats (e.g. "exact", "tokens").
+             * @example [
+             *       "exact",
+             *       "tokens"
+             *     ]
+             */
+            checker_formats: string[];
+            /**
+             * @description Available contest types (e.g. "icpc", "ioi").
+             * @example [
+             *       "icpc",
+             *       "ioi"
+             *     ]
+             */
+            contest_types: string[];
+            /**
+             * @description Available problem types (e.g. "standard", "interactive").
+             * @example [
+             *       "standard",
+             *       "interactive"
+             *     ]
+             */
+            problem_types: string[];
         };
         /** @description Request body for reordering problems in a contest. */
         ReorderContestProblemsRequest: {
@@ -3654,7 +3701,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Config not found (NOT_FOUND) */
+            /** @description Contest not found (NOT_FOUND) */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4453,7 +4500,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Config not found (NOT_FOUND) */
+            /** @description Contest problem not found (NOT_FOUND) */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5340,6 +5387,26 @@ export interface operations {
             };
         };
     };
+    listRegistries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available registry values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistriesResponse"];
+                };
+            };
+        };
+    };
     callPluginFunction: {
         parameters: {
             query?: never;
@@ -5957,7 +6024,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Config not found (NOT_FOUND) */
+            /** @description Problem not found (NOT_FOUND) */
             404: {
                 headers: {
                     [name: string]: unknown;

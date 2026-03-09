@@ -17,6 +17,8 @@ pub struct PluginHttpRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginHttpResponse {
     pub status: u16,
+    #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+    #[serde(default)]
     pub body: Option<serde_json::Value>,
 }

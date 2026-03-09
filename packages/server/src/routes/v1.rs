@@ -52,8 +52,9 @@ fn plugin_global_config_routes() -> OpenApiRouter<AppState> {
 
 fn plugin_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(handlers::plugin::call_plugin_func))
+        .routes(routes!(handlers::plugin::list_registries))
         .routes(routes!(handlers::plugin::list_active_plugins))
+        .routes(routes!(handlers::plugin::call_plugin_func))
 }
 
 fn proxy_routes() -> OpenApiRouter<AppState> {
