@@ -134,8 +134,12 @@ export function ContestFormDialog({
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [activateTime, setActivateTime] = useState<Date | undefined>(undefined);
   const [startTime, setStartTime] = useState<Date | undefined>(undefined);
   const [endTime, setEndTime] = useState<Date | undefined>(undefined);
+  const [deactivateTime, setDeactivateTime] = useState<Date | undefined>(
+    undefined,
+  );
   const [isPublic, setIsPublic] = useState(false);
   const [submissionsVisible, setSubmissionsVisible] = useState(false);
   const [showCompileOutput, setShowCompileOutput] = useState(true);
@@ -155,8 +159,12 @@ export function ContestFormDialog({
           if (error || !data) return;
           setTitle(data.title);
           setDescription(data.description);
+          setActivateTime(new Date(data.activate_time));
           setStartTime(new Date(data.start_time));
           setEndTime(new Date(data.end_time));
+          setDeactivateTime(
+            data.deactivate_time ? new Date(data.deactivate_time) : undefined,
+          );
           setIsPublic(data.is_public);
           setSubmissionsVisible(data.submissions_visible);
           setShowCompileOutput(data.show_compile_output);
@@ -165,8 +173,10 @@ export function ContestFormDialog({
     } else {
       setTitle('');
       setDescription('');
+      setActivateTime(undefined);
       setStartTime(undefined);
       setEndTime(undefined);
+      setDeactivateTime(undefined);
       setIsPublic(false);
       setSubmissionsVisible(false);
       setShowCompileOutput(true);
@@ -181,8 +191,10 @@ export function ContestFormDialog({
     const body = {
       title,
       description,
+      activate_time: activateTime?.toISOString() ?? null,
       start_time: startTime!.toISOString(),
       end_time: endTime!.toISOString(),
+      deactivate_time: deactivateTime?.toISOString() ?? null,
       is_public: isPublic,
       submissions_visible: submissionsVisible,
       show_compile_output: showCompileOutput,
@@ -252,6 +264,22 @@ export function ContestFormDialog({
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>{t('admin.field.activateTime')}</Label>
+                <DateTimePicker
+                  value={activateTime}
+                  onChange={setActivateTime}
+                  placeholder={t('admin.field.activateTime')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t('admin.field.deactivateTime')}</Label>
+                <DateTimePicker
+                  value={deactivateTime}
+                  onChange={setDeactivateTime}
+                  placeholder={t('admin.field.deactivateTime')}
+                />
+              </div>
               <div className="space-y-2">
                 <Label>{t('admin.field.startTime')}</Label>
                 <DateTimePicker

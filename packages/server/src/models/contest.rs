@@ -3,7 +3,8 @@ use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 
 use super::shared::{
-    Pagination, validate_bulk_ids, validate_optional_position, validate_reorder_ids, validate_title,
+    Pagination, double_option, validate_bulk_ids, validate_optional_position, validate_reorder_ids,
+    validate_title,
 };
 use crate::error::AppError;
 
@@ -16,12 +17,20 @@ pub struct CreateContestRequest {
     /// Contest description (non-empty, max 1 MB).
     #[schema(example = "Welcome to this week's programming contest.")]
     pub description: String,
+    /// Time when the contest becomes visible and registration opens (must be before start_time,
+    /// default: min(now, start_time)).
+    #[schema(example = "2025-09-30T12:00:00Z")]
+    pub activate_time: Option<DateTime<Utc>>,
     /// Contest start time (must be before end_time).
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
     /// Contest end time (must be after start_time).
     #[schema(example = "2025-10-01T17:00:00Z")]
     pub end_time: DateTime<Utc>,
+    /// Time when the contest is archived and becomes invisible (must be after end_time, default:
+    /// never).
+    #[schema(example = "2025-10-02T12:00:00Z")]
+    pub deactivate_time: Option<Option<DateTime<Utc>>>,
     /// Whether the contest is visible to all users.
     #[schema(example = true)]
     pub is_public: bool,
@@ -45,12 +54,21 @@ pub struct UpdateContestRequest {
     /// Contest description (non-empty, max 1 MB).
     #[schema(example = "Updated description...")]
     pub description: Option<String>,
+    /// Time when the contest becomes visible and registration opens (must be before start_time,
+    /// default: min(now, start_time)).
+    #[schema(example = "2025-09-30T12:00:00Z")]
+    pub activate_time: Option<DateTime<Utc>>,
     /// Contest start time (must be before end_time).
     #[schema(example = "2025-10-01T13:00:00Z")]
     pub start_time: Option<DateTime<Utc>>,
     /// Contest end time (must be after start_time).
     #[schema(example = "2025-10-01T18:00:00Z")]
     pub end_time: Option<DateTime<Utc>>,
+    /// Time when the contest is archived and becomes invisible (must be after end_time, default:
+    /// never).
+    #[serde(default, deserialize_with = "double_option")]
+    #[schema(example = "2025-10-02T12:00:00Z")]
+    pub deactivate_time: Option<Option<DateTime<Utc>>>,
     /// Whether the contest is visible to all users.
     #[schema(example = false)]
     pub is_public: Option<bool>,
@@ -117,7 +135,7 @@ pub struct ContestListQuery {
     pub per_page: Option<u64>,
     #[param(example = "weekly")]
     pub search: Option<String>,
-    /// Sort field: `created_at` (default), `updated_at`, `start_time`, or `title`.
+    /// Sort field: `created_at` (default), `updated_at`, `activate_time`, `start_time`, or `title`.
     #[param(example = "start_time")]
     pub sort_by: Option<String>,
     /// Sort direction: `asc` or `desc` (default).
@@ -138,10 +156,14 @@ pub struct ContestResponse {
     pub title: String,
     #[schema(example = "Welcome to this week's contest.")]
     pub description: String,
+    #[schema(example = "2025-09-30T12:00:00Z")]
+    pub activate_time: DateTime<Utc>,
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
     #[schema(example = "2025-10-01T17:00:00Z")]
     pub end_time: DateTime<Utc>,
+    #[schema(example = "2025-10-02T12:00:00Z")]
+    pub deactivate_time: Option<DateTime<Utc>>,
     #[schema(example = true)]
     pub is_public: bool,
     /// Whether participants can see each other's submissions.
@@ -166,10 +188,14 @@ pub struct ContestListItem {
     pub id: i32,
     #[schema(example = "Weekly Contest #42")]
     pub title: String,
+    #[schema(example = "2025-09-30T12:00:00Z")]
+    pub activate_time: DateTime<Utc>,
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
     #[schema(example = "2025-10-01T17:00:00Z")]
     pub end_time: DateTime<Utc>,
+    #[schema(example = "2025-10-02T12:00:00Z")]
+    pub deactivate_time: Option<DateTime<Utc>>,
     #[schema(example = true)]
     pub is_public: bool,
     /// Whether participants can see each other's submissions.
@@ -228,8 +254,10 @@ impl From<crate::entity::contest::Model> for ContestResponse {
             id: m.id,
             title: m.title,
             description: m.description,
+            activate_time: m.activate_time,
             start_time: m.start_time,
             end_time: m.end_time,
+            deactivate_time: m.deactivate_time,
             is_public: m.is_public,
             submissions_visible: m.submissions_visible,
             show_compile_output: m.show_compile_output,
@@ -240,18 +268,49 @@ impl From<crate::entity::contest::Model> for ContestResponse {
     }
 }
 
-pub fn validate_create_contest(req: &CreateContestRequest) -> Result<(), AppError> {
+pub fn validate_contest_timeline(
+    activate_time: DateTime<Utc>,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    deactivate_time: Option<DateTime<Utc>>,
+) -> Result<(), AppError> {
+    if activate_time > start_time {
+        return Err(AppError::Validation(
+            "activate_time must be before or equal to start_time".into(),
+        ));
+    }
+    if end_time <= start_time {
+        return Err(AppError::Validation(
+            "end_time must be after start_time".into(),
+        ));
+    }
+    if let Some(deactivate) = deactivate_time
+        && deactivate < end_time
+    {
+        return Err(AppError::Validation(
+            "deactivate_time must be after or equal to end_time".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_create_contest(
+    req: &CreateContestRequest,
+    now: DateTime<Utc>,
+) -> Result<(), AppError> {
     validate_title(&req.title)?;
     if req.description.trim().is_empty() || req.description.len() > 1_000_000 {
         return Err(AppError::Validation(
             "Description must be non-empty and at most 1MB".into(),
         ));
     }
-    if req.end_time <= req.start_time {
-        return Err(AppError::Validation(
-            "end_time must be after start_time".into(),
-        ));
-    }
+    validate_contest_timeline(
+        req.activate_time
+            .unwrap_or_else(|| std::cmp::min(now, req.start_time)),
+        req.start_time,
+        req.end_time,
+        req.deactivate_time.unwrap_or(None),
+    )?;
     Ok(())
 }
 
@@ -266,13 +325,8 @@ pub fn validate_update_contest(req: &UpdateContestRequest) -> Result<(), AppErro
             "Description must be non-empty and at most 1MB".into(),
         ));
     }
-    if let (Some(start), Some(end)) = (req.start_time, req.end_time)
-        && end <= start
-    {
-        return Err(AppError::Validation(
-            "end_time must be after start_time".into(),
-        ));
-    }
+    // NOTE: The timeline fields are validated together in the handler where we have the existing
+    // contest data to compare against, since they can be updated independently here.
     Ok(())
 }
 

@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, X } from 'lucide-react';
 import * as React from 'react';
 
 import { Button } from '@/ui/button';
@@ -85,27 +85,44 @@ function DateTimePicker({
           onSelect={handleDateSelect}
           defaultMonth={value}
         />
-        <div className="border-t px-3 py-2 flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Time:</span>
-          <Input
-            type="number"
-            min={0}
-            max={23}
-            value={hours}
-            onChange={(e) => handleTimeChange('hours', e.target.value)}
-            className="w-16 h-8 text-center text-sm"
-            aria-label="Hours"
-          />
-          <span className="text-sm font-medium">:</span>
-          <Input
-            type="number"
-            min={0}
-            max={59}
-            value={minutes}
-            onChange={(e) => handleTimeChange('minutes', e.target.value)}
-            className="w-16 h-8 text-center text-sm"
-            aria-label="Minutes"
-          />
+        <div className="border-t px-3 py-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Time:</span>
+            <Input
+              type="number"
+              min={0}
+              max={23}
+              value={hours}
+              onChange={(e) => handleTimeChange('hours', e.target.value)}
+              className="w-12 h-7 text-center text-xs px-1"
+              aria-label="Hours"
+            />
+            <span className="text-xs font-medium">:</span>
+            <Input
+              type="number"
+              min={0}
+              max={59}
+              value={minutes}
+              onChange={(e) => handleTimeChange('minutes', e.target.value)}
+              className="w-12 h-7 text-center text-xs px-1"
+              aria-label="Minutes"
+            />
+          </div>
+
+          {value && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onChange(undefined);
+                setOpen(false);
+              }}
+              className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              <X className="h-3 w-3 mr-1" />
+              Clear
+            </Button>
+          )}
         </div>
       </PopoverContent>
     </Popover>

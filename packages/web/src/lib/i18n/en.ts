@@ -307,6 +307,8 @@ export const en: Record<string, string> = {
   'admin.field.title': 'Title',
   'admin.field.description': 'Description',
   'admin.field.content': 'Content (Markdown)',
+  'admin.field.activateTime': 'Activate Time',
+  'admin.field.deactivateTime': 'Deactivate Time',
   'admin.field.startTime': 'Start Time',
   'admin.field.endTime': 'End Time',
   'admin.field.isPublic': 'Public',

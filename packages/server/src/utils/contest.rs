@@ -13,6 +13,10 @@ pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
     if auth_user.has_permission("contest:manage") {
         return Ok(());
     }
+    let now = chrono::Utc::now();
+    if contest.activate_time > now || contest.deactivate_time.is_some_and(|dt| dt <= now) {
+        return Err(AppError::NotFound("Contest not found".into()));
+    }
     if contest.is_public {
         return Ok(());
     }
