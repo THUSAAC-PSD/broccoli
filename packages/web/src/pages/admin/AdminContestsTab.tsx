@@ -15,6 +15,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   Trash2,
   Upload,
   UserPlus,
@@ -22,6 +23,7 @@ import {
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
+import { ResourceConfigDialog } from '@/components/config';
 import { Markdown } from '@/components/Markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -467,12 +469,16 @@ export function ContestProblemsDialog({
   const [addingId, setAddingId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [previewProblemId, setPreviewProblemId] = useState<number | null>(null);
+  const [configCPOpen, setConfigCPOpen] = useState(false);
+  const [configProblemId, setConfigProblemId] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
       setSearch('');
       setErrorMsg('');
       setPreviewProblemId(null);
+      setConfigCPOpen(false);
+      setConfigProblemId(null);
     }
   }, [open]);
 
@@ -571,6 +577,17 @@ export function ContestProblemsDialog({
                           onClick={() => setPreviewProblemId(p.problem_id)}
                         >
                           <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setConfigProblemId(p.problem_id);
+                            setConfigCPOpen(true);
+                          }}
+                        >
+                          <Settings className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -678,6 +695,22 @@ export function ContestProblemsDialog({
             onOpenChange={(v) => {
               if (!v) setPreviewProblemId(null);
             }}
+          />
+        )}
+        {configProblemId !== null && (
+          <ResourceConfigDialog
+            scope={{
+              scope: 'contest_problem',
+              contestId: contest.id,
+              problemId: configProblemId,
+            }}
+            resourceLabel={
+              contestProblems.find(
+                (p: ContestProblemItem) => p.problem_id === configProblemId,
+              )?.problem_title ?? `Problem ${configProblemId}`
+            }
+            open={configCPOpen}
+            onOpenChange={setConfigCPOpen}
           />
         )}
       </DialogContent>
@@ -1167,11 +1200,13 @@ function useContestColumns({
   onDelete,
   onManageProblems,
   onBulkParticipants,
+  onConfigure,
 }: {
   onEdit: (contest: ContestListItem) => void;
   onDelete: (contest: ContestListItem) => void;
   onManageProblems: (contest: ContestListItem) => void;
   onBulkParticipants: (contest: ContestListItem) => void;
+  onConfigure?: (contest: ContestListItem) => void;
 }): DataTableColumn<ContestListItem>[] {
   const { t, locale } = useTranslation();
   return [
@@ -1254,6 +1289,12 @@ function useContestColumns({
               <UserPlus className="h-4 w-4" />
               {t('admin.bulkParticipantsAction')}
             </DropdownMenuItem>
+            {onConfigure && (
+              <DropdownMenuItem onClick={() => onConfigure(row.original)}>
+                <Settings className="h-4 w-4" />
+                {t('admin.configure')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -1294,6 +1335,10 @@ export function AdminContestsTab() {
   const [bulkParticipantsContest, setBulkParticipantsContest] = useState<
     ContestListItem | undefined
   >();
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [configContest, setConfigContest] = useState<
+    ContestListItem | undefined
+  >();
 
   function handleCreateContest() {
     setEditingContest(undefined);
@@ -1315,6 +1360,11 @@ export function AdminContestsTab() {
     setBulkParticipantsDialogOpen(true);
   }
 
+  function handleConfigure(contest: ContestListItem) {
+    setConfigContest(contest);
+    setConfigDialogOpen(true);
+  }
+
   async function handleDeleteContest(contest: ContestListItem) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
     const { error } = await apiClient.DELETE('/contests/{id}', {
@@ -1330,6 +1380,7 @@ export function AdminContestsTab() {
     onDelete: handleDeleteContest,
     onManageProblems: handleManageProblems,
     onBulkParticipants: handleBulkParticipants,
+    onConfigure: handleConfigure,
   });
 
   return (
@@ -1368,6 +1419,14 @@ export function AdminContestsTab() {
           contest={bulkParticipantsContest}
           open={bulkParticipantsDialogOpen}
           onOpenChange={setBulkParticipantsDialogOpen}
+        />
+      )}
+      {configContest && (
+        <ResourceConfigDialog
+          scope={{ scope: 'contest', contestId: configContest.id }}
+          resourceLabel={configContest.title}
+          open={configDialogOpen}
+          onOpenChange={setConfigDialogOpen}
         />
       )}
     </>

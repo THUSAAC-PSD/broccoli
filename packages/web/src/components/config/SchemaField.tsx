@@ -1,0 +1,285 @@
+import { useTranslation } from '@broccoli/sdk/i18n';
+import { Slot } from '@broccoli/sdk/react';
+import { Minus, Plus } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+
+import { FieldError } from './FieldError';
+import { NumericInput } from './NumericInput';
+import { SchemaFields } from './SchemaFields';
+import type { JsonSchemaProperty } from './types';
+import { defaultForType } from './utils';
+
+export function SchemaField({
+  name,
+  prop,
+  value,
+  path,
+  updateValue,
+  errors,
+  pluginId,
+  namespace,
+}: Readonly<{
+  name: string;
+  prop: JsonSchemaProperty;
+  value: unknown;
+  path: string[];
+  updateValue: (path: string[], value: unknown) => void;
+  errors: Record<string, string>;
+  pluginId?: string;
+  namespace?: string;
+}>) {
+  const { t } = useTranslation();
+  const fieldId = `cfg-${path.join('-')}`;
+  const label = prop.title ?? name;
+  const dotPath = path.join('.');
+  const error = errors[dotPath];
+
+  const slotName =
+    pluginId && namespace
+      ? `config.field.${pluginId}.${namespace}.${path.join('.')}`
+      : undefined;
+
+  const defaultField = renderField();
+
+  if (slotName) {
+    return (
+      <Slot
+        name={slotName}
+        className="contents"
+        slotProps={{
+          value,
+          schema: prop,
+          onChange: (v: unknown) => updateValue(path, v),
+          path,
+        }}
+      >
+        {defaultField}
+      </Slot>
+    );
+  }
+
+  return defaultField;
+
+  function renderField() {
+    // Object -> card-like grouped section
+    if (prop.type === 'object' && prop.properties) {
+      const objValue =
+        value && typeof value === 'object'
+          ? (value as Record<string, unknown>)
+          : {};
+
+      return (
+        <div className="rounded-lg border bg-muted/30">
+          <div className="px-4 py-3 border-b bg-muted/40 rounded-t-lg">
+            <h4 className="text-sm font-medium">{label}</h4>
+            {prop.description && (
+              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                {prop.description}
+              </p>
+            )}
+          </div>
+          <div className="p-4">
+            <SchemaFields
+              schema={{ type: 'object' as const, properties: prop.properties }}
+              values={objValue}
+              path={path}
+              updateValue={updateValue}
+              errors={errors}
+              pluginId={pluginId}
+              namespace={namespace}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // Boolean -> switch in a bordered row
+    if (prop.type === 'boolean') {
+      return (
+        <div className="flex items-center justify-between rounded-lg border p-3 sm:col-span-2">
+          <div>
+            <Label htmlFor={fieldId} className="cursor-pointer">
+              {label}
+            </Label>
+            {prop.description && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {prop.description}
+              </p>
+            )}
+          </div>
+          <Switch
+            id={fieldId}
+            checked={Boolean(value)}
+            onCheckedChange={(v) => updateValue(path, v)}
+          />
+        </div>
+      );
+    }
+
+    // String enum -> styled select
+    if (prop.type === 'string' && prop.enum) {
+      return (
+        <div className="flex flex-col gap-1.5">
+          <div>
+            <Label
+              htmlFor={fieldId}
+              className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              {label}
+            </Label>
+            {prop.description && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {prop.description}
+              </p>
+            )}
+          </div>
+          <div className="mt-auto">
+            <select
+              id={fieldId}
+              value={typeof value === 'string' ? value : ''}
+              onChange={(e) => updateValue(path, e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {prop.enum.map((opt) => (
+                <option key={String(opt)} value={String(opt)}>
+                  {String(opt)}
+                </option>
+              ))}
+            </select>
+            <FieldError message={error} />
+          </div>
+        </div>
+      );
+    }
+
+    // Number / integer -> custom NumericInput
+    if (prop.type === 'number' || prop.type === 'integer') {
+      return (
+        <div className="flex flex-col gap-1.5">
+          <div>
+            <Label
+              htmlFor={fieldId}
+              className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              {label}
+            </Label>
+            {prop.description && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {prop.description}
+              </p>
+            )}
+          </div>
+          <div className="mt-auto">
+            <NumericInput
+              id={fieldId}
+              value={typeof value === 'number' ? value : undefined}
+              onChange={(v) => updateValue(path, v)}
+              min={prop.minimum}
+              max={prop.maximum}
+              integer={prop.type === 'integer'}
+              step={prop.multipleOf}
+              precision={prop['x-precision']}
+              unit={prop['x-unit']}
+            />
+            <FieldError message={error} />
+          </div>
+        </div>
+      );
+    }
+
+    // Array (generic)
+    if (prop.type === 'array' && prop.items) {
+      const items = Array.isArray(value) ? (value as unknown[]) : [];
+
+      return (
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            {label}
+          </Label>
+          {prop.description && (
+            <p className="text-xs text-muted-foreground">{prop.description}</p>
+          )}
+          <div className="space-y-2">
+            {/* Index keys: deletion may cause stale NumericInput.text state, acceptable for config forms */}
+            {items.map((item, i) => (
+              <div key={String(i)} className="flex gap-1.5 items-start">
+                <div className="flex-1">
+                  <SchemaField
+                    name={String(i)}
+                    prop={prop.items!}
+                    value={item}
+                    path={[...path, String(i)]}
+                    updateValue={updateValue}
+                    errors={errors}
+                    pluginId={pluginId}
+                    namespace={namespace}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 h-9 w-9 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    updateValue(
+                      path,
+                      items.filter((_, j) => j !== i),
+                    );
+                  }}
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-1"
+              onClick={() =>
+                updateValue(path, [...items, defaultForType(prop.items!)])
+              }
+            >
+              <Plus className="h-3 w-3 mr-1.5" />
+              {t('plugins.config.addItem')}
+            </Button>
+          </div>
+          <FieldError message={error} />
+        </div>
+      );
+    }
+
+    // Default: string input
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div>
+          <Label
+            htmlFor={fieldId}
+            className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+          >
+            {label}
+          </Label>
+          {prop.description && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {prop.description}
+            </p>
+          )}
+        </div>
+        <div className="mt-auto">
+          <Input
+            id={fieldId}
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => updateValue(path, e.target.value)}
+            minLength={prop.minLength}
+            maxLength={prop.maxLength}
+          />
+          <FieldError message={error} />
+        </div>
+      </div>
+    );
+  }
+}

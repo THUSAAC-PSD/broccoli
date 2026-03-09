@@ -2,10 +2,18 @@ import type { ContestProblemResponse, ProblemListItem } from '@broccoli/sdk';
 import { type ApiClient, useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQueryClient } from '@tanstack/react-query';
-import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  List,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Settings,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
+import { ResourceConfigDialog } from '@/components/config';
 import { Button } from '@/components/ui/button';
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
@@ -287,10 +295,12 @@ export function useProblemColumns({
   onEdit,
   onDelete,
   onManageTestCases,
+  onConfigure,
 }: {
   onEdit: (problem: ProblemListItem) => void;
   onDelete: (problem: ProblemListItem) => void;
   onManageTestCases: (problem: ProblemListItem) => void;
+  onConfigure?: (problem: ProblemListItem) => void;
 }): DataTableColumn<ProblemListItem>[] {
   const { t, locale } = useTranslation();
   return [
@@ -355,6 +365,12 @@ export function useProblemColumns({
               <List className="h-4 w-4" />
               {t('admin.manageTestCases')}
             </DropdownMenuItem>
+            {onConfigure && (
+              <DropdownMenuItem onClick={() => onConfigure(row.original)}>
+                <Settings className="h-4 w-4" />
+                {t('admin.configure')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -389,6 +405,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const [managingProblem, setManagingProblem] = useState<
     ProblemListItem | undefined
   >();
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [configProblem, setConfigProblem] = useState<
+    ProblemListItem | undefined
+  >();
 
   function handleCreateProblem() {
     setEditingProblem(undefined);
@@ -405,6 +425,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     setTestCasesDialogOpen(true);
   }
 
+  function handleConfigure(problem: ProblemListItem) {
+    setConfigProblem(problem);
+    setConfigDialogOpen(true);
+  }
+
   async function handleDeleteProblem(problem: ProblemListItem) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
     const { error } = await apiClient.DELETE('/problems/{id}', {
@@ -419,6 +444,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onEdit: handleEditProblem,
     onDelete: handleDeleteProblem,
     onManageTestCases: handleManageTestCases,
+    onConfigure: handleConfigure,
   });
 
   return (
@@ -455,6 +481,14 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
           problem={managingProblem}
           open={testCasesDialogOpen}
           onOpenChange={setTestCasesDialogOpen}
+        />
+      )}
+      {configProblem && (
+        <ResourceConfigDialog
+          scope={{ scope: 'problem', problemId: configProblem.id }}
+          resourceLabel={configProblem.title}
+          open={configDialogOpen}
+          onOpenChange={setConfigDialogOpen}
         />
       )}
     </>

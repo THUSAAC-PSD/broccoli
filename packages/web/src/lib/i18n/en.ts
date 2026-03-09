@@ -356,6 +356,12 @@ export const en: Record<string, string> = {
   'plugins.config.deleteError': 'Failed to delete configuration.',
   'sidebar.plugins': 'Plugins',
 
+  // Resource config
+  'admin.configure': 'Configure',
+  'config.title': 'Configuration: {{name}}',
+  'config.description': 'Plugin configuration for this resource.',
+  'config.noSchemas': 'No plugin configuration available for this resource.',
+
   // Language switcher
   'locale.switch': 'Language',
 };
