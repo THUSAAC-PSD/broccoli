@@ -1706,6 +1706,11 @@ export interface components {
              */
             content: string;
             /**
+             * @description Default contest type for standalone submissions, e.g. "standard", "icpc", "ioi".
+             * @example standard
+             */
+            default_contest_type?: string;
+            /**
              * Format: int32
              * @description Memory limit in kilobytes (1-1048576).
              * @example 262144
@@ -1736,6 +1741,12 @@ export interface components {
         };
         /** @description Request body for creating a submission. */
         CreateSubmissionRequest: {
+            /**
+             * @description Optional contest type override for standalone submissions (e.g., "standard", "icpc").
+             *     If omitted, uses the problem's default_contest_type.
+             * @example standard
+             */
+            contest_type?: string | null;
             /** @description Source files. At least one file required. */
             files: components["schemas"]["SubmissionFileDto"][];
             /**
@@ -2160,6 +2171,11 @@ export interface components {
              */
             created_at: string;
             /**
+             * @description Default contest type for standalone submissions.
+             * @example standard
+             */
+            default_contest_type: string;
+            /**
              * Format: int32
              * @example 1
              */
@@ -2213,6 +2229,11 @@ export interface components {
              * @example 2025-09-01T08:00:00Z
              */
             created_at: string;
+            /**
+             * @description Default contest type for standalone submissions.
+             * @example standard
+             */
+            default_contest_type: string;
             /**
              * Format: int32
              * @example 1
@@ -2367,6 +2388,11 @@ export interface components {
              */
             contest_id?: number | null;
             /**
+             * @description Contest type used for judging.
+             * @example standard
+             */
+            contest_type: string;
+            /**
              * Format: date-time
              * @example 2025-10-01T14:30:00Z
              */
@@ -2426,6 +2452,11 @@ export interface components {
              * @example 1
              */
             contest_id?: number | null;
+            /**
+             * @description Contest type used for judging this submission.
+             * @example standard
+             */
+            contest_type: string;
             /**
              * Format: date-time
              * @example 2025-10-01T14:30:00Z
@@ -2667,6 +2698,11 @@ export interface components {
              * @example Updated problem statement...
              */
             content?: string | null;
+            /**
+             * @description Default contest type for standalone submissions.
+             * @example standard
+             */
+            default_contest_type?: string | null;
             /**
              * Format: int32
              * @description Memory limit in kilobytes (1-1048576).

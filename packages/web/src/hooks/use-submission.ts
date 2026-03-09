@@ -27,7 +27,11 @@ interface UseSubmissionReturn {
   submission: SubmissionResponse | null;
   isSubmitting: boolean;
   error: string | null;
-  submit: (code: string, language: string) => Promise<void>;
+  submit: (
+    code: string,
+    language: string,
+    contestType?: string,
+  ) => Promise<void>;
   reset: () => void;
 }
 
@@ -91,17 +95,14 @@ export function useSubmission({
   );
 
   const submit = useCallback(
-    async (code: string, language: string) => {
+    async (code: string, language: string, contestType?: string) => {
       stopPolling();
       setError(null);
       setIsSubmitting(true);
       setSubmission(null);
 
       const filename = FILENAME_MAP[language] ?? `solution.${language}`;
-      const body = {
-        files: [{ filename, content: code }],
-        language,
-      };
+      const files = [{ filename, content: code }];
 
       try {
         let data: SubmissionResponse;
@@ -113,7 +114,7 @@ export function useSubmission({
               params: {
                 path: { id: contestId, problem_id: problemId },
               },
-              body,
+              body: { files, language },
             },
           );
           if (res.error) throw res.error;
@@ -121,7 +122,7 @@ export function useSubmission({
         } else {
           const res = await apiClient.POST('/problems/{id}/submissions', {
             params: { path: { id: problemId } },
-            body,
+            body: { files, language, contest_type: contestType },
           });
           if (res.error) throw res.error;
           data = res.data as SubmissionResponse;

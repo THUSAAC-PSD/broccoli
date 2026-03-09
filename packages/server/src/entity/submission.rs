@@ -29,6 +29,10 @@ pub struct Model {
     /// NULL for standalone submissions.
     pub contest_id: Option<i32>,
 
+    /// Contest type used for judging this submission.
+    #[sea_orm(default_value = "standard")]
+    pub contest_type: String,
+
     pub status: SubmissionStatus,
     pub verdict: Option<Verdict>,
 

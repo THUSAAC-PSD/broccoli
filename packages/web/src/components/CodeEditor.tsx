@@ -72,6 +72,12 @@ interface CodeEditorProps {
   onToggleFullscreen?: () => void;
   /** Unique key for persisting code to localStorage (e.g. problem ID). */
   storageKey?: string;
+  /** Currently selected contest type. */
+  contestType?: string;
+  /** Callback when contest type changes. */
+  onContestTypeChange?: (contestType: string) => void;
+  /** Available contest types from registry. */
+  contestTypes?: string[];
 }
 
 function getStorageKeys(storageKey: string) {
@@ -87,6 +93,9 @@ export function CodeEditor({
   isFullscreen,
   onToggleFullscreen,
   storageKey,
+  contestType,
+  onContestTypeChange,
+  contestTypes,
 }: CodeEditorProps) {
   const { t } = useTranslation();
 
@@ -151,6 +160,26 @@ export function CodeEditor({
             as="div"
             className="flex items-center gap-2"
           />
+          {contestTypes && contestTypes.length > 0 && onContestTypeChange && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  {contestType ?? 'standard'}
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {contestTypes.map((ct) => (
+                  <DropdownMenuItem
+                    key={ct}
+                    onClick={() => onContestTypeChange(ct)}
+                  >
+                    {ct}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {onToggleFullscreen && (
             <Button
               variant="ghost"

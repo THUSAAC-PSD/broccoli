@@ -13,6 +13,7 @@ import { ProblemHeader } from '@/components/ProblemHeader';
 import { SubmissionResult } from '@/components/SubmissionResult';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useRegistries } from '@/hooks/use-registries';
 import { useSubmission } from '@/hooks/use-submission';
 
 const INLINE_SAMPLE_MAX_SIZE = 1024;
@@ -41,7 +42,9 @@ export function ProblemDetailPage() {
   const [showCodingPanel, setShowCodingPanel] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
+  const [contestType, setContestType] = useState<string | undefined>(undefined);
   const apiClient = useApiClient();
+  const { data: registries } = useRegistries();
 
   const {
     data: problem,
@@ -424,12 +427,19 @@ export function ProblemDetailPage() {
             className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'col-span-2' : ''}`}
           >
             <CodeEditor
-              onSubmit={submit}
-              onRun={submit}
+              onSubmit={(code, language) => submit(code, language, contestType)}
+              onRun={(code, language) => submit(code, language, contestType)}
               isFullscreen={isCodeFullscreen}
               onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
               storageKey={
                 cId ? `contest-${cId}-problem-${id}` : `problem-${id}`
+              }
+              contestType={
+                contestType ?? problem?.default_contest_type ?? 'standard'
+              }
+              onContestTypeChange={!cId ? setContestType : undefined}
+              contestTypes={
+                !cId ? (registries?.contest_types ?? []) : undefined
               }
             />
           </div>

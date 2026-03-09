@@ -32,6 +32,10 @@ pub struct Model {
     #[sea_orm(column_type = "Text", default_value = "exact")]
     pub checker_format: String,
 
+    /// Default contest type for standalone submissions (e.g., "standard", "icpc", "ioi").
+    #[sea_orm(default_value = "standard")]
+    pub default_contest_type: String,
+
     #[sea_orm(has_many)]
     pub submissions: HasMany<super::submission::Entity>,
 

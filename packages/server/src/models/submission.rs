@@ -45,6 +45,10 @@ pub struct CreateSubmissionRequest {
     /// Programming language (e.g., "cpp", "java", "python").
     #[schema(example = "cpp")]
     pub language: String,
+    /// Optional contest type override for standalone submissions (e.g., "standard", "icpc").
+    /// If omitted, uses the problem's default_contest_type.
+    #[schema(example = "standard")]
+    pub contest_type: Option<String>,
 }
 
 /// Query parameters for submission listing.
@@ -94,6 +98,9 @@ pub struct SubmissionResponse {
     /// Contest ID if this is a contest submission, null otherwise.
     #[schema(example = 1)]
     pub contest_id: Option<i32>,
+    /// Contest type used for judging this submission.
+    #[schema(example = "standard")]
+    pub contest_type: String,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Judge result if judging is complete, null otherwise.
@@ -120,6 +127,9 @@ pub struct SubmissionListItem {
     pub problem_title: String,
     /// Contest ID if this is a contest submission, null otherwise.
     pub contest_id: Option<i32>,
+    /// Contest type used for judging.
+    #[schema(example = "standard")]
+    pub contest_type: String,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Total score if judged, null otherwise.

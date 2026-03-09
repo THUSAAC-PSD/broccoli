@@ -256,7 +256,7 @@ async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
             }
         }
     } else {
-        Some("standard".to_string())
+        Some(submission.contest_type.clone())
     };
 
     let handler = {
@@ -480,6 +480,7 @@ async fn build_submission_list_items(
             problem_id: sub.problem_id,
             problem_title: problem_model.title.clone(),
             contest_id: sub.contest_id,
+            contest_type: sub.contest_type,
             created_at: sub.created_at,
             score: sub.score,
             time_used: sub.time_used,
@@ -625,6 +626,7 @@ async fn build_submission_response(
         problem_id: sub.problem_id,
         problem_title: problem_model.title,
         contest_id: sub.contest_id,
+        contest_type: sub.contest_type.clone(),
         created_at: sub.created_at,
         result: result_response,
     })
@@ -670,9 +672,25 @@ pub async fn create_submission(
 
     let txn = state.db.begin().await?;
 
-    let _ = find_problem(&txn, problem_id).await?;
+    let problem = find_problem(&txn, problem_id).await?;
 
-    // TODO: Validate language against plugin registry
+    // TODO: Validate language against config
+
+    let contest_type = match payload.contest_type {
+        Some(ref ct) => {
+            let registry = state.registries.contest_type_registry.read().await;
+            if !registry.contains_key(ct) {
+                let mut valid: Vec<_> = registry.keys().cloned().collect();
+                valid.sort();
+                return Err(AppError::Validation(format!(
+                    "contest_type must be one of: {}",
+                    valid.join(", ")
+                )));
+            }
+            ct.clone()
+        }
+        None => problem.default_contest_type.clone(),
+    };
 
     let now = Utc::now();
     let new_submission = submission::ActiveModel {
@@ -682,6 +700,7 @@ pub async fn create_submission(
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(None),
+        contest_type: Set(contest_type),
         created_at: Set(now),
         ..Default::default()
     };
@@ -980,6 +999,10 @@ pub async fn create_contest_submission(
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(Some(contest_id)),
+        contest_type: Set(contest_model
+            .contest_type
+            .clone()
+            .unwrap_or_else(|| "standard".to_string())),
         created_at: Set(now),
         ..Default::default()
     };

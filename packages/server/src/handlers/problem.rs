@@ -50,6 +50,11 @@ pub async fn create_problem(
         &state.registries.checker_format_registry,
     )
     .await?;
+    validate_contest_type(
+        &payload.default_contest_type,
+        &state.registries.contest_type_registry,
+    )
+    .await?;
 
     let now = chrono::Utc::now();
     let new_problem = problem::ActiveModel {
@@ -60,6 +65,7 @@ pub async fn create_problem(
         show_test_details: Set(payload.show_test_details.unwrap_or(false)),
         problem_type: Set(payload.problem_type),
         checker_format: Set(payload.checker_format),
+        default_contest_type: Set(payload.default_contest_type),
 
         created_at: Set(now),
         updated_at: Set(now),
@@ -144,6 +150,7 @@ pub async fn list_problems(
         .column(problem::Column::ShowTestDetails)
         .column(problem::Column::ProblemType)
         .column(problem::Column::CheckerFormat)
+        .column(problem::Column::DefaultContestType)
         .column(problem::Column::CreatedAt)
         .column(problem::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -224,6 +231,9 @@ pub async fn update_problem(
     if let Some(ref cf) = payload.checker_format {
         validate_checker_format(cf, &state.registries.checker_format_registry).await?;
     }
+    if let Some(ref ct) = payload.default_contest_type {
+        validate_contest_type(ct, &state.registries.contest_type_registry).await?;
+    }
 
     if payload == UpdateProblemRequest::default() {
         let mut existing = ProblemResponse::from(find_problem(&state.db, id).await?);
@@ -256,6 +266,9 @@ pub async fn update_problem(
     }
     if let Some(checker_format) = payload.checker_format {
         active.checker_format = Set(checker_format);
+    }
+    if let Some(default_contest_type) = payload.default_contest_type {
+        active.default_contest_type = Set(default_contest_type);
     }
     active.updated_at = Set(chrono::Utc::now());
 

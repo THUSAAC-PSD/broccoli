@@ -37,6 +37,10 @@ pub struct CreateProblemRequest {
     #[serde(default = "default_checker_format")]
     #[schema(example = "exact")]
     pub checker_format: String,
+    /// Default contest type for standalone submissions, e.g. "standard", "icpc", "ioi".
+    #[serde(default = "default_contest_type")]
+    #[schema(example = "standard")]
+    pub default_contest_type: String,
 }
 
 /// PATCH body for updating a problem. Only provided fields are modified.
@@ -63,6 +67,9 @@ pub struct UpdateProblemRequest {
     /// Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
     #[schema(example = "ignore_case")]
     pub checker_format: Option<String>,
+    /// Default contest type for standalone submissions.
+    #[schema(example = "standard")]
+    pub default_contest_type: Option<String>,
 }
 
 /// Full problem details.
@@ -89,6 +96,9 @@ pub struct ProblemResponse {
     /// Checker format for output comparison.
     #[schema(example = "exact")]
     pub checker_format: String,
+    /// Default contest type for standalone submissions.
+    #[schema(example = "standard")]
+    pub default_contest_type: String,
     /// Sample test case metadata (is_sample = true).
     pub samples: Vec<SampleTestCaseMeta>,
     #[schema(example = "2025-09-01T08:00:00Z")]
@@ -130,6 +140,9 @@ pub struct ProblemListItem {
     /// Checker format for output comparison.
     #[schema(example = "exact")]
     pub checker_format: String,
+    /// Default contest type for standalone submissions.
+    #[schema(example = "standard")]
+    pub default_contest_type: String,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
@@ -283,6 +296,7 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             problem_type: m.problem_type,
             checker_source: m.checker_source,
             checker_format: m.checker_format,
+            default_contest_type: m.default_contest_type,
             samples: vec![],
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -323,7 +337,11 @@ fn default_checker_format() -> String {
     "exact".into()
 }
 
-use crate::registry::{CheckerFormatRegistry, EvaluatorRegistry};
+fn default_contest_type() -> String {
+    "standard".into()
+}
+
+use crate::registry::{CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry};
 
 /// Validates checker_format against the registry of registered checker format handlers.
 pub async fn validate_checker_format(
@@ -353,6 +371,22 @@ pub async fn validate_problem_type(
         valid.sort();
         return Err(AppError::Validation(format!(
             "problem_type must be one of: {}",
+            valid.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+pub async fn validate_contest_type(
+    contest_type: &str,
+    registry: &ContestTypeRegistry,
+) -> Result<(), AppError> {
+    let reg = registry.read().await;
+    if !reg.contains_key(contest_type) {
+        let mut valid: Vec<_> = reg.keys().cloned().collect();
+        valid.sort();
+        return Err(AppError::Validation(format!(
+            "default_contest_type must be one of: {}",
             valid.join(", ")
         )));
     }
