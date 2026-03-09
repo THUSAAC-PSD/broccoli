@@ -109,7 +109,7 @@ export default function Index() {
         },
       });
       if (error) throw error;
-      return data.data as ContestSummary[];
+      return data.data;
     },
   });
 
@@ -126,7 +126,7 @@ export default function Index() {
       setContest(contests[0].id, contests[0].title);
       navigate(`/contests/${contests[0].id}`);
     }
-  }, [contests, contestId, setContest]);
+  }, [contests, contestId, setContest, navigate, user]);
 
   // Admin user, redirect to admin dashboard
   if (user && user.role === 'admin') {

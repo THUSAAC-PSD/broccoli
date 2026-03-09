@@ -11,5 +11,5 @@ export async function fetchContestProblemList(
 
   if (error) throw error;
 
-  return data as ContestProblem[];
+  return data;
 }

@@ -25,6 +25,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import { toast } from 'sonner';
 
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { SwitchField } from '@/features/admin/components/SwitchField';
@@ -54,15 +55,10 @@ export function ProblemFormDialog({
   const [showTestDetails, setShowTestDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [message, setMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
   const apiClient = useApiClient();
 
   useEffect(() => {
     if (!open) return;
-    setMessage(null);
     if (problem) {
       setLoadingData(true);
       apiClient
@@ -88,7 +84,6 @@ export function ProblemFormDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMessage(null);
 
     const body = {
       title,
@@ -107,11 +102,11 @@ export function ProblemFormDialog({
 
     setLoading(false);
     if (result.error) {
-      setMessage({
-        type: 'error',
-        text: isEdit ? t('admin.editError') : t('admin.createError'),
-      });
+      toast.error(isEdit ? t('admin.editError') : t('admin.createError'));
     } else {
+      toast.success(
+        isEdit ? t('toast.problem.updated') : t('toast.problem.created'),
+      );
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
       onOpenChange(false);
     }
@@ -204,14 +199,6 @@ export function ProblemFormDialog({
                 onCheckedChange={setShowTestDetails}
               />
             </div>
-
-            {message && (
-              <div
-                className={`rounded-md px-4 py-3 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}
-              >
-                {message.text}
-              </div>
-            )}
 
             <DialogFooter>
               <Button type="submit" disabled={loading}>
@@ -358,7 +345,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     const { error } = await apiClient.DELETE('/problems/{id}', {
       params: { path: { id: problem.id } },
     });
-    if (!error) {
+    if (error) {
+      toast.error(t('toast.problem.deleteError'));
+    } else {
+      toast.success(t('toast.problem.deleted'));
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
     }
   }

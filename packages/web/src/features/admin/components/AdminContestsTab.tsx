@@ -8,6 +8,7 @@ import {
   Button,
   DataTable,
   type DataTableColumn,
+  DateTimePicker,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -23,7 +24,7 @@ import {
   Label,
   Separator,
 } from '@broccoli/web-sdk/ui';
-import { formatDateTime, toLocalDatetimeValue } from '@broccoli/web-sdk/utils';
+import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -39,6 +40,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import { toast } from 'sonner';
 
 import { Markdown } from '@/components/Markdown';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
@@ -132,23 +134,18 @@ export function ContestFormDialog({
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
+  const [startTime, setStartTime] = useState<Date | undefined>(undefined);
+  const [endTime, setEndTime] = useState<Date | undefined>(undefined);
   const [isPublic, setIsPublic] = useState(false);
   const [submissionsVisible, setSubmissionsVisible] = useState(false);
   const [showCompileOutput, setShowCompileOutput] = useState(true);
   const [showParticipantsList, setShowParticipantsList] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [message, setMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
   const apiClient = useApiClient();
 
   useEffect(() => {
     if (!open) return;
-    setMessage(null);
     if (contest) {
       setLoadingData(true);
       apiClient
@@ -158,8 +155,8 @@ export function ContestFormDialog({
           if (error || !data) return;
           setTitle(data.title);
           setDescription(data.description);
-          setStartTime(toLocalDatetimeValue(data.start_time));
-          setEndTime(toLocalDatetimeValue(data.end_time));
+          setStartTime(new Date(data.start_time));
+          setEndTime(new Date(data.end_time));
           setIsPublic(data.is_public);
           setSubmissionsVisible(data.submissions_visible);
           setShowCompileOutput(data.show_compile_output);
@@ -168,8 +165,8 @@ export function ContestFormDialog({
     } else {
       setTitle('');
       setDescription('');
-      setStartTime('');
-      setEndTime('');
+      setStartTime(undefined);
+      setEndTime(undefined);
       setIsPublic(false);
       setSubmissionsVisible(false);
       setShowCompileOutput(true);
@@ -180,13 +177,12 @@ export function ContestFormDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMessage(null);
 
     const body = {
       title,
       description,
-      start_time: new Date(startTime).toISOString(),
-      end_time: new Date(endTime).toISOString(),
+      start_time: startTime!.toISOString(),
+      end_time: endTime!.toISOString(),
       is_public: isPublic,
       submissions_visible: submissionsVisible,
       show_compile_output: showCompileOutput,
@@ -202,11 +198,11 @@ export function ContestFormDialog({
 
     setLoading(false);
     if (result.error) {
-      setMessage({
-        type: 'error',
-        text: isEdit ? t('admin.editError') : t('admin.createError'),
-      });
+      toast.error(isEdit ? t('admin.editError') : t('admin.createError'));
     } else {
+      toast.success(
+        isEdit ? t('toast.contest.updated') : t('toast.contest.created'),
+      );
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });
       onOpenChange(false);
     }
@@ -257,25 +253,19 @@ export function ContestFormDialog({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="contest-start">
-                  {t('admin.field.startTime')}
-                </Label>
-                <Input
-                  id="contest-start"
-                  type="datetime-local"
+                <Label>{t('admin.field.startTime')}</Label>
+                <DateTimePicker
                   value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  required
+                  onChange={setStartTime}
+                  placeholder={t('admin.field.startTime')}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="contest-end">{t('admin.field.endTime')}</Label>
-                <Input
-                  id="contest-end"
-                  type="datetime-local"
+                <Label>{t('admin.field.endTime')}</Label>
+                <DateTimePicker
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  required
+                  onChange={setEndTime}
+                  placeholder={t('admin.field.endTime')}
                 />
               </div>
             </div>
@@ -313,14 +303,6 @@ export function ContestFormDialog({
                 />
               </div>
             </div>
-
-            {message && (
-              <div
-                className={`rounded-md px-4 py-3 text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-destructive/10 text-destructive border border-destructive/20'}`}
-              >
-                {message.text}
-              </div>
-            )}
 
             <DialogFooter>
               <Button type="submit" disabled={loading}>
@@ -442,8 +424,9 @@ export function ContestProblemsDialog({
     );
     setAddingId(null);
     if (apiError) {
-      setErrorMsg(t('admin.addProblemError'));
+      toast.error(t('toast.problem.addError'));
     } else {
+      toast.success(t('toast.problem.added'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
     }
   }
@@ -456,7 +439,10 @@ export function ContestProblemsDialog({
         params: { path: { id: contest.id, problem_id: problemId } },
       },
     );
-    if (!apiError) {
+    if (apiError) {
+      toast.error(t('toast.problem.removeError'));
+    } else {
+      toast.success(t('toast.problem.removed'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
     }
   }
@@ -775,7 +761,10 @@ export function AdminContestsTab() {
     const { error } = await apiClient.DELETE('/contests/{id}', {
       params: { path: { id: contest.id } },
     });
-    if (!error) {
+    if (error) {
+      toast.error(t('toast.contest.deleteError'));
+    } else {
+      toast.success(t('toast.contest.deleted'));
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });
     }
   }

@@ -7,6 +7,7 @@ import type { LazyPluginLoader } from '@broccoli/web-sdk/plugin';
 import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
 import { SidebarStateProvider } from '@broccoli/web-sdk/sidebar';
 import { ThemeProvider } from '@broccoli/web-sdk/theme';
+import { Toaster } from '@broccoli/web-sdk/ui';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
@@ -39,7 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // with the real DOM, preventing hydration mismatches.
   const initialTheme =
     typeof window !== 'undefined'
-      ? ((localStorage.getItem('theme') as string | null) ??
+      ? (localStorage.getItem('theme') ??
         (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'))
       : 'light';
 
@@ -85,6 +86,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           lazyPlugins={lazyPlugins}
                         >
                           <AppLayout>{children}</AppLayout>
+                          <Toaster richColors closeButton />
                         </PluginRegistryProvider>
                       </SlotPermissionsBridge>
                     </SidebarStateProvider>

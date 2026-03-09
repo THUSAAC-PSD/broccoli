@@ -89,6 +89,12 @@ interface CodeEditorProps {
   onToggleFullscreen?: () => void;
   /** Unique key for persisting code to localStorage (e.g. problem ID). */
   storageKey?: string;
+  /**
+   * Server-provided file names per language (from problem.submission_format).
+   * Keys are language ids (e.g. "cpp", "java"), values are arrays of filenames.
+   * Takes precedence over the built-in FILENAME_MAP defaults.
+   */
+  submissionFormat?: Record<string, string[]> | null;
 }
 
 const EXT_TO_MONACO: Record<string, string> = {
@@ -157,12 +163,30 @@ const FILENAME_MAP: Record<string, string> = {
   java: 'Main.java',
 };
 
+/**
+ * Returns the default filename for a language, preferring server-provided
+ * submission_format over the built-in FILENAME_MAP.
+ */
+function getDefaultFilename(
+  languageId: string,
+  submissionFormat?: Record<string, string[]> | null,
+): string {
+  if (submissionFormat) {
+    const serverFiles = submissionFormat[languageId];
+    if (serverFiles && serverFiles.length > 0) {
+      return serverFiles[0];
+    }
+  }
+  return FILENAME_MAP[languageId] ?? 'solution.txt';
+}
+
 export function CodeEditor({
   onSubmit,
   onRun,
   isFullscreen,
   onToggleFullscreen,
   storageKey,
+  submissionFormat,
 }: CodeEditorProps) {
   const { t } = useTranslation();
 
@@ -179,7 +203,10 @@ export function CodeEditor({
 
   // Multi-file tabs state
   const [files, setFiles] = useState<EditorFile[]>(() => {
-    const defaultFilename = FILENAME_MAP[selectedLanguage.id] ?? 'solution.txt';
+    const defaultFilename = getDefaultFilename(
+      selectedLanguage.id,
+      submissionFormat,
+    );
     let initialContent = selectedLanguage.template;
     if (storageKey) {
       const saved = localStorage.getItem(getStorageKeys(storageKey).code);
@@ -216,7 +243,7 @@ export function CodeEditor({
     setSelectedLanguage(lang);
 
     // Load saved code
-    const defaultFilename = FILENAME_MAP[lang.id] ?? 'solution.txt';
+    const defaultFilename = getDefaultFilename(lang.id, submissionFormat);
     let content = lang.template;
     if (storageKey) {
       const savedCode = localStorage.getItem(getStorageKeys(storageKey).code);
@@ -225,7 +252,7 @@ export function CodeEditor({
     const newFile = { id: nextFileId(), filename: defaultFilename, content };
     setFiles([newFile]);
     setActiveFileId(newFile.id);
-  }, [storageKey]);
+  }, [storageKey, submissionFormat]);
 
   // Auto-save primary file to localStorage
   useEffect(() => {
@@ -241,9 +268,13 @@ export function CodeEditor({
   const handleLanguageChange = useCallback(
     (language: Language) => {
       setSelectedLanguage(language);
-      const newFilename = FILENAME_MAP[language.id] ?? 'solution.txt';
+      const newFilename = getDefaultFilename(language.id, submissionFormat);
       // If there's only 1 file (the default), reset it
-      if (files.length === 1 && files[0].filename.startsWith('solution')) {
+      const currentDefault = getDefaultFilename(
+        selectedLanguage.id,
+        submissionFormat,
+      );
+      if (files.length === 1 && files[0].filename === currentDefault) {
         setFiles([
           {
             id: files[0].id,
@@ -253,7 +284,7 @@ export function CodeEditor({
         ]);
       }
     },
-    [files],
+    [files, submissionFormat, selectedLanguage],
   );
 
   const updateFileContent = useCallback((fileId: string, content: string) => {
@@ -289,10 +320,14 @@ export function CodeEditor({
 
       setFiles((prev) => {
         // If there's only the default template file, replace it
+        const currentDefault = getDefaultFilename(
+          selectedLanguage.id,
+          submissionFormat,
+        );
         const isDefault =
           prev.length === 1 &&
           prev[0].content === selectedLanguage.template &&
-          prev[0].filename.startsWith('solution');
+          prev[0].filename === currentDefault;
 
         const base = isDefault ? [] : prev;
         return [...base, ...newFiles];
@@ -301,7 +336,7 @@ export function CodeEditor({
       // Activate the first new file
       setActiveFileId(newFiles[0].id);
     },
-    [selectedLanguage],
+    [selectedLanguage, submissionFormat],
   );
 
   const processUploadedFiles = useCallback(
@@ -367,7 +402,10 @@ export function CodeEditor({
   );
 
   const addNewFile = useCallback(() => {
-    const ext = FILENAME_MAP[selectedLanguage.id]?.split('.').pop() ?? 'txt';
+    const ext =
+      getDefaultFilename(selectedLanguage.id, submissionFormat)
+        .split('.')
+        .pop() ?? 'txt';
     // Find a unique name like "file1.cpp", "file2.cpp", etc.
     let index = 1;
     const existingNames = new Set(files.map((f) => f.filename));
@@ -376,7 +414,7 @@ export function CodeEditor({
     const newFile: EditorFile = { id: nextFileId(), filename, content: '' };
     setFiles((prev) => [...prev, newFile]);
     setActiveFileId(newFile.id);
-  }, [selectedLanguage, files]);
+  }, [selectedLanguage, submissionFormat, files]);
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();

@@ -1,7 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
 import {
   Badge,
   Button,
@@ -41,7 +39,7 @@ export default function OverviewPage() {
         },
       });
       if (error) throw error;
-      return data.data as ContestSummary[];
+      return data.data;
     },
   });
 
@@ -78,7 +76,7 @@ export default function OverviewPage() {
         },
       });
       if (error) throw error;
-      return data.data as SubmissionSummary[];
+      return data.data;
     },
   });
 

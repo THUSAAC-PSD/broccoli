@@ -29,6 +29,11 @@ pub struct CreateProblemRequest {
     /// If omitted, defaults to false.
     #[schema(example = false)]
     pub show_test_details: Option<bool>,
+    /// Expected submission file names per language.
+    /// Keys are language ids (e.g. "cpp", "java", "python"), values are arrays of filenames.
+    /// Null or omitted means use client-side defaults.
+    #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
+    pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
 /// PATCH body for updating a problem. Only provided fields are modified.
@@ -49,6 +54,11 @@ pub struct UpdateProblemRequest {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = true)]
     pub show_test_details: Option<bool>,
+    /// Expected submission file names per language.
+    /// Set to a value to update, set to null to clear, or omit to leave unchanged.
+    #[serde(default, deserialize_with = "double_option")]
+    #[schema(value_type = Option<std::collections::HashMap<String, Vec<String>>>, example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
+    pub submission_format: Option<Option<std::collections::HashMap<String, Vec<String>>>>,
 }
 
 /// Full problem details.
@@ -67,6 +77,10 @@ pub struct ProblemResponse {
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
+    /// Expected submission file names per language.
+    /// Null means use client-side defaults.
+    #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
+    pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
     /// Sample test case metadata (is_sample = true).
     pub samples: Vec<SampleTestCaseMeta>,
     #[schema(example = "2025-09-01T08:00:00Z")]
@@ -245,6 +259,9 @@ pub struct UploadTestCasesResponse {
 
 impl From<crate::entity::problem::Model> for ProblemResponse {
     fn from(m: crate::entity::problem::Model) -> Self {
+        let submission_format: Option<std::collections::HashMap<String, Vec<String>>> = m
+            .submission_format
+            .and_then(|v| serde_json::from_value(v).ok());
         Self {
             id: m.id,
             title: m.title,
@@ -252,6 +269,7 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
             show_test_details: m.show_test_details,
+            submission_format,
             samples: vec![],
             created_at: m.created_at,
             updated_at: m.updated_at,

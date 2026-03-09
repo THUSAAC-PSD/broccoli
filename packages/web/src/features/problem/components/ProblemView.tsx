@@ -1,7 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import type { ContestProblem } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type { Problem } from '@broccoli/web-sdk/problem';
 import { Slot } from '@broccoli/web-sdk/slot';
 import { Button, Skeleton } from '@broccoli/web-sdk/ui';
 import { formatBytes, formatKibibytes } from '@broccoli/web-sdk/utils';
@@ -55,7 +53,7 @@ export default function ProblemView({
         params: { path: { id: problemId } },
       });
       if (error) throw error;
-      return data as Problem;
+      return data;
     },
   });
 
@@ -63,12 +61,12 @@ export default function ProblemView({
     queryKey: ['contest-problems', contestId],
     enabled: Number.isFinite(contestId),
     queryFn: async () => {
-      if (!contestId) return [] as ContestProblem[];
+      if (!contestId) return [];
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId } },
       });
-      if (error || !data) return [] as ContestProblem[];
-      return data as ContestProblem[];
+      if (error || !data) return [];
+      return data;
     },
   });
 
@@ -440,6 +438,7 @@ export default function ProblemView({
                   ? `contest-${contestId}-problem-${problemId}`
                   : `problem-${problemId}`
               }
+              submissionFormat={problem?.submission_format}
             />
           </div>
 
