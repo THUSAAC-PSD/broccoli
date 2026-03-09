@@ -6,8 +6,10 @@ fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
     json!({
         "title": title,
         "description": "A contest description in **Markdown**.",
+        "activate_time": "2020-01-01T00:00:00Z",
         "start_time": "2020-01-01T00:00:00Z",
         "end_time": "2099-01-02T00:00:00Z",
+        "deactivate_time": null,
         "is_public": is_public,
     })
 }
@@ -76,6 +78,22 @@ mod contest_creation {
     }
 
     #[tokio::test]
+    async fn returns_validation_error_when_activate_after_start() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+
+        let mut body = valid_contest_body("Bad Activate", true);
+        body["activate_time"] = json!("2025-01-02T00:00:00Z");
+        body["start_time"] = json!("2025-01-01T00:00:00Z");
+
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+        assert_eq!(res.status, 400);
+        assert!(res.text.contains("activate_time"));
+    }
+
+    #[tokio::test]
     async fn returns_validation_error_when_end_before_start() {
         let app = TestApp::spawn().await;
         let token = app
@@ -93,6 +111,77 @@ mod contest_creation {
 
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_when_deactivate_before_end() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+
+        let mut body = valid_contest_body("Bad Deactivate", true);
+        body["end_time"] = json!("2025-01-02T00:00:00Z");
+        body["deactivate_time"] = json!("2025-01-01T00:00:00Z");
+
+        let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+        assert_eq!(res.status, 400);
+        assert!(res.text.contains("deactivate_time"));
+    }
+
+    #[tokio::test]
+    async fn defaults_activate_time_to_min_now_and_start_time() {
+        use chrono::Duration;
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_time_test", "pass1234", "admin")
+            .await;
+
+        // `start_time` is in the future. `activate_time` should be ~now.
+        let future_start = chrono::Utc::now() + Duration::days(1);
+        let body_future = json!({
+            "title": "Future Contest",
+            "description": "desc",
+            "start_time": future_start,
+            "end_time": future_start + Duration::hours(2),
+            "is_public": true,
+        });
+        let res_future = app
+            .post_with_token(routes::CONTESTS, &body_future, &token)
+            .await;
+        assert_eq!(res_future.status, 201);
+
+        let act_future: chrono::DateTime<chrono::Utc> =
+            serde_json::from_value(res_future.body["activate_time"].clone()).unwrap();
+        let start_future: chrono::DateTime<chrono::Utc> =
+            serde_json::from_value(res_future.body["start_time"].clone()).unwrap();
+
+        // activate_time should be before start_time (since now < start_time)
+        assert!(act_future < start_future);
+        // activate_time should be roughly now (within 1 minute of test execution)
+        assert!(act_future > chrono::Utc::now() - Duration::minutes(1));
+
+        // `start_time` is in the past. `activate_time` should be equal to start_time.
+        let past_start = chrono::Utc::now() - Duration::days(1);
+        let body_past = json!({
+            "title": "Past Contest",
+            "description": "desc",
+            "start_time": past_start,
+            "end_time": past_start + Duration::hours(2),
+            "is_public": true,
+        });
+        let res_past = app
+            .post_with_token(routes::CONTESTS, &body_past, &token)
+            .await;
+        assert_eq!(res_past.status, 201);
+
+        let act_past: chrono::DateTime<chrono::Utc> =
+            serde_json::from_value(res_past.body["activate_time"].clone()).unwrap();
+        let start_past: chrono::DateTime<chrono::Utc> =
+            serde_json::from_value(res_past.body["start_time"].clone()).unwrap();
+
+        // activate_time should be exactly start_time (since start_time < now)
+        assert_eq!(act_past, start_past);
     }
 
     #[tokio::test]
@@ -184,12 +273,40 @@ mod contest_listing {
             .create_user_with_role("admin1", "pass1234", "admin")
             .await;
 
+        // Active Public Contest
         create_contest_as_admin(&app, &admin, "Public One", true).await;
+
+        // Active Private Contest
         create_contest_as_admin(&app, &admin, "Private One", false).await;
+
+        // Not Yet Activated Contest
+        let future_body = json!({
+            "title": "Future Contest",
+            "description": "desc",
+            "activate_time": "2099-01-01T00:00:00Z",
+            "start_time": "2099-01-02T00:00:00Z",
+            "end_time": "2099-01-03T00:00:00Z",
+            "is_public": true,
+        });
+        app.post_with_token(routes::CONTESTS, &future_body, &admin)
+            .await;
+
+        // Deactivated Contest
+        let deactivated_body = json!({
+            "title": "Deactivated Contest",
+            "description": "desc",
+            "activate_time": "2020-01-01T00:00:00Z",
+            "start_time": "2020-01-02T00:00:00Z",
+            "end_time": "2020-01-03T00:00:00Z",
+            "deactivate_time": "2020-01-04T00:00:00Z",
+            "is_public": true,
+        });
+        app.post_with_token(routes::CONTESTS, &deactivated_body, &admin)
+            .await;
 
         let res = app.get_with_token(routes::CONTESTS, &admin).await;
         assert_eq!(res.status, 200);
-        assert_eq!(res.body["data"].as_array().unwrap().len(), 2);
+        assert_eq!(res.body["data"].as_array().unwrap().len(), 4);
     }
 
     #[tokio::test]
@@ -223,6 +340,57 @@ mod contest_listing {
         let data = res.body["data"].as_array().unwrap();
         // Should see: Public + Private Enrolled = 2 (not Private Hidden)
         assert_eq!(data.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn contestant_does_not_see_not_yet_activated_contests() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user", "pass1234", "contestant")
+            .await;
+
+        let body = json!({
+            "title": "Invisible",
+            "description": "desc",
+            "activate_time": "2099-01-01T00:00:00Z",
+            "start_time": "2099-01-02T00:00:00Z",
+            "end_time": "2099-01-03T00:00:00Z",
+            "is_public": true,
+        });
+        app.post_with_token(routes::CONTESTS, &body, &admin).await;
+
+        let res = app.get_with_token(routes::CONTESTS, &user).await;
+        let data = res.body["data"].as_array().unwrap();
+        assert_eq!(data.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn contestant_does_not_see_deactivated_contests() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user", "pass1234", "contestant")
+            .await;
+
+        let body = json!({
+            "title": "Archived",
+            "description": "desc",
+            "activate_time": "2020-01-01T00:00:00Z",
+            "start_time": "2020-01-02T00:00:00Z",
+            "end_time": "2020-01-03T00:00:00Z",
+            "deactivate_time": "2020-01-04T00:00:00Z",
+            "is_public": true,
+        });
+        app.post_with_token(routes::CONTESTS, &body, &admin).await;
+
+        let res = app.get_with_token(routes::CONTESTS, &user).await;
+        let data = res.body["data"].as_array().unwrap();
+        assert_eq!(data.len(), 0);
     }
 
     #[tokio::test]
@@ -432,7 +600,7 @@ mod contest_update {
     }
 
     #[tokio::test]
-    async fn validates_time_constraint_against_existing_values() {
+    async fn validates_start_time_against_existing_end_time() {
         let app = TestApp::spawn().await;
         let admin = app
             .create_user_with_role("admin1", "pass1234", "admin")
@@ -446,6 +614,58 @@ mod contest_update {
             .await;
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn validates_activate_time_against_existing_start_time() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Test", true).await;
+
+        // Existing start_time is 2020-01-01. Try to set activate after it.
+        let patch = json!({"activate_time": "2020-01-02T00:00:00Z"});
+        let res = app
+            .patch_with_token(&routes::contest(id), &patch, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+    }
+
+    #[tokio::test]
+    async fn validates_deactivate_time_against_existing_end_time() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Test", true).await;
+
+        // Existing end_time is 2099-01-02. Try to set deactivate before it.
+        let patch = json!({"deactivate_time": "2099-01-01T00:00:00Z"});
+        let res = app
+            .patch_with_token(&routes::contest(id), &patch, &admin)
+            .await;
+        assert_eq!(res.status, 400);
+    }
+
+    #[tokio::test]
+    async fn can_set_deactivate_time_to_null() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+
+        let mut body = valid_contest_body("Deactivate Test", true);
+        body["deactivate_time"] = json!("2099-12-31T23:59:59Z");
+        let res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
+        let id = res.id();
+
+        let patch = json!({"deactivate_time": null});
+        let res = app
+            .patch_with_token(&routes::contest(id), &patch, &admin)
+            .await;
+        assert_eq!(res.status, 200);
+        assert!(res.body["deactivate_time"].is_null());
     }
 
     #[tokio::test]
@@ -1125,6 +1345,7 @@ mod contest_problems {
         let body = json!({
             "title": "Future Contest",
             "description": "desc",
+            "activate_time": "2020-01-01T00:00:00Z",
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": true,
@@ -1399,6 +1620,61 @@ mod contest_registration {
             .await;
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn user_cannot_register_for_not_yet_activated_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user", "pass1234", "contestant")
+            .await;
+
+        let body = json!({
+            "title": "Future",
+            "description": "desc",
+            "activate_time": "2099-01-01T00:00:00Z",
+            "start_time": "2099-01-02T00:00:00Z",
+            "end_time": "2099-01-03T00:00:00Z",
+            "is_public": true,
+        });
+        let res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
+        let id = res.id();
+
+        let res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(res.status, 404); // Blocked because it's not yet visible
+    }
+
+    #[tokio::test]
+    async fn user_cannot_register_for_deactivated_contest() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user", "pass1234", "contestant")
+            .await;
+
+        let body = json!({
+            "title": "Dead",
+            "description": "desc",
+            "activate_time": "2020-01-01T00:00:00Z",
+            "start_time": "2020-01-02T00:00:00Z",
+            "end_time": "2020-01-03T00:00:00Z",
+            "deactivate_time": "2020-01-04T00:00:00Z",
+            "is_public": true,
+        });
+        let res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
+        let id = res.id();
+
+        let res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(res.status, 404); // Blocked because it's deactivated
     }
 
     #[tokio::test]

@@ -41,14 +41,19 @@ pub async fn create_contest(
     AppJson(payload): AppJson<CreateContestRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:create")?;
-    validate_create_contest(&payload)?;
 
     let now = chrono::Utc::now();
+    validate_create_contest(&payload, now)?;
+
     let new_contest = contest::ActiveModel {
         title: Set(payload.title.trim().to_string()),
         description: Set(payload.description),
+        activate_time: Set(payload
+            .activate_time
+            .unwrap_or(std::cmp::min(now, payload.start_time))),
         start_time: Set(payload.start_time),
         end_time: Set(payload.end_time),
+        deactivate_time: Set(payload.deactivate_time.unwrap_or(None)),
         is_public: Set(payload.is_public),
         submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
         show_compile_output: Set(payload.show_compile_output.unwrap_or(true)),
@@ -69,7 +74,7 @@ pub async fn create_contest(
     tag = "Contests",
     operation_id = "listContests",
     summary = "List contests with pagination and search",
-    description = "Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.",
+    description = "Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see active public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `activate_time`, `start_time`, or `title`.",
     params(ContestListQuery),
     responses(
         (status = 200, description = "List of contests", body = ContestListResponse),
@@ -89,19 +94,30 @@ pub async fn list_contests(
     let mut select = contest::Entity::find();
 
     if !auth_user.has_permission("contest:manage") {
-        select = select.filter(
-            Condition::any()
-                .add(contest::Column::IsPublic.eq(true))
-                .add(
-                    contest::Column::Id.in_subquery(
-                        SeaQuery::select()
-                            .column(contest_user::Column::ContestId)
-                            .from(contest_user::Entity)
-                            .and_where(contest_user::Column::UserId.eq(auth_user.user_id))
-                            .to_owned(),
+        let now = chrono::Utc::now();
+        select = select
+            .filter(
+                Condition::all()
+                    .add(contest::Column::ActivateTime.lte(now))
+                    .add(
+                        contest::Column::DeactivateTime
+                            .is_null()
+                            .or(contest::Column::DeactivateTime.gt(now)),
                     ),
-                ),
-        );
+            )
+            .filter(
+                Condition::any()
+                    .add(contest::Column::IsPublic.eq(true))
+                    .add(
+                        contest::Column::Id.in_subquery(
+                            SeaQuery::select()
+                                .column(contest_user::Column::ContestId)
+                                .from(contest_user::Entity)
+                                .and_where(contest_user::Column::UserId.eq(auth_user.user_id))
+                                .to_owned(),
+                        ),
+                    ),
+            );
     }
 
     if let Some(ref search) = query.search {
@@ -123,11 +139,13 @@ pub async fn list_contests(
     let sort_column = match sort_by {
         "created_at" => contest::Column::CreatedAt,
         "updated_at" => contest::Column::UpdatedAt,
+        "activate_time" => contest::Column::ActivateTime,
         "start_time" => contest::Column::StartTime,
         "title" => contest::Column::Title,
         _ => {
             return Err(AppError::Validation(
-                "sort_by must be one of: created_at, updated_at, start_time, title".into(),
+                "sort_by must be one of: created_at, updated_at, activate_time, start_time, title"
+                    .into(),
             ));
         }
     };
@@ -145,8 +163,10 @@ pub async fn list_contests(
         .select_only()
         .column(contest::Column::Id)
         .column(contest::Column::Title)
+        .column(contest::Column::ActivateTime)
         .column(contest::Column::StartTime)
         .column(contest::Column::EndTime)
+        .column(contest::Column::DeactivateTime)
         .column(contest::Column::IsPublic)
         .column(contest::Column::SubmissionsVisible)
         .column(contest::Column::ShowCompileOutput)
@@ -176,7 +196,7 @@ pub async fn list_contests(
     tag = "Contests",
     operation_id = "getContest",
     summary = "Get a contest by ID",
-    description = "Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.",
+    description = "Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view active public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 200, description = "Contest details", body = ContestResponse),
@@ -202,7 +222,7 @@ pub async fn get_contest(
     tag = "Contests",
     operation_id = "updateContest",
     summary = "Update an existing contest",
-    description = "Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.",
+    description = "Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures activate_time <= start_time < end_time <= deactivate_time (if deactivate_time is set) even when fields are updated independently. Returns 404 if the contest does not exist.",
     params(("id" = i32, Path, description = "Contest ID")),
     request_body = UpdateContestRequest,
     responses(
@@ -233,13 +253,12 @@ pub async fn update_contest(
     let existing = find_contest_for_update(&txn, id).await?;
 
     // Cross-field time validation against existing values
-    let effective_start = payload.start_time.unwrap_or(existing.start_time);
-    let effective_end = payload.end_time.unwrap_or(existing.end_time);
-    if effective_end <= effective_start {
-        return Err(AppError::Validation(
-            "end_time must be after start_time".into(),
-        ));
-    }
+    validate_contest_timeline(
+        payload.activate_time.unwrap_or(existing.activate_time),
+        payload.start_time.unwrap_or(existing.start_time),
+        payload.end_time.unwrap_or(existing.end_time),
+        payload.deactivate_time.unwrap_or(existing.deactivate_time),
+    )?;
 
     let mut active: contest::ActiveModel = existing.into();
 
@@ -249,11 +268,17 @@ pub async fn update_contest(
     if let Some(description) = payload.description {
         active.description = Set(description);
     }
+    if let Some(activate_time) = payload.activate_time {
+        active.activate_time = Set(activate_time);
+    }
     if let Some(start_time) = payload.start_time {
         active.start_time = Set(start_time);
     }
     if let Some(end_time) = payload.end_time {
         active.end_time = Set(end_time);
+    }
+    if let Some(deactivate_time) = payload.deactivate_time {
+        active.deactivate_time = Set(deactivate_time);
     }
     if let Some(is_public) = payload.is_public {
         active.is_public = Set(is_public);
@@ -782,7 +807,7 @@ pub async fn remove_participant(
     tag = "Contests",
     operation_id = "registerForContest",
     summary = "Self-register for a public contest",
-    description = "Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.",
+    description = "Registers the authenticated user for an active public contest. Inactive or non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 201, description = "Registered for contest"),
@@ -803,7 +828,10 @@ pub async fn register_for_contest(
     let txn = state.db.begin().await?;
     let contest_model = find_contest_for_update(&txn, contest_id).await?;
 
-    if !contest_model.is_public {
+    if contest_model.activate_time > now
+        || contest_model.deactivate_time.is_some_and(|dt| dt <= now)
+        || !contest_model.is_public
+    {
         return Err(AppError::NotFound("Contest not found".into())); // Prevent enumeration
     }
 

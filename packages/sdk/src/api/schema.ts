@@ -153,7 +153,7 @@ export interface paths {
         };
         /**
          * List contests with pagination and search
-         * @description Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.
+         * @description Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see active public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `activate_time`, `start_time`, or `title`.
          */
         get: operations["listContests"];
         put?: never;
@@ -177,7 +177,7 @@ export interface paths {
         };
         /**
          * Get a contest by ID
-         * @description Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.
+         * @description Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view active public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.
          */
         get: operations["getContest"];
         put?: never;
@@ -191,7 +191,7 @@ export interface paths {
         head?: never;
         /**
          * Update an existing contest
-         * @description Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.
+         * @description Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures activate_time <= start_time < end_time <= deactivate_time (if deactivate_time is set) even when fields are updated independently. Returns 404 if the contest does not exist.
          */
         patch: operations["updateContest"];
         trace?: never;
@@ -379,7 +379,7 @@ export interface paths {
         put?: never;
         /**
          * Self-register for a public contest
-         * @description Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.
+         * @description Registers the authenticated user for an active public contest. Inactive or non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.
          */
         post: operations["registerForContest"];
         /**
@@ -1313,9 +1313,19 @@ export interface components {
         ContestListItem: {
             /**
              * Format: date-time
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time: string;
+            /**
+             * Format: date-time
              * @example 2025-09-25T10:00:00Z
              */
             created_at: string;
+            /**
+             * Format: date-time
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /**
              * Format: date-time
              * @example 2025-10-01T17:00:00Z
@@ -1407,9 +1417,19 @@ export interface components {
         ContestResponse: {
             /**
              * Format: date-time
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time: string;
+            /**
+             * Format: date-time
              * @example 2025-09-25T10:00:00Z
              */
             created_at: string;
+            /**
+             * Format: date-time
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /** @example Welcome to this week's contest. */
             description: string;
             /**
@@ -1454,6 +1474,20 @@ export interface components {
         };
         /** @description Request body for creating a contest. */
         CreateContestRequest: {
+            /**
+             * Format: date-time
+             * @description Time when the contest becomes visible and registration opens (must be before start_time,
+             *     default: min(now, start_time)).
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time?: string | null;
+            /**
+             * Format: date-time
+             * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
+             *     never).
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /**
              * @description Contest description (non-empty, max 1 MB).
              * @example Welcome to this week's programming contest.
@@ -2350,6 +2384,20 @@ export interface components {
         /** @description PATCH body for updating a contest. Only provided fields are modified. */
         UpdateContestRequest: {
             /**
+             * Format: date-time
+             * @description Time when the contest becomes visible and registration opens (must be before start_time,
+             *     default: min(now, start_time)).
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time?: string | null;
+            /**
+             * Format: date-time
+             * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
+             *     never).
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
+            /**
              * @description Contest description (non-empty, max 1 MB).
              * @example Updated description...
              */
@@ -2879,7 +2927,7 @@ export interface operations {
                 /** @example weekly */
                 search?: string;
                 /**
-                 * @description Sort field: `created_at` (default), `updated_at`, `start_time`, or `title`.
+                 * @description Sort field: `created_at` (default), `updated_at`, `activate_time`, `start_time`, or `title`.
                  * @example start_time
                  */
                 sort_by?: string;

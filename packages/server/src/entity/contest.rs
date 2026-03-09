@@ -11,6 +11,9 @@ pub struct Model {
     pub title: String,
     #[sea_orm(column_type = "Text")]
     pub description: String, // in Markdown
+
+    pub activate_time: DateTimeUtc,
+    pub deactivate_time: Option<DateTimeUtc>,
     pub start_time: DateTimeUtc,
     pub end_time: DateTimeUtc,
 
