@@ -17,3 +17,10 @@ export const SUBMISSION_STATUSES: SubmissionStatus[] = [
   'CompilationError',
   'SystemError',
 ];
+
+export type SubmissionStatusFilterValue = 'all' | SubmissionStatus;
+
+export const SUBMISSION_STATUS_FILTER_OPTIONS: SubmissionStatusFilterValue[] = [
+  'all',
+  ...SUBMISSION_STATUSES,
+];
