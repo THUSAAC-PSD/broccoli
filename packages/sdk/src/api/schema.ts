@@ -1517,6 +1517,13 @@ export interface components {
              */
             show_test_details?: boolean | null;
             /**
+             * @description Expected submission file names per language. Null or omitted means use client-side defaults.
+             * @example { "cpp": ["solution.cpp"], "java": ["Main.java"] }
+             */
+            submission_format?: {
+                [key: string]: string[];
+            } | null;
+            /**
              * Format: int32
              * @description Execution time limit in milliseconds (1-30000).
              * @example 1000
@@ -1991,6 +1998,13 @@ export interface components {
              */
             show_test_details: boolean;
             /**
+             * @description Expected submission file names per language. Keys are language ids, values are arrays of filenames. Null means use client-side defaults.
+             * @example { "cpp": ["solution.cpp"], "java": ["Main.java"] }
+             */
+            submission_format?: {
+                [key: string]: string[];
+            } | null;
+            /**
              * Format: int32
              * @example 1000
              */
@@ -2396,6 +2410,13 @@ export interface components {
              * @example true
              */
             show_test_details?: boolean | null;
+            /**
+             * @description Expected submission file names per language. Set to a value to update, set to null to clear, or omit to leave unchanged.
+             * @example { "cpp": ["solution.cpp"], "java": ["Main.java"] }
+             */
+            submission_format?: {
+                [key: string]: string[];
+            } | null;
             /**
              * Format: int32
              * @description Execution time limit in milliseconds (1-30000).

@@ -1,6 +1,7 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import type { Submission } from '@broccoli/web-sdk/submission';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 60_000;
@@ -73,7 +74,7 @@ export function useSubmission({
             return;
           }
 
-          const resp = data as Submission;
+          const resp = data;
           setSubmission(resp);
 
           if (TERMINAL_STATUSES.has(resp.status)) {
@@ -114,21 +115,23 @@ export function useSubmission({
             },
           );
           if (res.error) throw res.error;
-          data = res.data as Submission;
+          data = res.data;
         } else {
           const res = await apiClient.POST('/problems/{id}/submissions', {
             params: { path: { id: problemId } },
             body,
           });
           if (res.error) throw res.error;
-          data = res.data as Submission;
+          data = res.data;
         }
 
         setSubmission(data);
+        toast.success('Code submitted successfully.');
         startPolling(data.id);
       } catch (err) {
         console.error('Submission failed:', err);
         setError(String(err));
+        toast.error('Failed to submit code. Please try again.');
         setIsSubmitting(false);
       }
     },

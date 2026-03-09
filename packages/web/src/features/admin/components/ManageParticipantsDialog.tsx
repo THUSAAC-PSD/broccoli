@@ -22,6 +22,7 @@ import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 // ── Types ──
 
@@ -143,7 +144,10 @@ function EnrolledTab({
       },
     );
     setRemovingId(null);
-    if (!error) {
+    if (error) {
+      toast.error(t('toast.participant.removeError'));
+    } else {
+      toast.success(t('toast.participant.removed'));
       queryClient.invalidateQueries({
         queryKey: ['contest-participants', contest.id],
       });
@@ -274,7 +278,10 @@ function AddParticipantsTab({
       body: { user_id: userId },
     });
     setAddingId(null);
-    if (!error) {
+    if (error) {
+      toast.error(t('toast.participant.addError'));
+    } else {
+      toast.success(t('toast.participant.added'));
       queryClient.invalidateQueries({
         queryKey: ['contest-participants', contest.id],
       });
@@ -524,10 +531,12 @@ function BulkImportTab({
 
     if (error || !data) {
       setErrorMsg(t('admin.bulkParticipantsError'));
+      toast.error(t('toast.participant.bulkError'));
       return;
     }
 
     setResult(data);
+    toast.success(t('toast.participant.bulkSuccess'));
     queryClient.invalidateQueries({
       queryKey: ['contest-participants', contest.id],
     });

@@ -1,6 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
-import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import {
@@ -120,7 +119,7 @@ function ContestProblemsGroup() {
         params: { path: { id: contestId! } },
       });
       if (error) throw error;
-      return data as ContestProblem[];
+      return data;
     },
   });
 
@@ -230,7 +229,7 @@ function PlatformGroup() {
         },
       });
       if (error) throw error;
-      return data.data as ContestSummary[];
+      return data.data;
     },
   });
 

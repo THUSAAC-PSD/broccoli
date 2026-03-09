@@ -19,6 +19,11 @@ pub struct Model {
     #[sea_orm(default_value = false)]
     pub show_test_details: bool,
 
+    /// Expected submission file names per language (e.g. {"cpp": ["solution.cpp"], "java": ["Main.java"]}).
+    /// Null means use client-side defaults.
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub submission_format: Option<serde_json::Value>,
+
     #[sea_orm(has_many)]
     pub submissions: HasMany<super::submission::Entity>,
 

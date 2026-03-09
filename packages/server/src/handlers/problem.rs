@@ -45,12 +45,16 @@ pub async fn create_problem(
     validate_create_problem(&payload)?;
 
     let now = chrono::Utc::now();
+    let submission_format_json = payload
+        .submission_format
+        .map(|sf| serde_json::to_value(sf).unwrap_or(serde_json::Value::Null));
     let new_problem = problem::ActiveModel {
         title: Set(payload.title.trim().to_string()),
         content: Set(payload.content),
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
         show_test_details: Set(payload.show_test_details.unwrap_or(false)),
+        submission_format: Set(submission_format_json),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -232,6 +236,17 @@ pub async fn update_problem(
     }
     if let Some(show_test_details) = payload.show_test_details {
         active.show_test_details = Set(show_test_details);
+    }
+    match payload.submission_format {
+        Some(Some(sf)) => {
+            active.submission_format = Set(Some(
+                serde_json::to_value(sf).unwrap_or(serde_json::Value::Null),
+            ));
+        }
+        Some(None) => {
+            active.submission_format = Set(None);
+        }
+        None => {}
     }
     active.updated_at = Set(chrono::Utc::now());
 

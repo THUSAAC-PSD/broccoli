@@ -13,6 +13,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { TestCaseFormDialog } from '@/features/admin/components/TestCaseFormDialog';
 
@@ -73,8 +74,9 @@ export function TestCasesDialog({
       },
     );
     if (error) {
-      setErrorMsg(t('admin.testCases.deleteError'));
+      toast.error(t('toast.testCase.deleteError'));
     } else {
+      toast.success(t('toast.testCase.deleted'));
       queryClient.invalidateQueries({ queryKey: testCasesKey });
     }
   }

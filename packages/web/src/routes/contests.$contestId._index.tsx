@@ -1,5 +1,4 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import type { ContestProblem } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
@@ -25,7 +24,7 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
         params: { path: { id: contestId } },
       });
       if (error) throw error;
-      return data as ContestProblem[];
+      return data;
     },
   });
 

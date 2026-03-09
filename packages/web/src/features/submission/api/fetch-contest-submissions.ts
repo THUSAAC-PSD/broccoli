@@ -35,7 +35,7 @@ export async function fetchContestSubmissions(
   if (error) throw error;
 
   return {
-    data: data.data as SubmissionSummary[],
+    data: data.data,
     pagination: data.pagination,
   };
 }

@@ -20,13 +20,14 @@ import {
   CheckCircle2,
   Clock,
   Lock,
+  LogIn,
   Megaphone,
   MessageCircle,
   Send,
   User,
 } from 'lucide-react';
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 
 import { useAuth } from '@/features/auth/hooks/use-auth';
 
@@ -259,9 +260,18 @@ export default function ContestQAPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <AskQuestionDialog
-            onSubmit={(content) => askMutation.mutate(content)}
-          />
+          {user ? (
+            <AskQuestionDialog
+              onSubmit={(content) => askMutation.mutate(content)}
+            />
+          ) : (
+            <Button asChild variant="outline">
+              <Link to="/login">
+                <LogIn className="h-4 w-4 mr-2" />
+                {t('auth.loginToAsk')}
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import {
 } from '@broccoli/web-sdk/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 import { SwitchField } from '@/features/admin/components/SwitchField';
 
@@ -45,14 +46,9 @@ export function TestCaseFormDialog({
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [message, setMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setMessage(null);
     if (testCaseId) {
       setLoadingData(true);
       apiClient
@@ -80,7 +76,6 @@ export function TestCaseFormDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMessage(null);
 
     const body = {
       input,
@@ -102,11 +97,11 @@ export function TestCaseFormDialog({
 
     setLoading(false);
     if (result.error) {
-      setMessage({
-        type: 'error',
-        text: isEdit ? t('admin.editError') : t('admin.createError'),
-      });
+      toast.error(isEdit ? t('admin.editError') : t('admin.createError'));
     } else {
+      toast.success(
+        isEdit ? t('toast.testCase.updated') : t('toast.testCase.created'),
+      );
       queryClient.invalidateQueries({ queryKey: testCasesQueryKey });
       onOpenChange(false);
     }
@@ -200,18 +195,6 @@ export function TestCaseFormDialog({
                 onCheckedChange={setIsSample}
               />
             </div>
-
-            {message && (
-              <div
-                className={`rounded-md px-4 py-3 text-sm ${
-                  message.type === 'success'
-                    ? 'bg-green-500/10 text-green-500 border border-green-500/20'
-                    : 'bg-destructive/10 text-destructive border border-destructive/20'
-                }`}
-              >
-                {message.text}
-              </div>
-            )}
 
             <DialogFooter>
               <Button type="submit" disabled={loading}>
