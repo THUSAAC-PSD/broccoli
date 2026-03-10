@@ -24,6 +24,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/plugins/reload-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reload all plugins and discover new ones
+         * @description Reloads all currently loaded plugins and discovers any new plugins in the plugins directory. Requires `plugin:manage` permission.
+         */
+        post: operations["reloadAllPlugins"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/plugins/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a plugin archive
+         * @description Uploads a tar.gz plugin archive. Files are merged into the plugins directory (existing files not in the archive are preserved). The plugin is automatically loaded after upload. Requires `plugin:manage` permission.
+         */
+        post: operations["uploadPlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/plugins/{id}": {
         parameters: {
             query?: never;
@@ -114,6 +154,86 @@ export interface paths {
          * @description Enables a plugin by its ID. Requires `plugin:manage` permission.
          */
         post: operations["enablePlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/plugins/{id}/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reload a plugin
+         * @description Reloads a plugin by re-reading its manifest from disk and re-creating the WASM runtime. The plugin must be currently loaded. Requires `plugin:manage` permission.
+         */
+        post: operations["reloadPlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/device-authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize a device code
+         * @description Authorizes a pending device code by entering the user code. Requires the user to be logged in via JWT. The CLI will receive a fresh JWT on its next poll.
+         */
+        post: operations["authorizeDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/device-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a device authorization code
+         * @description Initiates the device authorization flow (RFC 8628). Returns a device code for polling and a user code for the user to enter in the browser.
+         */
+        post: operations["requestDeviceCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/device-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll for device authorization token
+         * @description Polling endpoint for the device code flow. Returns the JWT token once the user has authorized the device. Returns 400 with 'authorization_pending' while waiting.
+         */
+        post: operations["pollDeviceToken"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1805,6 +1925,48 @@ export interface components {
              */
             username: string;
         };
+        /** @description Request body for authorizing a device code. */
+        DeviceAuthorizeRequest: {
+            /**
+             * @description The user code displayed in the CLI (case-insensitive, hyphens optional).
+             * @example BCDF-GHJK
+             */
+            user_code: string;
+        };
+        /** @description Request body for device code generation (can be empty). */
+        DeviceCodeRequest: Record<string, never>;
+        /** @description Response for device code generation. */
+        DeviceCodeResponse: {
+            /** @description Secret device code for polling (never shown to user). */
+            device_code: string;
+            /**
+             * Format: int64
+             * @description Seconds until the codes expire.
+             * @example 900
+             */
+            expires_in: number;
+            /**
+             * Format: int64
+             * @description Minimum polling interval in seconds.
+             * @example 5
+             */
+            interval: number;
+            /**
+             * @description User-visible code to enter in the browser, formatted as XXXX-XXXX.
+             * @example BCDF-GHJK
+             */
+            user_code: string;
+            /**
+             * @description URL where the user should go to enter the user code.
+             * @example http://localhost:5173/auth/device
+             */
+            verification_url: string;
+        };
+        /** @description Request body for polling the device token endpoint. */
+        DeviceTokenRequest: {
+            /** @description The device code received from the device-code endpoint. */
+            device_code: string;
+        };
         /** @description Paginated list of DLQ messages. */
         DlqListResponse: {
             data: components["schemas"]["DlqMessageResponse"][];
@@ -2322,6 +2484,22 @@ export interface components {
              *     ]
              */
             problem_types: string[];
+        };
+        /** @description Response for the reload-all endpoint. */
+        ReloadAllResponse: {
+            /** @description Plugins that failed to reload. */
+            failed: components["schemas"]["ReloadFailure"][];
+            /** @description Plugin IDs that were newly discovered and loaded. */
+            new: string[];
+            /** @description Plugin IDs that were successfully reloaded. */
+            reloaded: string[];
+        };
+        /** @description A plugin that failed to reload. */
+        ReloadFailure: {
+            /** @description The error message. */
+            error: string;
+            /** @description The plugin ID. */
+            id: string;
         };
         /** @description Request body for reordering problems in a contest. */
         ReorderContestProblemsRequest: {
@@ -2890,6 +3068,96 @@ export interface operations {
             };
         };
     };
+    reloadAllPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reload results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReloadAllResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    uploadPlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description tar.gz archive with a single top-level directory containing plugin.toml */
+        requestBody: {
+            content: {
+                "multipart/form-data": number[];
+            };
+        };
+        responses: {
+            /** @description Plugin uploaded and loaded successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid archive (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getPluginDetails: {
         parameters: {
             query?: never;
@@ -3280,6 +3548,182 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reloadPlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin reloaded successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Plugin not currently loaded (CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    authorizeDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceAuthorizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Device authorized */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Code not found or expired (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Code already used (CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    requestDeviceCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Device code generated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceCodeResponse"];
+                };
+            };
+            /** @description Too many pending device codes (RATE_LIMITED) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pollDeviceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Token granted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Authorization pending or expired */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

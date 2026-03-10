@@ -20,6 +20,10 @@ fn main() -> Result<()> {
             PluginCommand::Build(build_args) => {
                 broccoli_cli::commands::plugin::build::run(build_args)
             }
+            PluginCommand::Watch(watch_args) => {
+                broccoli_cli::commands::plugin::watch::run(watch_args)
+            }
         },
+        Command::Login(login_args) => broccoli_cli::commands::login::run(login_args),
     }
 }

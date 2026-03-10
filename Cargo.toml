@@ -57,3 +57,8 @@ zip = { version = "7", default-features = false, features = ["deflate"] }
 broccoli-server-sdk = { path = "packages/server-sdk" }
 crossbeam = "0.8"
 dashmap = "6.1"
+flate2 = "1"
+tar = "0.4"
+dirs = "6"
+open = "5"
+notify = "7"

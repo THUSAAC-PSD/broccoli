@@ -9,6 +9,7 @@ import {
   Globe,
   Loader2,
   Puzzle,
+  RefreshCw,
   Server,
   Settings,
 } from 'lucide-react';
@@ -37,7 +38,11 @@ export function PluginsPage() {
   const queryClient = useQueryClient();
 
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
-  const { unloadPlugin } = usePluginRegistry();
+  const [reloadingIds, setReloadingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [isReloadingAll, setIsReloadingAll] = useState(false);
+  const { unloadPlugin, reloadPlugin, reloadAllPlugins } = usePluginRegistry();
 
   const {
     data: plugins,
@@ -85,6 +90,45 @@ export function PluginsPage() {
     [apiClient, queryClient, unloadPlugin],
   );
 
+  const handleReload = useCallback(
+    async (plugin: PluginDetailResponse) => {
+      setReloadingIds((prev) => new Set(prev).add(plugin.id));
+      try {
+        const { error } = await apiClient.POST('/admin/plugins/{id}/reload', {
+          params: { path: { id: plugin.id } },
+        });
+
+        if (!error) {
+          await reloadPlugin(plugin.id);
+          queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
+          queryClient.invalidateQueries({ queryKey: ['i18n'] });
+        }
+      } finally {
+        setReloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(plugin.id);
+          return next;
+        });
+      }
+    },
+    [apiClient, queryClient, reloadPlugin],
+  );
+
+  const handleReloadAll = useCallback(async () => {
+    setIsReloadingAll(true);
+    try {
+      const { error } = await apiClient.POST('/admin/plugins/reload-all', {});
+
+      if (!error) {
+        await reloadAllPlugins();
+        queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
+        queryClient.invalidateQueries({ queryKey: ['i18n'] });
+      }
+    } finally {
+      setIsReloadingAll(false);
+    }
+  }, [apiClient, queryClient, reloadAllPlugins]);
+
   if (!user || !user.permissions.includes('plugin:manage')) {
     return <Unauthorized />;
   }
@@ -95,6 +139,21 @@ export function PluginsPage() {
       icon={<Puzzle className="h-6 w-6 text-primary" />}
       title={t('plugins.title')}
       subtitle={t('plugins.subtitle')}
+      actions={
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReloadAll}
+          disabled={isReloadingAll || isLoading}
+        >
+          {isReloadingAll ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
+          {t('plugins.reloadAll')}
+        </Button>
+      }
     >
       {isLoading && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -138,7 +197,9 @@ export function PluginsPage() {
               key={plugin.id}
               plugin={plugin}
               toggling={togglingIds.has(plugin.id)}
+              reloading={reloadingIds.has(plugin.id)}
               onToggle={handleToggle}
+              onReload={handleReload}
             />
           ))}
         </div>
@@ -182,11 +243,15 @@ function PluginConfigButton({ plugin }: { plugin: PluginDetailResponse }) {
 function PluginCard({
   plugin,
   toggling,
+  reloading,
   onToggle,
+  onReload,
 }: {
   plugin: PluginDetailResponse;
   toggling: boolean;
+  reloading: boolean;
   onToggle: (plugin: PluginDetailResponse, enable: boolean) => void;
+  onReload: (plugin: PluginDetailResponse) => void;
 }) {
   const { t } = useTranslation();
   const isEnabled = plugin.status === 'Loaded';
@@ -236,12 +301,29 @@ function PluginCard({
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <PluginConfigButton plugin={plugin} />
+            {isEnabled && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => onReload(plugin)}
+                disabled={reloading || toggling}
+                aria-label={t('plugins.reload')}
+                title={t('plugins.reload')}
+              >
+                {reloading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+            )}
             {toggling && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}
             <Switch
               checked={isEnabled}
-              disabled={toggling || plugin.status === 'Failed'}
+              disabled={toggling || reloading || plugin.status === 'Failed'}
               onCheckedChange={(checked) => onToggle(plugin, checked)}
               aria-label={
                 isEnabled ? t('plugins.disable') : t('plugins.enable')

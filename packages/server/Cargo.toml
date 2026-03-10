@@ -43,6 +43,9 @@ uuid.workspace = true
 zip.workspace = true
 mime_guess.workspace = true
 matchit.workspace = true
+flate2.workspace = true
+tar.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
 libc = "0.2"

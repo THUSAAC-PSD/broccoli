@@ -25,6 +25,9 @@ fn auth_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::auth::register))
         .routes(routes!(handlers::auth::login))
         .routes(routes!(handlers::auth::me))
+        .routes(routes!(handlers::auth::request_device_code))
+        .routes(routes!(handlers::auth::authorize_device))
+        .routes(routes!(handlers::auth::poll_device_token))
 }
 
 fn user_routes() -> OpenApiRouter<AppState> {
@@ -32,11 +35,18 @@ fn user_routes() -> OpenApiRouter<AppState> {
 }
 
 fn admin_routes() -> OpenApiRouter<AppState> {
+    let upload = OpenApiRouter::new()
+        .routes(routes!(handlers::admin::upload_plugin))
+        .layer(handlers::admin::upload_body_limit());
+
     OpenApiRouter::new()
         .routes(routes!(handlers::admin::list_all_plugins))
         .routes(routes!(handlers::admin::get_plugin_details))
         .routes(routes!(handlers::admin::enable_plugin))
         .routes(routes!(handlers::admin::disable_plugin))
+        .routes(routes!(handlers::admin::reload_plugin))
+        .routes(routes!(handlers::admin::reload_all_plugins))
+        .merge(upload)
         .nest("/plugins/{id}/config", plugin_global_config_routes())
 }
 

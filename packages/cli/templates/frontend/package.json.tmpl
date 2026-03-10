@@ -12,8 +12,8 @@
   "files": ["dist"],
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "build": "tsup src/index.tsx --format esm --dts",
-    "dev": "tsup src/index.tsx --format esm --dts --watch"
+    "build": "tsup src/index.tsx --format esm --dts --external react",
+    "dev": "tsup src/index.tsx --format esm --external react --watch --sourcemap"
   },
   "dependencies": {
     "@broccoli/sdk": "{{web_sdk_dep}}"

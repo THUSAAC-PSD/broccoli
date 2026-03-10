@@ -191,6 +191,73 @@ export function PluginRegistryProvider({
     }
   }, [apiClient, backendUrl, loadPlugin]);
 
+  const reloadPlugin = useCallback(
+    async (pluginId: string) => {
+      await unloadPlugin(pluginId);
+
+      setErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(pluginId);
+        return next;
+      });
+
+      const { data: pluginList, error } =
+        await apiClient.GET('/plugins/active');
+      if (error) {
+        console.warn(`Failed to fetch active plugins for reload:`, error);
+        return;
+      }
+
+      const pluginInfo = pluginList.find((p) => p.id === pluginId);
+      if (!pluginInfo) {
+        console.warn(
+          `Plugin '${pluginId}' not found in active plugins after reload`,
+        );
+        return;
+      }
+
+      // Dynamic import with new URL (cache buster ensures fresh module)
+      try {
+        const pluginModule: PluginModule = pluginInfo.entry
+          ? await import(/* @vite-ignore */ `${backendUrl}${pluginInfo.entry}`)
+          : {};
+        await loadPlugin(pluginInfo, pluginModule);
+      } catch (err) {
+        console.error(`Failed to reload plugin '${pluginId}':`, err);
+        setErrors((prev) =>
+          new Map(prev).set(
+            pluginId,
+            err instanceof Error ? err : new Error(String(err)),
+          ),
+        );
+      }
+    },
+    [apiClient, backendUrl, loadPlugin, unloadPlugin],
+  );
+
+  const reloadAllPlugins = useCallback(async () => {
+    const remotePluginIds: string[] = [];
+    activeManifests.current.forEach((manifest, id) => {
+      if (manifest.entry) {
+        remotePluginIds.push(id);
+      }
+    });
+
+    for (const id of remotePluginIds) {
+      await unloadPlugin(id);
+    }
+
+    setErrors((prev) => {
+      const next = new Map(prev);
+      for (const id of remotePluginIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+
+    await loadAllPlugins();
+  }, [loadAllPlugins, unloadPlugin]);
+
   const getSlots = useCallback(
     (slotName: string): SlotConfig[] => {
       const slots: SlotConfig[] = [];
@@ -243,6 +310,8 @@ export function PluginRegistryProvider({
         loadPlugin,
         loadAllPlugins,
         unloadPlugin,
+        reloadPlugin,
+        reloadAllPlugins,
         getSlots,
         errors,
       }}

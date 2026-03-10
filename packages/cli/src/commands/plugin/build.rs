@@ -6,6 +6,20 @@ use clap::Args;
 use console::style;
 use serde::Deserialize;
 
+use crate::dev_config;
+
+/// Builds a plugin's backend (Rust/WASM) and/or frontend components.
+///
+/// The frontend directory and build command can be customized via
+/// `broccoli.dev.toml` in the plugin directory:
+///
+///   [build]
+///   frontend_dir = "client"        # where to run the build command
+///   frontend_cmd = "npm run build" # default: "pnpm build"
+///
+/// Without a config file, the frontend directory is auto-detected from
+/// the [web].root field in plugin.toml, or by looking for package.json
+/// in web/, frontend/, or the plugin root.
 #[derive(Args)]
 pub struct BuildPluginArgs {
     /// Path to the plugin directory (defaults to current directory)
@@ -31,9 +45,12 @@ struct ServerSection {
     entry: String,
 }
 
-/// Marker struct — we only need to know the `[web]` section exists.
 #[derive(Deserialize)]
-struct WebSection {}
+struct WebSection {
+    root: String,
+    #[allow(dead_code)]
+    entry: String,
+}
 
 pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
     let plugin_dir = args
@@ -87,13 +104,18 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
 
     // Build frontend
     if manifest.web.is_some() {
-        // Find the frontend source directory by looking for package.json.
-        // For full plugins it's in web/, for frontend-only it's at the root.
-        let fe_dir = if plugin_dir.join("web/package.json").exists() {
-            plugin_dir.join("web")
-        } else {
-            plugin_dir.clone()
-        };
+        let web_root = manifest.web.as_ref().map(|w| w.root.as_str());
+        let dev = dev_config::resolve(&plugin_dir, web_root);
+
+        let fe_dir = dev.frontend_dir.unwrap_or_else(|| plugin_dir.clone());
+
+        if !fe_dir.exists() {
+            bail!(
+                "Frontend directory '{}' does not exist.\n\
+                 Check build.frontend_dir in broccoli.dev.toml.",
+                fe_dir.display()
+            );
+        }
 
         println!(
             "{}  Building frontend for {}...",
@@ -101,14 +123,21 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
             style(plugin_name).cyan()
         );
 
-        let status = Command::new("pnpm")
-            .args(["build"])
+        let (program, cmd_args) = dev
+            .frontend_cmd
+            .split_first()
+            .context("frontend_cmd is empty in broccoli.dev.toml")?;
+
+        let status = Command::new(program)
+            .args(cmd_args)
             .current_dir(&fe_dir)
             .status()
-            .context(
-                "Failed to run pnpm build. Is pnpm installed?\n\
-                 Install via: npm install -g pnpm   (https://pnpm.io/installation)",
-            )?;
+            .with_context(|| {
+                format!(
+                    "Failed to run '{}'. Is it installed?",
+                    dev.frontend_cmd.join(" ")
+                )
+            })?;
 
         if !status.success() {
             bail!("Frontend build failed");

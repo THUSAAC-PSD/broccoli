@@ -165,6 +165,21 @@ async fn main() -> anyhow::Result<()> {
     )
     .context("Failed to initialize plugin manager")?;
 
+    let device_codes: server::state::DeviceCodeStore = Arc::new(DashMap::new());
+
+    // Spawn reaper for expired device codes (runs every 60s, removes entries older than 15min)
+    {
+        let codes = device_codes.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let now = std::time::Instant::now();
+                codes.retain(|_code, entry| entry.expires_at > now);
+            }
+        });
+    }
+
     let state = AppState {
         plugins: manager,
         db: db.clone(),
@@ -179,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
             operation_waiters: operation_waiters.clone(),
             evaluate_batches: evaluate_batches.clone(),
         },
+        device_codes,
     };
 
     sync_plugins(&state).await?;

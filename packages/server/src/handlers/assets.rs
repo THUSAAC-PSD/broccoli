@@ -25,7 +25,7 @@ pub async fn serve_plugin_asset(
 
     Response::builder()
         .header(header::CONTENT_TYPE, mime.as_ref())
-        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .header(header::CACHE_CONTROL, "public, no-cache")
         .body(Body::from(content))
         .map_err(|e| AppError::Internal(e.to_string()))
 }

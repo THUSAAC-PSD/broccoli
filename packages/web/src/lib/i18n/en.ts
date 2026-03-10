@@ -212,6 +212,18 @@ export const en: Record<string, string> = {
   'auth.usernameTaken': 'Username is already taken.',
   'auth.passwordMismatch': 'Passwords do not match.',
   'auth.validationError': 'Please check your input and try again.',
+  'auth.device.title': 'Authorize CLI',
+  'auth.device.instructions':
+    'Enter the code displayed in your terminal to authorize the CLI.',
+  'auth.device.codeLabel': 'Code',
+  'auth.device.authorize': 'Authorize',
+  'auth.device.authorizing': 'Authorizing…',
+  'auth.device.successTitle': 'CLI Authorized',
+  'auth.device.successMessage':
+    'Your CLI has been authorized. You can close this page.',
+  'auth.device.codeNotFound': 'Code not found or expired.',
+  'auth.device.codeAlreadyUsed': 'This code has already been authorized.',
+  'auth.device.error': 'An error occurred. Please try again.',
 
   // Sidebar (additional)
   'sidebar.guest': 'Guest',
@@ -345,6 +357,8 @@ export const en: Record<string, string> = {
   'plugins.component.web': 'Web',
   'plugins.component.worker': 'Worker',
   'plugins.configure': 'Configure',
+  'plugins.reload': 'Reload',
+  'plugins.reloadAll': 'Reload All',
   'plugins.config.title': 'Configure {{name}}',
   'plugins.config.description': 'Manage configuration for this plugin.',
   'plugins.config.save': 'Save',

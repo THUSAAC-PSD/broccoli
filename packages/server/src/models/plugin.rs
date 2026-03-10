@@ -124,10 +124,27 @@ impl From<PluginInfo> for ActivePluginResponse {
             "PluginInfo should only be converted to ActivePluginResponse if it has a web component",
         );
 
+        let entry = {
+            let base = format!("/assets/{}/{}", info.id, web_manifest.entry);
+            let entry_path = info
+                .root_dir
+                .join(&web_manifest.root)
+                .join(&web_manifest.entry);
+            let mtime = std::fs::metadata(&entry_path)
+                .and_then(|m| m.modified())
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                })
+                .unwrap_or(0);
+            format!("{}?t={}", base, mtime)
+        };
+
         Self {
             id: info.id.clone(),
             name: info.manifest.name,
-            entry: format!("/assets/{}/{}", info.id, web_manifest.entry),
+            entry,
             components: web_manifest.components.clone(),
             slots: web_manifest.slots.clone(),
             routes: web_manifest.routes.clone(),
@@ -143,6 +160,26 @@ impl From<PluginStatus> for PluginStatusResponse {
             PluginStatus::Failed(_) => Self::Failed,
         }
     }
+}
+
+/// Response for the reload-all endpoint.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ReloadAllResponse {
+    /// Plugin IDs that were successfully reloaded.
+    pub reloaded: Vec<String>,
+    /// Plugin IDs that were newly discovered and loaded.
+    pub new: Vec<String>,
+    /// Plugins that failed to reload.
+    pub failed: Vec<ReloadFailure>,
+}
+
+/// A plugin that failed to reload.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ReloadFailure {
+    /// The plugin ID.
+    pub id: String,
+    /// The error message.
+    pub error: String,
 }
 
 impl From<PluginInfo> for PluginDetailResponse {

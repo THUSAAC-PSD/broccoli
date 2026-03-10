@@ -1,15 +1,23 @@
+use std::io::Read as IoRead;
+use std::path::PathBuf;
+
+use axum::extract::DefaultBodyLimit;
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Multipart, Path, State},
+    http::StatusCode,
+    response::IntoResponse,
 };
+use plugin_core::registry::PluginEntry;
 use sea_orm::*;
 use tracing::instrument;
 
 use crate::entity::plugin as plugin_entity;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
-use crate::models::plugin::PluginDetailResponse;
+use crate::models::plugin::{PluginDetailResponse, ReloadAllResponse, ReloadFailure};
 use crate::state::AppState;
+use crate::utils::plugin::{call_plugin_init, purge_plugin_registrations};
 
 #[utoipa::path(
     get,
@@ -111,6 +119,7 @@ pub async fn enable_plugin(
     }
 
     state.plugins.load_plugin(&id)?;
+    call_plugin_init(state.plugins.as_ref(), &id).await;
     state.plugins.update_translations()?;
 
     let plugin_model = plugin_entity::ActiveModel {
@@ -157,6 +166,7 @@ pub async fn disable_plugin(
         )));
     }
 
+    purge_plugin_registrations(&state.registries, &id).await;
     state.plugins.unload_plugin(&id)?;
     state.plugins.update_translations()?;
 
@@ -170,4 +180,451 @@ pub async fn disable_plugin(
     Ok(Json(serde_json::json!({
         "message": format!("Plugin '{}' disabled successfully", id)
     })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/plugins/{id}/reload",
+    tag = "Admin",
+    operation_id = "reloadPlugin",
+    summary = "Reload a plugin",
+    description = "Reloads a plugin by re-reading its manifest from disk and re-creating the WASM runtime. The plugin must be currently loaded. Requires `plugin:manage` permission.",
+    params(("id" = String, Path, description = "Plugin ID")),
+    responses(
+        (status = 200, description = "Plugin reloaded successfully", body = serde_json::Value),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Plugin not currently loaded (CONFLICT)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user), fields(id))]
+pub async fn reload_plugin(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    auth_user.require_permission("plugin:manage")?;
+
+    if !state.plugins.has_plugin(&id)? {
+        return Err(AppError::NotFound(format!("Plugin '{}' not found", id)));
+    }
+
+    if !state.plugins.is_plugin_loaded(&id)? {
+        return Err(AppError::Conflict(format!(
+            "Plugin '{}' is not currently loaded. Use enable instead.",
+            id
+        )));
+    }
+
+    purge_plugin_registrations(&state.registries, &id).await;
+    state.plugins.reload_plugin(&id)?;
+    call_plugin_init(state.plugins.as_ref(), &id).await;
+    state.plugins.update_translations()?;
+
+    Ok(Json(serde_json::json!({
+        "message": format!("Plugin '{}' reloaded successfully", id)
+    })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/plugins/reload-all",
+    tag = "Admin",
+    operation_id = "reloadAllPlugins",
+    summary = "Reload all plugins and discover new ones",
+    description = "Reloads all currently loaded plugins and discovers any new plugins in the plugins directory. Requires `plugin:manage` permission.",
+    responses(
+        (status = 200, description = "Reload results", body = ReloadAllResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user))]
+pub async fn reload_all_plugins(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<ReloadAllResponse>, AppError> {
+    auth_user.require_permission("plugin:manage")?;
+
+    let loaded_ids: Vec<String> = state
+        .plugins
+        .list_plugins()
+        .map_err(AppError::from)?
+        .into_iter()
+        .filter(|p| p.status == plugin_core::registry::PluginStatus::Loaded)
+        .map(|p| p.id)
+        .collect();
+
+    let mut reloaded = Vec::new();
+    let mut failed = Vec::new();
+
+    for id in &loaded_ids {
+        purge_plugin_registrations(&state.registries, id).await;
+        match state.plugins.reload_plugin(id) {
+            Ok(()) => {
+                reloaded.push(id.clone());
+            }
+            Err(e) => {
+                tracing::error!("Failed to reload plugin '{}': {}", id, e);
+                failed.push(ReloadFailure {
+                    id: id.clone(),
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
+    let new_ids = state.plugins.rediscover_plugins().unwrap_or_else(|e| {
+        tracing::error!("Failed to rediscover plugins: {}", e);
+        Vec::new()
+    });
+
+    for id in &new_ids {
+        let existing = plugin_entity::Entity::find_by_id(id.clone())
+            .one(&state.db)
+            .await
+            .ok()
+            .flatten();
+        if existing.is_none() {
+            let new_plugin = plugin_entity::ActiveModel {
+                id: Set(id.clone()),
+                is_enabled: Set(true),
+                updated_at: Set(chrono::Utc::now()),
+            };
+            if let Err(e) = new_plugin.insert(&state.db).await {
+                tracing::error!("Failed to insert DB record for new plugin '{}': {}", id, e);
+                continue;
+            }
+        }
+
+        match state.plugins.load_plugin(id) {
+            Ok(()) => {}
+            Err(e) => {
+                tracing::error!("Failed to load new plugin '{}': {}", id, e);
+                failed.push(ReloadFailure {
+                    id: id.clone(),
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
+    let failed_ids: std::collections::HashSet<&str> =
+        failed.iter().map(|f| f.id.as_str()).collect();
+    for id in reloaded.iter().chain(new_ids.iter()) {
+        if !failed_ids.contains(id.as_str()) {
+            call_plugin_init(state.plugins.as_ref(), id).await;
+        }
+    }
+
+    state
+        .plugins
+        .update_translations()
+        .map_err(AppError::from)?;
+
+    Ok(Json(ReloadAllResponse {
+        reloaded,
+        new: new_ids,
+        failed,
+    }))
+}
+
+/// Body limit for plugin upload (128MB).
+pub fn upload_body_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(128 * 1024 * 1024)
+}
+
+/// Regex for valid plugin IDs.
+fn is_valid_plugin_id(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    let first = id.as_bytes()[0];
+    if !first.is_ascii_alphanumeric() {
+        return false;
+    }
+    id.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Maximum per-file decompression size (128MB).
+const MAX_FILE_SIZE: u64 = 128 * 1024 * 1024;
+/// Maximum aggregate extraction size (512MB).
+const MAX_AGGREGATE_SIZE: u64 = 512 * 1024 * 1024;
+
+#[utoipa::path(
+    post,
+    path = "/plugins/upload",
+    tag = "Admin",
+    operation_id = "uploadPlugin",
+    summary = "Upload a plugin archive",
+    description = "Uploads a tar.gz plugin archive. Files are merged into the plugins directory (existing files not in the archive are preserved). The plugin is automatically loaded after upload. Requires `plugin:manage` permission.",
+    request_body(content_type = "multipart/form-data", content = Vec<u8>, description = "tar.gz archive with a single top-level directory containing plugin.toml"),
+    responses(
+        (status = 200, description = "Plugin uploaded and loaded successfully", body = serde_json::Value),
+        (status = 400, description = "Invalid archive (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, multipart))]
+pub async fn upload_plugin(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<impl IntoResponse, AppError> {
+    auth_user.require_permission("plugin:manage")?;
+
+    let mut archive_bytes: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::Validation(format!("Multipart error: {}", e)))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "plugin" {
+            let data = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::Validation(format!("Failed to read upload: {}", e)))?;
+            archive_bytes = Some(data.to_vec());
+            break;
+        }
+    }
+
+    let archive_bytes = archive_bytes
+        .ok_or_else(|| AppError::Validation("Missing 'plugin' field in multipart form".into()))?;
+
+    let plugins_dir = &state.plugins.get_config().plugins_dir;
+
+    let mut plugin_id: Option<String> = None;
+    let mut has_manifest = false;
+    let mut validated_entries: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut aggregate_size: u64 = 0;
+
+    let decoder = flate2::read::GzDecoder::new(&archive_bytes[..]);
+    let mut archive = tar::Archive::new(decoder);
+
+    for entry_result in archive
+        .entries()
+        .map_err(|e| AppError::Validation(format!("Failed to read archive entries: {}", e)))?
+    {
+        let entry =
+            entry_result.map_err(|e| AppError::Validation(format!("Invalid tar entry: {}", e)))?;
+
+        let entry_type = entry.header().entry_type();
+
+        if entry_type != tar::EntryType::Regular && entry_type != tar::EntryType::Directory {
+            return Err(AppError::Validation(
+                "Archive contains unsupported entry types (only regular files and directories allowed)".into(),
+            ));
+        }
+
+        let raw_path = entry
+            .path()
+            .map_err(|e| AppError::Validation(format!("Invalid path in archive: {}", e)))?
+            .to_path_buf();
+
+        for component in raw_path.components() {
+            if let std::path::Component::ParentDir = component {
+                return Err(AppError::Validation(
+                    "Archive contains path traversal (.. component)".into(),
+                ));
+            }
+            if let std::path::Component::RootDir = component {
+                return Err(AppError::Validation(
+                    "Archive contains absolute paths".into(),
+                ));
+            }
+        }
+
+        let components: Vec<_> = raw_path.components().collect();
+        if components.is_empty() {
+            continue;
+        }
+
+        let top_level = components[0].as_os_str().to_string_lossy().to_string();
+
+        if let Some(ref existing_id) = plugin_id {
+            if top_level != *existing_id {
+                return Err(AppError::Validation(
+                    "Archive must contain exactly one top-level directory".into(),
+                ));
+            }
+        } else if !is_valid_plugin_id(&top_level) {
+            return Err(AppError::Validation(format!(
+                "Invalid plugin ID '{}'. Must match [a-zA-Z0-9][a-zA-Z0-9_-]*",
+                top_level
+            )));
+        } else {
+            plugin_id = Some(top_level.clone());
+        }
+
+        if entry_type == tar::EntryType::Directory {
+            continue;
+        }
+
+        if components.len() == 2 && components[1].as_os_str() == "plugin.toml" {
+            has_manifest = true;
+        }
+
+        let mut limited_reader = entry.take(MAX_FILE_SIZE + 1);
+        let mut contents = Vec::new();
+        limited_reader
+            .read_to_end(&mut contents)
+            .map_err(|e| AppError::Validation(format!("Failed to read archive entry: {}", e)))?;
+
+        if contents.len() as u64 > MAX_FILE_SIZE {
+            return Err(AppError::Validation(format!(
+                "File '{}' exceeds maximum size of {}MB",
+                raw_path.display(),
+                MAX_FILE_SIZE / (1024 * 1024)
+            )));
+        }
+
+        aggregate_size += contents.len() as u64;
+        if aggregate_size > MAX_AGGREGATE_SIZE {
+            return Err(AppError::Validation(format!(
+                "Total extracted size exceeds maximum of {}MB",
+                MAX_AGGREGATE_SIZE / (1024 * 1024)
+            )));
+        }
+
+        validated_entries.push((raw_path, contents));
+    }
+
+    let plugin_id = plugin_id.ok_or_else(|| {
+        AppError::Validation("Archive is empty or has no top-level directory".into())
+    })?;
+
+    if !has_manifest {
+        return Err(AppError::Validation(format!(
+            "Archive does not contain {}/plugin.toml",
+            plugin_id
+        )));
+    }
+
+    // Extract files to disk (merge into plugins_dir). Runs in blocking context
+    // to avoid starving the async runtime with filesystem I/O.
+    let dest_root = plugins_dir.join(&plugin_id);
+    let dest_root_clone = dest_root.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        for (path, contents) in &validated_entries {
+            // Strip the top-level directory to get the relative path within the plugin
+            let relative = path.iter().skip(1).collect::<PathBuf>();
+            let dest = dest_root_clone.join(&relative);
+
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    AppError::Internal(format!(
+                        "Failed to create directory '{}': {}",
+                        parent.display(),
+                        e
+                    ))
+                })?;
+
+                // Set 0755 on all directories up to the plugin root
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let dir_perms = std::fs::Permissions::from_mode(0o755);
+                    let mut dir = parent.to_path_buf();
+                    while dir.starts_with(&dest_root_clone) {
+                        let _ = std::fs::set_permissions(&dir, dir_perms.clone());
+                        if !dir.pop() {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            std::fs::write(&dest, contents).map_err(|e| {
+                AppError::Internal(format!("Failed to write '{}': {}", dest.display(), e))
+            })?;
+
+            // Set file permissions (0644)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o644);
+                let _ = std::fs::set_permissions(&dest, perms);
+            }
+        }
+
+        // Set directory permissions (0755) for the plugin root
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            let _ = std::fs::set_permissions(&dest_root_clone, perms);
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Extraction task panicked: {}", e)))??;
+
+    // If plugin was previously loaded, purge its registrations
+    let was_loaded = state.plugins.is_plugin_loaded(&plugin_id).unwrap_or(false);
+    if was_loaded {
+        purge_plugin_registrations(&state.registries, &plugin_id).await;
+    }
+
+    let new_entry = PluginEntry::from_dir(&dest_root).map_err(|e| {
+        AppError::Internal(format!("Failed to parse uploaded plugin manifest: {}", e))
+    })?;
+
+    {
+        let mut registry = state
+            .plugins
+            .get_registry()
+            .write()
+            .map_err(|_| AppError::Internal("Failed to acquire registry write lock".into()))?;
+        registry.insert(plugin_id.clone(), new_entry);
+    }
+
+    state
+        .plugins
+        .load_plugin(&plugin_id)
+        .map_err(|e| AppError::Internal(format!("Failed to load plugin after upload: {}", e)))?;
+
+    call_plugin_init(state.plugins.as_ref(), &plugin_id).await;
+    state
+        .plugins
+        .update_translations()
+        .map_err(AppError::from)?;
+
+    let existing = plugin_entity::Entity::find_by_id(plugin_id.clone())
+        .one(&state.db)
+        .await?;
+    match existing {
+        Some(_) => {
+            let model = plugin_entity::ActiveModel {
+                id: Unchanged(plugin_id.clone()),
+                is_enabled: Set(true),
+                updated_at: Set(chrono::Utc::now()),
+            };
+            model.update(&state.db).await?;
+        }
+        None => {
+            let model = plugin_entity::ActiveModel {
+                id: Set(plugin_id.clone()),
+                is_enabled: Set(true),
+                updated_at: Set(chrono::Utc::now()),
+            };
+            model.insert(&state.db).await?;
+        }
+    }
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "plugin_id": plugin_id,
+            "message": format!("Plugin '{}' uploaded and loaded successfully", plugin_id)
+        })),
+    ))
 }

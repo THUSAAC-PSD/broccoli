@@ -475,6 +475,7 @@ impl TestApp {
                 operation_waiters,
                 evaluate_batches,
             },
+            device_codes: std::sync::Arc::new(dashmap::DashMap::new()),
         };
         if load_plugins {
             sync_plugins(&state).await.expect("Failed to sync plugins");

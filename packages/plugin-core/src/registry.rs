@@ -46,6 +46,8 @@ pub type PluginRegistry = Arc<RwLock<HashMap<String, PluginEntry>>>;
 #[derive(Debug, Clone, Serialize)]
 pub struct PluginInfo {
     pub id: String,
+    #[serde(skip)]
+    pub root_dir: PathBuf,
     #[serde(flatten)]
     pub manifest: PluginManifest,
     pub status: PluginStatus,
@@ -55,6 +57,7 @@ impl From<&PluginEntry> for PluginInfo {
     fn from(entry: &PluginEntry) -> Self {
         Self {
             id: entry.id.clone(),
+            root_dir: entry.root_dir.clone(),
             manifest: entry.manifest.clone(),
             status: entry.status.clone(),
         }
