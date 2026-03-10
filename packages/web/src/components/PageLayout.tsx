@@ -45,7 +45,12 @@ export function PageLayout({
         as="div"
         className={contentClassName ?? 'flex flex-col gap-4'}
       >
-        {children}
+        <div className="w-full">{children}</div>
+        <Slot
+          name={`${pageId}.content.sidebar`}
+          as="div"
+          className="space-y-4"
+        />
       </Slot>
     </Slot>
   );

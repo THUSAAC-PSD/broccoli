@@ -55,7 +55,7 @@ export function ContestAdminActions() {
   }
 
   return (
-    <div className="rounded-lg border p-4 space-y-1 lg:order-2 lg:col-start-2">
+    <div className="rounded-lg border p-4 space-y-1">
       <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground mb-2">
         {t('admin.actions')}
       </p>
