@@ -372,16 +372,24 @@ export default function ProblemView({
       )}
 
       {/* ── Fixed header section (never scrolls) ── */}
-      <div className="flex-shrink-0 px-6 pt-3 pb-0 relative">
-        <ProblemHeader
-          id={headerId}
-          title={problem?.title ?? t('problem.title')}
-          type="Default"
-          io="Standard Input / Output"
-          timeLimit={timeLimit}
-          memoryLimit={memoryLimit}
-        />
-        <Slot name="problem-detail.header" as="div" className="relative" />
+      <div className="flex-shrink-0 px-6 pt-3 pb-0">
+        <div className="flex items-start sm:items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <ProblemHeader
+              id={headerId}
+              title={problem?.title ?? t('problem.title')}
+              type="Default"
+              io="Standard Input / Output"
+              timeLimit={timeLimit}
+              memoryLimit={memoryLimit}
+            />
+          </div>
+          <Slot
+            name="problem-detail.header"
+            as="div"
+            className="hidden lg:flex items-center"
+          />
+        </div>
       </div>
 
       {/* ── Fixed action bar (never scrolls) ── */}
