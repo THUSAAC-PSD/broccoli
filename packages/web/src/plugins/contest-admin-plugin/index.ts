@@ -13,7 +13,7 @@ export const manifest: ActivePluginManifest = {
   },
   slots: [
     {
-      name: 'contest-overview.content',
+      name: 'contest-overview.content.sidebar',
       position: 'after',
       component: 'contest/AdminActions',
       priority: 50,
