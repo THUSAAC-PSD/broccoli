@@ -23,7 +23,7 @@ export const manifest: ActivePluginManifest = {
       priority: 100,
     },
     {
-      name: 'problem-overview.content',
+      name: 'problem-detail.header',
       position: 'before',
       component: 'contest/CountdownMini',
       priority: 100,

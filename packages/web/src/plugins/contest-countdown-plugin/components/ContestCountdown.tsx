@@ -228,39 +228,39 @@ export function ContestCountdownMini() {
     phase === 'upcoming' ? t('countdown.startsIn') : t('countdown.endsIn');
 
   return (
-    // hidden on narrow viewports; vertically centered, right margin = px-6
-    <div className="hidden lg:flex absolute right-6 top-1/2 -translate-y-1/2">
-      <div className="inline-flex items-center gap-3 px-2" style={{}}>
+    // hidden on narrow viewports; placed inline in header on large screens
+    <div className="hidden lg:flex items-center">
+      <div className="inline-flex items-center gap-2.5 px-2">
         {/* dot */}
         <span
-          className={`h-2 w-2 shrink-0 rounded-full ${phase === 'running' ? 'animate-pulse' : ''}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${phase === 'running' ? 'animate-pulse' : ''}`}
           style={{ backgroundColor: ACCENT }}
         />
         {/* label */}
         <span
-          className="text-sm font-semibold uppercase tracking-widest"
+          className="text-[10px] font-semibold uppercase tracking-[0.15em]"
           style={{ color: ACCENT }}
         >
           {phaseLabel}
         </span>
         {/* digits */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {segments.map((seg, i) => (
             <Fragment key={seg.label}>
               <div className="flex flex-col items-center leading-none gap-1">
                 <span
-                  className="tabular-nums text-4xl font-bold tracking-tighter"
+                  className="tabular-nums text-3xl font-bold tracking-tighter"
                   style={{ color: ACCENT }}
                 >
                   {String(seg.value).padStart(2, '0')}
                 </span>
-                <span className="text-xs uppercase tracking-wider text-muted-foreground/60">
+                <span className="text-[8px] font-medium uppercase tracking-widest text-muted-foreground/60">
                   {seg.label}
                 </span>
               </div>
               {i < segments.length - 1 && (
                 <span
-                  className="mb-5 select-none text-2xl font-light opacity-25"
+                  className="mb-4 select-none text-xl font-light opacity-25"
                   style={{ color: ACCENT }}
                 >
                   :
