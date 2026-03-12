@@ -2,7 +2,7 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge, Button, Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import {
   ProblemForm,
   type ProblemFormData,
 } from '@/features/admin/components/ProblemForm';
+import { TestCaseBulkUploadDialog } from '@/features/admin/components/TestCaseBulkUploadDialog';
 import { TestCaseFormDialog } from '@/features/admin/components/TestCaseFormDialog';
 
 interface ProblemEditFormProps {
@@ -34,6 +35,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [bulkUploadDialogOpen, setBulkUploadDialogOpen] = useState(false);
   const [editingTestCaseId, setEditingTestCaseId] = useState<
     number | undefined
   >();
@@ -161,10 +163,25 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
                 <h2 className="text-lg font-semibold">
                   {t('admin.testCases.title')}
                 </h2>
-                <Button type="button" size="sm" onClick={handleCreateTestCase}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  {t('admin.testCases.create')}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setBulkUploadDialogOpen(true)}
+                  >
+                    <Upload className="h-4 w-4 mr-1" />
+                    {t('admin.testCases.bulkUpload.button')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateTestCase}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    {t('admin.testCases.create')}
+                  </Button>
+                </div>
               </div>
 
               <div className="rounded-lg border overflow-hidden">
@@ -274,6 +291,14 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
           testCaseId={editingTestCaseId}
           open={formDialogOpen}
           onOpenChange={setFormDialogOpen}
+          testCasesQueryKey={testCasesQueryKey}
+        />
+
+        {/* Test Case Bulk Upload Dialog */}
+        <TestCaseBulkUploadDialog
+          problemId={problemIdNum}
+          open={bulkUploadDialogOpen}
+          onOpenChange={setBulkUploadDialogOpen}
           testCasesQueryKey={testCasesQueryKey}
         />
       </div>
