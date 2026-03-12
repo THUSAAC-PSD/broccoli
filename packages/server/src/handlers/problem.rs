@@ -591,9 +591,9 @@ pub async fn delete_test_case(
     tag = "Test Cases",
     operation_id = "uploadTestCases",
     summary = "Upload test cases from a ZIP file",
-    description = "Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
+    description = "Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
     params(("id" = i32, Path, description = "Problem ID")),
-    request_body(content_type = "multipart/form-data", description = "ZIP file containing test cases (.in/.ans or .in/.out pairs)"),
+    request_body(content_type = "multipart/form-data", description = "Multipart form data with fields: `file` (ZIP archive), `input_format` (e.g. `input_*.txt`), `output_format` (e.g. `output_*.txt`)."),
     responses(
         (status = 201, description = "Test cases uploaded", body = UploadTestCasesResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
@@ -613,27 +613,54 @@ pub async fn upload_test_cases(
     auth_user.require_permission("problem:edit")?;
 
     let mut zip_bytes: Option<Vec<u8>> = None;
+    let mut input_format = None;
+    let mut output_format = None;
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::Validation(format!("Multipart error: {e}")))?
     {
-        if field.name() == Some("file") {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::Validation(format!("Failed to read file: {e}")))?;
-            zip_bytes = Some(data.to_vec());
-            break;
+        match field.name() {
+            Some("file") => {
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Validation(format!("Failed to read file: {e}")))?;
+                zip_bytes = Some(data.to_vec());
+            }
+            Some("input_format") => {
+                let fmt = field.text().await.map_err(|e| {
+                    AppError::Validation(format!("Failed to read input_format: {e}"))
+                })?;
+                input_format = Some(fmt);
+            }
+            Some("output_format") => {
+                let fmt = field.text().await.map_err(|e| {
+                    AppError::Validation(format!("Failed to read output_format: {e}"))
+                })?;
+                output_format = Some(fmt);
+            }
+            _ => {}
         }
     }
 
     let zip_bytes = zip_bytes.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
+    let input_fmt =
+        input_format.ok_or_else(|| AppError::Validation("Missing 'input_format' field".into()))?;
+    let output_fmt = output_format
+        .ok_or_else(|| AppError::Validation("Missing 'output_format' field".into()))?;
 
-    let entries = parse_zip_test_cases(&zip_bytes)?;
+    // Ensure there is exactly one wildcard
+    if input_fmt.matches('*').count() != 1 || output_fmt.matches('*').count() != 1 {
+        return Err(AppError::Validation(
+            "Formats must contain exactly one '*' wildcard".into(),
+        ));
+    }
+
+    let entries = parse_zip_test_cases(&zip_bytes, &input_fmt, &output_fmt)?;
     if entries.is_empty() {
         return Err(AppError::Validation(
-            "ZIP contains no valid .in/.ans pairs".into(),
+            "ZIP contains no valid input/output file pairs matching the specified formats".into(),
         ));
     }
 
@@ -649,7 +676,8 @@ pub async fn upload_test_cases(
             input: Set(entry.input),
             expected_output: Set(entry.expected_output),
             score: Set(0),
-            description: Set(Some(entry.stem)),
+            label: Set(entry.label),
+            description: Set(None),
             is_sample: Set(entry.is_sample),
             position: Set(start_pos),
             problem_id: Set(problem_id),
@@ -923,6 +951,7 @@ fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
         id: m.id,
         score: m.score,
         description: m.description,
+        label: m.label,
         is_sample: m.is_sample,
         position: m.position,
         input_preview,
@@ -934,11 +963,12 @@ fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
 
 /// Parsed test case from a ZIP archive.
 struct ZipTestEntry {
-    stem: String,
+    label: String,
     input: String,
     expected_output: String,
+    // TODO: description: Option<String>,
     is_sample: bool,
-    /// Sort key: (directory priority, stem)
+    /// Sort key: (directory priority, label)
     sort_key: (u8, String),
 }
 
@@ -948,7 +978,34 @@ const MAX_DECOMPRESSED_FILE_SIZE: u64 = 128 * 1024 * 1024;
 /// Maximum total decompressed size across all files in a ZIP archive (2048 MB).
 const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = 2048 * 1024 * 1024;
 
-fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
+/// Extracts the label from a filename given a format pattern like "prefix*suffix".
+/// Returns None if the filename doesn't match the pattern.
+fn extract_label<'a>(filename: &'a str, format: &str) -> Option<&'a str> {
+    let parts: Vec<&str> = format.split("*").collect();
+    if parts.len() != 2 {
+        // If the format doesn't contain exactly one {label}, matching fails
+        return None;
+    }
+
+    let prefix = parts[0];
+    let suffix = parts[1];
+
+    if filename.starts_with(prefix)
+        && filename.ends_with(suffix)
+        && filename.len() >= prefix.len() + suffix.len()
+    {
+        let label = &filename[prefix.len()..filename.len() - suffix.len()];
+        Some(label)
+    } else {
+        None
+    }
+}
+
+fn parse_zip_test_cases(
+    data: &[u8],
+    input_format: &str,
+    output_format: &str,
+) -> Result<Vec<ZipTestEntry>, AppError> {
     let cursor = std::io::Cursor::new(data);
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|e| AppError::Validation(format!("Invalid ZIP archive: {e}")))?;
@@ -981,20 +1038,15 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
 
         let is_sample = is_sample_directory(dir);
 
-        let (stem, ext) = match filename.rsplit_once('.') {
-            Some((s, e)) => (s, e),
-            None => continue,
-        };
+        // Attempt to extract label assuming it's an input file
+        let label_as_in = extract_label(filename, input_format);
+        // Attempt to extract label assuming it's an output file
+        let label_as_out = extract_label(filename, output_format);
 
-        if stem.is_empty() {
+        // If it matches neither pattern, skip it
+        if label_as_in.is_none() && label_as_out.is_none() {
             continue;
         }
-
-        let key = if dir.is_empty() {
-            stem.to_string()
-        } else {
-            format!("{dir}/{stem}")
-        };
 
         let mut buf = Vec::new();
         file.take(MAX_DECOMPRESSED_FILE_SIZE + 1)
@@ -1017,24 +1069,22 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
         let content = String::from_utf8(buf)
             .map_err(|_| AppError::Validation(format!("File '{name}' is not valid UTF-8")))?;
 
-        match ext {
-            "in" => {
-                if in_files.contains_key(&key) {
-                    return Err(AppError::Validation(format!(
-                        "Duplicate input file for test case '{key}'"
-                    )));
-                }
-                in_files.insert(key, (content, is_sample));
+        if let Some(label) = label_as_in {
+            let key = label.to_string();
+            if in_files.contains_key(&key) {
+                return Err(AppError::Validation(format!(
+                    "Duplicate input file for test case label '{key}'"
+                )));
             }
-            "ans" | "out" => {
-                if ans_files.contains_key(&key) {
-                    return Err(AppError::Validation(format!(
-                        "Duplicate output file for test case '{key}' (both .ans and .out?)"
-                    )));
-                }
-                ans_files.insert(key, content);
+            in_files.insert(key, (content, is_sample));
+        } else if let Some(label) = label_as_out {
+            let key = label.to_string();
+            if ans_files.contains_key(&key) {
+                return Err(AppError::Validation(format!(
+                    "Duplicate output file for test case label '{key}'"
+                )));
             }
-            _ => {}
+            ans_files.insert(key, content);
         }
     }
 
@@ -1043,11 +1093,11 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
 
     for (key, (input, is_sample)) in in_files {
         if let Some(output) = ans_files.remove(&key) {
-            let stem = key.rsplit('/').next().unwrap_or(&key).to_string();
+            let label = key.clone();
             let sort_priority = if is_sample { 0u8 } else { 1u8 };
             let sort_key = (sort_priority, key);
             entries.push(ZipTestEntry {
-                stem,
+                label,
                 input,
                 expected_output: output,
                 is_sample,
@@ -1064,13 +1114,13 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
         let mut parts = Vec::new();
         if !unmatched_in.is_empty() {
             parts.push(format!(
-                ".in files without matching .ans: {}",
+                "Input files without matching output: {}",
                 unmatched_in.join(", ")
             ));
         }
         if !unmatched_ans.is_empty() {
             parts.push(format!(
-                ".ans files without matching .in: {}",
+                "Output files without matching input: {}",
                 unmatched_ans.join(", ")
             ));
         }

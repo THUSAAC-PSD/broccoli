@@ -168,6 +168,8 @@ pub struct CreateTestCaseRequest {
     /// Optional human-readable description (max 256 chars).
     #[schema(example = "Basic case")]
     pub description: Option<String>,
+    #[schema(example = "sample01")]
+    pub label: String,
 }
 
 /// PATCH body for updating a test case. Only provided fields are modified.
@@ -192,6 +194,20 @@ pub struct UpdateTestCaseRequest {
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<String>, example = "Updated edge case")]
     pub description: Option<Option<String>>,
+    #[schema(example = "sample01")]
+    pub label: Option<String>,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UploadTestCasesRequest {
+    /// Input file name format for ZIP upload. Must include `*` which is replaced by test case
+    /// label or position.
+    #[schema(example = "input_*.txt")]
+    pub input_format: Option<String>,
+    /// Output file name format for ZIP upload. Must include `*` which is replaced by test case
+    /// label or position.
+    #[schema(example = "output_*.txt")]
+    pub output_format: Option<String>,
 }
 
 /// Request body for reordering test cases.
@@ -213,6 +229,8 @@ pub struct TestCaseResponse {
     pub expected_output: String,
     #[schema(example = 10)]
     pub score: i32,
+    #[schema(example = "sample01")]
+    pub label: String,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
     #[schema(example = true)]
@@ -234,6 +252,8 @@ pub struct TestCaseListItem {
     pub score: i32,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
+    #[schema(example = "sample01")]
+    pub label: String,
     #[schema(example = true)]
     pub is_sample: bool,
     #[schema(example = 0)]
@@ -285,6 +305,7 @@ impl From<crate::entity::test_case::Model> for TestCaseResponse {
             expected_output: m.expected_output,
             score: m.score,
             description: m.description,
+            label: m.label,
             is_sample: m.is_sample,
             position: m.position,
             problem_id: m.problem_id,

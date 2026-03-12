@@ -17,6 +17,12 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub description: Option<String>,
 
+    /// Short identifier for the test case (unique within a problem).
+    ///
+    /// Auto-generated from position if not provided; ZIP upload uses filename stem.
+    #[sea_orm(column_type = "Text")]
+    pub label: String,
+
     #[sea_orm(default_value = false)]
     pub is_sample: bool,
 

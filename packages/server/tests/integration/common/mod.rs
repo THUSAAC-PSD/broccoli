@@ -476,13 +476,22 @@ impl TestApp {
         path: &str,
         file_name: &str,
         file_bytes: Vec<u8>,
+        input_format: Option<&str>,
+        output_format: Option<&str>,
         token: &str,
     ) -> TestResponse {
         let part = reqwest::multipart::Part::bytes(file_bytes)
             .file_name(file_name.to_string())
             .mime_str("application/zip")
             .expect("Failed to set MIME type");
-        let form = reqwest::multipart::Form::new().part("file", part);
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+
+        if let Some(fmt) = input_format {
+            form = form.text("input_format", fmt.to_string());
+        }
+        if let Some(fmt) = output_format {
+            form = form.text("output_format", fmt.to_string());
+        }
 
         let res = self
             .client
