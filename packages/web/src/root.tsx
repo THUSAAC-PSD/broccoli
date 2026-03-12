@@ -21,14 +21,7 @@ import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
 // Lazy-loaded plugins — each is code-split into its own chunk by Vite.
-const lazyPlugins: LazyPluginLoader[] = [
-  () => import('./plugins/theme-plugin'),
-  () => import('./plugins/analytics-plugin'),
-  () => import('./plugins/ranking-charts-plugin'),
-  () => import('./plugins/locale-switcher-plugin'),
-  () => import('./plugins/contest-countdown-plugin'),
-  () => import('./plugins/contest-admin-plugin'),
-];
+const lazyPlugins: LazyPluginLoader[] = [];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
