@@ -159,7 +159,9 @@ export function ContestFormDialog({
           if (error || !data) return;
           setTitle(data.title);
           setDescription(data.description);
-          setActivateTime(new Date(data.activate_time));
+          setActivateTime(
+            data.activate_time ? new Date(data.activate_time) : undefined,
+          );
           setStartTime(new Date(data.start_time));
           setEndTime(new Date(data.end_time));
           setDeactivateTime(
