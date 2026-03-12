@@ -1,5 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import { useApiClient } from '@/api';
 import { I18nContext } from '@/i18n/i18n-context';
@@ -20,16 +26,20 @@ export function I18nProvider({
 }: I18nProviderProps) {
   const apiClient = useApiClient();
 
-  const [locale, setLocaleState] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(localeKey);
-      // Prevent "undefined" string from being stored
-      if (stored && stored !== 'undefined') {
-        return stored;
+  const [locale, setLocaleState] = useState(defaultLocale);
+
+  useEffect(() => {
+    setLocaleState(() => {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(localeKey);
+        // Prevent "undefined" string from being stored
+        if (stored && stored !== 'undefined') {
+          return stored;
+        }
       }
-    }
-    return defaultLocale;
-  });
+      return defaultLocale;
+    });
+  }, [defaultLocale, localeKey]);
 
   const setLocale = useCallback(
     (newLocale: string) => {

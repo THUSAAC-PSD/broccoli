@@ -28,26 +28,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     document.documentElement.style.opacity = '';
   }, []);
 
-  // Read theme and locale from localStorage on the client to match the inline
-  // script that runs before hydration. This ensures React's virtual DOM agrees
-  // with the real DOM, preventing hydration mismatches.
-  const initialTheme =
-    typeof window !== 'undefined'
-      ? (localStorage.getItem('theme') ??
-        (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'))
-      : 'light';
-
-  const initialLocale =
-    typeof window !== 'undefined'
-      ? (localStorage.getItem('broccoli-locale') ?? 'en')
-      : 'en';
-
   return (
-    <html
-      lang={initialLocale}
-      className={initialTheme}
-      suppressHydrationWarning
-    >
+    <html suppressHydrationWarning>
       <head>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
