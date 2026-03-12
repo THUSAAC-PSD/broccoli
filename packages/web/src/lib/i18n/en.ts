@@ -366,6 +366,31 @@ export const en: Record<string, string> = {
   'admin.testCases.field.sample': 'Sample',
   'admin.testCases.field.description': 'Description',
   'admin.testCases.field.isSample': 'Sample Test Case',
+  'admin.testCases.bulkUpload.button': 'Bulk Upload',
+  'admin.testCases.bulkUpload.title': 'Bulk Upload Test Cases',
+  'admin.testCases.bulkUpload.description':
+    'Upload a ZIP file and match test case files using the input and output formats you provide. Files under sample/ folder will be marked as samples.',
+  'admin.testCases.bulkUpload.zipFile': 'ZIP File',
+  'admin.testCases.bulkUpload.selectFile': 'Select ZIP File',
+  'admin.testCases.bulkUpload.fileSize': 'File size: {{size}} MB',
+  'admin.testCases.bulkUpload.inputFormat': 'Input Format',
+  'admin.testCases.bulkUpload.outputFormat': 'Output Format',
+  'admin.testCases.bulkUpload.formatHint':
+    'Pattern with exactly one * (e.g., "*.in", "test*.txt")',
+  'admin.testCases.bulkUpload.upload': 'Upload',
+  'admin.testCases.bulkUpload.uploading': 'Uploading...',
+  'admin.testCases.bulkUpload.uploadSuccess':
+    'Test cases uploaded successfully.',
+  'admin.testCases.bulkUpload.uploadError': 'Failed to upload test cases.',
+  'admin.testCases.bulkUpload.noFile': 'Please select a ZIP file.',
+  'admin.testCases.bulkUpload.invalidFileType': 'Please select a ZIP file.',
+  'admin.testCases.bulkUpload.invalidInputFormat':
+    'Input format must contain exactly one *',
+  'admin.testCases.bulkUpload.inputFormatRequired': 'Input format is required.',
+  'admin.testCases.bulkUpload.invalidOutputFormat':
+    'Output format must contain exactly one *',
+  'admin.testCases.bulkUpload.outputFormatRequired':
+    'Output format is required.',
 
   // Toast notifications
   'toast.contest.created': 'Contest created successfully.',
