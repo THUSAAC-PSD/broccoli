@@ -690,6 +690,7 @@ impl TestApp {
                     "expected_output": "15",
                     "score": 10,
                     "is_sample": true,
+                    "label": format!("tc_{}", problem_id),
                 }),
                 token,
             )

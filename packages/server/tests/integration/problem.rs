@@ -629,7 +629,8 @@ mod test_case_creation {
                     "input": "3\n1 2 3",
                     "expected_output": "6",
                     "score": 10,
-                    "is_sample": true
+                    "is_sample": true,
+                    "label": "sample_01"
                 }),
                 &token,
             )
@@ -655,7 +656,8 @@ mod test_case_creation {
                     "input": "1",
                     "expected_output": "1",
                     "score": 0,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_01"
                 }),
                 &token,
             )
@@ -680,7 +682,8 @@ mod test_case_creation {
                     "input": "1",
                     "expected_output": "1",
                     "score": -1,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_neg"
                 }),
                 &token,
             )
@@ -707,7 +710,8 @@ mod test_case_creation {
                     "expected_output": "1",
                     "score": 5,
                     "is_sample": false,
-                    "position": -1
+                    "position": -1,
+                    "label": "tc_pos"
                 }),
                 &token,
             )
@@ -733,7 +737,8 @@ mod test_case_creation {
                     "input": "1",
                     "expected_output": "1",
                     "score": 5,
-                    "is_sample": true
+                    "is_sample": true,
+                    "label": "tc_01"
                 }),
                 &token,
             )
@@ -745,7 +750,8 @@ mod test_case_creation {
                     "input": "2",
                     "expected_output": "2",
                     "score": 5,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_02"
                 }),
                 &token,
             )
@@ -821,7 +827,8 @@ mod test_case_listing {
                 "input": long_input,
                 "expected_output": "result",
                 "score": 5,
-                "is_sample": false
+                "is_sample": false,
+                "label": "tc_long"
             }),
             &token,
         )
@@ -853,7 +860,8 @@ mod test_case_listing {
                 "input": unicode_input,
                 "expected_output": "ok",
                 "score": 5,
-                "is_sample": false
+                "is_sample": false,
+                "label": "tc_unicode"
             }),
             &token,
         )
@@ -931,6 +939,7 @@ mod test_case_detail {
                     "expected_output": "3",
                     "score": 10,
                     "is_sample": true,
+                    "label": "sample_01",
                 }),
                 &admin,
             )
@@ -971,6 +980,7 @@ mod test_case_detail {
                     "expected_output": "answer",
                     "score": 90,
                     "is_sample": false,
+                    "label": "hidden_01",
                 }),
                 &admin,
             )
@@ -1057,7 +1067,8 @@ mod test_case_update {
                     "expected_output": "1",
                     "score": 5,
                     "is_sample": false,
-                    "description": "original desc"
+                    "description": "original desc",
+                    "label": "tc_desc"
                 }),
                 &token,
             )
@@ -1844,6 +1855,7 @@ mod problem_contest_access {
                     "expected_output": "sample output",
                     "score": 10,
                     "is_sample": true,
+                    "label": "sample_01",
                 }),
                 &admin,
             )
@@ -1859,6 +1871,7 @@ mod problem_contest_access {
                     "expected_output": "hidden output",
                     "score": 90,
                     "is_sample": false,
+                    "label": "hidden_01",
                 }),
                 &admin,
             )
