@@ -8,6 +8,16 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
+        accepted:
+          'border-transparent bg-green-500/80 text-white shadow hover:bg-green-500/90',
+        wronganswer:
+          'border-transparent bg-red-500/80 text-white shadow hover:bg-red-500/90',
+        timelimitexceeded:
+          'border-transparent bg-orange-500/80 text-white shadow hover:bg-orange-500/90',
+        memorylimitexceeded:
+          'border-transparent bg-orange-500/80 text-white shadow hover:bg-orange-500/90',
+        runtimeerror:
+          'border-transparent bg-purple-500/80 text-white shadow hover:bg-purple-500/90',
         default:
           'border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80',
         secondary:

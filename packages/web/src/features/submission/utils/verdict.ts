@@ -1,4 +1,7 @@
 import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk/submission';
+import type { BadgeProps } from '@broccoli/web-sdk/ui';
+
+type BadgeVariant = NonNullable<BadgeProps['variant']>;
 
 function getStatusLabel(status: SubmissionStatus, t: (key: string) => string) {
   switch (status) {
@@ -31,10 +34,25 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
       return t('result.memoryLimit');
     case 'RuntimeError':
       return t('result.runtimeError');
-    case 'SystemError':
-      return t('result.systemError');
     default:
       return t('result.unknownVerdict');
+  }
+}
+
+function getVerdictVariant(verdict: Verdict): BadgeVariant {
+  switch (verdict) {
+    case 'Accepted':
+      return 'accepted';
+    case 'WrongAnswer':
+      return 'wronganswer';
+    case 'TimeLimitExceeded':
+      return 'timelimitexceeded';
+    case 'MemoryLimitExceeded':
+      return 'memorylimitexceeded';
+    case 'RuntimeError':
+      return 'runtimeerror';
+    default:
+      return 'outline';
   }
 }
 
@@ -44,7 +62,7 @@ export function getVerdictBadge(
   t: (key: string) => string,
 ): {
   label: string;
-  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  variant: BadgeVariant;
 } {
   if (status === 'Pending' || status === 'Compiling' || status === 'Running') {
     return { label: getStatusLabel(status, t), variant: 'outline' };
@@ -58,8 +76,8 @@ export function getVerdictBadge(
   if (!verdict) {
     return { label: getStatusLabel(status, t), variant: 'outline' };
   }
-  if (verdict === 'Accepted') {
-    return { label: t('result.accepted'), variant: 'default' };
-  }
-  return { label: getVerdictLabel(verdict, t), variant: 'destructive' };
+  return {
+    label: getVerdictLabel(verdict, t),
+    variant: getVerdictVariant(verdict),
+  };
 }

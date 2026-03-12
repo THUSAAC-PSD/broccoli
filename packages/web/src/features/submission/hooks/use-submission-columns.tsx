@@ -1,7 +1,8 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
-import { Badge, type DataTableColumn } from '@broccoli/web-sdk/ui';
+import { Badge, Button, type DataTableColumn } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
+import { FileText } from 'lucide-react';
 import { Link } from 'react-router';
 
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
@@ -51,6 +52,27 @@ export function useSubmissionColumns(
         <span className="text-muted-foreground">
           {formatRelativeDatetime(row.original.created_at, t)}
         </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: t('submissions.details'),
+      size: 60,
+      cell: ({ row }) => (
+        <div className="flex justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            asChild
+            aria-label={t('submissions.viewDetails')}
+            title={t('submissions.viewDetails')}
+          >
+            <Link to={`/contests/${contestId}/submissions/${row.original.id}`}>
+              <FileText className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       ),
     },
   ];

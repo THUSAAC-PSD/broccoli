@@ -73,6 +73,8 @@ export const en: Record<string, string> = {
   'submissions.filters.allLanguages': 'All Languages',
   'submissions.filters.allStatuses': 'All Statuses',
   'submissions.filters.search': 'Search',
+  'submissions.viewDetails': 'View Details',
+  'submissions.details': 'Details',
 
   // Homepage
   'homepage.title': 'Broccoli Online Judge',

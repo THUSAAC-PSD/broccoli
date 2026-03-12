@@ -44,14 +44,5 @@ export default function ContestSubmissionsPage() {
     );
   }
 
-  return (
-    <PageLayout
-      pageId="contest-submissions"
-      title={t('sidebar.submissions')}
-      subtitle={contest?.title}
-      icon={<Code2 className="h-6 w-6 text-primary" />}
-    >
-      <SubmissionsTab contestId={id} />
-    </PageLayout>
-  );
+  return <SubmissionsTab contestId={id} />;
 }
