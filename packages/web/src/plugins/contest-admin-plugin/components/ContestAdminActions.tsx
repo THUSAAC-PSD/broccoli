@@ -1,5 +1,4 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,7 +31,7 @@ export function ContestAdminActions() {
         params: { path: { id } },
       });
       if (error) throw error;
-      return data as ContestSummary;
+      return data;
     },
     staleTime: 60_000,
   });
@@ -42,6 +41,12 @@ export function ContestAdminActions() {
   const [participantsOpen, setParticipantsOpen] = useState(false);
 
   if (!user?.permissions?.includes('contest:manage') || !contest) return null;
+
+  const contestForAdmin = {
+    ...contest,
+    is_registered:
+      (contest as { is_registered?: boolean }).is_registered ?? false,
+  };
 
   async function handleDelete() {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
@@ -97,17 +102,17 @@ export function ContestAdminActions() {
       </Button>
 
       <ContestFormDialog
-        contest={contest}
+        contest={contestForAdmin}
         open={editOpen}
         onOpenChange={setEditOpen}
       />
       <ContestProblemsDialog
-        contest={contest}
+        contest={contestForAdmin}
         open={problemsOpen}
         onOpenChange={setProblemsOpen}
       />
       <ManageParticipantsDialog
-        contest={contest}
+        contest={contestForAdmin}
         open={participantsOpen}
         onOpenChange={setParticipantsOpen}
       />
