@@ -786,6 +786,7 @@ mod contest_submissions {
                 &json!({
                     "title": "Future Contest",
                     "description": "Hasn't started yet",
+                    "activate_time": "2020-01-01T00:00:00Z",
                     "start_time": "2099-01-01T00:00:00Z",
                     "end_time": "2099-12-31T00:00:00Z",
                     "is_public": true,

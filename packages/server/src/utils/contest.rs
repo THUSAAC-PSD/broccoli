@@ -14,7 +14,9 @@ pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
         return Ok(());
     }
     let now = chrono::Utc::now();
-    if contest.activate_time > now || contest.deactivate_time.is_some_and(|dt| dt <= now) {
+    if contest.activate_time.is_none_or(|at| at > now)
+        || contest.deactivate_time.is_some_and(|dt| dt <= now)
+    {
         return Err(AppError::NotFound("Contest not found".into()));
     }
     if contest.is_public {

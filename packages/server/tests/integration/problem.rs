@@ -45,7 +45,7 @@ async fn insert_contest_association_for_problem(app: &TestApp, problem_id: i32) 
     let c = contest::ActiveModel {
         title: Set("Test Contest".into()),
         description: Set("A test contest".into()),
-        activate_time: Set(now),
+        activate_time: Set(Some(now)),
         start_time: Set(now),
         end_time: Set(now + chrono::Duration::hours(3)),
         is_public: Set(false),
