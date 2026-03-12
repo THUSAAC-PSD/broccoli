@@ -579,7 +579,7 @@ mod problem_deletion {
     }
 
     #[tokio::test]
-    async fn cannot_delete_a_problem_that_has_submissions() {
+    async fn can_soft_delete_a_problem_that_has_submissions() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin13", "password123", "admin")
@@ -590,8 +590,7 @@ mod problem_deletion {
 
         let res = app.delete_with_token(&routes::problem(id), &token).await;
 
-        assert_eq!(res.status, 409);
-        assert_eq!(res.body["code"], "CONFLICT");
+        assert_eq!(res.status, 204);
     }
 
     #[tokio::test]
@@ -608,6 +607,35 @@ mod problem_deletion {
 
         assert_eq!(res.status, 409);
         assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn soft_deleted_problem_cannot_create_new_test_case() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_softdel_problem", "password123", "admin")
+            .await;
+
+        let id = app.create_problem(&token, "Soft Deleted Problem").await;
+
+        let delete_res = app.delete_with_token(&routes::problem(id), &token).await;
+        assert_eq!(delete_res.status, 204);
+
+        let create_tc_res = app
+            .post_with_token(
+                &routes::test_cases(id),
+                &json!({
+                    "input": "1 2",
+                    "expected_output": "3",
+                    "score": 10,
+                    "is_sample": false
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(create_tc_res.status, 404);
+        assert_eq!(create_tc_res.body["code"], "NOT_FOUND");
     }
 }
 

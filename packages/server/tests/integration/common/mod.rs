@@ -351,7 +351,13 @@ impl TestApp {
 
         Self {
             addr,
-            client: Client::new(),
+            // Integration tests talk to a local ephemeral axum server.
+            // Disable proxy resolution to avoid corporate/system proxies
+            // turning localhost calls into spurious 502 responses.
+            client: Client::builder()
+                .no_proxy()
+                .build()
+                .expect("Failed to build reqwest client"),
             db,
             _blob_dir: blob_dir,
         }
