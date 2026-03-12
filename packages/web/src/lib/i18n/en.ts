@@ -364,6 +364,7 @@ export const en: Record<string, string> = {
   'admin.testCases.field.expectedOutput': 'Expected Output',
   'admin.testCases.field.score': 'Score',
   'admin.testCases.field.sample': 'Sample',
+  'admin.testCases.field.label': 'Label',
   'admin.testCases.field.description': 'Description',
   'admin.testCases.field.isSample': 'Sample Test Case',
   'admin.testCases.bulkUpload.button': 'Bulk Upload',
