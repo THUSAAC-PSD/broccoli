@@ -26,7 +26,7 @@
       "prettier --write"
     ],
     "*.rs": [
-      "rustfmt"
+      "rustfmt --edition 2024"
     ]
   },
   "devDependencies": {
