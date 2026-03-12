@@ -55,7 +55,8 @@ pub async fn find_contest_problem<C: sea_orm::ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Contest problem not found".into()))
 }
 
-/// Check that a contest has started, returning 400 if not.
+/// Check if the contest has started, returning 404 if the contest is not active yet, or 400 if it
+/// has not started yet.
 /// Admins with `contest:manage` bypass the check.
 pub fn require_contest_started(
     auth_user: &AuthUser,
@@ -64,10 +65,78 @@ pub fn require_contest_started(
     if auth_user.has_permission("contest:manage") {
         return Ok(());
     }
-    if chrono::Utc::now() < contest.start_time {
+    let now = chrono::Utc::now();
+    if contest.activate_time.is_none_or(|at| at > now)
+        || contest.deactivate_time.is_some_and(|dt| dt <= now)
+    {
+        return Err(AppError::NotFound("Contest not found".into()));
+    }
+    if now < contest.start_time {
         return Err(AppError::Validation("Contest has not started yet".into()));
     }
     Ok(())
+}
+
+/// Check if the contest has started, returning 404 if the contest is not active yet, or 400 if it
+/// is not running (not started yet or already ended).
+/// Admins with `contest:manage` bypass the check.
+pub fn require_contest_running(
+    auth_user: &AuthUser,
+    contest: &contest::Model,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), AppError> {
+    if auth_user.has_permission("contest:manage") {
+        return Ok(());
+    }
+    if contest.activate_time.is_none_or(|at| at > now)
+        || contest.deactivate_time.is_some_and(|dt| dt <= now)
+    {
+        return Err(AppError::NotFound("Contest not found".into()));
+    }
+    if now < contest.start_time {
+        return Err(AppError::Validation("Contest has not started yet".into()));
+    }
+    if now >= contest.end_time {
+        return Err(AppError::Validation("Contest has already ended".into()));
+    }
+    Ok(())
+}
+
+/// Check if a user is a participant of a contest.
+pub async fn is_contest_participant<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    contest_id: i32,
+    user_id: i32,
+) -> Result<bool, AppError> {
+    let exists = contest_user::Entity::find()
+        .filter(contest_user::Column::ContestId.eq(contest_id))
+        .filter(contest_user::Column::UserId.eq(user_id))
+        .one(db)
+        .await?
+        .is_some();
+    Ok(exists)
+}
+
+/// Check if the user is a participant of the contest, returning 404 if the contest is not public
+/// and the user is not a participant, or 400 if the contest is public but the user is not a
+/// participant.
+/// Admins with `contest:manage` bypass the check.
+pub async fn require_contest_participant<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    auth_user: &AuthUser,
+    contest: &contest::Model,
+) -> Result<(), AppError> {
+    if auth_user.has_permission("contest:manage") {
+        return Ok(());
+    }
+    let is_participant = is_contest_participant(db, contest.id, auth_user.user_id).await?;
+    if is_participant {
+        return Ok(());
+    }
+    if contest.is_public {
+        return Err(AppError::Validation("Not a participant".into()));
+    }
+    Err(AppError::NotFound("Contest not found".into()))
 }
 
 /// Check if a user can access a problem through any active (started) contest.
