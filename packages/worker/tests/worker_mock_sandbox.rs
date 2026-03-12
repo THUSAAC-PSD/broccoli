@@ -535,7 +535,7 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
         .await
         .expect("create blob store file cacher should succeed");
 
-    let mut handler = OperationHandler::new(
+    let handler = OperationHandler::new(
         Box::new(MockSandboxManager::new(unique_mock_base_dir())),
         Box::new(cacher),
         Box::new(NoopTaskCacheStore),

@@ -119,85 +119,6 @@ pub fn create_config_set_function(plugin_id: String, db: DatabaseConnection) -> 
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_namespace_plugin_scope_returns_raw() {
-        assert_eq!(
-            resolve_namespace("plugin", "my-plugin", "settings"),
-            "settings"
-        );
-    }
-
-    #[test]
-    fn resolve_namespace_non_plugin_scope_prefixes() {
-        assert_eq!(
-            resolve_namespace("contest", "cooldown", "cooldown"),
-            "cooldown:cooldown"
-        );
-        assert_eq!(resolve_namespace("problem", "ioi", "task"), "ioi:task");
-        assert_eq!(
-            resolve_namespace("contest_problem", "submission-limit", "limits"),
-            "submission-limit:limits"
-        );
-    }
-
-    #[test]
-    fn strip_namespace_prefix_with_colon() {
-        assert_eq!(strip_namespace_prefix("cooldown:cooldown"), "cooldown");
-        assert_eq!(strip_namespace_prefix("ioi:task"), "task");
-    }
-
-    #[test]
-    fn strip_namespace_prefix_without_colon() {
-        assert_eq!(strip_namespace_prefix("settings"), "settings");
-    }
-
-    #[test]
-    fn strip_namespace_prefix_multiple_colons() {
-        // Only splits on the first colon
-        assert_eq!(strip_namespace_prefix("a:b:c"), "b:c");
-    }
-
-    #[test]
-    fn extract_plugin_id_with_colon() {
-        assert_eq!(extract_plugin_id("cooldown:cooldown"), "cooldown");
-        assert_eq!(extract_plugin_id("ioi:task"), "ioi");
-    }
-
-    #[test]
-    fn extract_plugin_id_without_colon() {
-        assert_eq!(extract_plugin_id("settings"), "settings");
-    }
-
-    #[test]
-    fn extract_plugin_id_multiple_colons() {
-        // Only splits on the first colon
-        assert_eq!(extract_plugin_id("a:b:c"), "a");
-    }
-
-    #[test]
-    fn resolve_and_strip_roundtrip() {
-        let raw = "cooldown";
-        let plugin_id = "cooldown";
-        let composite = resolve_namespace("contest", plugin_id, raw);
-        assert_eq!(strip_namespace_prefix(&composite), raw);
-        assert_eq!(extract_plugin_id(&composite), plugin_id);
-    }
-
-    #[test]
-    fn resolve_and_strip_different_ids() {
-        let raw = "limits";
-        let plugin_id = "submission-limit";
-        let composite = resolve_namespace("problem", plugin_id, raw);
-        assert_eq!(composite, "submission-limit:limits");
-        assert_eq!(strip_namespace_prefix(&composite), raw);
-        assert_eq!(extract_plugin_id(&composite), plugin_id);
-    }
-}
-
 fn config_get_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
@@ -327,4 +248,83 @@ fn config_set_fn(
     .map_err(|e| extism::Error::msg(format!("DB error in config_set: {}", e)))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_namespace_plugin_scope_returns_raw() {
+        assert_eq!(
+            resolve_namespace("plugin", "my-plugin", "settings"),
+            "settings"
+        );
+    }
+
+    #[test]
+    fn resolve_namespace_non_plugin_scope_prefixes() {
+        assert_eq!(
+            resolve_namespace("contest", "cooldown", "cooldown"),
+            "cooldown:cooldown"
+        );
+        assert_eq!(resolve_namespace("problem", "ioi", "task"), "ioi:task");
+        assert_eq!(
+            resolve_namespace("contest_problem", "submission-limit", "limits"),
+            "submission-limit:limits"
+        );
+    }
+
+    #[test]
+    fn strip_namespace_prefix_with_colon() {
+        assert_eq!(strip_namespace_prefix("cooldown:cooldown"), "cooldown");
+        assert_eq!(strip_namespace_prefix("ioi:task"), "task");
+    }
+
+    #[test]
+    fn strip_namespace_prefix_without_colon() {
+        assert_eq!(strip_namespace_prefix("settings"), "settings");
+    }
+
+    #[test]
+    fn strip_namespace_prefix_multiple_colons() {
+        // Only splits on the first colon
+        assert_eq!(strip_namespace_prefix("a:b:c"), "b:c");
+    }
+
+    #[test]
+    fn extract_plugin_id_with_colon() {
+        assert_eq!(extract_plugin_id("cooldown:cooldown"), "cooldown");
+        assert_eq!(extract_plugin_id("ioi:task"), "ioi");
+    }
+
+    #[test]
+    fn extract_plugin_id_without_colon() {
+        assert_eq!(extract_plugin_id("settings"), "settings");
+    }
+
+    #[test]
+    fn extract_plugin_id_multiple_colons() {
+        // Only splits on the first colon
+        assert_eq!(extract_plugin_id("a:b:c"), "a");
+    }
+
+    #[test]
+    fn resolve_and_strip_roundtrip() {
+        let raw = "cooldown";
+        let plugin_id = "cooldown";
+        let composite = resolve_namespace("contest", plugin_id, raw);
+        assert_eq!(strip_namespace_prefix(&composite), raw);
+        assert_eq!(extract_plugin_id(&composite), plugin_id);
+    }
+
+    #[test]
+    fn resolve_and_strip_different_ids() {
+        let raw = "limits";
+        let plugin_id = "submission-limit";
+        let composite = resolve_namespace("problem", plugin_id, raw);
+        assert_eq!(composite, "submission-limit:limits");
+        assert_eq!(strip_namespace_prefix(&composite), raw);
+        assert_eq!(extract_plugin_id(&composite), plugin_id);
+    }
 }

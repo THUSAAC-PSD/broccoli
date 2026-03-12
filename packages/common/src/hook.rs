@@ -307,22 +307,12 @@ mod tests {
         };
         registry.add_generic_hook(Arc::new(hook)).unwrap();
 
-        assert!(
-            registry
-                .hooks
-                .get("topic_a")
-                .map_or(false, |v| !v.is_empty())
-        );
-        assert!(
-            registry
-                .hooks
-                .get("topic_b")
-                .map_or(false, |v| !v.is_empty())
-        );
+        assert!(registry.hooks.get("topic_a").is_some_and(|v| !v.is_empty()));
+        assert!(registry.hooks.get("topic_b").is_some_and(|v| !v.is_empty()));
 
         registry.remove_hooks_by_id("multi");
 
-        assert!(registry.hooks.get("topic_a").map_or(true, |v| v.is_empty()));
-        assert!(registry.hooks.get("topic_b").map_or(true, |v| v.is_empty()));
+        assert!(registry.hooks.get("topic_a").is_none_or(|v| v.is_empty()));
+        assert!(registry.hooks.get("topic_b").is_none_or(|v| v.is_empty()));
     }
 }

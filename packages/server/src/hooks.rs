@@ -343,7 +343,7 @@ async fn dispatch_hooks_inner(
                     });
                 }
                 HookScope::Resource => {
-                    if let Some(ref enabled) = enabled_plugins
+                    if let Some(enabled) = enabled_plugins
                         && let Some(&pos) = enabled.get(&entry.plugin_id)
                     {
                         list.push(DispatchEntry {
