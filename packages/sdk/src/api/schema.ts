@@ -1265,7 +1265,7 @@ export interface components {
              */
             user_id?: number | null;
             /**
-             * @description Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+             * @description Filter by verdict string. Built-in values use PascalCase (Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError). Custom verdicts must use `other:<custom>)`, e.g. `other:PartiallyAccepted`.
              * @example WrongAnswer
              */
             verdict?: string | null;
@@ -2588,10 +2588,9 @@ export interface components {
             username: string;
         };
         /**
-         * @description Execution verdict for a test case or submission.
-         * @enum {string}
+         * @description Execution verdict string for a test case or submission. Built-in values include Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, and SystemError. Plugin-defined custom verdict strings are also allowed.
          */
-        Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError";
+        Verdict: string;
         WebRouteConfig: {
             /**
              * @description Component to render for this route, which must match a key in the

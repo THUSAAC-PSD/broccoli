@@ -228,7 +228,7 @@ async fn process_judge_result(db: &DatabaseConnection, result: &JudgeResult) -> 
     let submission_update = submission::ActiveModel {
         id: Set(result.submission_id),
         status: Set(result.status),
-        verdict: Set(result.verdict),
+        verdict: Set(result.verdict.clone()),
         score: Set(result.score),
         time_used: Set(result.time_used),
         memory_used: Set(result.memory_used),
@@ -246,7 +246,7 @@ async fn process_judge_result(db: &DatabaseConnection, result: &JudgeResult) -> 
         let model = test_case_result::ActiveModel {
             submission_id: Set(result.submission_id),
             test_case_id: Set(tc_result.test_case_id),
-            verdict: Set(tc_result.verdict),
+            verdict: Set(tc_result.verdict.clone()),
             score: Set(tc_result.score),
             time_used: Set(tc_result.time_used),
             memory_used: Set(tc_result.memory_used),

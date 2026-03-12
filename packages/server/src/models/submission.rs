@@ -283,7 +283,9 @@ pub struct BulkRejudgeRequest {
     /// Filter by language.
     #[schema(example = "cpp")]
     pub language: Option<String>,
-    /// Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+    /// Filter by verdict string.
+    /// Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
+    /// Custom verdicts must use `other:<custom>`, e.g. `other:PartiallyAccepted`.
     #[schema(example = "WrongAnswer")]
     pub verdict: Option<String>,
     /// Filter by user ID.
@@ -312,6 +314,11 @@ pub fn validate_bulk_rejudge(req: &BulkRejudgeRequest) -> Result<(), AppError> {
     }
 
     if let Some(ref verdict) = req.verdict {
+        let verdict = verdict.trim();
+        if verdict.is_empty() {
+            return Err(AppError::Validation("verdict cannot be empty".into()));
+        }
+
         verdict
             .parse::<Verdict>()
             .map_err(|e| AppError::Validation(e.to_string()))?;

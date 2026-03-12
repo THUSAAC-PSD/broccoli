@@ -416,7 +416,7 @@ const DISTRIBUTION = [
 
 // --- Cell renderers ---
 
-const VERDICT_COLORS: Record<Verdict, string> = {
+const VERDICT_COLORS: Partial<Record<Verdict, string>> = {
   Accepted:
     'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
   WrongAnswer: 'bg-red-100 text-red-600 dark:bg-red-950/30 dark:text-red-400',
@@ -452,7 +452,7 @@ function ProblemCellContent({ result }: { result: ProblemResult }) {
   }
 
   const colorClass = result.verdict
-    ? VERDICT_COLORS[result.verdict]
+    ? (VERDICT_COLORS[result.verdict] ?? 'bg-muted text-muted-foreground')
     : 'bg-muted text-muted-foreground';
 
   return (
