@@ -151,7 +151,7 @@ export function ProblemFormDialog({
                 {loading
                   ? t('admin.saving')
                   : isEdit
-                    ? t('admin.edit')
+                    ? t('admin.save')
                     : t('admin.createProblem')}
               </Button>
             </DialogFooter>

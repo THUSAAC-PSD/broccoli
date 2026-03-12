@@ -2,9 +2,9 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge, Button, Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 
 import {
@@ -12,13 +12,14 @@ import {
   type ProblemFormData,
 } from '@/features/admin/components/ProblemForm';
 import { TestCaseFormDialog } from '@/features/admin/components/TestCaseFormDialog';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
-export default function ProblemEditPage() {
+interface ProblemEditFormProps {
+  problemId: number;
+}
+
+export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
   const { t } = useTranslation();
-  const { problemId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
 
@@ -132,33 +133,9 @@ export default function ProblemEditPage() {
     }
   }
 
-  // Check permission
-  if (user && !user.permissions.includes('problem:edit')) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">{t('error.unauthorized')}</h1>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-2xl px-4 py-8">
-        {/* Header */}
-        <div className="mb-6 flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate(`/problems/${problemIdNum}`)}
-            className="h-8 w-8"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-2xl font-bold">{t('admin.editProblem')}</h1>
-        </div>
-
         {loadingData ? (
           <div className="space-y-6">
             <Skeleton className="h-10 w-full" />
@@ -279,15 +256,7 @@ export default function ProblemEditPage() {
                 disabled={loading}
                 className="flex-1 sm:flex-none"
               >
-                {loading ? t('admin.saving') : t('admin.edit')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate(`/problems/${problemIdNum}`)}
-                className="flex-1 sm:flex-none"
-              >
-                {t('common.cancel')}
+                {loading ? t('admin.saving') : t('admin.save')}
               </Button>
             </div>
           </form>

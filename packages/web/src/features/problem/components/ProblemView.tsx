@@ -6,7 +6,6 @@ import { formatBytes, formatKibibytes } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Check, Code2, Copy, Edit } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
 
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
@@ -14,6 +13,8 @@ import { useAuth } from '@/features/auth/hooks/use-auth';
 import { ProblemHeader } from '@/features/problem/components/ProblemHeader';
 import { SubmissionResult } from '@/features/submission/components/SubmissionResult';
 import { useSubmission } from '@/features/submission/hooks/use-submission';
+
+import { ProblemEditForm } from './ProblemEditForm';
 
 const INLINE_SAMPLE_MAX_SIZE = 1024;
 type SampleContentMap = Record<number, { input?: string; output?: string }>;
@@ -33,13 +34,19 @@ export default function ProblemView({
 
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
   const [showCodingPanel, setShowCodingPanel] = useState(false);
+  const [showEditPage, setShowEditPage] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
   const apiClient = useApiClient();
-  const navigate = useNavigate();
+
+  const handleBackToDescription = () => {
+    setShowCodingPanel(false);
+    setShowEditPage(false);
+  };
 
   useEffect(() => {
     setShowCodingPanel(false);
+    setShowEditPage(false);
     setIsCodeFullscreen(false);
     setCopiedKey(null);
     setCopiedNotice(null);
@@ -398,7 +405,7 @@ export default function ProblemView({
 
       {/* ── Fixed action bar (never scrolls) ── */}
       <div className="flex-shrink-0 px-6 py-1.5 border-b flex items-center justify-between bg-background">
-        {!showCodingPanel ? (
+        {!showCodingPanel && !showEditPage ? (
           <>
             <span className="text-sm font-semibold text-foreground">
               {t('problem.description')}
@@ -406,7 +413,7 @@ export default function ProblemView({
             <div className="flex items-center gap-2">
               {user && user.permissions.includes('problem:edit') && (
                 <Button
-                  onClick={() => navigate(`/problems/${problemId}/edit`)}
+                  onClick={() => setShowEditPage(true)}
                   size="sm"
                   variant="default"
                   className="gap-1.5 h-8 px-4 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
@@ -431,7 +438,7 @@ export default function ProblemView({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowCodingPanel(false)}
+              onClick={() => handleBackToDescription()}
               className="gap-1.5 -ml-2 h-8 text-sm font-semibold text-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -444,11 +451,13 @@ export default function ProblemView({
       </div>
 
       {/* ── Scrollable / flexible content area ── */}
-      {!showCodingPanel ? (
+      {!showCodingPanel && !showEditPage && (
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-4xl mx-auto">{descriptionBody}</div>
         </div>
-      ) : (
+      )}
+
+      {showCodingPanel && (
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden">
           <div
             className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'col-span-2' : ''}`}
@@ -479,6 +488,8 @@ export default function ProblemView({
           )}
         </div>
       )}
+
+      {showEditPage && <ProblemEditForm problemId={problemId} />}
     </div>
   );
 }
