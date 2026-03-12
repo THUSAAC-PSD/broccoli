@@ -108,7 +108,7 @@ export const en: Record<string, string> = {
   'problem.downloadSampleFile': 'Download {file} ({size})',
   'problem.startCoding': 'Start Coding',
   'problem.backToDescription': 'Description',
-  'problem.editor': 'Edit',
+  'problem.edit': 'Edit',
 
   // Code editor
   'editor.title': 'Code',
@@ -247,6 +247,7 @@ export const en: Record<string, string> = {
   'admin.noContests': 'No contests yet. Create one to get started.',
   'admin.noProblems': 'No problems yet. Create one to get started.',
   'admin.edit': 'Edit',
+  'admin.save': 'Save',
   'admin.delete': 'Delete',
   'admin.deleteConfirm':
     'Are you sure you want to delete this item? This action cannot be undone.',
@@ -392,4 +393,7 @@ export const en: Record<string, string> = {
   'plugin.amazingButton.label': 'Amazing Button',
   'plugin.amazingButton.alert': 'Amazing!',
   'plugin.amazingButton.pageTitle': 'Amazing Page!',
+
+  // Common
+  'common.cancel': 'Cancel',
 };
