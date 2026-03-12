@@ -1338,6 +1338,8 @@ export interface components {
             id: number;
             /** @example true */
             is_public: boolean;
+            /** @example false */
+            is_registered: boolean;
             /**
              * @description Whether participants can see compile output during contest.
              * @example true

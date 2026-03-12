@@ -613,6 +613,29 @@ mod contest_retrieval {
         let res = app.get_with_token(&routes::contest(id), &user).await;
         assert_eq!(res.status, 200);
     }
+
+    #[tokio::test]
+    async fn contest_detail_reports_registration_status_for_current_user() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("user1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Public", true).await;
+
+        let before = app.get_with_token(&routes::contest(id), &user).await;
+        assert_eq!(before.status, 200);
+        assert_eq!(before.body["is_registered"], false);
+
+        app.post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+
+        let after = app.get_with_token(&routes::contest(id), &user).await;
+        assert_eq!(after.status, 200);
+        assert_eq!(after.body["is_registered"], true);
+    }
 }
 
 mod contest_update {

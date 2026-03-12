@@ -214,7 +214,15 @@ pub async fn get_contest(
 ) -> Result<Json<ContestResponse>, AppError> {
     let model = find_contest(&state.db, id).await?;
     check_contest_access(&state.db, &auth_user, &model).await?;
-    Ok(Json(model.into()))
+    let is_registered = contest_user::Entity::find_by_id((id, auth_user.user_id))
+        .one(&state.db)
+        .await?
+        .is_some();
+
+    let mut response: ContestResponse = model.into();
+    response.is_registered = is_registered;
+
+    Ok(Json(response))
 }
 
 #[utoipa::path(
