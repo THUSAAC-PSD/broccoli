@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+broccoli-server-sdk.workspace = true
 common.workspace = true
 extism.workspace = true
 matchit.workspace = true
