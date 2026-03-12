@@ -1682,7 +1682,7 @@ export interface components {
              */
             is_sample: boolean;
             /** @example sample01 */
-            label: string;
+            label?: string | null;
             /**
              * Format: int32
              * @description Display position (0-based). Auto-assigned if omitted.
