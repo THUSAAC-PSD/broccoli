@@ -39,6 +39,7 @@ export function TestCaseFormDialog({
   const queryClient = useQueryClient();
   const isEdit = !!testCaseId;
 
+  const [label, setLabel] = useState('');
   const [input, setInput] = useState('');
   const [expectedOutput, setExpectedOutput] = useState('');
   const [score, setScore] = useState(0);
@@ -58,6 +59,7 @@ export function TestCaseFormDialog({
         .then(({ data, error }) => {
           setLoadingData(false);
           if (error || !data) return;
+          setLabel(data.label ?? '');
           setInput(data.input);
           setExpectedOutput(data.expected_output);
           setScore(data.score);
@@ -65,6 +67,7 @@ export function TestCaseFormDialog({
           setDescription(data.description ?? '');
         });
     } else {
+      setLabel('');
       setInput('');
       setExpectedOutput('');
       setScore(0);
@@ -78,6 +81,7 @@ export function TestCaseFormDialog({
     setLoading(true);
 
     const body = {
+      label: label || null,
       input,
       expected_output: expectedOutput,
       score,
@@ -125,6 +129,18 @@ export function TestCaseFormDialog({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="tc-label">
+                {t('admin.testCases.field.label')}
+              </Label>
+              <Input
+                id="tc-label"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="Optional identifier"
+              />
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="tc-input">
                 {t('admin.testCases.field.input')}
