@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
+broccoli-server-sdk.workspace = true
 worker = { path = "../worker" }
 common = { workspace = true, features = ["sea-orm", "object-storage"] }
 crossbeam.workspace = true
@@ -48,8 +49,10 @@ tar.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 libc = "0.2"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
+sea-orm = { workspace = true, features = ["mock"] }
 tempfile = "3"
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["postgres"] }
