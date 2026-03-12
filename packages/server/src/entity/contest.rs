@@ -1,6 +1,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::utils::soft_delete::SoftDeletable;
+
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "contest")]
@@ -46,6 +48,14 @@ pub struct Model {
 
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
+    pub deleted_at: Option<DateTimeUtc>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl SoftDeletable for Entity {
+    type DeletedAtColumn = Column;
+    fn deleted_at() -> Self::DeletedAtColumn {
+        Column::DeletedAt
+    }
+}

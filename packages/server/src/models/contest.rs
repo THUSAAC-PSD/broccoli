@@ -245,6 +245,9 @@ pub struct ContestParticipantResponse {
     pub user_id: i32,
     #[schema(example = "alice_wonder")]
     pub username: String,
+    /// True when the user account has been soft-deleted. Front-ends should
+    /// display such users as "[Deleted User]" or similar in historical views.
+    pub is_deleted: bool,
     #[schema(example = "2025-09-30T12:00:00Z")]
     pub registered_at: DateTime<Utc>,
 }

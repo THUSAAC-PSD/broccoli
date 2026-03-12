@@ -11,13 +11,14 @@ use tokio_util::io::ReaderStream;
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::entity::{blob_object, blob_ref};
+use crate::entity::{blob_object, blob_ref, problem};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
+use crate::utils::soft_delete::SoftDeletable;
 
 pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(128 * 1024 * 1024) // 128 MB
@@ -52,7 +53,7 @@ pub async fn upload_attachment(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    crate::entity::problem::Entity::find_by_id(problem_id)
+    problem::Entity::find_active_by_id(problem_id)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;

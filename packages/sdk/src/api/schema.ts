@@ -1410,6 +1410,8 @@ export interface components {
             user_id: number;
             /** @example alice_wonder */
             username: string;
+            /** True when the user account has been soft-deleted */
+            is_deleted: boolean;
         };
         /** @description A problem associated with a contest. */
         ContestProblemResponse: {

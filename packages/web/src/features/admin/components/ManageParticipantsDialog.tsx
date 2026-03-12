@@ -41,6 +41,7 @@ type UserPreviewItem = {
 type ParticipantItem = {
   user_id: number;
   username: string;
+  is_deleted: boolean;
   registered_at: string;
 };
 
@@ -209,7 +210,15 @@ function EnrolledTab({
                   <td className="px-3 py-2 text-muted-foreground">
                     {p.user_id}
                   </td>
-                  <td className="px-3 py-2 font-medium">{p.username}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {p.is_deleted ? (
+                      <span className="text-muted-foreground italic">
+                        [Deleted User]
+                      </span>
+                    ) : (
+                      p.username
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {formatDateTime(p.registered_at, locale)}
                   </td>
