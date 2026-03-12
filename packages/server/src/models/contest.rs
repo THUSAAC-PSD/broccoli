@@ -167,6 +167,9 @@ pub struct ContestResponse {
     pub deactivate_time: Option<DateTime<Utc>>,
     #[schema(example = true)]
     pub is_public: bool,
+    /// Whether the current authenticated user is registered for this contest.
+    #[schema(example = false)]
+    pub is_registered: bool,
     /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: bool,
@@ -260,6 +263,7 @@ impl From<crate::entity::contest::Model> for ContestResponse {
             end_time: m.end_time,
             deactivate_time: m.deactivate_time,
             is_public: m.is_public,
+            is_registered: false,
             submissions_visible: m.submissions_visible,
             show_compile_output: m.show_compile_output,
             show_participants_list: m.show_participants_list,
