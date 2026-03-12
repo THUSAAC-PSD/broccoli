@@ -1,5 +1,6 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import type { Submission } from '@broccoli/web-sdk/submission';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -35,6 +36,7 @@ export function useSubmission({
   contestId,
 }: UseSubmissionOptions): UseSubmissionReturn {
   const apiClient = useApiClient();
+  const queryClient = useQueryClient();
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +128,14 @@ export function useSubmission({
         }
 
         setSubmission(data);
+        if (contestId) {
+          await queryClient.invalidateQueries({
+            queryKey: ['contest-submissions-table', String(contestId)],
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ['contest-submission-languages', contestId],
+          });
+        }
         toast.success('Code submitted successfully.');
         startPolling(data.id);
       } catch (err) {
@@ -135,7 +145,7 @@ export function useSubmission({
         setIsSubmitting(false);
       }
     },
-    [apiClient, contestId, problemId, startPolling, stopPolling],
+    [apiClient, contestId, problemId, queryClient, startPolling, stopPolling],
   );
 
   const reset = useCallback(() => {
