@@ -190,78 +190,80 @@ export default function OverviewPage() {
             )}
           </CardContent>
         </Card>
-      </div>
 
-      {/* Recent Submissions (logged-in only) */}
-      {user && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              {t('overview.recentSubmissions')}
-            </CardTitle>
-            <CardDescription>
-              {t('overview.recentSubmissionsDescription')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isSubmissionsLoading ? (
-              <ListSkeleton />
-            ) : !submissions?.length ? (
-              <p className="text-sm text-muted-foreground">
-                {t('overview.noSubmissions')}
-              </p>
-            ) : (
-              <div className="rounded-md border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left font-medium">
-                        {t('overview.problem')}
-                      </th>
-                      <th className="px-4 py-2 text-left font-medium">
-                        {t('overview.language')}
-                      </th>
-                      <th className="px-4 py-2 text-left font-medium">
-                        {t('overview.verdict')}
-                      </th>
-                      <th className="px-4 py-2 text-left font-medium">
-                        {t('overview.submitted')}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {submissions.map((s) => {
-                      const vb = getVerdictBadge(s.verdict, s.status, t);
-                      return (
-                        <tr key={s.id} className="border-b last:border-b-0">
-                          <td className="px-4 py-2">
-                            <Link
-                              to={`/problems/${s.problem_id}`}
-                              className="font-medium hover:text-primary hover:underline"
-                            >
-                              {s.problem_title}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-2">
-                            <Badge variant="outline">{s.language}</Badge>
-                          </td>
-                          <td className="px-4 py-2">
-                            <Badge variant={vb.variant}>{vb.label}</Badge>
-                          </td>
-                          <td className="px-4 py-2 text-muted-foreground">
-                            {formatRelativeDatetime(s.created_at, t)}
-                          </td>
+        {/* Recent Submissions (logged-in only) */}
+        {user && (
+          <div className="col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-4 w-4" />
+                  {t('overview.recentSubmissions')}
+                </CardTitle>
+                <CardDescription>
+                  {t('overview.recentSubmissionsDescription')}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isSubmissionsLoading ? (
+                  <ListSkeleton />
+                ) : !submissions?.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t('overview.noSubmissions')}
+                  </p>
+                ) : (
+                  <div className="rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="px-4 py-2 text-left font-medium">
+                            {t('overview.problem')}
+                          </th>
+                          <th className="px-4 py-2 text-left font-medium">
+                            {t('overview.language')}
+                          </th>
+                          <th className="px-4 py-2 text-left font-medium">
+                            {t('overview.verdict')}
+                          </th>
+                          <th className="px-4 py-2 text-left font-medium">
+                            {t('overview.submitted')}
+                          </th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+                      </thead>
+                      <tbody>
+                        {submissions.map((s) => {
+                          const vb = getVerdictBadge(s.verdict, s.status, t);
+                          return (
+                            <tr key={s.id} className="border-b last:border-b-0">
+                              <td className="px-4 py-2">
+                                <Link
+                                  to={`/problems/${s.problem_id}`}
+                                  className="font-medium hover:text-primary hover:underline"
+                                >
+                                  {s.problem_title}
+                                </Link>
+                              </td>
+                              <td className="px-4 py-2">
+                                <Badge variant="outline">{s.language}</Badge>
+                              </td>
+                              <td className="px-4 py-2">
+                                <Badge variant={vb.variant}>{vb.label}</Badge>
+                              </td>
+                              <td className="px-4 py-2 text-muted-foreground">
+                                {formatRelativeDatetime(s.created_at, t)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
     </PageLayout>
   );
 }
