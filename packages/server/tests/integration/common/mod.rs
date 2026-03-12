@@ -555,6 +555,7 @@ impl TestApp {
                 &serde_json::json!({
                     "title": title,
                     "description": "Contest description",
+                    "activate_time": "2020-01-01T00:00:00Z",
                     "start_time": "2020-01-01T00:00:00Z",
                     "end_time": "2099-01-02T00:00:00Z",
                     "is_public": is_public,

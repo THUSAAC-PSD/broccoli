@@ -41,16 +41,13 @@ pub async fn create_contest(
     AppJson(payload): AppJson<CreateContestRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:create")?;
+    validate_create_contest(&payload)?;
 
     let now = chrono::Utc::now();
-    validate_create_contest(&payload, now)?;
-
     let new_contest = contest::ActiveModel {
         title: Set(payload.title.trim().to_string()),
         description: Set(payload.description),
-        activate_time: Set(payload
-            .activate_time
-            .unwrap_or(std::cmp::min(now, payload.start_time))),
+        activate_time: Set(payload.activate_time.unwrap_or(None)),
         start_time: Set(payload.start_time),
         end_time: Set(payload.end_time),
         deactivate_time: Set(payload.deactivate_time.unwrap_or(None)),
@@ -98,7 +95,11 @@ pub async fn list_contests(
         select = select
             .filter(
                 Condition::all()
-                    .add(contest::Column::ActivateTime.lte(now))
+                    .add(
+                        contest::Column::ActivateTime
+                            .is_not_null()
+                            .and(contest::Column::ActivateTime.lte(now)),
+                    )
                     .add(
                         contest::Column::DeactivateTime
                             .is_null()
@@ -156,7 +157,7 @@ pub async fn list_contests(
         .num_items()
         .await?;
 
-    select = select.order_by(sort_column, sort_order);
+    select = select.order_by_with_nulls(sort_column, sort_order, sea_query::NullOrdering::Last);
     let total_pages = total.div_ceil(per_page);
 
     let data = select
@@ -828,7 +829,7 @@ pub async fn register_for_contest(
     let txn = state.db.begin().await?;
     let contest_model = find_contest_for_update(&txn, contest_id).await?;
 
-    if contest_model.activate_time > now
+    if contest_model.activate_time.is_none_or(|at| at > now)
         || contest_model.deactivate_time.is_some_and(|dt| dt <= now)
         || !contest_model.is_public
     {

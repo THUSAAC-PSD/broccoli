@@ -18,9 +18,9 @@ pub struct CreateContestRequest {
     #[schema(example = "Welcome to this week's programming contest.")]
     pub description: String,
     /// Time when the contest becomes visible and registration opens (must be before start_time,
-    /// default: min(now, start_time)).
+    /// default: never).
     #[schema(example = "2025-09-30T12:00:00Z")]
-    pub activate_time: Option<DateTime<Utc>>,
+    pub activate_time: Option<Option<DateTime<Utc>>>,
     /// Contest start time (must be before end_time).
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
@@ -55,9 +55,10 @@ pub struct UpdateContestRequest {
     #[schema(example = "Updated description...")]
     pub description: Option<String>,
     /// Time when the contest becomes visible and registration opens (must be before start_time,
-    /// default: min(now, start_time)).
+    /// default: never).
+    #[serde(default, deserialize_with = "double_option")]
     #[schema(example = "2025-09-30T12:00:00Z")]
-    pub activate_time: Option<DateTime<Utc>>,
+    pub activate_time: Option<Option<DateTime<Utc>>>,
     /// Contest start time (must be before end_time).
     #[schema(example = "2025-10-01T13:00:00Z")]
     pub start_time: Option<DateTime<Utc>>,
@@ -157,7 +158,7 @@ pub struct ContestResponse {
     #[schema(example = "Welcome to this week's contest.")]
     pub description: String,
     #[schema(example = "2025-09-30T12:00:00Z")]
-    pub activate_time: DateTime<Utc>,
+    pub activate_time: Option<DateTime<Utc>>,
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
     #[schema(example = "2025-10-01T17:00:00Z")]
@@ -189,7 +190,7 @@ pub struct ContestListItem {
     #[schema(example = "Weekly Contest #42")]
     pub title: String,
     #[schema(example = "2025-09-30T12:00:00Z")]
-    pub activate_time: DateTime<Utc>,
+    pub activate_time: Option<DateTime<Utc>>,
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
     #[schema(example = "2025-10-01T17:00:00Z")]
@@ -269,12 +270,14 @@ impl From<crate::entity::contest::Model> for ContestResponse {
 }
 
 pub fn validate_contest_timeline(
-    activate_time: DateTime<Utc>,
+    activate_time: Option<DateTime<Utc>>,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
     deactivate_time: Option<DateTime<Utc>>,
 ) -> Result<(), AppError> {
-    if activate_time > start_time {
+    if let Some(activate) = activate_time
+        && activate > start_time
+    {
         return Err(AppError::Validation(
             "activate_time must be before or equal to start_time".into(),
         ));
@@ -294,10 +297,7 @@ pub fn validate_contest_timeline(
     Ok(())
 }
 
-pub fn validate_create_contest(
-    req: &CreateContestRequest,
-    now: DateTime<Utc>,
-) -> Result<(), AppError> {
+pub fn validate_create_contest(req: &CreateContestRequest) -> Result<(), AppError> {
     validate_title(&req.title)?;
     if req.description.trim().is_empty() || req.description.len() > 1_000_000 {
         return Err(AppError::Validation(
@@ -305,8 +305,7 @@ pub fn validate_create_contest(
         ));
     }
     validate_contest_timeline(
-        req.activate_time
-            .unwrap_or_else(|| std::cmp::min(now, req.start_time)),
+        req.activate_time.unwrap_or(None),
         req.start_time,
         req.end_time,
         req.deactivate_time.unwrap_or(None),
