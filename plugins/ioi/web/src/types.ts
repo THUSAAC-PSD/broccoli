@@ -1,0 +1,79 @@
+export interface ContestInfoResponse {
+  scoring_mode: ScoringMode;
+  feedback_level: FeedbackLevel;
+  token_mode: TokenMode;
+}
+
+export interface SubtaskInfo {
+  name: string;
+  scoring_method: SubtaskScoringMethod;
+  max_score: number;
+  /** Only present when feedback_level is "full" */
+  test_cases?: string[];
+}
+
+export interface TaskConfigResponse {
+  scoring_mode: ScoringMode;
+  feedback_level: FeedbackLevel;
+  subtasks?: SubtaskInfo[];
+  /** Maps test case label -\> test_case_id. Only present when feedback_level is "full". */
+  label_map?: Record<string, number>;
+}
+
+export interface TokenStatusResponse {
+  mode: TokenMode;
+  available: number;
+  used: number;
+  total: number;
+  tokened_submission_ids: number[];
+}
+
+export interface UseTokenResponse {
+  remaining_tokens: number;
+  task_score: number;
+}
+
+export interface SubtaskScoreEntry {
+  name: string;
+  scoring_method: SubtaskScoringMethod;
+  score: number;
+  max_score: number;
+}
+
+export interface SubtaskScoresResponse {
+  subtasks: SubtaskScoreEntry[] | null;
+}
+
+export interface ScoreboardProblemScore {
+  problem_id: number;
+  score: number;
+}
+
+export interface ScoreboardEntry {
+  rank: number;
+  user_id: number;
+  username: string;
+  total_score: number;
+  problems?: ScoreboardProblemScore[];
+}
+
+export interface ScoreboardResponse {
+  phase: 'before' | 'during' | 'after';
+  scoring_mode: ScoringMode;
+  feedback_level: FeedbackLevel;
+  max_scores: Record<string, number>;
+  rankings: ScoreboardEntry[];
+}
+
+export interface SubmissionStatusResponse {
+  last_submission_verdict: string | null;
+  last_submission_score: number | null;
+}
+
+export type ScoringMode =
+  | 'max_submission'
+  | 'sum_best_subtask'
+  | 'best_tokened_or_last';
+export type FeedbackLevel = 'full' | 'subtask_scores' | 'total_only' | 'none';
+export type TokenMode = 'none' | 'fixed_budget' | 'regenerating';
+export type SubtaskScoringMethod = 'group_min' | 'sum' | 'group_mul';

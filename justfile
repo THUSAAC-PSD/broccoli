@@ -62,11 +62,17 @@ format-check:
 build-plugins:
     cargo run -p broccoli-cli -- plugin build plugins/standard-checkers
     cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator
+    cargo run -p broccoli-cli -- plugin build plugins/ioi
+    cargo run -p broccoli-cli -- plugin build plugins/cooldown
+    cargo run -p broccoli-cli -- plugin build plugins/submission-limit
 
 # Build all WASM plugins (release)
 build-plugins-release:
     cargo run -p broccoli-cli -- plugin build plugins/standard-checkers --release
     cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator --release
+    cargo run -p broccoli-cli -- plugin build plugins/ioi --release
+    cargo run -p broccoli-cli -- plugin build plugins/cooldown --release
+    cargo run -p broccoli-cli -- plugin build plugins/submission-limit --release
 
 # Build a single WASM plugin (e.g., just build-plugin plugins/standard-checkers)
 build-plugin path:

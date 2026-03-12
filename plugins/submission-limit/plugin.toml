@@ -1,0 +1,64 @@
+name = "submission-limit"
+version = "0.1.0"
+description = "Submission limit — enforces a maximum number of submissions per task"
+
+[server]
+entry = "submission_limit_plugin.wasm"
+permissions = [
+    "logger",
+    "sql",
+    "config:read",
+]
+
+[[server.hooks]]
+topic = "before_submission"
+function = "check_limit"
+scope = "resource"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
+handler = "get_limit_status"
+
+[translations]
+en = "i18n/en.toml"
+
+# ─── Web / Frontend ─────────────────────────────────────────────────────────
+
+[web]
+root = "frontend/dist"
+entry = "index.js"
+
+[web.components]
+LimitConfigInfo = "LimitConfigInfo"
+LimitRejection = "LimitRejection"
+SubmissionLimitStatus = "SubmissionLimitStatus"
+
+[[web.slots]]
+name = "config.form.submission-limit.limits"
+position = "before"
+component = "LimitConfigInfo"
+
+[[web.slots]]
+name = "submission-result.rejection"
+position = "wrap"
+component = "LimitRejection"
+
+[[web.slots]]
+name = "problem-detail.sidebar"
+position = "prepend"
+component = "SubmissionLimitStatus"
+
+# ─── Config: submission limit (cascading: contest_problem > contest > problem) ─
+
+[config.limits]
+description = "Submission limit settings"
+scopes = ["problem", "contest", "contest_problem"]
+
+[config.limits.properties.max_submissions]
+type = "integer"
+title = "Maximum Submissions"
+description = "Maximum submissions per task. Set to 0 for unlimited."
+default = 50
+min = 0
+max = 10000

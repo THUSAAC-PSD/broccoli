@@ -10,7 +10,6 @@ members = [
 exclude = [
   "examples",
   "plugins",
-  "packages/plugins/ioi-contest",
   "packages/plugins/icpc-contest",
   "packages/plugins/standard-evaluators",
   "packages/plugins/standard-checkers",

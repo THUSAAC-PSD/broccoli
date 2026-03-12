@@ -1,5 +1,4 @@
 /**
- * @broccoli/sdk
  * Core SDK exports
  */
 
@@ -29,6 +28,8 @@ export type SubmissionResponse = components['schemas']['SubmissionResponse'];
 export type JudgeResultResponse = components['schemas']['JudgeResultResponse'];
 export type TestCaseResultResponse =
   components['schemas']['TestCaseResultResponse'];
+
+export type SubmissionFileDto = components['schemas']['SubmissionFileDto'];
 
 export type TestCaseListItem = components['schemas']['TestCaseListItem'];
 export type TestCaseResponse = components['schemas']['TestCaseResponse'];

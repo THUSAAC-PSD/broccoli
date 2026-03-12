@@ -1,0 +1,210 @@
+/**
+ * Displays config inheritance info above the config form fields.
+ */
+import { useTranslation } from '@broccoli/sdk/i18n';
+import { useEffect, useState } from 'react';
+
+type ConfigScope =
+  | { scope: 'plugin'; pluginId: string }
+  | { scope: 'contest'; contestId: number }
+  | { scope: 'problem'; problemId: number }
+  | { scope: 'contest_problem'; contestId: number; problemId: number };
+
+interface JsonSchema {
+  properties?: Record<string, { default?: unknown }>;
+}
+
+interface Props {
+  scope?: ConfigScope;
+  pluginId?: string;
+  namespace?: string;
+  schema?: JsonSchema;
+}
+
+interface ParentValues {
+  contest: number | null;
+  problem: number | null;
+}
+
+interface Effective {
+  value: number;
+  source: string;
+}
+
+function formatCooldown(
+  v: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  return v === 0
+    ? t('cooldown.disabled')
+    : t('cooldown.secondsValue', { seconds: v });
+}
+
+/** Resolve the effective inherited value. Contest \> Problem. */
+function resolveEffective(
+  values: ParentValues,
+  t: (key: string) => string,
+): Effective | null {
+  if (values.contest !== null)
+    return { value: values.contest, source: t('cooldown.contest') };
+  if (values.problem !== null)
+    return { value: values.problem, source: t('cooldown.problem') };
+  return null;
+}
+
+const BACKEND_ORIGIN = new URL(import.meta.url).origin;
+const AUTH_TOKEN_KEY = 'broccoli_token';
+
+function authHeaders(): HeadersInit {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function fetchConfig(
+  path: string,
+): Promise<Record<string, string | number> | null> {
+  try {
+    const res = await fetch(`${BACKEND_ORIGIN}/api/v1${path}`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.config ?? null) as Record<string, string | number> | null;
+  } catch {
+    return null;
+  }
+}
+
+export function CooldownConfigInfo({
+  scope,
+  pluginId,
+  namespace,
+  schema,
+}: Props) {
+  const { t } = useTranslation();
+  const [parentValues, setParentValues] = useState<ParentValues | null>(null);
+
+  const isContestProblem = scope?.scope === 'contest_problem';
+  const isContest = scope?.scope === 'contest';
+
+  useEffect(() => {
+    if (!pluginId || !namespace || !isContestProblem) return;
+
+    let cancelled = false;
+    const s = scope as { contestId: number; problemId: number };
+    Promise.all([
+      fetchConfig(`/contests/${s.contestId}/config/${pluginId}/${namespace}`),
+      fetchConfig(`/problems/${s.problemId}/config/${pluginId}/${namespace}`),
+    ]).then(([contestCfg, problemCfg]) => {
+      if (cancelled) return;
+      setParentValues({
+        contest: extractCooldown(contestCfg),
+        problem: extractCooldown(problemCfg),
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, pluginId, namespace, isContestProblem]);
+
+  const schemaDefault = schema?.properties?.cooldown_seconds?.default;
+  const defaultLabel =
+    typeof schemaDefault === 'number' ? formatCooldown(schemaDefault, t) : null;
+
+  if (!isContestProblem && !isContest) return null;
+
+  // Contest scope: simple hint
+  if (isContest) {
+    return (
+      <p
+        style={{
+          margin: 0,
+          fontSize: '12px',
+          color: 'var(--muted-foreground, #6b7280)',
+        }}
+      >
+        {t('cooldown.contestScopeHint')}
+      </p>
+    );
+  }
+
+  // Contest-problem scope
+  const effective = parentValues ? resolveEffective(parentValues, t) : null;
+
+  // Rows: Contest then Problem (explicit priority order)
+  const rows: { label: string; value: number | null }[] = parentValues
+    ? [
+        { label: t('cooldown.contest'), value: parentValues.contest },
+        { label: t('cooldown.problem'), value: parentValues.problem },
+      ]
+    : [];
+
+  return (
+    <div
+      style={{
+        fontSize: '12px',
+        color: 'var(--muted-foreground, #6b7280)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: rows.length > 0 ? '6px' : '0',
+      }}
+    >
+      <p style={{ margin: 0 }}>
+        {effective
+          ? t('cooldown.inheritInfo', {
+              value: formatCooldown(effective.value, t),
+              source: effective.source,
+            })
+          : t('cooldown.overrideInfo')}
+      </p>
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          {rows.map((row) => (
+            <div
+              key={row.label}
+              style={{ display: 'flex', gap: '6px', alignItems: 'baseline' }}
+            >
+              <span style={{ fontWeight: 500, minWidth: '52px' }}>
+                {row.label}:
+              </span>
+              {row.value === null ? (
+                <span style={{ fontStyle: 'italic', fontSize: '11px' }}>
+                  {defaultLabel
+                    ? t('cooldown.notSetWithDefault', { default: defaultLabel })
+                    : t('cooldown.notSet')}
+                </span>
+              ) : (
+                <code
+                  style={{
+                    background: 'var(--muted, #f3f4f6)',
+                    padding: '0 5px',
+                    borderRadius: '3px',
+                    fontSize: '11px',
+                  }}
+                >
+                  {formatCooldown(row.value, t)}
+                </code>
+              )}
+              {row.label === effective?.source && (
+                <span
+                  style={{ fontSize: '11px', color: 'var(--primary, #2563eb)' }}
+                >
+                  ← {t('cooldown.active')}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function extractCooldown(
+  config: Record<string, string | number> | null,
+): number | null {
+  if (!config) return null;
+  const v = config.cooldown_seconds;
+  return typeof v === 'number' ? v : null;
+}

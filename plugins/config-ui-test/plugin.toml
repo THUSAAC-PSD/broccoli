@@ -1,8 +1,6 @@
 name = "config-ui-test"
 version = "0.1.0"
-description = "Stress-test plugin for config UI — exercises every schema feature"
-
-# No [server] or [worker] — config-schema + frontend-only plugin.
+description = "Stress-test plugin for config UI"
 
 [web]
 root = "frontend/dist"
@@ -31,16 +29,12 @@ name = "config.field.config-ui-test.stress-test.scoring"
 position = "wrap"
 component = "CollapsibleWrapper"
 
-# ─── Namespace 1: stress-test ───────────────────────────────────────────────────
-# Tests: deep nesting, all field types, arrays of objects, arrays of arrays,
-# numeric extensions, string constraints, enums, defaults.
-
+# Namespace 1: stress-test
 [config.stress-test]
 description = "Kitchen-sink config schema — every feature the UI supports"
 scopes = ["plugin", "contest", "problem", "contest_problem"]
 
-# ── Top-level scalars ──
-
+# Top-level scalars
 [config.stress-test.properties.enabled]
 type = "boolean"
 title = "Enabled"
@@ -81,8 +75,7 @@ step = 0.5
 precision = 1
 unit = "s"
 
-# ── Nested object (depth 1) ──
-
+# Nested object (depth 1)
 [config.stress-test.properties.scoring]
 type = "object"
 title = "Scoring"
@@ -113,8 +106,7 @@ type = "boolean"
 title = "Allow Partial Scoring"
 default = true
 
-# ── Nested object (depth 2) — scoring.weights ──
-
+# Nested object (depth 2)
 [config.stress-test.properties.scoring.properties.weights]
 type = "object"
 title = "Score Weights"
@@ -147,8 +139,7 @@ max = 1.0
 step = 0.05
 precision = 2
 
-# ── Nested object (depth 3) — scoring.weights.bonuses ──
-
+# Nested object (depth 3)
 [config.stress-test.properties.scoring.properties.weights.properties.bonuses]
 type = "object"
 title = "Bonus Multipliers"
@@ -172,8 +163,7 @@ max = 10.0
 step = 0.5
 precision = 1
 
-# ── Array of scalars (strings) ──
-
+# Array of strings
 [config.stress-test.properties.tags]
 type = "array"
 title = "Tags"
@@ -185,8 +175,7 @@ type = "string"
 min_length = 1
 max_length = 30
 
-# ── Array of scalars (numbers) ──
-
+# Array of numbers
 [config.stress-test.properties.thresholds]
 type = "array"
 title = "Score Thresholds"
@@ -198,8 +187,7 @@ type = "integer"
 min = 0
 max = 100
 
-# ── Array of objects ──
-
+# Array of objects
 [config.stress-test.properties.test_phases]
 type = "array"
 title = "Test Phases"
@@ -239,8 +227,7 @@ title = "Strategy"
 enum = ["sequential", "parallel", "random"]
 default = "sequential"
 
-# ── Array of arrays (tests the I3 fix!) ──
-
+# Array of arrays
 [config.stress-test.properties.matrix]
 type = "array"
 title = "Score Matrix"
@@ -255,8 +242,7 @@ type = "number"
 min = 0.0
 max = 100.0
 
-# ── Resource limits (depth 1 object, to test grid alignment) ──
-
+# Depth 1 object
 [config.stress-test.properties.resource_limits]
 type = "object"
 title = "Resource Limits"
@@ -297,9 +283,7 @@ max = 1048576
 step = 1024.0
 unit = "KB"
 
-# ─── Namespace 2: appearance ────────────────────────────────────────────────────
-# Tests: multiple namespaces, tab UI
-
+# Namespace 2: appearance
 [config.appearance]
 description = "Visual appearance settings (tests multi-namespace tab UI)"
 scopes = ["plugin", "contest"]

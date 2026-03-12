@@ -3573,6 +3573,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "broccoli-server-sdk",
  "common",
  "extism",
  "matchit 0.9.1",
@@ -4913,7 +4914,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
+ "async-trait",
  "axum",
+ "broccoli-server-sdk",
  "chrono",
  "common",
  "config",

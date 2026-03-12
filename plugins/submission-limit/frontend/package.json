@@ -1,0 +1,27 @@
+{
+  "name": "@broccoli/plugin-submission-limit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "build": "tsup src/index.tsx --format esm --dts --external react --external @broccoli/sdk/i18n",
+    "dev": "tsup src/index.tsx --format esm --dts --external react --external @broccoli/sdk/i18n --watch"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@broccoli/sdk": "file:../../../packages/sdk",
+    "@types/react": "^19.1.16",
+    "tsup": "^8.5.0",
+    "typescript": "~5.9.3"
+  }
+}

@@ -67,11 +67,11 @@ export function I18nProvider({
   });
 
   const t = useCallback(
-    (key: string, params?: Record<string, string>) => {
+    (key: string, params?: Record<string, string | number>) => {
       let value = pluginTranslations[key] ?? coreI18n[locale]?.[key] ?? key;
       if (params) {
         for (const [param, replacement] of Object.entries(params)) {
-          value = value.replace(`{{${param}}}`, replacement);
+          value = value.replace(`{{${param}}}`, String(replacement));
         }
       }
       return value;

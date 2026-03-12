@@ -1,0 +1,1479 @@
+import type { SubmissionResponse, TestCaseResultResponse } from '@broccoli/sdk';
+import { useTranslation } from '@broccoli/sdk/i18n';
+import Editor from '@monaco-editor/react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+import { useIoiApi } from './hooks/useIoiApi';
+import { useIsIoiContest } from './hooks/useIsIoiContest';
+import type {
+  SubtaskInfo,
+  SubtaskScoreEntry,
+  SubtaskScoresResponse,
+  TaskConfigResponse,
+} from './types';
+
+interface IoiSubmissionResultProps {
+  submission?: SubmissionResponse | null;
+  testCases?: TestCaseResultResponse[];
+}
+
+const MONO: React.CSSProperties = {
+  fontVariantNumeric: 'tabular-nums',
+  fontFamily:
+    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+};
+
+const LANG_DISPLAY: Record<string, { name: string; color: string }> = {
+  cpp: { name: 'C++', color: '#00599c' },
+  c: { name: 'C', color: '#555555' },
+  python: { name: 'Python', color: '#3572a5' },
+  java: { name: 'Java', color: '#b07219' },
+  rust: { name: 'Rust', color: '#dea584' },
+  go: { name: 'Go', color: '#00add8' },
+  javascript: { name: 'JS', color: '#f1e05a' },
+  typescript: { name: 'TS', color: '#3178c6' },
+};
+
+const METHOD_META: Record<string, { abbrKey: string; color: string }> = {
+  group_min: { abbrKey: 'ioi.submission.method.groupMin', color: '#ef4444' },
+  sum: { abbrKey: 'ioi.submission.method.sum', color: '#10b981' },
+  group_mul: { abbrKey: 'ioi.submission.method.groupMul', color: '#f59e0b' },
+};
+
+const VERDICT_META: Record<string, { color: string; bg: string }> = {
+  Accepted: { color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+  WrongAnswer: { color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+  TimeLimitExceeded: { color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+  MemoryLimitExceeded: { color: '#f97316', bg: 'rgba(249,115,22,0.1)' },
+  RuntimeError: { color: '#a855f7', bg: 'rgba(168,85,247,0.1)' },
+  SystemError: { color: '#6b7280', bg: 'rgba(107,114,128,0.1)' },
+  Skipped: { color: '#9ca3af', bg: 'rgba(156,163,175,0.08)' },
+};
+
+/** Inline SVG icons for each verdict */
+function VerdictIcon({
+  verdict,
+  size = 14,
+}: {
+  verdict: string;
+  size?: number;
+}) {
+  const s = `${size}`;
+  const sw = '1.8';
+  const meta = VERDICT_META[verdict];
+  const c = meta?.color ?? '#6b7280';
+
+  switch (verdict) {
+    // Checkmark in circle
+    case 'Accepted':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
+          <path
+            d="M5 8.5l2 2 4-4.5"
+            stroke={c}
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    // X in circle
+    case 'WrongAnswer':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
+          <path
+            d="M5.5 5.5l5 5M10.5 5.5l-5 5"
+            stroke={c}
+            strokeWidth={sw}
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    // Clock
+    case 'TimeLimitExceeded':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
+          <path
+            d="M8 4.5v4l2.5 1.5"
+            stroke={c}
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    // Memory chip / stack bars
+    case 'MemoryLimitExceeded':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <rect
+            x="3"
+            y="3"
+            width="10"
+            height="10"
+            rx="1.5"
+            stroke={c}
+            strokeWidth="1.5"
+          />
+          <path
+            d="M6 6v4M8 7.5v2.5M10 5v5"
+            stroke={c}
+            strokeWidth={sw}
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    // Lightning bolt
+    case 'RuntimeError':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <path
+            d="M9 2L4 9h4l-1 5 5-7H8l1-5z"
+            stroke={c}
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+            fill={`${c}22`}
+          />
+        </svg>
+      );
+    // Warning triangle
+    case 'SystemError':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <path
+            d="M8 2.5L14.5 13H1.5L8 2.5z"
+            stroke={c}
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+          <path d="M8 7v3" stroke={c} strokeWidth={sw} strokeLinecap="round" />
+          <circle cx="8" cy="11.5" r="0.7" fill={c} />
+        </svg>
+      );
+    // Dash / skip
+    case 'Skipped':
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <circle
+            cx="8"
+            cy="8"
+            r="7"
+            stroke={c}
+            strokeWidth="1.5"
+            strokeDasharray="3 2"
+          />
+          <path d="M5 8h6" stroke={c} strokeWidth={sw} strokeLinecap="round" />
+        </svg>
+      );
+    // Unknown
+    default:
+      return (
+        <svg
+          width={s}
+          height={s}
+          viewBox="0 0 16 16"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
+          <text
+            x="8"
+            y="11"
+            textAnchor="middle"
+            fill={c}
+            fontSize="9"
+            fontWeight="700"
+          >
+            ?
+          </text>
+        </svg>
+      );
+  }
+}
+
+function scoreColor(score: number, maxScore: number): string {
+  if (maxScore <= 0) return '#6b7280';
+  const frac = score / maxScore;
+  if (frac >= 1) return '#10b981';
+  if (frac > 0) return '#f59e0b';
+  return '#6b7280';
+}
+
+function formatMs(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`;
+}
+
+function formatKb(kb: number): string {
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+}
+
+function ScoreRing({
+  score,
+  max,
+  size = 36,
+}: {
+  score: number;
+  max: number;
+  size?: number;
+}) {
+  const r = (size - 6) / 2;
+  const c = 2 * Math.PI * r;
+  const frac = max > 0 ? Math.min(score / max, 1) : 0;
+  const color = scoreColor(score, max);
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ flexShrink: 0 }}
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="var(--border, rgba(0,0,0,0.08))"
+        strokeWidth="3"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth="3"
+        strokeDasharray={`${frac * c} ${c}`}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        style={{ transition: 'stroke-dasharray 0.5s ease' }}
+      />
+    </svg>
+  );
+}
+
+const MONACO_LANG: Record<string, string> = {
+  cpp: 'cpp',
+  c: 'c',
+  python: 'python',
+  java: 'java',
+  rust: 'rust',
+  go: 'go',
+  javascript: 'javascript',
+  typescript: 'typescript',
+};
+
+function CodeViewer({
+  files,
+  language,
+}: {
+  files: SubmissionResponse['files'];
+  language?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const file = files[0];
+  if (!file) return null;
+
+  const lineCount = file.content.split('\n').length;
+  const editorHeight = Math.min(Math.max(lineCount * 19, 80), 400);
+  const lang = language
+    ? (LANG_DISPLAY[language] ?? { name: language, color: '#6b7280' })
+    : null;
+  const monacoLang = language
+    ? (MONACO_LANG[language] ?? language)
+    : 'plaintext';
+
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid var(--border, rgba(0,0,0,0.1))',
+      }}
+    >
+      {/* Header bar */}
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          padding: '8px 12px',
+          border: 'none',
+          background: '#1e1e2e',
+          cursor: 'pointer',
+          gap: 8,
+        }}
+      >
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+        >
+          {/* File icon */}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            style={{ flexShrink: 0, opacity: 0.5 }}
+          >
+            <path
+              d="M3 1h5l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V2a1 1 0 011-1z"
+              fill="none"
+              stroke="#cdd6f4"
+              strokeWidth="1.2"
+            />
+            <path d="M8 1v3h3" fill="none" stroke="#cdd6f4" strokeWidth="1.2" />
+          </svg>
+          <span
+            style={{
+              ...MONO,
+              fontSize: 12,
+              color: '#cdd6f4',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {file.filename}
+          </span>
+          {lang && (
+            <span
+              style={{
+                padding: '1px 6px',
+                borderRadius: 4,
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.03em',
+                background: `${lang.color}22`,
+                color: lang.color,
+                border: `1px solid ${lang.color}44`,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {lang.name}
+            </span>
+          )}
+        </div>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          style={{
+            flexShrink: 0,
+            transition: 'transform 0.2s ease',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}
+        >
+          <path
+            d="M4 6l4 4 4-4"
+            fill="none"
+            stroke="#6c7086"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {/* Collapsible body using grid-template-rows trick */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: open ? '1fr' : '0fr',
+          transition: 'grid-template-rows 0.25s ease',
+        }}
+      >
+        <div style={{ overflow: 'hidden' }}>
+          <div style={{ height: editorHeight }}>
+            {open && (
+              <Editor
+                height="100%"
+                language={monacoLang}
+                value={file.content}
+                theme="vs-dark"
+                options={{
+                  readOnly: true,
+                  domReadOnly: true,
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  renderLineHighlight: 'none',
+                  overviewRulerLanes: 0,
+                  hideCursorInOverviewRuler: true,
+                  overviewRulerBorder: false,
+                  scrollbar: { vertical: 'auto', horizontal: 'auto' },
+                  contextmenu: false,
+                  selectionHighlight: false,
+                  occurrencesHighlight: 'off',
+                  folding: false,
+                  lineDecorationsWidth: 0,
+                  padding: { top: 8, bottom: 8 },
+                }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Compile Error Display ──
+
+function CompileOutput({ output }: { output: string }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid rgba(239, 68, 68, 0.25)',
+        borderLeft: '3px solid #ef4444',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 12px',
+          background: '#1e1e2e',
+          borderBottom: '1px solid #313244',
+        }}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          style={{ flexShrink: 0 }}
+        >
+          <circle
+            cx="7"
+            cy="7"
+            r="6"
+            fill="none"
+            stroke="#ef4444"
+            strokeWidth="1.2"
+          />
+          <line
+            x1="7"
+            y1="4"
+            x2="7"
+            y2="8"
+            stroke="#ef4444"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <circle cx="7" cy="10" r="0.8" fill="#ef4444" />
+        </svg>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#f38ba8' }}>
+          {t('ioi.submission.compilationError')}
+        </span>
+      </div>
+      <div
+        style={{
+          background: '#1e1e2e',
+          padding: 12,
+          maxHeight: 300,
+          overflowY: 'auto',
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        <pre
+          style={{
+            ...MONO,
+            fontSize: 12,
+            lineHeight: '18px',
+            color: '#f38ba8',
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {output}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function RejectionBanner() {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '10px 14px',
+        borderRadius: 8,
+        background: 'rgba(217, 119, 6, 0.06)',
+        border: '1px solid rgba(217, 119, 6, 0.2)',
+        borderLeft: '3px solid #d97706',
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" style={{ flexShrink: 0 }}>
+        <path
+          d="M9 2L16 15H2L9 2z"
+          fill="none"
+          stroke="#d97706"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+        <line
+          x1="9"
+          y1="7"
+          x2="9"
+          y2="11"
+          stroke="#d97706"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+        <circle cx="9" cy="13" r="0.7" fill="#d97706" />
+      </svg>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>
+          {t('ioi.submission.rejected.title')}
+        </div>
+        <div style={{ fontSize: 12, color: '#a16207', marginTop: 1 }}>
+          {t('ioi.submission.rejected.reason')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function tcHasDetails(tc: TestCaseResultResponse): boolean {
+  return !!(
+    tc.checker_output ||
+    tc.stdout ||
+    tc.stderr ||
+    tc.input ||
+    tc.expected_output
+  );
+}
+
+function DetailBlock({ label, content }: { label: string; content: string }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          color: 'var(--muted-foreground, #94a3b8)',
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <pre
+        style={{
+          ...MONO,
+          fontSize: 12,
+          lineHeight: '18px',
+          color: 'var(--foreground, #1e293b)',
+          margin: 0,
+          padding: '8px 10px',
+          borderRadius: 6,
+          background: 'var(--muted, rgba(0,0,0,0.03))',
+          border: '1px solid var(--border, rgba(0,0,0,0.06))',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          maxHeight: 200,
+          overflowY: 'auto',
+        }}
+      >
+        {content}
+      </pre>
+    </div>
+  );
+}
+
+function TestCaseDetailPanel({
+  tc,
+  index,
+}: {
+  tc: TestCaseResultResponse;
+  index: number;
+}) {
+  const vm = VERDICT_META[tc.verdict] ?? {
+    color: '#6b7280',
+    bg: 'rgba(0,0,0,0.04)',
+  };
+  const { t } = useTranslation();
+
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        borderRadius: 6,
+        background: vm.bg,
+        border: `1px solid ${vm.color}22`,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: 8,
+          paddingBottom: 8,
+          borderBottom: '1px solid var(--border, rgba(0,0,0,0.06))',
+        }}
+      >
+        <VerdictIcon verdict={tc.verdict} size={16} />
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: 'var(--foreground, #1e293b)',
+          }}
+        >
+          {t('ioi.submission.testCase', { index: index + 1 })}
+        </span>
+        {tc.score != null && (
+          <span
+            style={{
+              ...MONO,
+              fontSize: 11,
+              fontWeight: 600,
+              color: tc.score > 0 ? '#10b981' : '#6b7280',
+              marginLeft: 4,
+            }}
+          >
+            {t('ioi.submission.score', { score: tc.score })}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {tc.time_used != null && (
+          <span
+            style={{
+              ...MONO,
+              color: 'var(--muted-foreground, #94a3b8)',
+              fontSize: 11,
+            }}
+          >
+            {formatMs(tc.time_used)}
+          </span>
+        )}
+        {tc.memory_used != null && (
+          <span
+            style={{
+              ...MONO,
+              color: 'var(--muted-foreground, #94a3b8)',
+              fontSize: 11,
+            }}
+          >
+            {formatKb(tc.memory_used)}
+          </span>
+        )}
+      </div>
+      {tc.checker_output && (
+        <DetailBlock
+          label={t('ioi.submission.detail.checkerOutput')}
+          content={tc.checker_output}
+        />
+      )}
+      {tc.stdout && (
+        <DetailBlock
+          label={t('ioi.submission.detail.stdout')}
+          content={tc.stdout}
+        />
+      )}
+      {tc.stderr && (
+        <DetailBlock
+          label={t('ioi.submission.detail.stderr')}
+          content={tc.stderr}
+        />
+      )}
+      {tc.input && (
+        <DetailBlock
+          label={t('ioi.submission.detail.input')}
+          content={tc.input}
+        />
+      )}
+      {tc.expected_output && (
+        <DetailBlock
+          label={t('ioi.submission.detail.expectedOutput')}
+          content={tc.expected_output}
+        />
+      )}
+    </div>
+  );
+}
+
+function SubtaskCard({
+  subtask,
+  score,
+  testCases,
+  feedbackLevel,
+  index,
+}: {
+  subtask: SubtaskInfo;
+  score: number;
+  testCases: TestCaseResultResponse[];
+  feedbackLevel: string;
+  index: number;
+}) {
+  const [listExpanded, setListExpanded] = useState(false);
+  const [selectedTcIndex, setSelectedTcIndex] = useState<number | null>(null);
+  const maxScore = subtask.max_score;
+  const frac = maxScore > 0 ? score / maxScore : 0;
+  const color = scoreColor(score, maxScore);
+  const { t } = useTranslation();
+  const methodRaw = METHOD_META[subtask.scoring_method] ?? {
+    abbrKey: '?',
+    color: '#6b7280',
+  };
+  const method = {
+    abbr: methodRaw.abbrKey.startsWith('ioi.')
+      ? t(methodRaw.abbrKey)
+      : methodRaw.abbrKey,
+    color: methodRaw.color,
+  };
+
+  const INITIAL_VISIBLE = 6;
+  const showExpand = testCases.length > INITIAL_VISIBLE;
+  const visibleTCs = listExpanded
+    ? testCases
+    : testCases.slice(0, INITIAL_VISIBLE);
+  const selectedTc =
+    selectedTcIndex != null ? testCases[selectedTcIndex] : null;
+
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid var(--border, rgba(0,0,0,0.08))',
+        borderLeft: `3px solid ${color}`,
+        background: 'var(--card, #fff)',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '10px 14px',
+          gap: 8,
+        }}
+      >
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+        >
+          <ScoreRing score={score} max={maxScore} size={28} />
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--foreground, #1e293b)',
+              }}
+            >
+              {subtask.name ||
+                t('ioi.submission.subtaskFallback', { index: index + 1 })}
+            </div>
+          </div>
+          <span
+            style={{
+              ...MONO,
+              padding: '1px 5px',
+              borderRadius: 4,
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              background: `${method.color}14`,
+              color: method.color,
+            }}
+          >
+            {method.abbr}
+          </span>
+        </div>
+        <span
+          style={{
+            ...MONO,
+            fontSize: 14,
+            fontWeight: 700,
+            color,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {score.toFixed(score === Math.floor(score) ? 0 : 2)}
+          <span
+            style={{
+              fontWeight: 400,
+              fontSize: 12,
+              color: 'var(--muted-foreground, #94a3b8)',
+            }}
+          >
+            /{maxScore.toFixed(maxScore === Math.floor(maxScore) ? 0 : 2)}
+          </span>
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div
+        style={{
+          height: 3,
+          background: 'var(--muted, rgba(0,0,0,0.04))',
+        }}
+      >
+        <div
+          style={{
+            height: '100%',
+            width: `${Math.min(frac * 100, 100)}%`,
+            background: `linear-gradient(90deg, ${color}cc, ${color})`,
+            borderRadius: '0 2px 2px 0',
+            transition: 'width 0.4s ease',
+          }}
+        />
+      </div>
+
+      {/* Test cases (full feedback only) */}
+      {feedbackLevel === 'full' && testCases.length > 0 && (
+        <div style={{ padding: '8px 10px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+              gap: 3,
+            }}
+          >
+            {visibleTCs.map((tc, i) => {
+              const vm = VERDICT_META[tc.verdict] ?? {
+                color: '#6b7280',
+                bg: 'rgba(0,0,0,0.04)',
+              };
+              const clickable = tcHasDetails(tc);
+              const isSelected = selectedTcIndex === i;
+              const tcScore = tc.score ?? 0;
+              const tcScoreColor =
+                tc.verdict === 'Accepted'
+                  ? '#10b981'
+                  : tcScore > 0
+                    ? '#f59e0b'
+                    : '#6b7280';
+              return (
+                <div
+                  key={tc.id}
+                  role={clickable ? 'button' : undefined}
+                  tabIndex={clickable ? 0 : undefined}
+                  onClick={
+                    clickable
+                      ? () => setSelectedTcIndex(isSelected ? null : i)
+                      : undefined
+                  }
+                  onKeyDown={
+                    clickable
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedTcIndex(isSelected ? null : i);
+                          }
+                        }
+                      : undefined
+                  }
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    background: isSelected ? `${vm.color}20` : vm.bg,
+                    transition: 'all 0.15s ease',
+                    cursor: clickable ? 'pointer' : 'default',
+                    outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
+                    borderBottom: clickable
+                      ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
+                      : 'none',
+                  }}
+                  onMouseEnter={
+                    clickable
+                      ? (e) => {
+                          (e.currentTarget as HTMLElement).style.background =
+                            `${vm.color}20`;
+                        }
+                      : undefined
+                  }
+                  onMouseLeave={
+                    clickable
+                      ? (e) => {
+                          (e.currentTarget as HTMLElement).style.background =
+                            isSelected ? `${vm.color}20` : vm.bg;
+                        }
+                      : undefined
+                  }
+                >
+                  <VerdictIcon verdict={tc.verdict} size={14} />
+                  <span
+                    style={{
+                      color: 'var(--muted-foreground, #64748b)',
+                      fontSize: 11,
+                    }}
+                  >
+                    #{i + 1}
+                  </span>
+                  {tc.score != null && (
+                    <span
+                      style={{
+                        ...MONO,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: tcScoreColor,
+                      }}
+                    >
+                      {tc.score}
+                    </span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  {tc.time_used != null && (
+                    <span
+                      style={{
+                        ...MONO,
+                        color: 'var(--muted-foreground, #94a3b8)',
+                        fontSize: 10,
+                      }}
+                    >
+                      {formatMs(tc.time_used)}
+                    </span>
+                  )}
+                  {tc.memory_used != null && (
+                    <span
+                      style={{
+                        ...MONO,
+                        color: 'var(--muted-foreground, #94a3b8)',
+                        fontSize: 10,
+                      }}
+                    >
+                      {formatKb(tc.memory_used)}
+                    </span>
+                  )}
+                  {clickable && (
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 10 10"
+                      style={{
+                        flexShrink: 0,
+                        transition: 'transform 0.2s ease',
+                        transform: isSelected
+                          ? 'rotate(180deg)'
+                          : 'rotate(0deg)',
+                        opacity: 0.5,
+                      }}
+                    >
+                      <path
+                        d="M2 3.5l3 3 3-3"
+                        fill="none"
+                        stroke={vm.color}
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Expandable detail panel for selected test case */}
+          {selectedTc && selectedTcIndex != null && (
+            <div style={{ marginTop: 6 }}>
+              <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
+            </div>
+          )}
+
+          {showExpand && (
+            <button
+              onClick={() => {
+                if (
+                  listExpanded &&
+                  selectedTcIndex != null &&
+                  selectedTcIndex >= INITIAL_VISIBLE
+                ) {
+                  setSelectedTcIndex(null);
+                }
+                setListExpanded(!listExpanded);
+              }}
+              style={{
+                marginTop: 4,
+                padding: '4px 10px',
+                border: 'none',
+                borderRadius: 4,
+                background: 'var(--muted, rgba(0,0,0,0.03))',
+                color: 'var(--primary, #3b82f6)',
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              {listExpanded
+                ? t('ioi.submission.showLess')
+                : t('ioi.submission.showAll', { count: testCases.length })}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TERMINAL_STATUSES = new Set([
+  'Judged',
+  'CompilationError',
+  'SystemError',
+]);
+
+export function IoiSubmissionResult({
+  submission,
+  testCases,
+}: IoiSubmissionResultProps) {
+  const contestId = submission?.contest_id;
+  const problemId = submission?.problem_id;
+  const { isIoi, isLoading: guardLoading } = useIsIoiContest(
+    contestId ?? undefined,
+  );
+  const api = useIoiApi();
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  // Invalidate submission-status when a submission reaches terminal status.
+  const prevStatusRef = useRef(submission?.status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const curr = submission?.status;
+    prevStatusRef.current = curr;
+    if (
+      curr &&
+      TERMINAL_STATUSES.has(curr) &&
+      prev !== curr &&
+      contestId &&
+      problemId
+    ) {
+      queryClient.invalidateQueries({
+        queryKey: ['ioi-submission-status', contestId, problemId],
+      });
+    }
+  }, [submission?.status, contestId, problemId, queryClient]);
+
+  const { data: taskConfig } = useQuery<TaskConfigResponse>({
+    queryKey: ['ioi-task-config', contestId, problemId],
+    enabled: !!contestId && !!problemId && isIoi,
+    queryFn: () => api.getTaskConfig(contestId!, problemId!),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: subtaskScoresData } = useQuery<SubtaskScoresResponse>({
+    queryKey: ['ioi-subtask-scores', contestId, submission?.id],
+    enabled: !!contestId && !!submission?.id && isIoi,
+    queryFn: () => api.getSubmissionSubtaskScores(contestId!, submission!.id),
+  });
+
+  if (guardLoading || !isIoi) return null;
+  if (!submission) return null;
+
+  const isCompileError = submission.status === 'CompilationError';
+  const isRejected =
+    submission.status === 'Judged' &&
+    submission.result?.verdict == null &&
+    (submission.result?.score ?? 0) === 0;
+
+  // Source code viewer (always available if files present)
+  const codeViewer =
+    submission.files && submission.files.length > 0 ? (
+      <CodeViewer files={submission.files} language={submission.language} />
+    ) : null;
+
+  // Compilation error (always shown regardless of feedback level)
+  if (isCompileError) {
+    const compileOutput = submission.result?.compile_output;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        {compileOutput && <CompileOutput output={compileOutput} />}
+        {!compileOutput && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              borderLeft: '3px solid #ef4444',
+              background: 'rgba(239, 68, 68, 0.06)',
+              fontSize: 13,
+              fontWeight: 600,
+              color: '#dc2626',
+            }}
+          >
+            {t('ioi.submission.compilationError')}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Rejection (verdict is null — submission was not judged)
+  if (isRejected) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <RejectionBanner />
+      </div>
+    );
+  }
+
+  if (!submission.result || !taskConfig) return codeViewer;
+
+  const allTestCases = testCases ?? submission.result.test_case_results ?? [];
+  const feedbackLevel = taskConfig.feedback_level;
+
+  // Feedback: none
+  if (feedbackLevel === 'none') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <div
+          style={{
+            padding: 20,
+            textAlign: 'center',
+            color: 'var(--muted-foreground, #94a3b8)',
+            fontSize: 13,
+            fontStyle: 'italic',
+          }}
+        >
+          {t('ioi.submission.noFeedback')}
+        </div>
+      </div>
+    );
+  }
+
+  // Compute max possible score from task config subtasks (fallback to 100 if not available)
+  const configMaxScore =
+    taskConfig.subtasks && taskConfig.subtasks.length > 0
+      ? taskConfig.subtasks.reduce((sum, s) => sum + s.max_score, 0)
+      : 100;
+
+  // Feedback: total_only
+  if (feedbackLevel === 'total_only') {
+    const totalScore = submission.result.score ?? 0;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: '16px 20px',
+            borderRadius: 8,
+            background: 'var(--muted, rgba(0,0,0,0.02))',
+            border: '1px solid var(--border, rgba(0,0,0,0.08))',
+          }}
+        >
+          <ScoreRing score={totalScore} max={configMaxScore} size={44} />
+          <div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                color: 'var(--muted-foreground, #94a3b8)',
+                marginBottom: 2,
+              }}
+            >
+              {t('ioi.submission.totalScore')}
+            </div>
+            <div
+              style={{
+                ...MONO,
+                fontSize: 24,
+                fontWeight: 700,
+                color: scoreColor(totalScore, configMaxScore),
+              }}
+            >
+              {totalScore.toFixed(
+                totalScore === Math.floor(totalScore) ? 0 : 2,
+              )}
+              <span
+                style={{
+                  fontWeight: 400,
+                  fontSize: 16,
+                  color: 'var(--muted-foreground, #94a3b8)',
+                }}
+              >
+                /
+                {configMaxScore.toFixed(
+                  configMaxScore === Math.floor(configMaxScore) ? 0 : 2,
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Feedback: subtask_scores or full
+  const subtaskScores = subtaskScoresData?.subtasks;
+
+  if (!subtaskScores || subtaskScores.length === 0) {
+    const totalScore = submission.result.score ?? 0;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: '16px 20px',
+            borderRadius: 8,
+            background: 'var(--muted, rgba(0,0,0,0.02))',
+            border: '1px solid var(--border, rgba(0,0,0,0.08))',
+          }}
+        >
+          <ScoreRing score={totalScore} max={configMaxScore} size={44} />
+          <div
+            style={{
+              ...MONO,
+              fontSize: 24,
+              fontWeight: 700,
+              color: scoreColor(totalScore, configMaxScore),
+            }}
+          >
+            {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
+            <span
+              style={{
+                fontWeight: 400,
+                fontSize: 16,
+                color: 'var(--muted-foreground, #94a3b8)',
+              }}
+            >
+              /
+              {configMaxScore.toFixed(
+                configMaxScore === Math.floor(configMaxScore) ? 0 : 2,
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Build TC lookup for full feedback
+  const tcById: Map<number, TestCaseResult> = new Map();
+  for (const tc of allTestCases) {
+    tcById.set(tc.test_case_id, tc);
+  }
+
+  // label_map from the task config API: label string → test_case_id (number)
+  const labelMap: Record<string, number> = taskConfig.label_map ?? {};
+
+  const taskSubtasks = taskConfig.subtasks ?? [];
+  const subtaskResults = subtaskScores.map(
+    (ss: SubtaskScoreEntry, i: number) => {
+      const stTestCases: TestCaseResultResponse[] = [];
+      const configSubtask = taskSubtasks[i];
+      if (configSubtask?.test_cases) {
+        for (const label of configSubtask.test_cases) {
+          // Resolve label → test_case_id via the label_map, fallback to parsing as numeric ID
+          const resolvedId =
+            labelMap[label] ??
+            (isNaN(Number(label)) ? undefined : Number(label));
+          const tc = resolvedId != null ? tcById.get(resolvedId) : undefined;
+          if (tc) stTestCases.push(tc);
+        }
+      }
+      return {
+        subtask: {
+          name: ss.name,
+          scoring_method: ss.scoring_method,
+          max_score: ss.max_score,
+          test_cases: configSubtask?.test_cases,
+        } as SubtaskInfo,
+        score: ss.score,
+        testCases: stTestCases,
+      };
+    },
+  );
+
+  const totalScore = subtaskResults.reduce(
+    (sum: number, r: { score: number }) => sum + r.score,
+    0,
+  );
+  const maxPossible = subtaskScores.reduce(
+    (sum: number, s: SubtaskScoreEntry) => sum + s.max_score,
+    0,
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {codeViewer}
+
+      {/* Total score summary bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '8px 14px',
+          borderRadius: 8,
+          background: 'var(--muted, rgba(0,0,0,0.02))',
+          border: '1px solid var(--border, rgba(0,0,0,0.08))',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ScoreRing score={totalScore} max={maxPossible} size={32} />
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--muted-foreground, #94a3b8)',
+            }}
+          >
+            {t('ioi.submission.total')}
+          </span>
+        </div>
+        <span
+          style={{
+            ...MONO,
+            fontSize: 16,
+            fontWeight: 700,
+            color: scoreColor(totalScore, maxPossible),
+          }}
+        >
+          {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
+          <span
+            style={{
+              fontWeight: 400,
+              fontSize: 13,
+              color: 'var(--muted-foreground, #94a3b8)',
+            }}
+          >
+            /
+            {maxPossible.toFixed(
+              maxPossible === Math.floor(maxPossible) ? 0 : 2,
+            )}
+          </span>
+        </span>
+      </div>
+
+      {/* Subtask cards */}
+      {subtaskResults.map(
+        (
+          r: {
+            subtask: SubtaskInfo;
+            score: number;
+            testCases: TestCaseResultResponse[];
+          },
+          i: number,
+        ) => (
+          <SubtaskCard
+            key={i}
+            subtask={r.subtask}
+            score={r.score}
+            testCases={r.testCases}
+            feedbackLevel={feedbackLevel}
+            index={i}
+          />
+        ),
+      )}
+
+      {/* Resource usage footer */}
+      {(submission.result.time_used != null ||
+        submission.result.memory_used != null) && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 12,
+            padding: '4px 0',
+          }}
+        >
+          {submission.result.time_used != null && (
+            <span
+              style={{
+                ...MONO,
+                fontSize: 11,
+                color: 'var(--muted-foreground, #94a3b8)',
+              }}
+            >
+              {formatMs(submission.result.time_used)}
+            </span>
+          )}
+          {submission.result.memory_used != null && (
+            <span
+              style={{
+                ...MONO,
+                fontSize: 11,
+                color: 'var(--muted-foreground, #94a3b8)',
+              }}
+            >
+              {formatKb(submission.result.memory_used)}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
