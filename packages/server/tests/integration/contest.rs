@@ -889,6 +889,53 @@ mod contest_deletion {
         let res = app.delete_with_token(&routes::contest(99999), &admin).await;
         assert_eq!(res.status, 404);
     }
+
+    #[tokio::test]
+    async fn soft_deleted_contest_rejects_new_registration() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_softdel_contest_1", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("contestant_softdel_1", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Doomed Register", true).await;
+
+        let delete_res = app.delete_with_token(&routes::contest(id), &admin).await;
+        assert_eq!(delete_res.status, 204);
+
+        let register_res = app
+            .post_with_token(&routes::contest_register(id), &json!({}), &user)
+            .await;
+        assert_eq!(register_res.status, 404);
+        assert_eq!(register_res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn soft_deleted_contest_rejects_participant_management() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_softdel_contest_2", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("contestant_softdel_2", "pass1234", "contestant")
+            .await;
+        let id = create_contest_as_admin(&app, &admin, "Doomed Manage", false).await;
+        let user_id = app.get_with_token(routes::ME, &user).await.id();
+
+        let delete_res = app.delete_with_token(&routes::contest(id), &admin).await;
+        assert_eq!(delete_res.status, 204);
+
+        let add_res = app
+            .post_with_token(
+                &routes::contest_participants(id),
+                &json!({"user_id": user_id}),
+                &admin,
+            )
+            .await;
+        assert_eq!(add_res.status, 404);
+        assert_eq!(add_res.body["code"], "NOT_FOUND");
+    }
 }
 
 mod contest_problems {
@@ -1677,6 +1724,81 @@ mod contest_participants {
             .get_with_token(&routes::contest_participants(contest_id), &user)
             .await;
         assert_eq!(res.status, 200);
+    }
+
+    #[tokio::test]
+    async fn list_marks_soft_deleted_participants_as_deleted() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_participant_soft_delete", "pass1234", "admin")
+            .await;
+        let user = app
+            .create_user_with_role("participant_soft_deleted", "pass1234", "contestant")
+            .await;
+        let create_res = app
+            .post_with_token(
+                routes::CONTESTS,
+                &json!({
+                    "title": "C-soft-delete",
+                    "description": "desc",
+                    "activate_time": "2020-01-01T00:00:00Z",
+                    "start_time": "2020-01-01T00:00:00Z",
+                    "end_time": "2020-01-02T00:00:00Z",
+                    "deactivate_time": "2020-01-03T00:00:00Z",
+                    "is_public": true,
+                }),
+                &admin,
+            )
+            .await;
+        assert_eq!(
+            create_res.status, 201,
+            "create contest failed: {}",
+            create_res.text
+        );
+        let contest_id = create_res.id();
+
+        let user_id = app.get_with_token(routes::ME, &user).await.id();
+        let add_res = app
+            .post_with_token(
+                &routes::contest_participants(contest_id),
+                &json!({"user_id": user_id}),
+                &admin,
+            )
+            .await;
+        assert_eq!(
+            add_res.status, 201,
+            "add participant failed: {}",
+            add_res.text
+        );
+
+        let delete_res = app
+            .delete_with_token(&format!("{}/{}", routes::USERS, user_id), &admin)
+            .await;
+        assert_eq!(
+            delete_res.status, 204,
+            "delete user failed: {}",
+            delete_res.text
+        );
+
+        let list_res = app
+            .get_with_token(&routes::contest_participants(contest_id), &admin)
+            .await;
+        assert_eq!(
+            list_res.status, 200,
+            "list participants failed: {}",
+            list_res.text
+        );
+
+        let participants = list_res
+            .body
+            .as_array()
+            .expect("participants response should be array");
+        let deleted_user = participants
+            .iter()
+            .find(|p| p["user_id"] == json!(user_id))
+            .expect("deleted participant should remain in list");
+        assert_eq!(deleted_user["username"], "participant_soft_deleted");
+        assert_eq!(deleted_user["is_deleted"], true);
     }
 }
 
