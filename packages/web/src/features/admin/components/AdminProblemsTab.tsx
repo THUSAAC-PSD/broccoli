@@ -16,9 +16,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Input,
-  Label,
-  Separator,
 } from '@broccoli/web-sdk/ui';
 import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQueryClient } from '@tanstack/react-query';
@@ -27,8 +24,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 
-import { MarkdownEditor } from '@/components/MarkdownEditor';
-import { SwitchField } from '@/features/admin/components/SwitchField';
+import {
+  ProblemForm,
+  type ProblemFormData,
+} from '@/features/admin/components/ProblemForm';
 import { TestCasesDialog } from '@/features/admin/components/TestCasesDialog';
 import { fetchContestProblems } from '@/features/contest/api/fetch-contest-problems';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
@@ -56,6 +55,22 @@ export function ProblemFormDialog({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const apiClient = useApiClient();
+
+  const formData: ProblemFormData = {
+    title,
+    content,
+    timeLimit,
+    memoryLimit,
+    showTestDetails,
+  };
+
+  const handleFormChange = (data: ProblemFormData) => {
+    setTitle(data.title);
+    setContent(data.content);
+    setTimeLimit(data.timeLimit);
+    setMemoryLimit(data.memoryLimit);
+    setShowTestDetails(data.showTestDetails);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -130,76 +145,7 @@ export function ProblemFormDialog({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="problem-title">{t('admin.field.title')}</Label>
-              <Input
-                id="problem-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-                maxLength={256}
-                placeholder="Two Sum"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="problem-content">
-                {t('admin.field.content')}
-              </Label>
-              <MarkdownEditor
-                id="problem-content"
-                value={content}
-                onChange={setContent}
-                minHeight={250}
-                placeholder="Problem statement (Markdown supported)"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="problem-time">
-                  {t('admin.field.timeLimit')}
-                </Label>
-                <Input
-                  id="problem-time"
-                  type="number"
-                  min={1}
-                  max={30000}
-                  value={timeLimit}
-                  onChange={(e) => setTimeLimit(Number(e.target.value))}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="problem-memory">
-                  {t('admin.field.memoryLimit')}
-                </Label>
-                <Input
-                  id="problem-memory"
-                  type="number"
-                  min={1}
-                  max={1048576}
-                  value={memoryLimit}
-                  onChange={(e) => setMemoryLimit(Number(e.target.value))}
-                  required
-                />
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-3">
-              <Label className="text-sm text-muted-foreground">
-                {t('admin.field.options')}
-              </Label>
-              <SwitchField
-                id="problem-test-details"
-                label={t('admin.field.showTestDetails')}
-                checked={showTestDetails}
-                onCheckedChange={setShowTestDetails}
-              />
-            </div>
-
+            <ProblemForm data={formData} onChange={handleFormChange} />
             <DialogFooter>
               <Button type="submit" disabled={loading}>
                 {loading

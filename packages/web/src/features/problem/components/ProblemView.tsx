@@ -4,11 +4,13 @@ import { Slot } from '@broccoli/web-sdk/slot';
 import { Button, Skeleton } from '@broccoli/web-sdk/ui';
 import { formatBytes, formatKibibytes } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Check, Code2, Copy } from 'lucide-react';
+import { ArrowLeft, Check, Code2, Copy, Edit } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
+import { useAuth } from '@/features/auth/hooks/use-auth';
 import { ProblemHeader } from '@/features/problem/components/ProblemHeader';
 import { SubmissionResult } from '@/features/submission/components/SubmissionResult';
 import { useSubmission } from '@/features/submission/hooks/use-submission';
@@ -27,12 +29,14 @@ export default function ProblemView({
   contestId,
 }: ProblemViewProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
 
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
   const [showCodingPanel, setShowCodingPanel] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
   const apiClient = useApiClient();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setShowCodingPanel(false);
@@ -399,15 +403,28 @@ export default function ProblemView({
             <span className="text-sm font-semibold text-foreground">
               {t('problem.description')}
             </span>
-            <Button
-              onClick={() => setShowCodingPanel(true)}
-              size="sm"
-              variant="default"
-              className="gap-1.5 h-8 px-4 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-            >
-              <Code2 className="h-3.5 w-3.5" />
-              {t('problem.startCoding')}
-            </Button>
+            <div className="flex items-center gap-2">
+              {user && user.permissions.includes('problem:edit') && (
+                <Button
+                  onClick={() => navigate(`/problems/${problemId}/edit`)}
+                  size="sm"
+                  variant="default"
+                  className="gap-1.5 h-8 px-4 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                >
+                  <Edit className="h-3.5 w-3.5" />
+                  {t('problem.edit')}
+                </Button>
+              )}
+              <Button
+                onClick={() => setShowCodingPanel(true)}
+                size="sm"
+                variant="default"
+                className="gap-1.5 h-8 px-4 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              >
+                <Code2 className="h-3.5 w-3.5" />
+                {t('problem.startCoding')}
+              </Button>
+            </div>
           </>
         ) : (
           <>
