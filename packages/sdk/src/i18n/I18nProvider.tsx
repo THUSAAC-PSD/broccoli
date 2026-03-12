@@ -59,7 +59,7 @@ export function I18nProvider({
       const { data } = await apiClient.GET('/i18n/translations/{locale}', {
         params: { path: { locale } },
       });
-      console.log('Fetched plugin translations for locale', locale, data);
+      console.log('Fetched plugin translations for locale', locale);
       return data ?? {};
     },
     // Keep previous translations while loading new ones to prevent UI flickering

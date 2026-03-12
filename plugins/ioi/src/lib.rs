@@ -18,7 +18,7 @@ mod wasm_entries {
     use crate::judge::{JudgeContext, judge_with_context};
     use crate::scoring::{score_best_tokened_or_last, score_max_submission, score_sum_best_subtask};
     use crate::subtasks::{build_default_subtasks, score_all_subtasks};
-    use crate::tokens::{TokenState, available_tokens};
+    use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
 
     #[derive(Deserialize)]
     struct ElapsedMinutes {
@@ -28,6 +28,11 @@ mod wasm_entries {
     #[derive(Deserialize)]
     struct MaxScore {
         max_score: Option<f64>,
+    }
+
+    #[derive(Deserialize)]
+    struct NextRegenAtRow {
+        next_regen_at: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -794,6 +799,18 @@ mod wasm_entries {
             crate::config::TokenMode::None => 0,
             _ => avail + token_state.used,
         };
+        let next_regen_at = match next_regen_elapsed_min(&contest_config.tokens, elapsed_min) {
+            Some(next_elapsed_min) => {
+                let rows: Vec<NextRegenAtRow> = host::db::db_query(&format!(
+                    "SELECT TO_CHAR((start_time + make_interval(mins => {})) AT TIME ZONE 'UTC', \
+                     'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as next_regen_at \
+                     FROM contest WHERE id = {}",
+                    next_elapsed_min, contest_id
+                ))?;
+                rows.first().and_then(|r| r.next_regen_at.clone())
+            }
+            None => None,
+        };
 
         Ok(PluginHttpResponse {
             status: 200,
@@ -803,6 +820,7 @@ mod wasm_entries {
                 "available": if contest_config.tokens.mode == crate::config::TokenMode::None { 0 } else { avail },
                 "used": token_state.used,
                 "total": total,
+                "next_regen_at": next_regen_at,
                 "tokened_submission_ids": token_state.tokened_submission_ids,
             })),
         })

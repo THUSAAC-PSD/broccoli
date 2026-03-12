@@ -51,6 +51,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           ? (localStorage.getItem('broccoli-locale') ?? 'en')
           : 'en'
       }
+      suppressHydrationWarning
     >
       <head>
         <meta charSet="UTF-8" />

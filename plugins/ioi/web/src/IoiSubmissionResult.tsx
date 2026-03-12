@@ -753,6 +753,169 @@ function TestCaseDetailPanel({
   );
 }
 
+function RunningTestCaseList({
+  testCases,
+}: {
+  testCases: TestCaseResultResponse[];
+}) {
+  const [selectedTcIndex, setSelectedTcIndex] = useState<number | null>(null);
+  const [hoveredTcIndex, setHoveredTcIndex] = useState<number | null>(null);
+  const selectedTc =
+    selectedTcIndex != null ? testCases[selectedTcIndex] : null;
+
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid var(--border, rgba(0,0,0,0.08))',
+        background: 'var(--card, #fff)',
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+          gap: 3,
+          padding: '8px 10px',
+        }}
+      >
+        {testCases.map((tc, i) => {
+          const vm = VERDICT_META[tc.verdict] ?? {
+            color: '#6b7280',
+            bg: 'rgba(0,0,0,0.04)',
+          };
+          const clickable = tcHasDetails(tc);
+          const isSelected = selectedTcIndex === i;
+          const tcScore = tc.score ?? 0;
+          const tcScoreColor =
+            tc.verdict === 'Accepted'
+              ? '#10b981'
+              : tcScore > 0
+                ? '#f59e0b'
+                : '#6b7280';
+
+          return (
+            <div
+              key={tc.id}
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onClick={
+                clickable
+                  ? () => setSelectedTcIndex(isSelected ? null : i)
+                  : undefined
+              }
+              onKeyDown={
+                clickable
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedTcIndex(isSelected ? null : i);
+                      }
+                    }
+                  : undefined
+              }
+              onMouseEnter={clickable ? () => setHoveredTcIndex(i) : undefined}
+              onMouseLeave={
+                clickable ? () => setHoveredTcIndex(null) : undefined
+              }
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 8px',
+                borderRadius: 6,
+                fontSize: 12,
+                background:
+                  isSelected || hoveredTcIndex === i ? `${vm.color}20` : vm.bg,
+                transition: 'all 0.15s ease',
+                cursor: clickable ? 'pointer' : 'default',
+                outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
+                borderBottom: clickable
+                  ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
+                  : 'none',
+              }}
+            >
+              <VerdictIcon verdict={tc.verdict} size={14} />
+              <span
+                style={{
+                  color: 'var(--muted-foreground, #64748b)',
+                  fontSize: 11,
+                }}
+              >
+                #{i + 1}
+              </span>
+              {tc.score != null && (
+                <span
+                  style={{
+                    ...MONO,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: tcScoreColor,
+                  }}
+                >
+                  {tc.score}
+                </span>
+              )}
+              <span style={{ flex: 1 }} />
+              {tc.time_used != null && (
+                <span
+                  style={{
+                    ...MONO,
+                    color: 'var(--muted-foreground, #94a3b8)',
+                    fontSize: 10,
+                  }}
+                >
+                  {formatMs(tc.time_used)}
+                </span>
+              )}
+              {tc.memory_used != null && (
+                <span
+                  style={{
+                    ...MONO,
+                    color: 'var(--muted-foreground, #94a3b8)',
+                    fontSize: 10,
+                  }}
+                >
+                  {formatKb(tc.memory_used)}
+                </span>
+              )}
+              {clickable && (
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  style={{
+                    flexShrink: 0,
+                    transition: 'transform 0.2s ease',
+                    transform: isSelected ? 'rotate(180deg)' : 'rotate(0deg)',
+                    opacity: 0.5,
+                  }}
+                >
+                  <path
+                    d="M2 3.5l3 3 3-3"
+                    fill="none"
+                    stroke={vm.color}
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedTc && selectedTcIndex != null && (
+        <div style={{ padding: '0 10px 10px' }}>
+          <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SubtaskCard({
   subtask,
   score,
@@ -1337,6 +1500,21 @@ export function IoiSubmissionResult({
         ? 'full'
         : 'none'
       : feedbackLevel;
+
+  if (
+    submission.status === 'Running' &&
+    allTestCases.length > 0 &&
+    effectiveFeedback !== 'none' &&
+    effectiveFeedback !== 'total_only'
+  ) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <SubmissionStatusBadge status={submission.status} />
+        <RunningTestCaseList testCases={allTestCases} />
+      </div>
+    );
+  }
 
   if (effectiveFeedback === 'none') {
     return (

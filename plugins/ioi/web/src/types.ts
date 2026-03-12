@@ -25,6 +25,7 @@ export interface TokenStatusResponse {
   available: number;
   used: number;
   total: number;
+  next_regen_at?: string | null;
   tokened_submission_ids: number[];
 }
 

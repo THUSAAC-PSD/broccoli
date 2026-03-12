@@ -1,7 +1,7 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type React from 'react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useIoiApi } from './hooks/useIoiApi';
 import { useIsIoiContest } from './hooks/useIsIoiContest';
@@ -21,6 +21,12 @@ const SCORE_FONT: React.CSSProperties = {
     'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
 };
 
+function formatCountdown(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 export function TokenPanel({ submission, contestId }: TokenPanelProps) {
   const cId = contestId ?? submission?.contest_id ?? undefined;
   const { isIoi, contestInfo, isLoading: guardLoading } = useIsIoiContest(cId);
@@ -29,6 +35,7 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
   const { t } = useTranslation();
   const [isUsing, setIsUsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [confirmingSubmissionId, setConfirmingSubmissionId] = useState<
     number | null
   >(null);
@@ -47,6 +54,40 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
     queryFn: () => api.getTokenStatus(cId!),
     refetchInterval: 60000,
   });
+
+  const countdownTargetMs = useMemo(() => {
+    if (!tokenStatus) return null;
+    if (tokenStatus.mode !== 'regenerating' || !tokenStatus.next_regen_at) {
+      return null;
+    }
+    const parsed = Date.parse(tokenStatus.next_regen_at);
+    return Number.isNaN(parsed) ? null : parsed;
+  }, [tokenStatus]);
+
+  const remainingSeconds =
+    countdownTargetMs === null
+      ? null
+      : Math.max(0, Math.ceil((countdownTargetMs - now) / 1000));
+  const countdownExpired =
+    countdownTargetMs !== null && now >= countdownTargetMs;
+  const countdownLabel =
+    remainingSeconds !== null && remainingSeconds > 0
+      ? formatCountdown(remainingSeconds)
+      : null;
+
+  useEffect(() => {
+    if (countdownTargetMs === null) return;
+    setNow(Date.now());
+    const id = globalThis.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => globalThis.clearInterval(id);
+  }, [countdownTargetMs]);
+
+  useEffect(() => {
+    if (!cId || !countdownExpired) return;
+    void queryClient.invalidateQueries({ queryKey: ['ioi-token-status', cId] });
+  }, [cId, countdownExpired, now, queryClient]);
 
   if (guardLoading || !isIoi || !showTokens) return null;
   if (!tokenStatus) return null;
@@ -125,46 +166,60 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
 
       {/* Token display */}
       {tokenStatus.total > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            marginBottom: 8,
-            flexWrap: 'wrap',
-          }}
-        >
-          {showDots ? (
-            dots
-          ) : (
-            <span
+        <>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              marginBottom: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            {showDots ? (
+              dots
+            ) : (
+              <span
+                style={{
+                  ...SCORE_FONT,
+                  fontSize: 20,
+                  fontWeight: 700,
+                  color: 'var(--foreground, #111)',
+                }}
+              >
+                {tokenStatus.available}
+                <span style={{ opacity: 0.4 }}>/{tokenStatus.total}</span>
+              </span>
+            )}
+            {showDots && (
+              <span
+                style={{
+                  ...SCORE_FONT,
+                  marginLeft: 8,
+                  fontSize: 13,
+                  color: 'var(--foreground, #111)',
+                }}
+              >
+                {t('ioi.tokenPanel.available', {
+                  available: tokenStatus.available,
+                  total: tokenStatus.total,
+                })}
+              </span>
+            )}
+          </div>
+          {countdownLabel && (
+            <div
               style={{
                 ...SCORE_FONT,
-                fontSize: 20,
-                fontWeight: 700,
-                color: 'var(--foreground, #111)',
+                marginBottom: 12,
+                fontSize: 12,
+                color: 'var(--muted-foreground, #666)',
               }}
             >
-              {tokenStatus.available}
-              <span style={{ opacity: 0.4 }}>/{tokenStatus.total}</span>
-            </span>
+              {t('ioi.tokenPanel.nextTokenIn', { remaining: countdownLabel })}
+            </div>
           )}
-          {showDots && (
-            <span
-              style={{
-                ...SCORE_FONT,
-                marginLeft: 8,
-                fontSize: 13,
-                color: 'var(--foreground, #111)',
-              }}
-            >
-              {t('ioi.tokenPanel.available', {
-                available: tokenStatus.available,
-                total: tokenStatus.total,
-              })}
-            </span>
-          )}
-        </div>
+        </>
       )}
 
       {/* Use token button with confirmation */}

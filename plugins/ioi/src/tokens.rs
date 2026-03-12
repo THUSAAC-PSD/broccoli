@@ -28,6 +28,24 @@ pub fn available_tokens(config: &TokenConfig, state: &TokenState, elapsed_minute
     }
 }
 
+/// Compute the next regeneration boundary, in elapsed minutes since contest start.
+pub fn next_regen_elapsed_min(config: &TokenConfig, elapsed_minutes: u64) -> Option<u64> {
+    match config.mode {
+        TokenMode::None | TokenMode::FixedBudget => None,
+        TokenMode::Regenerating => {
+            let regen_interval = config.regen_interval_min.max(1) as u64;
+            let regenerated = elapsed_minutes / regen_interval;
+            let current_total =
+                (config.initial as u64 + regenerated).min(config.max as u64);
+            if current_total >= config.max as u64 {
+                None
+            } else {
+                Some((regenerated + 1) * regen_interval)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +118,41 @@ mod tests {
         let state = TokenState { used: 3, ..Default::default() };
         // After 60 min: min(2 + 2, 10) - 3 = 1
         assert_eq!(available_tokens(&config, &state, 60), 1);
+    }
+
+    #[test]
+    fn next_regen_none_mode() {
+        let config = TokenConfig { mode: TokenMode::None, ..Default::default() };
+        assert_eq!(next_regen_elapsed_min(&config, 0), None);
+    }
+
+    #[test]
+    fn next_regen_fixed_budget_mode() {
+        let config = fixed_config(5);
+        assert_eq!(next_regen_elapsed_min(&config, 15), None);
+    }
+
+    #[test]
+    fn next_regen_initial_boundary() {
+        let config = regen_config(2, 10, 30);
+        assert_eq!(next_regen_elapsed_min(&config, 0), Some(30));
+    }
+
+    #[test]
+    fn next_regen_between_boundaries() {
+        let config = regen_config(2, 10, 30);
+        assert_eq!(next_regen_elapsed_min(&config, 44), Some(60));
+    }
+
+    #[test]
+    fn next_regen_after_multiple_intervals() {
+        let config = regen_config(2, 10, 30);
+        assert_eq!(next_regen_elapsed_min(&config, 60), Some(90));
+    }
+
+    #[test]
+    fn next_regen_none_when_schedule_is_capped() {
+        let config = regen_config(2, 5, 30);
+        assert_eq!(next_regen_elapsed_min(&config, 90), None);
     }
 }

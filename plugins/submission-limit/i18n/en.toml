@@ -16,7 +16,7 @@
 'limit.unlimited' = '0 (unlimited)'
 'limit.sourceContest' = 'Contest'
 'limit.sourceProblem' = 'Problem'
-'limit.contestHint' = 'Per-task overrides take priority. Falls back to each problem''s setting.'
+'limit.contestHint' = "Per-task overrides take priority. Falls back to each problem's setting."
 'limit.inheritInfo' = 'If not set, inherits {{value}} from {{source}}.'
 'limit.priority' = 'Priority: Contest > Problem.'
 'limit.overrideInfo' = 'Overrides contest and problem settings. If not set, uses the default value.'

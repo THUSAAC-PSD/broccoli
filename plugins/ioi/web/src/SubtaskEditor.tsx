@@ -80,6 +80,11 @@ interface SubtaskValue {
   test_cases: string[];
 }
 
+interface EditorStatusMessage {
+  tone: 'success' | 'error';
+  text: string;
+}
+
 /** Canonical string label for a test case: prefer label, fall back to stringified id. */
 function tcLabel(tc: TestCaseListItem): string {
   return tc.label || String(tc.id);
@@ -112,6 +117,10 @@ const SCORING_METHODS = [
   },
 ] as const;
 
+const SCORING_METHOD_KEYS = new Set(
+  SCORING_METHODS.map((method) => method.key),
+);
+
 function getMethodInfo(key: string) {
   return SCORING_METHODS.find((m) => m.key === key) ?? SCORING_METHODS[0];
 }
@@ -126,6 +135,66 @@ function defaultSubtask(
     max_score: 100,
     test_cases: [],
   };
+}
+
+function normalizeImportedSubtasks(value: unknown): SubtaskValue[] | null {
+  const rawSubtasks = Array.isArray(value)
+    ? value
+    : value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        Array.isArray((value as { subtasks?: unknown }).subtasks)
+      ? (value as { subtasks: unknown[] }).subtasks
+      : null;
+
+  if (!rawSubtasks) return null;
+
+  const normalized: SubtaskValue[] = [];
+  for (const item of rawSubtasks) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const raw = item as Record<string, unknown>;
+    const scoringMethod =
+      raw.scoring_method ?? raw.scoringMethod ?? 'group_min';
+    if (
+      typeof scoringMethod !== 'string' ||
+      !SCORING_METHOD_KEYS.has(scoringMethod)
+    ) {
+      return null;
+    }
+
+    const maxScoreRaw = raw.max_score ?? raw.maxScore ?? 100;
+    const maxScore =
+      typeof maxScoreRaw === 'number'
+        ? maxScoreRaw
+        : typeof maxScoreRaw === 'string'
+          ? maxScoreRaw.trim()
+            ? Number(maxScoreRaw)
+            : NaN
+          : NaN;
+    if (!Number.isFinite(maxScore)) return null;
+
+    const rawTestCases = raw.test_cases ?? raw.testCases ?? [];
+    if (!Array.isArray(rawTestCases)) return null;
+    const testCases = rawTestCases.map((entry) => {
+      if (typeof entry === 'string' || typeof entry === 'number') {
+        return String(entry);
+      }
+      return null;
+    });
+    if (testCases.some((entry) => entry === null)) return null;
+
+    const name = raw.name;
+    if (name !== undefined && typeof name !== 'string') return null;
+
+    normalized.push({
+      name: typeof name === 'string' ? name : '',
+      scoring_method: scoringMethod,
+      max_score: maxScore,
+      test_cases: testCases as string[],
+    });
+  }
+
+  return normalized;
 }
 
 const MAX_RANGE_SPAN = 10000;
@@ -178,6 +247,19 @@ const fieldInput: React.CSSProperties = {
   outline: 'none',
   boxSizing: 'border-box' as const,
   transition: 'border-color 0.15s, box-shadow 0.15s',
+};
+
+const headerActionButton: React.CSSProperties = {
+  background: 'none',
+  border: `1px solid ${th.border}`,
+  borderRadius: '6px',
+  padding: '6px 10px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 600,
+  color: 'inherit',
+  opacity: 0.75,
+  transition: 'opacity 0.15s, border-color 0.15s, color 0.15s',
 };
 
 function PreviewPopover({
@@ -1341,12 +1423,27 @@ export function SubtaskEditor({
   const [openPools, setOpenPools] = useState<Record<number, boolean>>({});
   const [warningsExpanded, setWarningsExpanded] = useState(true);
   const [lastClicked, setLastClicked] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] =
+    useState<EditorStatusMessage | null>(null);
+  const [pendingImport, setPendingImport] = useState<SubtaskValue[] | null>(
+    null,
+  );
   const dragDataRef = useRef<{
     tcLabels: string[];
     fromSubtask: number | null;
   } | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const dragCountersRef = useRef<Record<number, number>>({});
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    const id = window.setTimeout(() => {
+      setStatusMessage((current) =>
+        current?.text === statusMessage.text ? null : current,
+      );
+    }, 2400);
+    return () => window.clearTimeout(id);
+  }, [statusMessage]);
 
   // Mutations
   const updateSubtask = useCallback(
@@ -1358,6 +1455,14 @@ export function SubtaskEditor({
     },
     [subtasks, onChange],
   );
+
+  const resetInteractiveState = useCallback(() => {
+    setOpenPools({});
+    setDropTarget(null);
+    setLastClicked(null);
+    dragDataRef.current = null;
+    dragCountersRef.current = {};
+  }, []);
 
   const removeSubtask = useCallback(
     (index: number) => {
@@ -1390,6 +1495,106 @@ export function SubtaskEditor({
     onChange([...subtasks, defaultSubtask(subtasks.length, t)]);
     setSubtaskKeys((prev) => [...prev, nextKeyRef.current++]);
   }, [subtasks, onChange, t]);
+
+  const applyImportedSubtasks = useCallback(
+    (imported: SubtaskValue[], mode: 'replace' | 'merge') => {
+      const startIndex = mode === 'merge' ? subtasks.length : 0;
+      const materialized = imported.map((subtask, index) => ({
+        ...subtask,
+        name: subtask.name.trim() || defaultSubtask(startIndex + index, t).name,
+        test_cases: [...subtask.test_cases],
+      }));
+      const nextSubtasks =
+        mode === 'merge' ? [...subtasks, ...materialized] : materialized;
+
+      onChange(nextSubtasks);
+      if (mode === 'merge') {
+        setSubtaskKeys((prev) => [
+          ...prev,
+          ...materialized.map(() => nextKeyRef.current++),
+        ]);
+      } else {
+        setSubtaskKeys(materialized.map(() => nextKeyRef.current++));
+      }
+      setPendingImport(null);
+      setStatusMessage(null);
+      resetInteractiveState();
+    },
+    [onChange, resetInteractiveState, subtasks, t],
+  );
+
+  const handleCopyJson = useCallback(async () => {
+    if (!navigator.clipboard?.writeText) {
+      setStatusMessage({
+        tone: 'error',
+        text: t('ioi.subtask.pasteClipboardError'),
+      });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(subtasks, null, 2));
+      setPendingImport(null);
+      setStatusMessage({
+        tone: 'success',
+        text: t('ioi.subtask.copySuccess'),
+      });
+    } catch {
+      setStatusMessage({
+        tone: 'error',
+        text: t('ioi.subtask.pasteClipboardError'),
+      });
+    }
+  }, [subtasks, t]);
+
+  const handlePasteJson = useCallback(async () => {
+    if (!navigator.clipboard?.readText) {
+      setStatusMessage({
+        tone: 'error',
+        text: t('ioi.subtask.pasteClipboardError'),
+      });
+      return;
+    }
+
+    try {
+      const clipboardText = await navigator.clipboard.readText();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(clipboardText);
+      } catch {
+        setPendingImport(null);
+        setStatusMessage({
+          tone: 'error',
+          text: t('ioi.subtask.pasteInvalidJson'),
+        });
+        return;
+      }
+
+      const normalized = normalizeImportedSubtasks(parsed);
+      if (!normalized) {
+        setPendingImport(null);
+        setStatusMessage({
+          tone: 'error',
+          text: t('ioi.subtask.pasteInvalidShape'),
+        });
+        return;
+      }
+
+      if (subtasks.length === 0) {
+        applyImportedSubtasks(normalized, 'replace');
+        return;
+      }
+
+      setPendingImport(normalized);
+      setStatusMessage(null);
+      resetInteractiveState();
+    } catch {
+      setPendingImport(null);
+      setStatusMessage({
+        tone: 'error',
+        text: t('ioi.subtask.pasteClipboardError'),
+      });
+    }
+  }, [applyImportedSubtasks, resetInteractiveState, subtasks.length, t]);
 
   // Pool click handler with shift/ctrl support
   const handlePoolClick = useCallback(
@@ -1525,6 +1730,8 @@ export function SubtaskEditor({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
         }}
       >
         <div>
@@ -1558,34 +1765,133 @@ export function SubtaskEditor({
             </span>
           )}
         </div>
-        {subtasks.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ ...mono, fontSize: '11px', opacity: 0.4 }}>
-              {subtasks.length !== 1
-                ? t('ioi.subtask.subtaskCount', { count: subtasks.length })
-                : t('ioi.subtask.subtaskCountSingular', {
-                    count: subtasks.length,
-                  })}
-            </span>
-            <span
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+          }}
+        >
+          {subtasks.length > 0 && (
+            <>
+              <span style={{ ...mono, fontSize: '11px', opacity: 0.4 }}>
+                {subtasks.length !== 1
+                  ? t('ioi.subtask.subtaskCount', { count: subtasks.length })
+                  : t('ioi.subtask.subtaskCountSingular', {
+                      count: subtasks.length,
+                    })}
+              </span>
+              <span
+                style={{
+                  ...mono,
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 10px',
+                  borderRadius: '10px',
+                  background:
+                    totalMax === 100
+                      ? 'rgba(16,185,129,0.1)'
+                      : 'rgba(245,158,11,0.1)',
+                  color: totalMax === 100 ? '#059669' : '#d97706',
+                }}
+              >
+                {totalMax} pts
+              </span>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={handleCopyJson}
+            style={headerActionButton}
+          >
+            {t('ioi.subtask.copyJson')}
+          </button>
+          <button
+            type="button"
+            onClick={handlePasteJson}
+            style={headerActionButton}
+          >
+            {t('ioi.subtask.pasteJson')}
+          </button>
+        </div>
+      </div>
+
+      {statusMessage && (
+        <div
+          style={{
+            padding: '10px 12px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            border:
+              statusMessage.tone === 'success'
+                ? '1px solid rgba(16,185,129,0.25)'
+                : '1px solid rgba(239,68,68,0.25)',
+            background:
+              statusMessage.tone === 'success'
+                ? 'rgba(16,185,129,0.08)'
+                : 'rgba(239,68,68,0.08)',
+            color: statusMessage.tone === 'success' ? '#047857' : '#dc2626',
+          }}
+        >
+          {statusMessage.text}
+        </div>
+      )}
+
+      {pendingImport && (
+        <div
+          style={{
+            padding: '12px',
+            borderRadius: '10px',
+            border: `1px solid ${th.border}`,
+            background: `color-mix(in srgb, ${th.muted} 55%, transparent)`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: th.foreground,
+            }}
+          >
+            {t('ioi.subtask.importReady', { count: pendingImport.length })}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => applyImportedSubtasks(pendingImport, 'replace')}
               style={{
-                ...mono,
-                fontSize: '11px',
-                fontWeight: 700,
-                padding: '2px 10px',
-                borderRadius: '10px',
-                background:
-                  totalMax === 100
-                    ? 'rgba(16,185,129,0.1)'
-                    : 'rgba(245,158,11,0.1)',
-                color: totalMax === 100 ? '#059669' : '#d97706',
+                ...headerActionButton,
+                borderColor: th.primary,
+                color: th.primary,
+                opacity: 1,
               }}
             >
-              {totalMax} pts
-            </span>
+              {t('ioi.subtask.importReplace')}
+            </button>
+            <button
+              type="button"
+              onClick={() => applyImportedSubtasks(pendingImport, 'merge')}
+              style={headerActionButton}
+            >
+              {t('ioi.subtask.importMerge')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingImport(null)}
+              style={headerActionButton}
+            >
+              {t('ioi.subtask.importCancel')}
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {schema.description && (
         <p

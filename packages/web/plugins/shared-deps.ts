@@ -20,7 +20,7 @@ import type { Plugin, ResolvedConfig } from 'vite';
  * dynamically loaded module (including cross-origin plugin bundles).
  */
 
-const SHARED_DEPS = [
+export const SHARED_DEPS = [
   'react',
   'react/jsx-runtime',
   'react/jsx-dev-runtime',
@@ -126,6 +126,7 @@ function generateDevShim(dep: string, browserHash: string): string {
   const lines = [
     `import * as __ns from '${prebundledPath}';`,
     `const __mod = __ns.default ?? __ns;`,
+    `export * from '${prebundledPath}';`,
     `export default __mod;`,
   ];
   for (const name of named) {
@@ -154,8 +155,9 @@ export function sharedDepsPlugin(): Plugin {
         if (!req.url?.startsWith(DEV_SHIM_PREFIX)) return next();
 
         const browserHash = readBrowserHash(config.cacheDir);
+        const reqPath = req.url.split('?', 1)[0];
 
-        const depFlat = req.url
+        const depFlat = reqPath
           .slice(DEV_SHIM_PREFIX.length)
           .replace(/\.js$/, '');
         const dep = FLAT_TO_DEP.get(depFlat);
@@ -173,9 +175,11 @@ export function sharedDepsPlugin(): Plugin {
       });
 
       server.middlewares.use((_, res, next) => {
+        const browserHash = readBrowserHash(config.cacheDir);
+        const hashSuffix = browserHash ? `?v=${browserHash}` : '';
         const imports: Record<string, string> = {};
         for (const dep of SHARED_DEPS) {
-          imports[dep] = `${DEV_SHIM_PREFIX}${flattenId(dep)}.js`;
+          imports[dep] = `${DEV_SHIM_PREFIX}${flattenId(dep)}.js${hashSuffix}`;
         }
         const importMapTag = `<script type="importmap">${JSON.stringify({ imports })}</script>`;
 
@@ -259,7 +263,12 @@ export function sharedDepsPlugin(): Plugin {
 
       if (id.startsWith(RESOLVED_SHIM_PREFIX)) {
         const dep = id.slice(RESOLVED_SHIM_PREFIX.length);
-        return `export { default } from '${dep}';\nexport * from '${dep}';\n`;
+        return [
+          `import * as __ns from '${dep}';`,
+          `const __mod = __ns.default ?? __ns;`,
+          `export * from '${dep}';`,
+          `export default __mod;`,
+        ].join('\n');
       }
     },
 

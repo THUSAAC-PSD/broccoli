@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import {
   type ReactNode,
   useCallback,
@@ -46,6 +47,20 @@ export function PluginRegistryProvider({
   const [errors, setErrors] = useState<Map<string, Error>>(() => new Map());
 
   const apiClient = useApiClient();
+  const queryClient = useQueryClient();
+
+  const refreshI18n = useCallback(async () => {
+    await Promise.all([
+      queryClient.refetchQueries({
+        queryKey: ['i18n', 'locales'],
+        type: 'active',
+      }),
+      queryClient.refetchQueries({
+        queryKey: ['i18n', 'translations'],
+        type: 'active',
+      }),
+    ]);
+  }, [queryClient]);
 
   const unloadPlugin = useCallback(async (pluginId: string) => {
     const manifest = activeManifests.current.get(pluginId);
@@ -181,6 +196,7 @@ export function PluginRegistryProvider({
     const failed = results.filter(
       (r): r is PromiseRejectedResult => r.status === 'rejected',
     );
+    await refreshI18n();
     if (failed.length > 0) {
       console.warn(
         `${failed.length}/${pluginList.length} plugins failed to load.`,
@@ -189,7 +205,7 @@ export function PluginRegistryProvider({
         console.error('Plugin load error:', r.reason);
       }
     }
-  }, [apiClient, backendUrl, loadPlugin]);
+  }, [apiClient, backendUrl, loadPlugin, refreshI18n]);
 
   const reloadPlugin = useCallback(
     async (pluginId: string) => {
@@ -222,6 +238,7 @@ export function PluginRegistryProvider({
           ? await import(/* @vite-ignore */ `${backendUrl}${pluginInfo.entry}`)
           : {};
         await loadPlugin(pluginInfo, pluginModule);
+        await refreshI18n();
       } catch (err) {
         console.error(`Failed to reload plugin '${pluginId}':`, err);
         setErrors((prev) =>
@@ -232,7 +249,7 @@ export function PluginRegistryProvider({
         );
       }
     },
-    [apiClient, backendUrl, loadPlugin, unloadPlugin],
+    [apiClient, backendUrl, loadPlugin, refreshI18n, unloadPlugin],
   );
 
   const reloadAllPlugins = useCallback(async () => {
@@ -295,6 +312,7 @@ export function PluginRegistryProvider({
     const load = async () => {
       await loadAllPlugins();
       setRemoteLoaded(true);
+      await refreshI18n();
     };
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps

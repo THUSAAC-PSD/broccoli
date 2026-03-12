@@ -6,6 +6,9 @@ use crate::util::truncate;
 #[cfg(feature = "wasm")]
 use broccoli_server_sdk::host;
 
+// submission_files (language: cpp17): ("Shape.cpp", "Shape.h")   additional_files: ("cpp17" -> [(language: "cpp17" source: "main.cpp"), (language: "make" source: "Makefile")])
+
+
 /// Compiler configuration for a single language.
 #[derive(Deserialize, Clone)]
 #[serde(default)]

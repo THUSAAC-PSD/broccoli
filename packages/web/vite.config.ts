@@ -2,22 +2,23 @@ import { reactRouter } from '@react-router/dev/vite';
 import path from 'path';
 import { defineConfig } from 'vite';
 
-import { sharedDepsPlugin } from './plugins/shared-deps';
+import { SHARED_DEPS, sharedDepsPlugin } from './plugins/shared-deps';
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [sharedDepsPlugin(), reactRouter()],
   resolve: {
+    dedupe: ['react', 'react-dom', '@broccoli/sdk'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
   optimizeDeps: {
     include: [
-      'react',
-      'react-dom',
-      'react-router',
-      '@monaco-editor/react',
+      ...SHARED_DEPS,
+      '@broccoli/sdk/plugin',
+      '@broccoli/sdk/sidebar',
+      '@broccoli/sdk/theme',
       'monaco-editor',
       'react-markdown',
       'katex',

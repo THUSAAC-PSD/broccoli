@@ -24,17 +24,41 @@ export interface SubmissionError {
   details?: Record<string, unknown>;
 }
 
-function parseSubmissionError(err: unknown): SubmissionError {
-  if (err && typeof err === 'object') {
-    const obj = err as Record<string, unknown>;
-    if (typeof obj.code === 'string' && typeof obj.message === 'string') {
-      const result: SubmissionError = { code: obj.code, message: obj.message };
-      if (obj.details != null && typeof obj.details === 'object') {
-        result.details = obj.details as Record<string, unknown>;
-      }
-      return result;
+function parseSubmissionErrorValue(value: unknown): SubmissionError | null {
+  if (!value) return null;
+
+  if (typeof value === 'string') {
+    try {
+      return parseSubmissionErrorValue(JSON.parse(value));
+    } catch {
+      return null;
     }
   }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.code === 'string' && typeof obj.message === 'string') {
+    const result: SubmissionError = { code: obj.code, message: obj.message };
+    if (obj.details != null && typeof obj.details === 'object') {
+      result.details = obj.details as Record<string, unknown>;
+    }
+    return result;
+  }
+
+  return (
+    parseSubmissionErrorValue(obj.error) ??
+    parseSubmissionErrorValue(obj.data) ??
+    parseSubmissionErrorValue(obj.body) ??
+    parseSubmissionErrorValue(obj.response)
+  );
+}
+
+function parseSubmissionError(err: unknown): SubmissionError {
+  const parsed = parseSubmissionErrorValue(err);
+  if (parsed) return parsed;
   return { code: 'UNKNOWN', message: String(err) };
 }
 
@@ -46,7 +70,7 @@ interface UseSubmissionOptions {
 interface UseSubmissionReturn {
   submission: SubmissionResponse | null;
   isSubmitting: boolean;
-  error: string | null;
+  error: SubmissionError | null;
   submit: (
     code: string,
     language: string,
