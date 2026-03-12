@@ -331,9 +331,15 @@ export const en: Record<string, string> = {
   'admin.field.showParticipantsList': 'Show Participants List',
   'admin.field.timeLimit': 'Time Limit',
   'admin.field.memoryLimit': 'Memory Limit',
+  'admin.field.submissionFormat': 'Submission Format',
   'admin.field.showTestDetails': 'Show Test Details',
   'admin.field.options': 'Options',
   'admin.field.createdAt': 'Created',
+  'admin.submissionFormat.language': 'Select language',
+  'admin.submissionFormat.addLanguage': 'Add Language',
+  'admin.submissionFormat.filenamePlaceholder': 'e.g. solution.cpp',
+  'admin.submissionFormat.addFile': 'Add File',
+  'admin.submissionFormat.empty': 'No language configured yet.',
   'admin.loading': 'Loading...',
 
   // Test Cases (admin)

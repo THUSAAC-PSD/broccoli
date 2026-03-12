@@ -52,6 +52,9 @@ export function ProblemFormDialog({
   const [timeLimit, setTimeLimit] = useState(1000);
   const [memoryLimit, setMemoryLimit] = useState(262144);
   const [showTestDetails, setShowTestDetails] = useState(false);
+  const [submissionFormat, setSubmissionFormat] = useState<
+    Record<string, string[]>
+  >({});
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const apiClient = useApiClient();
@@ -62,6 +65,7 @@ export function ProblemFormDialog({
     timeLimit,
     memoryLimit,
     showTestDetails,
+    submissionFormat,
   };
 
   const handleFormChange = (data: ProblemFormData) => {
@@ -70,6 +74,7 @@ export function ProblemFormDialog({
     setTimeLimit(data.timeLimit);
     setMemoryLimit(data.memoryLimit);
     setShowTestDetails(data.showTestDetails);
+    setSubmissionFormat(data.submissionFormat);
   };
 
   useEffect(() => {
@@ -86,6 +91,7 @@ export function ProblemFormDialog({
           setTimeLimit(data.time_limit);
           setMemoryLimit(data.memory_limit);
           setShowTestDetails(data.show_test_details);
+          setSubmissionFormat(data.submission_format ?? {});
         });
     } else {
       setTitle('');
@@ -93,6 +99,7 @@ export function ProblemFormDialog({
       setTimeLimit(1000);
       setMemoryLimit(262144);
       setShowTestDetails(false);
+      setSubmissionFormat({});
     }
   }, [apiClient, open, problem]);
 
@@ -106,6 +113,8 @@ export function ProblemFormDialog({
       time_limit: timeLimit,
       memory_limit: memoryLimit,
       show_test_details: showTestDetails,
+      submission_format:
+        Object.keys(submissionFormat).length > 0 ? submissionFormat : null,
     };
 
     const result = isEdit

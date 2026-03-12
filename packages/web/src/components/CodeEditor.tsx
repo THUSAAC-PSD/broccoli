@@ -1,3 +1,4 @@
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import { useTheme } from '@broccoli/web-sdk/theme';
@@ -13,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@broccoli/web-sdk/ui';
 import Editor from '@monaco-editor/react';
+import { useQuery } from '@tanstack/react-query';
 import JSZip from 'jszip';
 import {
   ChevronDown,
@@ -24,57 +26,21 @@ import {
   X,
 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-interface Language {
-  id: string;
-  name: string;
-  monacoLanguage: string;
-  template: string;
-}
+import {
+  fetchSupportedLanguages,
+  type SupportedLanguage,
+} from '@/features/problem/api/fetch-supported-languages';
 
-const LANGUAGES: Language[] = [
-  {
-    id: 'cpp',
-    name: 'C++',
-    monacoLanguage: 'cpp',
-    template: `#include <iostream>
-using namespace std;
+type Language = SupportedLanguage;
 
-int main() {
-    // Your code here
-    return 0;
-}`,
-  },
-  {
-    id: 'python',
-    name: 'Python',
-    monacoLanguage: 'python',
-    template: `# Your code here
-`,
-  },
-  {
-    id: 'java',
-    name: 'Java',
-    monacoLanguage: 'java',
-    template: `public class Main {
-    public static void main(String[] args) {
-        // Your code here
-    }
-}`,
-  },
-  {
-    id: 'c',
-    name: 'C',
-    monacoLanguage: 'c',
-    template: `#include <stdio.h>
-
-int main() {
-    // Your code here
-    return 0;
-}`,
-  },
-];
+const FALLBACK_LANGUAGE: Language = {
+  id: 'plaintext',
+  name: 'Plain Text',
+  defaultFilename: 'solution.txt',
+  template: '',
+};
 
 export interface EditorFile {
   id: string;
@@ -146,9 +112,76 @@ function detectLanguageFromFiles(files: EditorFile[]): string | null {
 
 function getStorageKeys(storageKey: string) {
   return {
-    code: `broccoli-editor-${storageKey}-code`,
-    lang: `broccoli-editor-${storageKey}-lang`,
+    selectedLanguage: `broccoli-editor-${storageKey}-selected-language`,
   };
+}
+
+function getLanguageStorageKeys(storageKey: string, languageId: string) {
+  const base = `broccoli-editor-${storageKey}-language-${languageId}`;
+  return {
+    files: `${base}-files`,
+    activeFile: `${base}-active-file`,
+    fileContent: (filename: string) =>
+      `${base}-file-${encodeURIComponent(filename)}`,
+  };
+}
+
+type PersistedEditorFile = {
+  filename: string;
+  content: string;
+};
+
+function parsePersistedFiles(raw: string | null): PersistedEditorFile[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is PersistedEditorFile =>
+          typeof item === 'object' &&
+          item !== null &&
+          typeof (item as PersistedEditorFile).filename === 'string' &&
+          typeof (item as PersistedEditorFile).content === 'string',
+      )
+      .map((item) => ({
+        filename: item.filename,
+        content: item.content,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function loadLanguageFiles(
+  storageKey: string,
+  languageId: string,
+): PersistedEditorFile[] {
+  const keys = getLanguageStorageKeys(storageKey, languageId);
+  const filenames = parsePersistedFiles(localStorage.getItem(keys.files)).map(
+    (file) => file.filename,
+  );
+
+  return filenames.map((filename) => ({
+    filename,
+    content: localStorage.getItem(keys.fileContent(filename)) ?? '',
+  }));
+}
+
+function saveLanguageFiles(
+  storageKey: string,
+  languageId: string,
+  files: EditorFile[],
+) {
+  const keys = getLanguageStorageKeys(storageKey, languageId);
+  const persisted = files.map((file) => ({
+    filename: file.filename,
+    content: '',
+  }));
+  localStorage.setItem(keys.files, JSON.stringify(persisted));
+  for (const file of files) {
+    localStorage.setItem(keys.fileContent(file.filename), file.content);
+  }
 }
 
 let fileIdCounter = 0;
@@ -180,6 +213,18 @@ function getDefaultFilename(
   return FILENAME_MAP[languageId] ?? 'solution.txt';
 }
 
+function getConfiguredFilenames(
+  languageId: string,
+  submissionFormat?: Record<string, string[]> | null,
+): string[] {
+  const names = submissionFormat?.[languageId] ?? [];
+  return names
+    .map((name) => name.trim())
+    .filter(
+      (name, index, arr) => name.length > 0 && arr.indexOf(name) === index,
+    );
+}
+
 export function CodeEditor({
   onSubmit,
   onRun,
@@ -189,35 +234,115 @@ export function CodeEditor({
   submissionFormat,
 }: CodeEditorProps) {
   const { t } = useTranslation();
+  const apiClient = useApiClient();
+  const { data: supportedLanguages = [] } = useQuery({
+    queryKey: ['supported-languages'],
+    queryFn: () => fetchSupportedLanguages(apiClient),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const availableLanguages = useMemo(() => {
+    if (supportedLanguages.length === 0) return [FALLBACK_LANGUAGE];
+    if (!submissionFormat) return supportedLanguages;
+    const configured = supportedLanguages.filter((lang) => {
+      const files = getConfiguredFilenames(lang.id, submissionFormat);
+      return files.length > 0;
+    });
+    return configured.length > 0 ? configured : supportedLanguages;
+  }, [submissionFormat, supportedLanguages]);
+
+  const isSubmissionFormatLocked = useMemo(
+    () =>
+      Object.keys(submissionFormat ?? {}).some(
+        (languageId) =>
+          getConfiguredFilenames(languageId, submissionFormat).length > 0,
+      ),
+    [submissionFormat],
+  );
 
   const [selectedLanguage, setSelectedLanguage] = useState<Language>(() => {
     if (storageKey) {
-      const saved = localStorage.getItem(getStorageKeys(storageKey).lang);
+      const saved = localStorage.getItem(
+        getStorageKeys(storageKey).selectedLanguage,
+      );
       if (saved) {
-        const found = LANGUAGES.find((l) => l.id === saved);
+        const found = availableLanguages.find((l) => l.id === saved);
         if (found) return found;
       }
     }
-    return LANGUAGES[0];
+    return availableLanguages[0];
   });
+
+  const buildFilesForLanguage = useCallback(
+    (language: Language, previousFiles: EditorFile[]): EditorFile[] => {
+      const configuredNames = getConfiguredFilenames(
+        language.id,
+        submissionFormat,
+      );
+      if (configuredNames.length === 0) {
+        const fallbackFilename = getDefaultFilename(
+          language.id,
+          submissionFormat,
+        );
+        const keep = previousFiles.find((f) => f.filename === fallbackFilename);
+        return [
+          {
+            id: keep?.id ?? nextFileId(),
+            filename: fallbackFilename,
+            content: keep?.content ?? language.template,
+          },
+        ];
+      }
+
+      return configuredNames.map((filename, index) => {
+        const keep = previousFiles.find((f) => f.filename === filename);
+        return {
+          id: keep?.id ?? nextFileId(),
+          filename,
+          content: keep?.content ?? (index === 0 ? language.template : ''),
+        };
+      });
+    },
+    [submissionFormat],
+  );
+
+  useEffect(() => {
+    if (availableLanguages.some((lang) => lang.id === selectedLanguage.id))
+      return;
+    const nextLanguage = availableLanguages[0];
+    setSelectedLanguage(nextLanguage);
+    setFiles((prev) => {
+      const nextFiles = buildFilesForLanguage(nextLanguage, prev);
+      if (nextFiles.length > 0) {
+        setActiveFileId(nextFiles[0].id);
+      }
+      return nextFiles;
+    });
+  }, [availableLanguages, buildFilesForLanguage, selectedLanguage.id]);
 
   // Multi-file tabs state
   const [files, setFiles] = useState<EditorFile[]>(() => {
-    const defaultFilename = getDefaultFilename(
-      selectedLanguage.id,
-      submissionFormat,
-    );
-    let initialContent = selectedLanguage.template;
-    if (storageKey) {
-      const saved = localStorage.getItem(getStorageKeys(storageKey).code);
-      if (saved != null) initialContent = saved;
-    }
-    return [
-      { id: nextFileId(), filename: defaultFilename, content: initialContent },
-    ];
+    const savedFiles = storageKey
+      ? loadLanguageFiles(storageKey, selectedLanguage.id).map((file) => ({
+          id: nextFileId(),
+          filename: file.filename,
+          content: file.content,
+        }))
+      : [];
+
+    const initial = buildFilesForLanguage(selectedLanguage, savedFiles);
+    return initial;
   });
 
-  const [activeFileId, setActiveFileId] = useState<string>(files[0].id);
+  const [activeFileId, setActiveFileId] = useState<string>(() => {
+    if (!storageKey || files.length === 0) return files[0]?.id ?? nextFileId();
+    const savedActiveFilename = localStorage.getItem(
+      getLanguageStorageKeys(storageKey, selectedLanguage.id).activeFile,
+    );
+    if (!savedActiveFilename) return files[0].id;
+    const found = files.find((file) => file.filename === savedActiveFilename);
+    return found?.id ?? files[0].id;
+  });
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
 
@@ -232,59 +357,87 @@ export function CodeEditor({
     prevStorageKey.current = storageKey;
 
     // Load saved language
-    let lang = LANGUAGES[0];
+    let lang = availableLanguages[0];
     if (storageKey) {
-      const savedLang = localStorage.getItem(getStorageKeys(storageKey).lang);
+      const savedLang = localStorage.getItem(
+        getStorageKeys(storageKey).selectedLanguage,
+      );
       if (savedLang) {
-        const found = LANGUAGES.find((l) => l.id === savedLang);
+        const found = availableLanguages.find((l) => l.id === savedLang);
         if (found) lang = found;
       }
     }
     setSelectedLanguage(lang);
 
-    // Load saved code
-    const defaultFilename = getDefaultFilename(lang.id, submissionFormat);
-    let content = lang.template;
-    if (storageKey) {
-      const savedCode = localStorage.getItem(getStorageKeys(storageKey).code);
-      if (savedCode != null) content = savedCode;
-    }
-    const newFile = { id: nextFileId(), filename: defaultFilename, content };
-    setFiles([newFile]);
-    setActiveFileId(newFile.id);
-  }, [storageKey, submissionFormat]);
+    const savedFiles = storageKey
+      ? loadLanguageFiles(storageKey, lang.id).map((file) => ({
+          id: nextFileId(),
+          filename: file.filename,
+          content: file.content,
+        }))
+      : [];
 
-  // Auto-save primary file to localStorage
+    const withSaved = buildFilesForLanguage(lang, savedFiles);
+    setFiles(withSaved);
+    if (withSaved.length > 0) {
+      const savedActiveFilename = storageKey
+        ? localStorage.getItem(
+            getLanguageStorageKeys(storageKey, lang.id).activeFile,
+          )
+        : null;
+      const active = savedActiveFilename
+        ? withSaved.find((file) => file.filename === savedActiveFilename)
+        : undefined;
+      setActiveFileId(active?.id ?? withSaved[0].id);
+    }
+  }, [availableLanguages, buildFilesForLanguage, storageKey]);
+
+  // Auto-save all files and current language to localStorage
   useEffect(() => {
     if (!storageKey) return;
     const keys = getStorageKeys(storageKey);
-    // Save the first file's content as the "code" for backward compat
-    if (files.length > 0) {
-      localStorage.setItem(keys.code, files[0].content);
+
+    saveLanguageFiles(storageKey, selectedLanguage.id, files);
+
+    const active = files.find((file) => file.id === activeFileId) ?? files[0];
+    if (active) {
+      localStorage.setItem(
+        getLanguageStorageKeys(storageKey, selectedLanguage.id).activeFile,
+        active.filename,
+      );
     }
-    localStorage.setItem(keys.lang, selectedLanguage.id);
-  }, [storageKey, files, selectedLanguage]);
+
+    localStorage.setItem(keys.selectedLanguage, selectedLanguage.id);
+  }, [storageKey, files, selectedLanguage, activeFileId]);
 
   const handleLanguageChange = useCallback(
     (language: Language) => {
       setSelectedLanguage(language);
-      const newFilename = getDefaultFilename(language.id, submissionFormat);
-      // If there's only 1 file (the default), reset it
-      const currentDefault = getDefaultFilename(
-        selectedLanguage.id,
-        submissionFormat,
-      );
-      if (files.length === 1 && files[0].filename === currentDefault) {
-        setFiles([
-          {
-            id: files[0].id,
-            filename: newFilename,
-            content: language.template,
-          },
-        ]);
-      }
+      const persisted = storageKey
+        ? loadLanguageFiles(storageKey, language.id).map((file) => ({
+            id: nextFileId(),
+            filename: file.filename,
+            content: file.content,
+          }))
+        : [];
+      setFiles((prev) => {
+        const source = persisted.length > 0 ? persisted : prev;
+        const next = buildFilesForLanguage(language, source);
+        if (next.length > 0) {
+          const savedActiveFilename = storageKey
+            ? localStorage.getItem(
+                getLanguageStorageKeys(storageKey, language.id).activeFile,
+              )
+            : null;
+          const active = savedActiveFilename
+            ? next.find((file) => file.filename === savedActiveFilename)
+            : undefined;
+          setActiveFileId(active?.id ?? next[0].id);
+        }
+        return next;
+      });
     },
-    [files, submissionFormat, selectedLanguage],
+    [buildFilesForLanguage, storageKey],
   );
 
   const updateFileContent = useCallback((fileId: string, content: string) => {
@@ -295,6 +448,7 @@ export function CodeEditor({
 
   const closeFile = useCallback(
     (fileId: string) => {
+      if (isSubmissionFormatLocked) return;
       setFiles((prev) => {
         if (prev.length <= 1) return prev; // Don't close last file
         const next = prev.filter((f) => f.id !== fileId);
@@ -304,7 +458,7 @@ export function CodeEditor({
         return next;
       });
     },
-    [activeFileId],
+    [activeFileId, isSubmissionFormatLocked],
   );
 
   const addFiles = useCallback(
@@ -314,7 +468,7 @@ export function CodeEditor({
       // Detect language from uploaded files
       const detectedLang = detectLanguageFromFiles(newFiles);
       if (detectedLang) {
-        const lang = LANGUAGES.find((l) => l.id === detectedLang);
+        const lang = availableLanguages.find((l) => l.id === detectedLang);
         if (lang) setSelectedLanguage(lang);
       }
 
@@ -336,7 +490,7 @@ export function CodeEditor({
       // Activate the first new file
       setActiveFileId(newFiles[0].id);
     },
-    [selectedLanguage, submissionFormat],
+    [availableLanguages, selectedLanguage, submissionFormat],
   );
 
   const processUploadedFiles = useCallback(
@@ -402,6 +556,7 @@ export function CodeEditor({
   );
 
   const addNewFile = useCallback(() => {
+    if (isSubmissionFormatLocked) return;
     const ext =
       getDefaultFilename(selectedLanguage.id, submissionFormat)
         .split('.')
@@ -414,7 +569,7 @@ export function CodeEditor({
     const newFile: EditorFile = { id: nextFileId(), filename, content: '' };
     setFiles((prev) => [...prev, newFile]);
     setActiveFileId(newFile.id);
-  }, [selectedLanguage, submissionFormat, files]);
+  }, [isSubmissionFormatLocked, selectedLanguage, submissionFormat, files]);
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -512,7 +667,7 @@ export function CodeEditor({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {LANGUAGES.map((lang) => (
+              {availableLanguages.map((lang) => (
                 <DropdownMenuItem
                   key={lang.id}
                   onClick={() => handleLanguageChange(lang)}
@@ -539,7 +694,7 @@ export function CodeEditor({
               }`}
             >
               <span>{file.filename.split('/').pop()}</span>
-              {files.length > 1 && (
+              {files.length > 1 && !isSubmissionFormatLocked && (
                 <span
                   role="button"
                   tabIndex={0}
@@ -560,14 +715,16 @@ export function CodeEditor({
               )}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={addNewFile}
-            title={t('editor.addFile')}
-            className="flex items-center px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors border-b-2 border-transparent"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          {!isSubmissionFormatLocked && (
+            <button
+              type="button"
+              onClick={addNewFile}
+              title={t('editor.addFile')}
+              className="flex items-center px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors border-b-2 border-transparent"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 min-h-[400px] border rounded-lg overflow-hidden">
