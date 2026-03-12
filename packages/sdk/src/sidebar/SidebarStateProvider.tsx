@@ -16,11 +16,22 @@ export function SidebarStateProvider({
   ...props
 }: SidebarStateProviderProps) {
   const [sidebarState, setSidebarState] = useState<SidebarState>(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem(storageKey) as SidebarState) || defaultState;
-    }
+    // if (typeof window !== 'undefined') {
+    //   return (localStorage.getItem(storageKey) as SidebarState) || defaultState;
+    // }
     return defaultState;
   });
+
+  useEffect(() => {
+    setSidebarState(() => {
+      if (typeof window !== 'undefined') {
+        return (
+          (localStorage.getItem(storageKey) as SidebarState) || defaultState
+        );
+      }
+      return defaultState;
+    });
+  }, [defaultState, storageKey]);
 
   useEffect(() => {
     const root = document.documentElement;
