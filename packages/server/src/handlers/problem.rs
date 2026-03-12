@@ -357,6 +357,7 @@ pub async fn create_test_case(
         expected_output: Set(payload.expected_output),
         score: Set(payload.score),
         description: Set(payload.description.map(|d| d.trim().to_string())),
+        label: Set(payload.label.unwrap_or_else(|| position.to_string())),
         is_sample: Set(payload.is_sample),
         position: Set(position),
         problem_id: Set(problem_id),
@@ -525,6 +526,11 @@ pub async fn update_test_case(
     }
     if let Some(position) = payload.position {
         active.position = Set(position);
+    }
+    match payload.label {
+        Some(Some(label)) => active.label = Set(label),
+        Some(None) => active.label = Set(active.position.clone().unwrap().to_string()),
+        None => {}
     }
     match payload.description {
         Some(Some(desc)) => active.description = Set(Some(desc.trim().to_string())),

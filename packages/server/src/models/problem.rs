@@ -169,7 +169,7 @@ pub struct CreateTestCaseRequest {
     #[schema(example = "Basic case")]
     pub description: Option<String>,
     #[schema(example = "sample01")]
-    pub label: String,
+    pub label: Option<String>,
 }
 
 /// PATCH body for updating a test case. Only provided fields are modified.
@@ -194,8 +194,9 @@ pub struct UpdateTestCaseRequest {
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<String>, example = "Updated edge case")]
     pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     #[schema(example = "sample01")]
-    pub label: Option<String>,
+    pub label: Option<Option<String>>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
