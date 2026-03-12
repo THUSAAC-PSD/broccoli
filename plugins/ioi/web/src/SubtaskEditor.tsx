@@ -520,8 +520,6 @@ function TcChip({
   );
 }
 
-// ─── Pool Card ──────────────────────────────────────────
-
 function PoolCard({
   tc,
   state,
@@ -692,10 +690,6 @@ function PoolCard({
     </>
   );
 }
-
-// ─── Unified Search ─────────────────────────────────────
-// Single input: type labels/regex to search, or #1-10,15 for position ranges.
-// Dropdown rendered via portal to escape dialog transform + overflow:hidden.
 
 // Position mode requires explicit # prefix to avoid confusion with numeric labels.
 // Examples: #1-10, #15, #1-5,8,10-12
@@ -1205,8 +1199,6 @@ function UnifiedSearch({
     </div>
   );
 }
-
-// ─── Main Component ─────────────────────────────────────
 
 export function SubtaskEditor({
   value,
@@ -2165,7 +2157,7 @@ export function SubtaskEditor({
                   )}
                 </div>
 
-                {/* ── Pool grid ── */}
+                {/* Pool grid */}
                 {isPoolOpen && (
                   <div style={{ marginTop: '10px' }}>
                     <div

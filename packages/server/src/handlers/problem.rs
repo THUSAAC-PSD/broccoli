@@ -146,7 +146,6 @@ pub async fn list_problems(
         .column(problem::Column::Title)
         .column(problem::Column::TimeLimit)
         .column(problem::Column::MemoryLimit)
-        .column(problem::Column::ShowTestDetails)
         .column(problem::Column::ProblemType)
         .column(problem::Column::CheckerFormat)
         .column(problem::Column::DefaultContestType)

@@ -1842,12 +1842,6 @@ export interface components {
              */
             problem_type?: string;
             /**
-             * @description Whether contestants see full input/output for all test cases.
-             *     If omitted, defaults to false.
-             * @example false
-             */
-            show_test_details?: boolean | null;
-            /**
              * Format: int32
              * @description Execution time limit in milliseconds (1-30000).
              * @example 1000
@@ -2375,11 +2369,6 @@ export interface components {
              */
             problem_type: string;
             /**
-             * @description Whether contestants see full input/output for all test cases.
-             * @example false
-             */
-            show_test_details: boolean;
-            /**
              * Format: int32
              * @example 1000
              */
@@ -2435,11 +2424,6 @@ export interface components {
             problem_type: string;
             /** @description Sample test case metadata (is_sample = true). */
             samples: components["schemas"]["SampleTestCaseMeta"][];
-            /**
-             * @description Whether contestants see full input/output for all test cases.
-             * @example false
-             */
-            show_test_details: boolean;
             /**
              * Format: int32
              * @example 1000

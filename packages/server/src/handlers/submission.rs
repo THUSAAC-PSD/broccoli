@@ -23,7 +23,7 @@ use crate::hooks::{self, HookOutcome};
 use crate::models::shared::Pagination;
 use crate::models::submission::*;
 use crate::state::AppState;
-use broccoli_server_sdk::types::{AfterSubmissionEvent, BeforeSubmissionEvent};
+use broccoli_server_sdk::types::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent};
 
 /// Check rate limit for a user.
 ///
@@ -116,6 +116,65 @@ fn fire_after_submission_hooks(
         },
         enabled_plugins,
         state.registries.hook_registry.clone(),
+    );
+}
+
+/// Fire `after_judging` hooks in the background after plugin completes.
+///
+/// Re-reads the submission from DB to get the final verdict/score (set by the
+/// plugin via host functions during execution). Only fires if the submission
+/// reached a terminal state.
+async fn fire_after_judging_hooks(
+    db: &DatabaseConnection,
+    hook_registry: hooks::SharedHookRegistry,
+    submission_id: i32,
+    user_id: i32,
+    problem_id: i32,
+    contest_id: Option<i32>,
+) {
+    let sub = match submission::Entity::find_by_id(submission_id).one(db).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            warn!(submission_id, "Submission not found for after_judging hook");
+            return;
+        }
+        Err(e) => {
+            warn!(submission_id, error = %e, "DB error reading submission for after_judging hook");
+            return;
+        }
+    };
+
+    // Only fire if the submission reached a terminal state
+    if !sub.status.is_terminal() {
+        return;
+    }
+
+    let verdict = sub
+        .verdict
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| sub.status.to_string());
+
+    // Fetch enablements for contest-scoped hooks
+    let enabled_plugins = match hooks::fetch_resource_enablements(problem_id, contest_id, db).await
+    {
+        Ok(e) => Some(e),
+        Err(e) => {
+            warn!(error = ?e, "Failed to fetch enablements for after_judging hook");
+            None
+        }
+    };
+
+    hooks::dispatch_hooks_background_typed(
+        AfterJudgingEvent {
+            submission_id,
+            user_id,
+            problem_id,
+            contest_id,
+            verdict,
+            score: sub.score,
+        },
+        enabled_plugins,
+        hook_registry,
     );
 }
 
@@ -409,8 +468,12 @@ async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
     let plugin_id = handler.plugin_id.clone();
     let function_name = handler.function_name.clone();
     let plugins = state.plugins.clone();
+    let hook_registry = state.registries.hook_registry.clone();
     let db = state.db.clone();
     let submission_id = submission.id;
+    let user_id = submission.user_id;
+    let problem_id = submission.problem_id;
+    let contest_id = submission.contest_id;
 
     info!(
         submission_id,
@@ -471,6 +534,17 @@ async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
                 .await;
             }
         }
+
+        // Fire after_judging hooks (reads final verdict/score from DB)
+        fire_after_judging_hooks(
+            &db,
+            hook_registry,
+            submission_id,
+            user_id,
+            problem_id,
+            contest_id,
+        )
+        .await;
     });
 }
 

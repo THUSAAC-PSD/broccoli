@@ -1,4 +1,4 @@
-# ── LimitRejection ───────────────────────────────────────────────────────────
+# LimitRejection
 'limit.result' = 'Result'
 'limit.limitReached' = 'Limit Reached'
 'limit.submissionLimitReached' = 'Submission Limit Reached'
@@ -6,13 +6,13 @@
 'limit.usedCount' = '{{used}} / {{total}} used'
 'limit.zeroRemaining' = '0 remaining'
 
-# ── SubmissionLimitStatus ────────────────────────────────────────────────────
+# SubmissionLimitStatus
 'limit.submissions' = 'Submissions'
 'limit.submittedNoLimit' = '{{count}} submitted — no limit'
 'limit.remaining' = '{{count}} left'
 'limit.reached' = 'limit reached'
 
-# ── LimitConfigInfo ─────────────────────────────────────────────────────────
+# LimitConfigInfo
 'limit.unlimited' = '0 (unlimited)'
 'limit.sourceContest' = 'Contest'
 'limit.sourceProblem' = 'Problem'

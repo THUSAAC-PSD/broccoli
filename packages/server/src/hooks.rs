@@ -4,7 +4,7 @@ use std::sync::Arc;
 use broccoli_server_sdk::types::HookEvent;
 use common::event::GenericEvent;
 use common::hook::{GenericHook, HookAction};
-use plugin_core::hook::{HookMode, HookScope, PluginHook};
+use plugin_core::hook::{HookMode, HookScope, PLUGIN_RUNTIME_ERROR_CODE, PluginHook};
 use plugin_core::traits::PluginManager;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use tokio::sync::RwLock;
@@ -210,7 +210,11 @@ fn parse_reject_detail(reason: &str) -> (String, String, u16, Option<serde_json:
             .and_then(|m| m.as_str())
             .unwrap_or("Request rejected by plugin")
             .to_string();
-        let status_code = v.get("status_code").and_then(|s| s.as_u64()).unwrap_or(400) as u16;
+        let status_code = v
+            .get("status_code")
+            .and_then(|s| s.as_u64())
+            .and_then(|n| u16::try_from(n).ok())
+            .unwrap_or(400);
         let details = v.get("details").cloned();
         (code, message, status_code, details)
     } else {
@@ -303,7 +307,7 @@ async fn dispatch_hooks_inner(
     hook_registry: &SharedHookRegistry,
     depth: u8,
 ) -> Result<HookOutcome, AppError> {
-    if depth > MAX_CHAIN_DEPTH {
+    if depth >= MAX_CHAIN_DEPTH {
         tracing::warn!(
             topic,
             depth,
@@ -357,11 +361,13 @@ async fn dispatch_hooks_inner(
         list
     }; // registry read lock dropped here
 
-    // Sort globals first, then blocking before notify, then by position.
+    // Sort blocking before notify, then globals first within same mode, then by position.
+    // This ensures all blocking hooks (which can reject) run before any notify hooks
+    // (which produce side effects), preventing side-effect leaks on rejected events.
     dispatch_list.sort_by(|a, b| {
-        b.is_global
-            .cmp(&a.is_global)
-            .then(a.mode.cmp(&b.mode))
+        a.mode
+            .cmp(&b.mode)
+            .then(b.is_global.cmp(&a.is_global))
             .then(a.position.cmp(&b.position))
     });
 
@@ -388,6 +394,12 @@ async fn dispatch_hooks_inner(
                     }
                     HookAction::Reject(reason) => {
                         let (code, message, status_code, details) = parse_reject_detail(&reason);
+                        if code == PLUGIN_RUNTIME_ERROR_CODE {
+                            // Plugin infrastructure failure — this is a 500, not a client error.
+                            // Don't expose internal details to the client.
+                            tracing::error!(topic, %code, %message, "Hook infrastructure error");
+                            return Err(AppError::Internal(message));
+                        }
                         return Ok(HookOutcome::Rejected {
                             code,
                             message,
@@ -931,5 +943,154 @@ mod tests {
             .unwrap();
         assert!(matches!(result, HookOutcome::Allowed(_)));
         assert_eq!(hook.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn hooks_sorted_by_mode_then_scope_then_position() {
+        // Verify full ordering: Global Blocking -> Resource Blocking -> Global Notify -> Resource Notify
+        let registry = new_shared_registry();
+        let call_counter = Arc::new(AtomicUsize::new(0));
+
+        struct OrderTracker {
+            id: String,
+            topics: Vec<String>,
+            order: AtomicUsize,
+            counter: Arc<AtomicUsize>,
+        }
+
+        #[async_trait]
+        impl GenericHook for OrderTracker {
+            type Context = ();
+            fn id(&self) -> &str {
+                &self.id
+            }
+            fn topics(&self) -> &[String] {
+                &self.topics
+            }
+            async fn on_event(
+                &self,
+                _ctx: (),
+                _event: &GenericEvent,
+            ) -> anyhow::Result<GenericHookAction> {
+                self.order.store(
+                    self.counter.fetch_add(1, Ordering::SeqCst),
+                    Ordering::SeqCst,
+                );
+                Ok(HookAction::Pass)
+            }
+        }
+
+        let resource_notify = Arc::new(OrderTracker {
+            id: "res_notify".into(),
+            topics: vec!["test".into()],
+            order: AtomicUsize::new(999),
+            counter: call_counter.clone(),
+        });
+        let global_notify = Arc::new(OrderTracker {
+            id: "glob_notify".into(),
+            topics: vec!["test".into()],
+            order: AtomicUsize::new(999),
+            counter: call_counter.clone(),
+        });
+        let resource_blocking = Arc::new(OrderTracker {
+            id: "res_block".into(),
+            topics: vec!["test".into()],
+            order: AtomicUsize::new(999),
+            counter: call_counter.clone(),
+        });
+        let global_blocking = Arc::new(OrderTracker {
+            id: "glob_block".into(),
+            topics: vec!["test".into()],
+            order: AtomicUsize::new(999),
+            counter: call_counter.clone(),
+        });
+
+        // Register in reverse of expected order
+        {
+            let mut r = registry.write().await;
+            register_direct(
+                &mut r,
+                resource_notify.clone(),
+                HookScope::Resource,
+                HookMode::Notify,
+            );
+            register_direct(
+                &mut r,
+                global_notify.clone(),
+                HookScope::Global,
+                HookMode::Notify,
+            );
+            register_direct(
+                &mut r,
+                resource_blocking.clone(),
+                HookScope::Resource,
+                HookMode::Blocking,
+            );
+            register_direct(
+                &mut r,
+                global_blocking.clone(),
+                HookScope::Global,
+                HookMode::Blocking,
+            );
+        }
+
+        let mut enabled = HashMap::new();
+        enabled.insert("res_block".to_string(), 0);
+        enabled.insert("res_notify".to_string(), 0);
+
+        let result = dispatch_hooks("test", serde_json::json!({}), Some(&enabled), &registry)
+            .await
+            .unwrap();
+        assert!(matches!(result, HookOutcome::Allowed(_)));
+
+        // Expected order: Global Blocking (0) -> Resource Blocking (1) -> Global Notify (2) -> Resource Notify (3)
+        assert_eq!(
+            global_blocking.order.load(Ordering::SeqCst),
+            0,
+            "global blocking should be first"
+        );
+        assert_eq!(
+            resource_blocking.order.load(Ordering::SeqCst),
+            1,
+            "resource blocking should be second"
+        );
+        assert_eq!(
+            global_notify.order.load(Ordering::SeqCst),
+            2,
+            "global notify should be third"
+        );
+        assert_eq!(
+            resource_notify.order.load(Ordering::SeqCst),
+            3,
+            "resource notify should be fourth"
+        );
+    }
+
+    #[tokio::test]
+    async fn plugin_runtime_error_reject_returns_internal_error_not_400() {
+        let registry = new_shared_registry();
+        let reject_json = serde_json::json!({
+            "code": PLUGIN_RUNTIME_ERROR_CODE,
+            "message": "Plugin 'x' hook 'y' failed: OOM",
+            "status_code": 500,
+        });
+        let hook = Arc::new(MockHook::new(
+            "crasher",
+            "test",
+            HookAction::Reject(reject_json.to_string()),
+        ));
+        register_direct(
+            &mut *registry.write().await,
+            hook,
+            HookScope::Global,
+            HookMode::Blocking,
+        );
+
+        let result = dispatch_global(&registry, "test", serde_json::json!({})).await;
+        // Plugin runtime errors should be converted to AppError::Internal, not HookOutcome::Rejected
+        assert!(
+            result.is_err(),
+            "Plugin runtime error should return Err(Internal), not Ok(Rejected)"
+        );
     }
 }

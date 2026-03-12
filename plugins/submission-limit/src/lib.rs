@@ -4,8 +4,6 @@ mod wasm_entries {
     use extism_pdk::{plugin_fn, FnResult};
     use serde::{Deserialize, Serialize};
 
-    // ── Config types ──
-
     use host::config::ConfigResult;
 
     #[derive(Debug, Default, Deserialize)]
@@ -70,22 +68,23 @@ mod wasm_entries {
         })
     }
 
-    // ── SQL result types ──
 
     #[derive(Deserialize)]
     struct SubmissionCount {
         count: i64,
     }
 
-    // ── Hook: check_limit ──
-
+    /// Check whether the user has exceeded the submission limit for this problem.
     #[plugin_fn]
     pub fn check_limit(input: String) -> FnResult<String> {
         let event: BeforeSubmissionEvent = serde_json::from_str(&input)?;
 
         let resolved = match resolve_max_submissions(event.contest_id, event.problem_id) {
             Ok(r) => r,
-            Err(_) => ResolvedLimit { max_submissions: 0, source: ConfigSource::Default },
+            Err(e) => {
+                let _ = host::logger::log_info(format!("[submission-limit] Failed to resolve config: {e}, using default (unlimited)"));
+                ResolvedLimit { max_submissions: 0, source: ConfigSource::Default }
+            }
         };
 
         // 0 means unlimited
@@ -102,8 +101,7 @@ mod wasm_entries {
         let rows: Vec<SubmissionCount> = host::db::db_query(&format!(
             "SELECT COUNT(*) as count \
              FROM submission \
-             WHERE user_id = {} AND problem_id = {} {} \
-             AND (verdict IS NOT NULL OR status != 'Judged')",
+             WHERE user_id = {} AND problem_id = {} {}",
             event.user_id, event.problem_id, contest_filter
         ))?;
 
@@ -126,7 +124,7 @@ mod wasm_entries {
         Ok(serde_json::to_string(&serde_json::json!({"action": "pass"}))?)
     }
 
-    // ── API: GET /api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status ──
+    // API: GET /api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status
 
     #[derive(Serialize)]
     struct LimitStatusResponse {
@@ -185,8 +183,7 @@ mod wasm_entries {
         let rows: Vec<SubmissionCount> = host::db::db_query(&format!(
             "SELECT COUNT(*) as count \
              FROM submission \
-             WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-             AND (verdict IS NOT NULL OR status != 'Judged')",
+             WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
             user_id, problem_id, contest_id
         ))?;
 

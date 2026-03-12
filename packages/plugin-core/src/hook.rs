@@ -7,6 +7,11 @@ use std::sync::Arc;
 
 use crate::traits::{PluginManager, PluginManagerExt};
 
+/// Sentinel error code used when a WASM hook call fails at the infrastructure level
+/// (plugin crash, OOM, etc.). Intentionally uses a reserved prefix so plugins cannot
+/// collide with it by choosing the same code for domain rejections.
+pub const PLUGIN_RUNTIME_ERROR_CODE: &str = "__BROCCOLI_PLUGIN_RUNTIME_ERROR";
+
 /// Scope of a hook.
 ///
 /// - Resource-scoped: Only fires when the plugin is enabled for the relevant resource (problem, contest, or contest_problem).
@@ -52,6 +57,9 @@ pub enum HookResponse {
         message: String,
         #[serde(default = "default_reject_status")]
         status_code: u16,
+        /// Optional structured data from the plugin (e.g. remaining seconds, submission counts).
+        #[serde(default)]
+        details: Option<serde_json::Value>,
     },
     Modified {
         event: serde_json::Value,
@@ -70,7 +78,10 @@ fn default_reject_status() -> u16 {
 
 impl HookResponse {
     /// Convert the plugin response into a GenericHookAction.
-    fn into_hook_action(self) -> GenericHookAction {
+    ///
+    /// `original_topic` is used as a fallback for `Modified` events when the
+    /// plugin doesn't include a `topic` field in its modified event JSON.
+    fn into_hook_action(self, original_topic: &str) -> GenericHookAction {
         match self {
             HookResponse::Pass => HookAction::Pass,
             HookResponse::Stop => HookAction::Stop,
@@ -78,12 +89,16 @@ impl HookResponse {
                 code,
                 message,
                 status_code,
+                details,
             } => {
-                let detail = serde_json::json!({
+                let mut detail = serde_json::json!({
                     "code": code,
                     "message": message,
                     "status_code": status_code,
                 });
+                if let Some(d) = details {
+                    detail["details"] = d;
+                }
                 HookAction::Reject(detail.to_string())
             }
             HookResponse::Modified { event } => {
@@ -91,7 +106,7 @@ impl HookResponse {
                     topic: event
                         .get("topic")
                         .and_then(|t| t.as_str())
-                        .unwrap_or("")
+                        .unwrap_or(original_topic)
                         .to_string(),
                     payload: event,
                 };
@@ -159,7 +174,7 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
         {
             Ok(response_value) => {
                 match serde_json::from_value::<HookResponse>(response_value) {
-                    Ok(hook_response) => Ok(hook_response.into_hook_action()),
+                    Ok(hook_response) => Ok(hook_response.into_hook_action(&event.topic)),
                     Err(e) => {
                         tracing::warn!(
                             plugin_id = %self.plugin_id,
@@ -180,7 +195,7 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
                     "Hook WASM call failed (fail-closed): {e}",
                 );
                 let detail = serde_json::json!({
-                    "code": "PLUGIN_ERROR",
+                    "code": PLUGIN_RUNTIME_ERROR_CODE,
                     "message": format!("Plugin '{}' hook '{}' failed: {e}", self.plugin_id, self.function_name),
                     "status_code": 500,
                 });

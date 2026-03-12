@@ -23,8 +23,6 @@ handler = "get_limit_status"
 [translations]
 en = "i18n/en.toml"
 
-# ─── Web / Frontend ─────────────────────────────────────────────────────────
-
 [web]
 root = "frontend/dist"
 entry = "index.js"
@@ -48,8 +46,6 @@ component = "LimitRejection"
 name = "problem-detail.sidebar"
 position = "prepend"
 component = "SubmissionLimitStatus"
-
-# ─── Config: submission limit (cascading: contest_problem > contest > problem) ─
 
 [config.limits]
 description = "Submission limit settings"

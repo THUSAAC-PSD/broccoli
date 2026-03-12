@@ -77,7 +77,10 @@ mod wasm_entries {
 
         let resolved = match resolve_cooldown(event.contest_id, event.problem_id) {
             Ok(r) => r,
-            Err(_) => ResolvedCooldown { cooldown_seconds: 0, source: ConfigSource::Default },
+            Err(e) => {
+                let _ = host::logger::log_info(format!("[cooldown] Failed to resolve config: {e}, using default (disabled)"));
+                ResolvedCooldown { cooldown_seconds: 0, source: ConfigSource::Default }
+            }
         };
 
         if resolved.cooldown_seconds == 0 {
@@ -91,8 +94,7 @@ mod wasm_entries {
         let rows: Vec<SecondsSinceLast> = host::db::db_query(&format!(
             "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
              FROM submission \
-             WHERE user_id = {} AND problem_id = {} {} \
-             AND (verdict IS NOT NULL OR status != 'Judged')",
+             WHERE user_id = {} AND problem_id = {} {}",
             event.user_id, event.problem_id, contest_filter
         ))?;
 
@@ -180,8 +182,7 @@ mod wasm_entries {
         let rows: Vec<SecondsSinceLast> = host::db::db_query(&format!(
             "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
              FROM submission \
-             WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-             AND (verdict IS NOT NULL OR status != 'Judged')",
+             WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
             user_id, problem_id, contest_id
         ))?;
 
