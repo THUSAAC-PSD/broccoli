@@ -214,15 +214,43 @@ pub async fn get_contest(
 ) -> Result<Json<ContestResponse>, AppError> {
     let model = find_contest(&state.db, id).await?;
     check_contest_access(&state.db, &auth_user, &model).await?;
-    let is_registered = contest_user::Entity::find_by_id((id, auth_user.user_id))
+    Ok(Json(model.into()))
+}
+
+#[utoipa::path(
+    get,
+    path = "/{id}/me",
+    tag = "Contests",
+    operation_id = "getContestMyInfo",
+    summary = "Get current user's contest context",
+    description = "Returns contest-related information for the authenticated user in the specified contest. Uses the same contest visibility rules as getContest.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 200, description = "Current user's contest context", body = ContestUserContextResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user), fields(id))]
+pub async fn get_contest_my_info(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<ContestUserContextResponse>, AppError> {
+    let model = find_contest(&state.db, id).await?;
+    check_contest_access(&state.db, &auth_user, &model).await?;
+
+    let registration = contest_user::Entity::find_by_id((id, auth_user.user_id))
         .one(&state.db)
-        .await?
-        .is_some();
+        .await?;
 
-    let mut response: ContestResponse = model.into();
-    response.is_registered = is_registered;
-
-    Ok(Json(response))
+    Ok(Json(ContestUserContextResponse {
+        contest_id: id,
+        user_id: auth_user.user_id,
+        is_registered: registration.is_some(),
+        registered_at: registration.map(|m| m.registered_at),
+    }))
 }
 
 #[utoipa::path(

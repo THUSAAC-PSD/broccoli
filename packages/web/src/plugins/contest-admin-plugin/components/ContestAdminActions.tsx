@@ -42,12 +42,6 @@ export function ContestAdminActions() {
 
   if (!user?.permissions?.includes('contest:manage') || !contest) return null;
 
-  const contestForAdmin = {
-    ...contest,
-    is_registered:
-      (contest as { is_registered?: boolean }).is_registered ?? false,
-  };
-
   async function handleDelete() {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
     const { error } = await apiClient.DELETE('/contests/{id}', {
@@ -102,17 +96,17 @@ export function ContestAdminActions() {
       </Button>
 
       <ContestFormDialog
-        contest={contestForAdmin}
+        contest={contest}
         open={editOpen}
         onOpenChange={setEditOpen}
       />
       <ContestProblemsDialog
-        contest={contestForAdmin}
+        contest={contest}
         open={problemsOpen}
         onOpenChange={setProblemsOpen}
       />
       <ManageParticipantsDialog
-        contest={contestForAdmin}
+        contest={contest}
         open={participantsOpen}
         onOpenChange={setParticipantsOpen}
       />

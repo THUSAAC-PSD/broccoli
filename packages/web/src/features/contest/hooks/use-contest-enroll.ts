@@ -1,6 +1,6 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 type ApiErrorLike = {
@@ -10,7 +10,6 @@ type ApiErrorLike = {
 type ContestEnrollState = {
   is_public: boolean;
   end_time: string;
-  is_registered?: boolean;
 };
 
 export function useContestEnroll({
@@ -36,25 +35,45 @@ export function useContestEnroll({
     onSuccess: () => {
       toast.success(t('toast.contest.enrolled'));
       queryClient.invalidateQueries({ queryKey: ['contest', contestId] });
+      queryClient.invalidateQueries({
+        queryKey: ['contest-my-info', contestId],
+      });
       queryClient.invalidateQueries({ queryKey: ['dashboard-contests'] });
     },
     onError: (error: unknown) => {
       if ((error as ApiErrorLike)?.code === 'CONFLICT') {
         toast.success(t('toast.contest.enrolled'));
         queryClient.invalidateQueries({ queryKey: ['contest', contestId] });
+        queryClient.invalidateQueries({
+          queryKey: ['contest-my-info', contestId],
+        });
         return;
       }
       toast.error(t('toast.contest.enrollError'));
     },
   });
 
-  const isRegistered = Boolean(contest?.is_registered);
+  const { data: myInfo } = useQuery({
+    queryKey: ['contest-my-info', contestId],
+    enabled: !!contest && !canManageContest,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/contests/{id}/me', {
+        params: { path: { id: contestId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const hasMyInfo = myInfo !== undefined;
+  const isRegistered = Boolean(myInfo?.is_registered);
   const hasEnded = contest
     ? Date.now() >= new Date(contest.end_time).getTime()
     : true;
 
   const canShowEnrollCard =
     !!contest &&
+    hasMyInfo &&
     !canManageContest &&
     contest.is_public &&
     !isRegistered &&
