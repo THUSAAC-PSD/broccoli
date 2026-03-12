@@ -42,13 +42,13 @@ export default function ContestOverviewPage() {
     >
       <div className="flex flex-col gap-4 lg:flex-row">
         <div className="flex-1 min-w-0 space-y-4">
-          {canShowEnrollCard ? (
-            <ContestEnrollCard onEnroll={enroll} isPending={isPending} />
-          ) : null}
           <ContestProblemsCard contestId={id} />
         </div>
         <div className="flex flex-col w-full lg:w-80 lg:shrink-0 lg:sticky lg:top-6 h-fit gap-4">
           <ContestCountdown />
+          {canShowEnrollCard ? (
+            <ContestEnrollCard onEnroll={enroll} isPending={isPending} />
+          ) : null}
           <ContestAdminActions />
         </div>
       </div>
