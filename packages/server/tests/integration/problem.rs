@@ -1393,6 +1393,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1415,10 +1417,10 @@ mod test_case_zip_upload {
         let pid = app.create_problem(&token, "Test Problem").await;
 
         let zip_data = build_zip(&[
-            ("sample/01.in", "sample input\n"),
-            ("sample/01.ans", "sample output\n"),
-            ("main/01.in", "main input\n"),
-            ("main/01.ans", "main output\n"),
+            ("sample/sample-01.in", "sample input\n"),
+            ("sample/sample-01.ans", "sample output\n"),
+            ("main/main-01.in", "main input\n"),
+            ("main/main-01.ans", "main output\n"),
         ]);
 
         let res = app
@@ -1426,11 +1428,13 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
 
-        assert_eq!(res.status, 201);
+        assert_eq!(res.status, 201, "{}", res.body["message"]);
         assert_eq!(res.body["created"], 2);
 
         let tcs = res.body["test_cases"].as_array().unwrap();
@@ -1459,6 +1463,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1468,28 +1474,37 @@ mod test_case_zip_upload {
     }
 
     #[tokio::test]
-    async fn can_upload_test_cases_with_dot_out_extension() {
+    async fn can_upload_test_cases_with_custom_wildcard_formats() {
         let app = TestApp::spawn().await;
         let token = app
-            .create_user_with_role("admin35", "password123", "admin")
+            .create_user_with_role("admin_wildcard", "password123", "admin")
             .await;
 
-        let pid = app.create_problem(&token, "Test Problem").await;
+        let pid = app.create_problem(&token, "Wildcard Problem").await;
 
-        // Use .out instead of .ans
-        let zip_data = build_zip(&[("01.in", "input1\n"), ("01.out", "output1\n")]);
+        // Create a ZIP with non-standard filenames
+        let zip_data = build_zip(&[
+            ("input_01_data.txt", "10 20\n"),
+            ("answer_01_result.ans", "30\n"),
+        ]);
 
         let res = app
             .upload_with_token(
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("input_*_data.txt"),
+                Some("answer_*_result.ans"),
                 &token,
             )
             .await;
 
         assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 1);
+
+        let tcs = res.body["test_cases"].as_array().unwrap();
+        // Verify that the label "01" was correctly extracted from the wildcard position
+        assert_eq!(tcs[0]["label"], "01");
     }
 
     #[tokio::test]
@@ -1506,6 +1521,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "not-a-zip.txt",
                 b"this is not a zip file".to_vec(),
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1528,6 +1545,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(99999),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1536,7 +1555,7 @@ mod test_case_zip_upload {
     }
 
     #[tokio::test]
-    async fn upload_rejects_zip_with_both_ans_and_out_for_same_stem() {
+    async fn upload_rejects_missing_format_fields() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin50", "password123", "admin")
@@ -1544,24 +1563,22 @@ mod test_case_zip_upload {
 
         let pid = app.create_problem(&token, "Test Problem").await;
 
-        let zip_data = build_zip(&[
-            ("01.in", "input\n"),
-            ("01.ans", "answer\n"),
-            ("01.out", "output\n"),
-        ]);
+        let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
 
+        // Passing None for formats to trigger validation error
         let res = app
             .upload_with_token(
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                None,
+                None,
                 &token,
             )
             .await;
 
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
-        assert!(res.body["message"].as_str().unwrap().contains("Duplicate"));
     }
 }
 
