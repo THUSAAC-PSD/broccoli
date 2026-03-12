@@ -520,6 +520,27 @@ mod wasm_entries {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
+        // Require auth during active contest (before/during), allow public access after
+        #[derive(Deserialize)]
+        struct Phase { phase: String }
+        let phase_rows: Vec<Phase> = host::db::db_query(&format!(
+            "SELECT CASE \
+                WHEN NOW() < start_time THEN 'before' \
+                WHEN NOW() > end_time THEN 'after' \
+                ELSE 'during' \
+             END AS phase \
+             FROM contest WHERE id = {}",
+            contest_id
+        ))?;
+        let phase = phase_rows.first().map(|r| r.phase.as_str()).unwrap_or("during");
+        if phase != "after" && req.user_id.is_none() {
+            return Ok(PluginHttpResponse {
+                status: 401,
+                headers: None,
+                body: Some(serde_json::json!({ "error": "Authentication required during contest" })),
+            });
+        }
+
         let contest_config: ContestConfig =
             serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
                 .unwrap_or_default();
@@ -574,11 +595,49 @@ mod wasm_entries {
                         .collect::<Vec<_>>(),
                 )
             }
+            FeedbackLevel::TokenedFull => {
+                // Authenticated users get full config (needed to render tokened submissions).
+                // Unauthenticated users get subtask-level only (no test case labels).
+                if req.user_id.is_some() {
+                    Some(
+                        effective_subtasks
+                            .iter()
+                            .map(|s| {
+                                serde_json::json!({
+                                    "name": s.name,
+                                    "scoring_method": s.scoring_method,
+                                    "max_score": s.max_score,
+                                    "test_cases": s.test_cases,
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    Some(
+                        effective_subtasks
+                            .iter()
+                            .map(|s| {
+                                serde_json::json!({
+                                    "name": s.name,
+                                    "scoring_method": s.scoring_method,
+                                    "max_score": s.max_score,
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                }
+            }
         };
 
         use crate::config::resolve_tc_label;
+        let needs_label_map = match contest_config.feedback_level {
+            FeedbackLevel::Full => true,
+            // TokenedFull: only authenticated users need label_map (to render tokened submissions)
+            FeedbackLevel::TokenedFull => req.user_id.is_some(),
+            _ => false,
+        };
         let label_map: Option<HashMap<String, i32>> =
-            if matches!(contest_config.feedback_level, FeedbackLevel::Full) {
+            if needs_label_map {
                 Some(
                     test_cases_list
                         .iter()
@@ -648,7 +707,7 @@ mod wasm_entries {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
-        // Query last non-rejected submission verdict
+        // Query last judged submission with a verdict
         // Safety: all interpolated values are i32, no SQL injection risk
         #[derive(Deserialize)]
         struct LastVerdict {
@@ -658,7 +717,7 @@ mod wasm_entries {
         let last_rows: Vec<LastVerdict> = host::db::db_query(&format!(
             "SELECT verdict, score FROM submission \
              WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-             AND (verdict IS NOT NULL OR status != 'Judged') \
+             AND status = 'Judged' AND verdict IS NOT NULL \
              ORDER BY created_at DESC LIMIT 1",
             user_id, problem_id, contest_id
         ))?;
@@ -730,16 +789,10 @@ mod wasm_entries {
             .max(0.0) as u64;
 
         let avail = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
+        // Derive total from avail + used to guarantee available <= total
         let total = match contest_config.tokens.mode {
             crate::config::TokenMode::None => 0,
-            crate::config::TokenMode::FixedBudget => contest_config.tokens.initial,
-            crate::config::TokenMode::Regenerating => {
-                // Total = initial + regenerated (capped at max)
-                let regen_interval = contest_config.tokens.regen_interval_min.max(1) as u64;
-                let regenerated = elapsed_min / regen_interval;
-                ((contest_config.tokens.initial as u64 + regenerated)
-                    .min(contest_config.tokens.max as u64)) as u32
-            }
+            _ => avail + token_state.used,
         };
 
         Ok(PluginHttpResponse {
@@ -900,7 +953,8 @@ mod wasm_entries {
             use crate::config::FeedbackLevel;
             let problems = match contest_config.feedback_level {
                 FeedbackLevel::None | FeedbackLevel::TotalOnly => None,
-                FeedbackLevel::SubtaskScores | FeedbackLevel::Full => Some(prob_scores),
+                // TokenedFull gates per-submission details, not aggregate scoreboard scores
+                FeedbackLevel::SubtaskScores | FeedbackLevel::Full | FeedbackLevel::TokenedFull => Some(prob_scores),
             };
 
             entries.push(RankEntry {
@@ -1040,6 +1094,56 @@ mod wasm_entries {
                 headers: None,
                 body: Some(serde_json::json!({ "subtasks": null })),
             }),
+            FeedbackLevel::TokenedFull => {
+                // Post-contest: results are public, show full data
+                if phase == "after" {
+                    let subtasks: serde_json::Value = match stored {
+                        Some(json) => {
+                            serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
+                        }
+                        None => serde_json::Value::Null,
+                    };
+                    return Ok(PluginHttpResponse {
+                        status: 200,
+                        headers: None,
+                        body: Some(serde_json::json!({ "subtasks": subtasks })),
+                    });
+                }
+                // During contest: check if this submission is tokened by the requesting user
+                let user_id = match req.user_id {
+                    Some(id) => id,
+                    None => {
+                        return Ok(PluginHttpResponse {
+                            status: 200,
+                            headers: None,
+                            body: Some(serde_json::json!({ "subtasks": null })),
+                        });
+                    }
+                };
+                let token_key = format!("tokens:{}:{}", contest_id, user_id);
+                let token_state: TokenState = host::storage::store_get(&token_key)?
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default();
+                if token_state.tokened_submission_ids.contains(&submission_id) {
+                    let subtasks: serde_json::Value = match stored {
+                        Some(json) => {
+                            serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
+                        }
+                        None => serde_json::Value::Null,
+                    };
+                    Ok(PluginHttpResponse {
+                        status: 200,
+                        headers: None,
+                        body: Some(serde_json::json!({ "subtasks": subtasks })),
+                    })
+                } else {
+                    Ok(PluginHttpResponse {
+                        status: 200,
+                        headers: None,
+                        body: Some(serde_json::json!({ "subtasks": null })),
+                    })
+                }
+            }
             FeedbackLevel::SubtaskScores | FeedbackLevel::Full => {
                 let subtasks: serde_json::Value = match stored {
                     Some(json) => {

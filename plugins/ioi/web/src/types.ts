@@ -74,6 +74,11 @@ export type ScoringMode =
   | 'max_submission'
   | 'sum_best_subtask'
   | 'best_tokened_or_last';
-export type FeedbackLevel = 'full' | 'subtask_scores' | 'total_only' | 'none';
+export type FeedbackLevel =
+  | 'full'
+  | 'subtask_scores'
+  | 'total_only'
+  | 'none'
+  | 'tokened_full';
 export type TokenMode = 'none' | 'fixed_budget' | 'regenerating';
 export type SubtaskScoringMethod = 'group_min' | 'sum' | 'group_mul';

@@ -1,4 +1,5 @@
 // Admin config components
+export { IoiConfigBanner } from './IoiConfigBanner';
 export { ScoringModeSelector } from './ScoringModeSelector';
 export { SubtaskEditor } from './SubtaskEditor';
 export { TokenConfigPanel } from './TokenConfigPanel';

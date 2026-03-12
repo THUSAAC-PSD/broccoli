@@ -27,6 +27,7 @@ const FEEDBACK_KEYS: Record<string, string> = {
   subtask_scores: 'ioi.contestInfo.feedback.subtaskScores',
   total_only: 'ioi.contestInfo.feedback.totalOnly',
   none: 'ioi.contestInfo.feedback.none',
+  tokened_full: 'ioi.contestInfo.feedback.tokenedFull',
 };
 
 export function IoiContestInfo() {
@@ -109,10 +110,11 @@ export function IoiContestInfo() {
         }}
       >
         <MetaItem
-          label={t(
-            FEEDBACK_KEYS[contestInfo.feedback_level] ??
-              contestInfo.feedback_level,
-          )}
+          label={
+            FEEDBACK_KEYS[contestInfo.feedback_level]
+              ? t(FEEDBACK_KEYS[contestInfo.feedback_level])
+              : contestInfo.feedback_level
+          }
         />
         {contestInfo.token_mode !== 'none' && (
           <MetaItem

@@ -29,6 +29,9 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
   const { t } = useTranslation();
   const [isUsing, setIsUsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingSubmissionId, setConfirmingSubmissionId] = useState<
+    number | null
+  >(null);
 
   const tokenMode = contestInfo?.token_mode;
   const scoringMode = contestInfo?.scoring_mode;
@@ -64,6 +67,9 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
     try {
       await api.useToken(cId, submission.id);
       queryClient.invalidateQueries({ queryKey: ['ioi-token-status', cId] });
+      queryClient.invalidateQueries({
+        queryKey: ['ioi-subtask-scores', cId, submission.id],
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to use token');
     } finally {
@@ -72,25 +78,27 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
   };
 
   const dots = [];
-  const totalDots = Math.min(tokenStatus.total, 20);
-  for (let i = 0; i < totalDots; i++) {
-    const isAvailable = i < tokenStatus.available;
-    dots.push(
-      <span
-        key={i}
-        style={{
-          display: 'inline-block',
-          width: 10,
-          height: 10,
-          borderRadius: '50%',
-          background: isAvailable ? '#10b981' : 'transparent',
-          border: isAvailable
-            ? '2px solid #10b981'
-            : '2px solid var(--border, #d1d5db)',
-          transition: 'all 0.2s',
-        }}
-      />,
-    );
+  const showDots = tokenStatus.total <= 20;
+  if (showDots) {
+    for (let i = 0; i < tokenStatus.total; i++) {
+      const isAvailable = i < tokenStatus.available;
+      dots.push(
+        <span
+          key={i}
+          style={{
+            display: 'inline-block',
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: isAvailable ? '#10b981' : 'transparent',
+            border: isAvailable
+              ? '2px solid #10b981'
+              : '2px solid var(--border, #d1d5db)',
+            transition: 'all 0.2s',
+          }}
+        />,
+      );
+    }
   }
 
   return (
@@ -115,8 +123,8 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
         {t('ioi.tokenPanel.title')}
       </div>
 
-      {/* Dot display */}
-      {totalDots > 0 && (
+      {/* Token display */}
+      {tokenStatus.total > 0 && (
         <div
           style={{
             display: 'flex',
@@ -126,46 +134,128 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
             flexWrap: 'wrap',
           }}
         >
-          {dots}
-          <span
-            style={{
-              ...SCORE_FONT,
-              marginLeft: 8,
-              fontSize: 13,
-              color: 'var(--foreground, #111)',
-            }}
-          >
-            {t('ioi.tokenPanel.available', {
-              available: tokenStatus.available,
-              total: tokenStatus.total,
-            })}
-          </span>
+          {showDots ? (
+            dots
+          ) : (
+            <span
+              style={{
+                ...SCORE_FONT,
+                fontSize: 20,
+                fontWeight: 700,
+                color: 'var(--foreground, #111)',
+              }}
+            >
+              {tokenStatus.available}
+              <span style={{ opacity: 0.4 }}>/{tokenStatus.total}</span>
+            </span>
+          )}
+          {showDots && (
+            <span
+              style={{
+                ...SCORE_FONT,
+                marginLeft: 8,
+                fontSize: 13,
+                color: 'var(--foreground, #111)',
+              }}
+            >
+              {t('ioi.tokenPanel.available', {
+                available: tokenStatus.available,
+                total: tokenStatus.total,
+              })}
+            </span>
+          )}
         </div>
       )}
 
-      {/* Use token button */}
+      {/* Use token button with confirmation */}
       {canUseToken && (
-        <button
-          onClick={handleUseToken}
-          disabled={isUsing}
-          style={{
-            width: '100%',
-            padding: '8px 16px',
-            borderRadius: 6,
-            border: '1px solid var(--primary, #3b82f6)',
-            background: 'var(--primary, #3b82f6)',
-            color: '#fff',
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: isUsing ? 'not-allowed' : 'pointer',
-            opacity: isUsing ? 0.6 : 1,
-            transition: 'opacity 0.15s',
-          }}
-        >
-          {isUsing
-            ? t('ioi.tokenPanel.usingToken')
-            : t('ioi.tokenPanel.useToken')}
-        </button>
+        <div style={{ position: 'relative' }}>
+          {confirmingSubmissionId === submission.id ? (
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: 6,
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                background: 'rgba(245, 158, 11, 0.06)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--foreground, #111)',
+                  lineHeight: 1.5,
+                }}
+              >
+                {t('ioi.tokenPanel.confirmUse', {
+                  id: submission.id,
+                  remaining: tokenStatus.available - 1,
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => {
+                    setConfirmingSubmissionId(null);
+                    handleUseToken();
+                  }}
+                  disabled={isUsing}
+                  style={{
+                    flex: 1,
+                    padding: '6px 12px',
+                    borderRadius: 5,
+                    border: '1px solid var(--primary, #3b82f6)',
+                    background: 'var(--primary, #3b82f6)',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: isUsing ? 'not-allowed' : 'pointer',
+                    opacity: isUsing ? 0.6 : 1,
+                  }}
+                >
+                  {isUsing
+                    ? t('ioi.tokenPanel.usingToken')
+                    : t('ioi.tokenPanel.confirm')}
+                </button>
+                <button
+                  onClick={() => setConfirmingSubmissionId(null)}
+                  style={{
+                    flex: 1,
+                    padding: '6px 12px',
+                    borderRadius: 5,
+                    border: '1px solid var(--border, #d1d5db)',
+                    background: 'transparent',
+                    color: 'var(--foreground, #111)',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('ioi.tokenPanel.cancel')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmingSubmissionId(submission.id)}
+              style={{
+                width: '100%',
+                padding: '8px 16px',
+                borderRadius: 6,
+                border: '1px solid var(--primary, #3b82f6)',
+                background: 'var(--primary, #3b82f6)',
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {t('ioi.tokenPanel.useToken')}
+            </button>
+          )}
+        </div>
       )}
 
       {alreadyTokened && (

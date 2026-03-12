@@ -2909,11 +2909,6 @@ export interface components {
              */
             problem_type?: string | null;
             /**
-             * @description Whether contestants see full input/output for all test cases.
-             * @example true
-             */
-            show_test_details?: boolean | null;
-            /**
              * Format: int32
              * @description Execution time limit in milliseconds (1-30000).
              * @example 2000

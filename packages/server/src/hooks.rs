@@ -379,10 +379,22 @@ async fn dispatch_hooks_inner(
 
         match entry.mode {
             HookMode::Blocking => {
-                let action = entry.hook.on_event((), &generic_event).await.map_err(|e| {
-                    tracing::error!(topic, "Hook execution error: {e}");
-                    AppError::Internal(format!("Hook execution failed: {e}"))
-                })?;
+                let hook_timeout = std::time::Duration::from_secs(30);
+                let action = match tokio::time::timeout(
+                    hook_timeout,
+                    entry.hook.on_event((), &generic_event),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|e| {
+                        tracing::error!(topic, "Hook execution error: {e}");
+                        AppError::Internal(format!("Hook execution failed: {e}"))
+                    })?,
+                    Err(_) => {
+                        tracing::error!(topic, "Hook execution timed out (30s)");
+                        return Err(AppError::Internal("Hook execution timed out".into()));
+                    }
+                };
 
                 match action {
                     HookAction::Pass => {}
@@ -426,7 +438,19 @@ async fn dispatch_hooks_inner(
                 }
             }
             HookMode::Notify => {
-                match entry.hook.on_event((), &generic_event).await {
+                let notify_result = match tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    entry.hook.on_event((), &generic_event),
+                )
+                .await
+                {
+                    Ok(r) => r,
+                    Err(_) => {
+                        tracing::warn!(topic, "Notify hook timed out (30s), skipping");
+                        continue;
+                    }
+                };
+                match notify_result {
                     Ok(action) => match &action {
                         HookAction::Pass => {}
                         HookAction::Reject(reason) => {

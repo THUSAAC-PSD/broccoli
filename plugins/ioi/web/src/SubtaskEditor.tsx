@@ -1284,6 +1284,22 @@ export function SubtaskEditor({
   // Subtask names for "-> SubtaskName" labels in dropdown
   const subtaskNames = useMemo(() => subtasks.map((s) => s.name), [subtasks]);
 
+  const duplicateNameIndices = useMemo(() => {
+    const nameCount = new Map<string, number[]>();
+    subtasks.forEach((s, i) => {
+      if (!s.name) return;
+      const key = s.name.trim().toLowerCase();
+      if (!key) return;
+      if (!nameCount.has(key)) nameCount.set(key, []);
+      nameCount.get(key)!.push(i);
+    });
+    const dupes = new Set<number>();
+    for (const [, indices] of nameCount) {
+      if (indices.length > 1) indices.forEach((i) => dupes.add(i));
+    }
+    return dupes;
+  }, [subtasks]);
+
   // Stable keys for subtask cards (monotonic counter)
   const nextKeyRef = useRef(subtasks.length);
   const [subtaskKeys, setSubtaskKeys] = useState<number[]>(() =>
@@ -1632,13 +1648,32 @@ export function SubtaskEditor({
         </div>
       )}
 
+      {!tcLoading && problemId && testCases.length === 0 && (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: 16,
+            fontSize: 12,
+            color: 'var(--muted-foreground, #888)',
+            borderRadius: '8px',
+            border: `1px dashed ${th.border}`,
+          }}
+        >
+          {t('ioi.subtask.noTestCasesOnProblem')}
+        </div>
+      )}
+
       {subtasks.length > 0 &&
         testCases.length > 0 &&
         (unassignedLabels.length > 0 || duplicateLabels.length > 0) && (
           <div
             style={{
               borderRadius: '8px',
-              border: `1px solid ${duplicateLabels.length > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'}`,
+              border: `1px solid ${duplicateLabels.length > 0 ? 'rgba(239,68,68,0.4)' : 'rgba(245,158,11,0.3)'}`,
+              boxShadow:
+                duplicateLabels.length > 0
+                  ? '0 0 0 1px rgba(239,68,68,0.15)'
+                  : undefined,
               overflow: 'hidden',
             }}
           >
@@ -1878,9 +1913,26 @@ export function SubtaskEditor({
                     onChange={(e) =>
                       updateSubtask(idx, { name: e.target.value })
                     }
-                    style={{ ...fieldInput, width: '100%' }}
+                    style={{
+                      ...fieldInput,
+                      width: '100%',
+                      ...(duplicateNameIndices.has(idx)
+                        ? { borderColor: 'rgba(245, 158, 11, 0.5)' }
+                        : {}),
+                    }}
                     maxLength={50}
                   />
+                  {duplicateNameIndices.has(idx) && (
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        color: '#b45309',
+                        marginTop: '2px',
+                      }}
+                    >
+                      {t('ioi.subtask.duplicateName')}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div style={fieldLabel}>{t('ioi.subtask.fieldMethod')}</div>

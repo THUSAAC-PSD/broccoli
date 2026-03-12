@@ -1,7 +1,7 @@
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import type React from 'react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useIoiApi } from './hooks/useIoiApi';
 import { useIsIoiContest } from './hooks/useIsIoiContest';
@@ -110,6 +110,71 @@ function PhaseBar({ phase }: { phase: string }) {
   );
 }
 
+function PhaseBanner({
+  type,
+  onDismiss,
+}: {
+  type: 'started' | 'ended';
+  onDismiss: () => void;
+}) {
+  const { t } = useTranslation();
+  const isEnded = type === 'ended';
+  return (
+    <div
+      style={{
+        padding: '8px 14px',
+        borderRadius: 6,
+        marginBottom: 12,
+        fontSize: 13,
+        fontWeight: 500,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: isEnded
+          ? 'rgba(245, 158, 11, 0.1)'
+          : 'rgba(16, 185, 129, 0.1)',
+        color: isEnded ? '#b45309' : '#059669',
+        border: `1px solid ${isEnded ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'}`,
+      }}
+    >
+      <span>
+        {isEnded
+          ? t('ioi.scoreboard.phaseChange.ended')
+          : t('ioi.scoreboard.phaseChange.started')}
+      </span>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        style={{
+          border: 'none',
+          background: 'none',
+          cursor: 'pointer',
+          opacity: 0.5,
+          color: 'inherit',
+          padding: '0 4px',
+          lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function MedalBadge({ rank }: { rank: number }) {
   if (rank > 3) {
     return (
@@ -144,6 +209,11 @@ function MedalBadge({ rank }: { rank: number }) {
     </span>
   );
 }
+
+const stickyBase: React.CSSProperties = {
+  position: 'sticky',
+  zIndex: 1,
+};
 
 function ScoreCell({ score, max }: { score: number; max: number }) {
   return (
@@ -188,16 +258,70 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
   const api = useIoiApi();
   const { t } = useTranslation();
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [phaseBanner, setPhaseBanner] = useState<'started' | 'ended' | null>(
+    null,
+  );
+  const previousPhaseRef = useRef<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
-  const { data: scoreboard, isLoading } = useQuery<ScoreboardResponse>({
+  const {
+    data: scoreboard,
+    isLoading,
+    isError,
+    dataUpdatedAt,
+  } = useQuery<ScoreboardResponse>({
     queryKey: ['ioi-scoreboard', contestId],
     enabled: !!contestId && isIoi,
     queryFn: () => api.getScoreboard(contestId!),
+    retry: 2,
     refetchInterval: (query: { state: { data?: ScoreboardResponse } }) =>
       autoRefresh && query.state.data?.phase === 'during' ? 30000 : false,
   });
 
+  useEffect(() => {
+    const currentPhase = scoreboard?.phase ?? null;
+    const prevPhase = previousPhaseRef.current;
+    previousPhaseRef.current = currentPhase;
+
+    if (currentPhase && prevPhase && currentPhase !== prevPhase) {
+      const banner =
+        currentPhase === 'after'
+          ? 'ended'
+          : currentPhase === 'during'
+            ? 'started'
+            : null;
+      if (banner) {
+        setPhaseBanner(banner);
+        const timer = setTimeout(() => setPhaseBanner(null), 10000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [scoreboard?.phase]);
+
+  useEffect(() => {
+    if (!dataUpdatedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [dataUpdatedAt]);
+
   if (guardLoading || !isIoi) return null;
+
+  if (isError && !scoreboard) {
+    return (
+      <div
+        style={{
+          padding: 24,
+          textAlign: 'center',
+          borderRadius: 6,
+          background: 'rgba(239, 68, 68, 0.06)',
+          color: '#dc2626',
+          fontSize: 13,
+        }}
+      >
+        {t('ioi.scoreboard.loadError')}
+      </div>
+    );
+  }
 
   if (isLoading || !scoreboard) {
     return (
@@ -253,37 +377,56 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
     fontSize: 13,
   };
 
+  const secondsAgo =
+    dataUpdatedAt > 0 ? Math.floor((now - dataUpdatedAt) / 1000) : 0;
+
   return (
     <div>
+      {phaseBanner && (
+        <PhaseBanner
+          type={phaseBanner}
+          onDismiss={() => setPhaseBanner(null)}
+        />
+      )}
+
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           marginBottom: 12,
+          flexWrap: 'wrap',
+          gap: 8,
         }}
       >
         <PhaseBar phase={phase} />
-        {phase === 'during' && (
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 12,
-              color: 'var(--muted-foreground, #888)',
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              style={{ accentColor: 'rgb(16, 185, 129)' }}
-            />
-            {t('ioi.scoreboard.autoRefresh')}
-          </label>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {dataUpdatedAt > 0 && (
+            <span style={{ fontSize: 11, opacity: 0.5 }}>
+              {t('ioi.scoreboard.lastUpdated', { seconds: secondsAgo })}
+            </span>
+          )}
+          {phase === 'during' && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                color: 'var(--muted-foreground, #888)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                style={{ accentColor: 'rgb(16, 185, 129)' }}
+              />
+              {t('ioi.scoreboard.autoRefresh')}
+            </label>
+          )}
+        </div>
       </div>
 
       {phase === 'during' && (
@@ -310,7 +453,11 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
             color: 'var(--muted-foreground, #888)',
           }}
         >
-          {t('ioi.scoreboard.noRankings')}
+          {phase === 'before'
+            ? t('ioi.scoreboard.empty.before')
+            : phase === 'during'
+              ? t('ioi.scoreboard.empty.during')
+              : t('ioi.scoreboard.empty.after')}
         </div>
       ) : (
         <div
@@ -325,10 +472,25 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
           >
             <thead>
               <tr>
-                <th style={{ ...headerStyle, width: 50, textAlign: 'center' }}>
+                <th
+                  style={{
+                    ...headerStyle,
+                    width: 50,
+                    textAlign: 'center',
+                    ...stickyBase,
+                    left: 0,
+                  }}
+                >
                   {t('ioi.scoreboard.header.rank')}
                 </th>
-                <th style={{ ...headerStyle, textAlign: 'left' }}>
+                <th
+                  style={{
+                    ...headerStyle,
+                    textAlign: 'left',
+                    ...stickyBase,
+                    left: 50,
+                  }}
+                >
                   {t('ioi.scoreboard.header.user')}
                 </th>
                 {problemLabels.map((label: string, i: number) => (
@@ -382,10 +544,29 @@ function RankRow({
 
   return (
     <tr style={{ transition: 'background 0.15s' }}>
-      <td style={{ ...cellStyle, textAlign: 'center', width: 50 }}>
+      <td
+        style={{
+          ...cellStyle,
+          textAlign: 'center',
+          width: 50,
+          ...stickyBase,
+          left: 0,
+          background: 'inherit',
+        }}
+      >
         <MedalBadge rank={entry.rank} />
       </td>
-      <td style={{ ...cellStyle, fontWeight: 500 }}>{entry.username}</td>
+      <td
+        style={{
+          ...cellStyle,
+          fontWeight: 500,
+          ...stickyBase,
+          left: 50,
+          background: 'inherit',
+        }}
+      >
+        {entry.username}
+      </td>
       {problemIds.map((pid) => {
         const score = problemScoreMap[pid] ?? 0;
         const max = maxPerProblem[pid] ?? 100;

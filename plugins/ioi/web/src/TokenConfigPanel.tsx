@@ -264,6 +264,20 @@ export function TokenConfigPanel({
         </div>
       )}
 
+      {isActive && (
+        <div
+          style={{
+            fontSize: 11,
+            opacity: 0.5,
+            fontStyle: 'italic',
+            textAlign: 'center',
+            padding: '4px 0',
+          }}
+        >
+          {t('ioi.tokenConfig.scoringModeNote')}
+        </div>
+      )}
+
       {/* Regenerating mode */}
       {mode === 'regenerating' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

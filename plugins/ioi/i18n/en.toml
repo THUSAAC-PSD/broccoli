@@ -9,26 +9,34 @@
 'ioi.contestInfo.feedback.subtaskScores' = 'Subtask scores only'
 'ioi.contestInfo.feedback.totalOnly' = 'Total score only'
 'ioi.contestInfo.feedback.none' = 'No feedback'
+'ioi.contestInfo.feedback.tokenedFull' = 'Tokened full feedback'
 'ioi.contestInfo.tokenMode.fixedBudget' = 'Fixed token budget'
 'ioi.contestInfo.tokenMode.regenerating' = 'Regenerating tokens'
 
 # IoiScoreboard
 'ioi.scoreboard.loading' = 'Loading scoreboard...'
-'ioi.scoreboard.noRankings' = 'No rankings available yet.'
+'ioi.scoreboard.loadError' = 'Failed to load scoreboard. Please try again later.'
 'ioi.scoreboard.phase.before' = 'Contest has not started yet'
 'ioi.scoreboard.phase.during' = 'Contest in progress'
 'ioi.scoreboard.phase.after' = 'Final standings'
 'ioi.scoreboard.autoRefresh' = 'Auto-refresh'
+'ioi.scoreboard.lastUpdated' = '{{seconds}}s ago'
 'ioi.scoreboard.ownScoresOnly' = 'Only your scores are visible during the contest.'
 'ioi.scoreboard.header.rank' = '#'
 'ioi.scoreboard.header.user' = 'User'
 'ioi.scoreboard.header.total' = 'Total'
+'ioi.scoreboard.phaseChange.ended' = 'Contest has ended. Final results are now visible.'
+'ioi.scoreboard.phaseChange.started' = 'Contest has started!'
+'ioi.scoreboard.empty.before' = 'The contest has not started yet. Rankings will appear once the contest begins.'
+'ioi.scoreboard.empty.during' = 'No submissions yet. Rankings will appear after the first submission is judged.'
+'ioi.scoreboard.empty.after' = 'No submissions were made during this contest.'
 
 # IoiSubmissionResult
 'ioi.submission.compilationError' = 'Compilation Error'
 'ioi.submission.rejected.title' = 'Submission Rejected'
 'ioi.submission.rejected.reason' = 'This submission was not judged'
 'ioi.submission.noFeedback' = 'Results are not visible for this contest.'
+'ioi.submission.configLoadError' = 'Could not load task configuration. Showing basic score only.'
 'ioi.submission.totalScore' = 'Total Score'
 'ioi.submission.total' = 'Total'
 'ioi.submission.testCase' = 'Test #{{index}}'
@@ -36,6 +44,13 @@
 'ioi.submission.showLess' = 'Show less'
 'ioi.submission.showAll' = 'Show all {{count}} tests'
 'ioi.submission.subtaskFallback' = 'Subtask {{index}}'
+'ioi.submission.tokened' = 'Tokened'
+'ioi.submission.status.Pending' = 'Pending'
+'ioi.submission.status.Running' = 'Running'
+'ioi.submission.status.Judged' = 'Judged'
+'ioi.submission.status.SystemError' = 'System Error'
+'ioi.submission.status.CompilationError' = 'Compilation Error'
+'ioi.submission.status.Rejected' = 'Rejected'
 'ioi.submission.detail.checkerOutput' = 'Checker Output'
 'ioi.submission.detail.stdout' = 'Standard Output'
 'ioi.submission.detail.stderr' = 'Standard Error'
@@ -56,6 +71,8 @@
 'ioi.scoringMode.sumBestSubtask.title' = 'Best Per Subtask'
 'ioi.scoringMode.sumBestSubtask.description' = 'For each subtask, take the best score across submissions and sum'
 'ioi.scoringMode.sumBestSubtask.era' = '2017+'
+'ioi.scoringMode.howItWorks' = 'How scoring works'
+'ioi.scoringMode.explanation' = 'Scoring is two-level: (1) Within each submission, subtask scores are computed using the method configured per-subtask (Min, Sum, Multiply). (2) Your final problem score across all submissions is determined by the scoring mode selected above.'
 
 # SubtaskEditor
 'ioi.subtask.title' = 'Subtask Definitions'
@@ -79,6 +96,7 @@
 'ioi.subtask.showPool' = 'Show Pool'
 'ioi.subtask.hidePool' = 'Hide Pool'
 'ioi.subtask.noTestCases' = 'No test cases assigned'
+'ioi.subtask.noTestCasesOnProblem' = 'This problem has no test cases yet. Add test cases before configuring subtasks.'
 'ioi.subtask.allTestCases' = 'ALL TEST CASES'
 'ioi.subtask.addAllUnassigned' = '+ All Unassigned'
 'ioi.subtask.clear' = 'Clear'
@@ -92,6 +110,7 @@
 'ioi.subtask.addCount' = '+ Add {{count}} {{mode}}'
 'ioi.subtask.andMore' = '...and {{count}} more'
 'ioi.subtask.defaultName' = 'Subtask {{index}}'
+'ioi.subtask.duplicateName' = 'Duplicate subtask name'
 'ioi.subtask.duplicateWarning' = 'Assigned to multiple subtasks'
 'ioi.subtask.warningCount' = '{{count}} warnings'
 'ioi.subtask.warningCountSingular' = '{{count}} warning'
@@ -135,6 +154,7 @@
 'ioi.tokenConfig.minutesPerToken' = 'Minutes per token'
 'ioi.tokenConfig.tokensSummary' = '{{count}} tokens'
 'ioi.tokenConfig.tokensRange' = '{{min}}\u2013{{max}} tokens'
+'ioi.tokenConfig.scoringModeNote' = 'Tokens only take effect when the scoring mode is set to "Best Tokened or Last".'
 
 # TokenPanel
 'ioi.tokenPanel.title' = 'Tokens'
@@ -143,3 +163,14 @@
 'ioi.tokenPanel.usingToken' = 'Using token...'
 'ioi.tokenPanel.alreadyUsed' = 'Token used on this submission'
 'ioi.tokenPanel.tokenedSubmissions' = 'Tokened submissions'
+'ioi.tokenPanel.confirmUse' = 'Use a token on submission #{{id}}? You will have {{remaining}} token(s) remaining.'
+'ioi.tokenPanel.confirm' = 'Confirm'
+'ioi.tokenPanel.cancel' = 'Cancel'
+
+# IoiConfigBanner
+'ioi.config.activeContestWarning' = 'This contest is currently active. Changes may affect ongoing contestants.'
+'ioi.config.beforeContestInfo' = 'This contest has not started yet. Configuration changes are safe.'
+
+# Feedback levels (used in FeedbackLevelSelector)
+'ioi.feedbackLevel.tokenedFull.label' = 'Tokened Full'
+'ioi.feedbackLevel.tokenedFull.description' = 'No feedback unless a token is used. Tokened submissions show full results.'

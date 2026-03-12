@@ -467,8 +467,6 @@ function CodeViewer({
   );
 }
 
-// ── Compile Error Display ──
-
 function CompileOutput({ output }: { output: string }) {
   const { t } = useTranslation();
   return (
@@ -770,6 +768,7 @@ function SubtaskCard({
 }) {
   const [listExpanded, setListExpanded] = useState(false);
   const [selectedTcIndex, setSelectedTcIndex] = useState<number | null>(null);
+  const [hoveredTcIndex, setHoveredTcIndex] = useState<number | null>(null);
   const maxScore = subtask.max_score;
   const frac = maxScore > 0 ? score / maxScore : 0;
   const color = scoreColor(score, maxScore);
@@ -935,7 +934,10 @@ function SubtaskCard({
                     padding: '4px 8px',
                     borderRadius: 6,
                     fontSize: 12,
-                    background: isSelected ? `${vm.color}20` : vm.bg,
+                    background:
+                      isSelected || hoveredTcIndex === i
+                        ? `${vm.color}20`
+                        : vm.bg,
                     transition: 'all 0.15s ease',
                     cursor: clickable ? 'pointer' : 'default',
                     outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
@@ -944,20 +946,10 @@ function SubtaskCard({
                       : 'none',
                   }}
                   onMouseEnter={
-                    clickable
-                      ? (e) => {
-                          (e.currentTarget as HTMLElement).style.background =
-                            `${vm.color}20`;
-                        }
-                      : undefined
+                    clickable ? () => setHoveredTcIndex(i) : undefined
                   }
                   onMouseLeave={
-                    clickable
-                      ? (e) => {
-                          (e.currentTarget as HTMLElement).style.background =
-                            isSelected ? `${vm.color}20` : vm.bg;
-                        }
-                      : undefined
+                    clickable ? () => setHoveredTcIndex(null) : undefined
                   }
                 >
                   <VerdictIcon verdict={tc.verdict} size={14} />
@@ -1075,10 +1067,97 @@ function SubtaskCard({
   );
 }
 
+function TokenedBadge() {
+  const { t } = useTranslation();
+  return (
+    <span
+      style={{
+        padding: '2px 8px',
+        borderRadius: 10,
+        fontSize: 10,
+        fontWeight: 600,
+        background: 'rgba(59, 130, 246, 0.1)',
+        color: '#3b82f6',
+        textTransform: 'none',
+        letterSpacing: 'normal',
+      }}
+    >
+      {t('ioi.submission.tokened')}
+    </span>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <style>
+        {`@keyframes ioi-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }`}
+      </style>
+      {[120, 200, 160].map((w, i) => (
+        <div
+          key={i}
+          style={{
+            height: 14,
+            width: w,
+            borderRadius: 4,
+            background: 'var(--muted, #e5e7eb)',
+            animation: 'ioi-pulse 1.5s ease-in-out infinite',
+            animationDelay: `${i * 150}ms`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
+  Pending: { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280' },
+  Running: { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' },
+  Judged: { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' },
+  SystemError: { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
+  CompilationError: { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
+  Rejected: { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
+};
+
+function SubmissionStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
+  const s = STATUS_STYLES[status] ?? STATUS_STYLES.Pending;
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '6px 12px',
+        borderRadius: 6,
+        background: s.bg,
+        color: s.color,
+        fontSize: 12,
+        fontWeight: 600,
+        alignSelf: 'flex-start',
+      }}
+    >
+      {status === 'Running' && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: s.color,
+            animation: 'ioi-pulse 1s ease-in-out infinite',
+          }}
+        />
+      )}
+      {t(`ioi.submission.status.${status}`, status)}
+    </div>
+  );
+}
+
 const TERMINAL_STATUSES = new Set([
   'Judged',
   'CompilationError',
   'SystemError',
+  'Rejected',
 ]);
 
 export function IoiSubmissionResult({
@@ -1113,27 +1192,42 @@ export function IoiSubmissionResult({
     }
   }, [submission?.status, contestId, problemId, queryClient]);
 
-  const { data: taskConfig } = useQuery<TaskConfigResponse>({
+  const taskConfigQuery = useQuery<TaskConfigResponse>({
     queryKey: ['ioi-task-config', contestId, problemId],
     enabled: !!contestId && !!problemId && isIoi,
     queryFn: () => api.getTaskConfig(contestId!, problemId!),
     staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
+  const taskConfig = taskConfigQuery.data;
 
-  const { data: subtaskScoresData } = useQuery<SubtaskScoresResponse>({
+  const feedbackNeedsSubtasks =
+    taskConfig?.feedback_level != null &&
+    taskConfig.feedback_level !== 'none' &&
+    taskConfig.feedback_level !== 'total_only';
+  const subtaskScoresQuery = useQuery<SubtaskScoresResponse>({
     queryKey: ['ioi-subtask-scores', contestId, submission?.id],
-    enabled: !!contestId && !!submission?.id && isIoi,
+    enabled: !!contestId && !!submission?.id && isIoi && feedbackNeedsSubtasks,
     queryFn: () => api.getSubmissionSubtaskScores(contestId!, submission!.id),
+    retry: 2,
+  });
+  const subtaskScoresData = subtaskScoresQuery.data;
+
+  const needsTokenInfo =
+    taskConfig?.scoring_mode === 'best_tokened_or_last' ||
+    taskConfig?.feedback_level === 'tokened_full';
+  const { data: tokenStatus } = useQuery({
+    queryKey: ['ioi-token-status', contestId],
+    enabled: !!contestId && isIoi && !!needsTokenInfo,
+    queryFn: () => api.getTokenStatus(contestId!),
+    staleTime: 60000,
   });
 
   if (guardLoading || !isIoi) return null;
   if (!submission) return null;
 
   const isCompileError = submission.status === 'CompilationError';
-  const isRejected =
-    submission.status === 'Judged' &&
-    submission.result?.verdict == null &&
-    (submission.result?.score ?? 0) === 0;
+  const isRejected = submission.status === 'Rejected';
 
   // Source code viewer (always available if files present)
   const codeViewer =
@@ -1177,16 +1271,92 @@ export function IoiSubmissionResult({
     );
   }
 
+  // Loading state for task config (P9)
+  if (!taskConfig && taskConfigQuery.isLoading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <LoadingSkeleton />
+      </div>
+    );
+  }
+
+  // Error state for task config (P9)
+  if (!taskConfig && taskConfigQuery.isError) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {codeViewer}
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: 6,
+            background: 'rgba(245, 158, 11, 0.06)',
+            border: '1px solid rgba(245, 158, 11, 0.2)',
+            fontSize: 12,
+            color: '#b45309',
+          }}
+        >
+          {t('ioi.submission.configLoadError')}
+        </div>
+        {submission?.result?.score != null && (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '12px',
+              ...MONO,
+              fontSize: 20,
+              fontWeight: 700,
+              color: 'var(--foreground, #111)',
+            }}
+          >
+            {submission.result.score.toFixed(
+              submission.result.score === Math.floor(submission.result.score)
+                ? 0
+                : 2,
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!submission.result || !taskConfig) return codeViewer;
+
+  const isTokened =
+    needsTokenInfo &&
+    tokenStatus?.tokened_submission_ids?.includes(submission.id);
 
   const allTestCases = testCases ?? submission.result.test_case_results ?? [];
   const feedbackLevel = taskConfig.feedback_level;
 
-  // Feedback: none
-  if (feedbackLevel === 'none') {
+  // Feedback: none. Show processing status but not scores/verdicts
+  // tokened_full when not tokened also behaves like "none"
+  const effectiveFeedback =
+    feedbackLevel === 'tokened_full'
+      ? isTokened
+        ? 'full'
+        : 'none'
+      : feedbackLevel;
+
+  if (effectiveFeedback === 'none') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {codeViewer}
+        <SubmissionStatusBadge status={submission.status} />
+        {submission.status === 'SystemError' &&
+          submission.result?.system_error && (
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: 6,
+                fontSize: 12,
+                color: '#dc2626',
+                background: 'rgba(239, 68, 68, 0.06)',
+              }}
+            >
+              {submission.result.system_error}
+            </div>
+          )}
         <div
           style={{
             padding: 20,
@@ -1209,7 +1379,7 @@ export function IoiSubmissionResult({
       : 100;
 
   // Feedback: total_only
-  if (feedbackLevel === 'total_only') {
+  if (effectiveFeedback === 'total_only') {
     const totalScore = submission.result.score ?? 0;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1230,6 +1400,9 @@ export function IoiSubmissionResult({
           <div>
             <div
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
                 fontSize: 10,
                 fontWeight: 600,
                 textTransform: 'uppercase',
@@ -1239,6 +1412,7 @@ export function IoiSubmissionResult({
               }}
             >
               {t('ioi.submission.totalScore')}
+              {isTokened && <TokenedBadge />}
             </div>
             <div
               style={{
@@ -1319,7 +1493,7 @@ export function IoiSubmissionResult({
   }
 
   // Build TC lookup for full feedback
-  const tcById: Map<number, TestCaseResult> = new Map();
+  const tcById: Map<number, TestCaseResultResponse> = new Map();
   for (const tc of allTestCases) {
     tcById.set(tc.test_case_id, tc);
   }
@@ -1384,6 +1558,9 @@ export function IoiSubmissionResult({
           <ScoreRing score={totalScore} max={maxPossible} size={32} />
           <span
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
               fontSize: 11,
               fontWeight: 600,
               textTransform: 'uppercase',
@@ -1392,6 +1569,7 @@ export function IoiSubmissionResult({
             }}
           >
             {t('ioi.submission.total')}
+            {isTokened && <TokenedBadge />}
           </span>
         </div>
         <span
@@ -1433,7 +1611,7 @@ export function IoiSubmissionResult({
             subtask={r.subtask}
             score={r.score}
             testCases={r.testCases}
-            feedbackLevel={feedbackLevel}
+            feedbackLevel={effectiveFeedback}
             index={i}
           />
         ),

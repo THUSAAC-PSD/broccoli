@@ -14,6 +14,18 @@ const BACKEND_ORIGIN = new URL(import.meta.url).origin;
 const PLUGIN_BASE = `${BACKEND_ORIGIN}/api/v1/p/ioi/api/plugins/ioi`;
 const AUTH_TOKEN_KEY = 'broccoli_token';
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function authHeaders(): HeadersInit {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -26,8 +38,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(
+    throw new ApiError(
       body.error || body.message || `Request failed: ${res.status}`,
+      res.status,
+      body.code,
     );
   }
   return res.json();

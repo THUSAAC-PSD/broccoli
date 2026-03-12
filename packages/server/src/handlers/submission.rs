@@ -482,10 +482,31 @@ async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
         "Dispatching submission to plugin"
     );
 
+    let call_timeout = std::time::Duration::from_secs(state.config.plugin.call_timeout_secs);
     tokio::spawn(async move {
-        let result = plugins
-            .call_raw(&plugin_id, &function_name, input_bytes)
-            .await;
+        let result = match tokio::time::timeout(
+            call_timeout,
+            plugins.call_raw(&plugin_id, &function_name, input_bytes),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_elapsed) => {
+                error!(
+                    submission_id,
+                    timeout_secs = call_timeout.as_secs(),
+                    "Plugin call timed out"
+                );
+                let _ = crate::consumers::mark_submission_system_error(
+                    &db,
+                    submission_id,
+                    "PLUGIN_TIMEOUT",
+                    &format!("Plugin call timed out after {}s", call_timeout.as_secs()),
+                )
+                .await;
+                return;
+            }
+        };
 
         match result {
             Ok(output_bytes) => {

@@ -225,6 +225,15 @@ export function ScoringModeSelector({
             );
           })}
         </div>
+
+        <details style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
+          <summary style={{ cursor: 'pointer' }}>
+            {t('ioi.scoringMode.howItWorks')}
+          </summary>
+          <p style={{ marginTop: 6, lineHeight: 1.6, margin: '6px 0 0' }}>
+            {t('ioi.scoringMode.explanation')}
+          </p>
+        </details>
       </div>
     </div>
   );
