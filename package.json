@@ -24,6 +24,9 @@
     ],
     "*.{css,scss,html,md}": [
       "prettier --write"
+    ],
+    "*.rs": [
+      "rustfmt"
     ]
   },
   "devDependencies": {
