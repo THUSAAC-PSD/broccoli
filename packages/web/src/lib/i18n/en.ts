@@ -175,8 +175,16 @@ export const en: Record<string, string> = {
   'contests.enrollTitle': 'Enrollment',
   'contests.enrollDescription':
     'You have not enrolled in this contest yet. Enroll now to participate.',
+  'contests.registeredDescription':
+    'You are registered for this contest. You can cancel your registration if needed.',
   'contests.enrollAction': 'Enroll in Contest',
   'contests.enrolling': 'Enrolling...',
+  'contests.unregisterAction': 'Cancel Registration',
+  'contests.unregistering': 'Canceling...',
+  'contests.unregisterConfirmTitle': 'Cancel Registration',
+  'contests.unregisterConfirmDescription':
+    'Are you sure you want to cancel your registration for this contest? You can re-register later if the contest is still open.',
+  'contests.unregisterConfirm': 'Yes, Cancel Registration',
   'contests.notFound': 'Contest not found.',
   'contests.loadError': 'Failed to load contest data.',
   'contests.loadProblemsError': 'Failed to load contest problems.',
@@ -366,6 +374,8 @@ export const en: Record<string, string> = {
   'toast.contest.deleteError': 'Failed to delete contest.',
   'toast.contest.enrolled': 'Enrolled in contest successfully.',
   'toast.contest.enrollError': 'Failed to enroll in contest.',
+  'toast.contest.unregistered': 'Registration canceled successfully.',
+  'toast.contest.unregisterError': 'Failed to cancel registration.',
   'toast.problem.created': 'Problem created successfully.',
   'toast.problem.updated': 'Problem updated successfully.',
   'toast.problem.deleted': 'Problem deleted successfully.',

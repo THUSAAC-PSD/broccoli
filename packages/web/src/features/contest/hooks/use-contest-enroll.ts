@@ -53,6 +53,26 @@ export function useContestEnroll({
     },
   });
 
+  const unregisterMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await apiClient.DELETE('/contests/{id}/register', {
+        params: { path: { id: contestId } },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(t('toast.contest.unregistered'));
+      queryClient.invalidateQueries({ queryKey: ['contest', contestId] });
+      queryClient.invalidateQueries({
+        queryKey: ['contest-my-info', contestId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-contests'] });
+    },
+    onError: () => {
+      toast.error(t('toast.contest.unregisterError'));
+    },
+  });
+
   const { data: myInfo } = useQuery({
     queryKey: ['contest-my-info', contestId],
     enabled: !!contest && !canManageContest,
@@ -79,9 +99,20 @@ export function useContestEnroll({
     !isRegistered &&
     !hasEnded;
 
+  const canShowUnregisterButton =
+    !!contest &&
+    hasMyInfo &&
+    !canManageContest &&
+    contest.is_public &&
+    isRegistered &&
+    !hasEnded;
+
   return {
     canShowEnrollCard,
+    canShowUnregisterButton,
     enroll: () => enrollMutation.mutate(),
+    unregister: () => unregisterMutation.mutate(),
     isPending: enrollMutation.isPending,
+    isUnregistering: unregisterMutation.isPending,
   };
 }
