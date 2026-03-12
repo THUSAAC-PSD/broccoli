@@ -183,8 +183,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a contest by ID
-         * @description Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.
+         * Soft-delete a contest by ID
+         * @description Marks a contest as deleted without removing historical submissions or participant records. Requires `contest:delete` permission.
          */
         delete: operations["deleteContest"];
         options?: never;
@@ -723,8 +723,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a problem by ID
-         * @description Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.
+         * Soft-delete a problem by ID
+         * @description Marks a problem as deleted without removing historical data. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem is currently part of a contest.
          */
         delete: operations["deleteProblem"];
         options?: never;
@@ -879,7 +879,7 @@ export interface paths {
         put?: never;
         /**
          * Upload test cases from a ZIP file
-         * @description Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
+         * @description Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
          */
         post: operations["uploadTestCases"];
         delete?: never;
@@ -1011,6 +1011,28 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete a user by ID
+         * @description Marks the user as deleted. The record is retained for historical data but the user can no longer log in and will not appear in listings. Requires `user:manage` permission.
+         *
+         *     Deletion is blocked if the user is registered in a running or recently-ended contest. Registrations in future (not-yet-started) contests are automatically cancelled before deletion.
+         */
+        delete: operations["deleteUser"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1265,7 +1287,9 @@ export interface components {
              */
             user_id?: number | null;
             /**
-             * @description Filter by verdict string. Built-in values use PascalCase (Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError). Custom verdicts must use `other:<custom>)`, e.g. `other:PartiallyAccepted`.
+             * @description Filter by verdict string.
+             *     Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
+             *     Custom verdicts must use `other:<custom>`, e.g. `other:PartiallyAccepted`.
              * @example WrongAnswer
              */
             verdict?: string | null;
@@ -1335,7 +1359,7 @@ export interface components {
              * Format: date-time
              * @example 2025-09-30T12:00:00Z
              */
-            activate_time: string;
+            activate_time?: string | null;
             /**
              * Format: date-time
              * @example 2025-09-25T10:00:00Z
@@ -1399,6 +1423,11 @@ export interface components {
              */
             contest_id: number;
             /**
+             * @description True when the user account has been soft-deleted. Front-ends should
+             *     display such users as "[Deleted User]" or similar in historical views.
+             */
+            is_deleted: boolean;
+            /**
              * Format: date-time
              * @example 2025-09-30T12:00:00Z
              */
@@ -1410,8 +1439,6 @@ export interface components {
             user_id: number;
             /** @example alice_wonder */
             username: string;
-            /** True when the user account has been soft-deleted */
-            is_deleted: boolean;
         };
         /** @description A problem associated with a contest. */
         ContestProblemResponse: {
@@ -1441,7 +1468,7 @@ export interface components {
              * Format: date-time
              * @example 2025-09-30T12:00:00Z
              */
-            activate_time: string;
+            activate_time?: string | null;
             /**
              * Format: date-time
              * @example 2025-09-25T10:00:00Z
@@ -1501,13 +1528,13 @@ export interface components {
              * @example 1
              */
             contest_id: number;
+            /** @example false */
+            is_registered: boolean;
             /**
              * Format: date-time
              * @example 2025-09-30T12:00:00Z
              */
             registered_at?: string | null;
-            /** @example false */
-            is_registered: boolean;
             /**
              * Format: int32
              * @example 7
@@ -1519,7 +1546,7 @@ export interface components {
             /**
              * Format: date-time
              * @description Time when the contest becomes visible and registration opens (must be before start_time,
-             *     default: min(now, start_time)).
+             *     default: never).
              * @example 2025-09-30T12:00:00Z
              */
             activate_time?: string | null;
@@ -1593,8 +1620,17 @@ export interface components {
              */
             show_test_details?: boolean | null;
             /**
-             * @description Expected submission file names per language. Null or omitted means use client-side defaults.
-             * @example { "cpp": ["solution.cpp"], "java": ["Main.java"] }
+             * @description Expected submission file names per language.
+             *     Keys are language ids (e.g. "cpp", "java", "python"), values are arrays of filenames.
+             *     Null or omitted means use client-side defaults.
+             * @example {
+             *       "cpp": [
+             *         "solution.cpp"
+             *       ],
+             *       "java": [
+             *         "Main.java"
+             *       ]
+             *     }
              */
             submission_format?: {
                 [key: string]: string[];
@@ -1645,6 +1681,8 @@ export interface components {
              * @example true
              */
             is_sample: boolean;
+            /** @example sample01 */
+            label: string;
             /**
              * Format: int32
              * @description Display position (0-based). Auto-assigned if omitted.
@@ -2074,8 +2112,16 @@ export interface components {
              */
             show_test_details: boolean;
             /**
-             * @description Expected submission file names per language. Keys are language ids, values are arrays of filenames. Null means use client-side defaults.
-             * @example { "cpp": ["solution.cpp"], "java": ["Main.java"] }
+             * @description Expected submission file names per language.
+             *     Null means use client-side defaults.
+             * @example {
+             *       "cpp": [
+             *         "solution.cpp"
+             *       ],
+             *       "java": [
+             *         "Main.java"
+             *       ]
+             *     }
              */
             submission_format?: {
                 [key: string]: string[];
@@ -2301,6 +2347,8 @@ export interface components {
             input_preview: string;
             /** @example true */
             is_sample: boolean;
+            /** @example sample01 */
+            label: string;
             /** @example 0 1 */
             output_preview: string;
             /**
@@ -2343,6 +2391,8 @@ export interface components {
             input: string;
             /** @example true */
             is_sample: boolean;
+            /** @example sample01 */
+            label: string;
             /**
              * Format: int32
              * @example 0
@@ -2428,7 +2478,7 @@ export interface components {
             /**
              * Format: date-time
              * @description Time when the contest becomes visible and registration opens (must be before start_time,
-             *     default: min(now, start_time)).
+             *     default: never).
              * @example 2025-09-30T12:00:00Z
              */
             activate_time?: string | null;
@@ -2501,8 +2551,16 @@ export interface components {
              */
             show_test_details?: boolean | null;
             /**
-             * @description Expected submission file names per language. Set to a value to update, set to null to clear, or omit to leave unchanged.
-             * @example { "cpp": ["solution.cpp"], "java": ["Main.java"] }
+             * @description Expected submission file names per language.
+             *     Set to a value to update, set to null to clear, or omit to leave unchanged.
+             * @example {
+             *       "cpp": [
+             *         "solution.cpp"
+             *       ],
+             *       "java": [
+             *         "Main.java"
+             *       ]
+             *     }
              */
             submission_format?: {
                 [key: string]: string[];
@@ -2543,6 +2601,8 @@ export interface components {
              * @example false
              */
             is_sample?: boolean | null;
+            /** @example sample01 */
+            label?: string | null;
             /**
              * Format: int32
              * @description Display position (0-based).
@@ -2587,10 +2647,10 @@ export interface components {
             /** @example alice */
             username: string;
         };
-        /**
-         * @description Execution verdict string for a test case or submission. Built-in values include Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, and SystemError. Plugin-defined custom verdict strings are also allowed.
-         */
-        Verdict: string;
+        /** @description Execution verdict for a test case or submission. */
+        Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError" | {
+            Other: string;
+        };
         WebRouteConfig: {
             /**
              * @description Component to render for this route, which must match a key in the
@@ -3096,47 +3156,6 @@ export interface operations {
             };
         };
     };
-    getContestMyInfo: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Contest ID */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current user's contest context */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContestUserContextResponse"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Contest not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     deleteContest: {
         parameters: {
             query?: never;
@@ -3230,6 +3249,47 @@ export interface operations {
             };
             /** @description Forbidden (PERMISSION_DENIED) */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getContestMyInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current user's contest context */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestUserContextResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3493,6 +3553,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContestProblemResponse"][];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
@@ -4850,7 +4919,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Cannot delete: has submissions or contest associations (CONFLICT) */
+            /** @description Cannot delete: part of a contest (CONFLICT) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5455,7 +5524,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description ZIP file containing test cases (.in/.ans or .in/.out pairs) */
+        /** @description Multipart form data with fields: `file` (ZIP archive), `input_format` (e.g. `input_*.txt`), `output_format` (e.g. `output_*.txt`). */
         requestBody?: {
             content: {
                 "multipart/form-data": unknown;
@@ -5935,6 +6004,63 @@ export interface operations {
             };
             /** @description Forbidden (PERMISSION_DENIED) */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description User not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description User is in an active or under-judgement contest (CONFLICT) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
