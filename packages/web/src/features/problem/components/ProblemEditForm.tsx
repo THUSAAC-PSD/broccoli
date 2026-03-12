@@ -29,6 +29,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     timeLimit: 1000,
     memoryLimit: 262144,
     showTestDetails: false,
+    submissionFormat: {},
   });
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
@@ -61,6 +62,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
         timeLimit: data.time_limit,
         memoryLimit: data.memory_limit,
         showTestDetails: data.show_test_details,
+        submissionFormat: data.submission_format ?? {},
       });
       setLoadingData(false);
     };
@@ -116,6 +118,10 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       time_limit: formData.timeLimit,
       memory_limit: formData.memoryLimit,
       show_test_details: formData.showTestDetails,
+      submission_format:
+        Object.keys(formData.submissionFormat).length > 0
+          ? formData.submissionFormat
+          : null,
     };
 
     const result = await apiClient.PATCH('/problems/{id}', {
