@@ -7,6 +7,8 @@ import type { DataTableColumn } from '@broccoli/web-sdk/ui';
 import { DataTable } from '@broccoli/web-sdk/ui';
 import { Trophy } from 'lucide-react';
 
+import { RankingChartsView } from '@/features/rankings/components/RankingChartsView';
+
 // --- Types aligned with API schemas ---
 
 /** Per-problem result for a participant, computed from submissions */
@@ -559,13 +561,10 @@ export default function ContestRankingPage() {
 
       <Slot name="ranking.header" as="div" />
 
-      <Slot
-        name="ranking.charts"
-        slotProps={{
-          data: SCORE_OVER_TIME,
-          teams: TOP_USERS,
-          distribution: DISTRIBUTION,
-        }}
+      <RankingChartsView
+        data={SCORE_OVER_TIME}
+        teams={TOP_USERS}
+        distribution={DISTRIBUTION}
       />
 
       <DataTable

@@ -14,7 +14,7 @@ const LOCALE_LABELS: Record<string, string> = {
   'zh-CN': '中文',
 };
 
-export function LocaleSwitcher() {
+export function LocaleSelector() {
   const { locale, setLocale, availableLocales } = useTranslation();
 
   const currentLabel = LOCALE_LABELS[locale] ?? locale;

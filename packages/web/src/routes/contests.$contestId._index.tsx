@@ -4,6 +4,8 @@ import { useParams } from 'react-router';
 
 import { PageLayout } from '@/components/PageLayout';
 import { useAuth } from '@/features/auth/hooks/use-auth';
+import { ContestAdminActions } from '@/features/contest/components/ContestAdminActions';
+import { ContestCountdown } from '@/features/contest/components/ContestCountdown';
 import { ContestEnrollCard } from '@/features/contest/components/ContestEnrollCard';
 import { ContestProblemsCard } from '@/features/contest/components/ContestProblemsCard';
 import { useContestEnroll } from '@/features/contest/hooks/use-contest-enroll';
@@ -36,12 +38,20 @@ export default function ContestOverviewPage() {
       title={contest?.title ?? t('contests.title')}
       subtitle={contest?.description}
       icon={<Trophy className="h-6 w-6 text-primary" />}
-      contentClassName="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start"
+      contentClassName="flex flex-col gap-4"
     >
-      {canShowEnrollCard ? (
-        <ContestEnrollCard onEnroll={enroll} isPending={isPending} />
-      ) : null}
-      <ContestProblemsCard contestId={id} />
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="flex-1 min-w-0 space-y-4">
+          {canShowEnrollCard ? (
+            <ContestEnrollCard onEnroll={enroll} isPending={isPending} />
+          ) : null}
+          <ContestProblemsCard contestId={id} />
+        </div>
+        <div className="flex flex-col w-full lg:w-80 lg:shrink-0 lg:sticky lg:top-6 h-fit gap-4">
+          <ContestCountdown />
+          <ContestAdminActions />
+        </div>
+      </div>
     </PageLayout>
   );
 }

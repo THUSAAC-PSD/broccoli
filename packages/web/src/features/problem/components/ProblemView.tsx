@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { Markdown } from '@/components/Markdown';
 import { useAuth } from '@/features/auth/hooks/use-auth';
+import { ContestCountdownMini } from '@/features/contest/components/ContestCountdown';
 import { ProblemHeader } from '@/features/problem/components/ProblemHeader';
 import { SubmissionResult } from '@/features/submission/components/SubmissionResult';
 import { useSubmission } from '@/features/submission/hooks/use-submission';
@@ -395,11 +396,9 @@ export default function ProblemView({
               memoryLimit={memoryLimit}
             />
           </div>
-          <Slot
-            name="problem-detail.header"
-            as="div"
-            className="hidden lg:flex items-center"
-          />
+          <div className="hidden lg:flex items-center gap-4">
+            <ContestCountdownMini />
+          </div>
         </div>
       </div>
 
