@@ -18,7 +18,7 @@ export default function ContestOverviewPage() {
   const id = Number(contestId);
   const { contest } = useContestInfo(id);
   const canManageContest = !!user?.permissions.includes('contest:manage');
-  const { canShowEnrollCard, enroll, isPending } = useContestEnroll({
+  const enrollState = useContestEnroll({
     contestId: id,
     contest,
     canManageContest,
@@ -46,9 +46,21 @@ export default function ContestOverviewPage() {
         </div>
         <div className="flex flex-col w-full lg:w-80 lg:shrink-0 lg:sticky lg:top-6 h-fit gap-4">
           <ContestCountdown />
-          {canShowEnrollCard ? (
-            <ContestEnrollCard onEnroll={enroll} isPending={isPending} />
-          ) : null}
+          {enrollState.canShowEnrollCard && (
+            <ContestEnrollCard
+              onEnroll={enrollState.enroll}
+              isPending={enrollState.isPending}
+            />
+          )}
+          {enrollState.canShowUnregisterButton && (
+            <ContestEnrollCard
+              onEnroll={enrollState.enroll}
+              isPending={enrollState.isPending}
+              onUnregister={enrollState.unregister}
+              isUnregistering={enrollState.isUnregistering}
+              showUnregister
+            />
+          )}
           <ContestAdminActions />
         </div>
       </div>
