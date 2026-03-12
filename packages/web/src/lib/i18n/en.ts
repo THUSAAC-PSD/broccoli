@@ -170,6 +170,7 @@ export const en: Record<string, string> = {
   'contests.ended': 'Ended',
   'contests.problems': 'Problems',
   'contests.notFound': 'Contest not found.',
+  'contests.loadError': 'Failed to load contest data.',
   'contests.loadProblemsError': 'Failed to load contest problems.',
   'contests.inDays': 'in {count} days',
   'contests.inHours': 'in {count} hours',
@@ -220,6 +221,8 @@ export const en: Record<string, string> = {
   'auth.usernameTaken': 'Username is already taken.',
   'auth.passwordMismatch': 'Passwords do not match.',
   'auth.validationError': 'Please check your input and try again.',
+  'auth.loginToAsk': 'Please sign in to ask a question.',
+  'auth.loginToViewSubmissions': 'Please sign in to view submissions.',
 
   // Sidebar (additional)
   'sidebar.guest': 'Guest',
