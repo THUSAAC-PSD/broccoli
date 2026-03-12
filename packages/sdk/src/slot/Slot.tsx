@@ -104,7 +104,9 @@ export function Slot({
   return (
     <>
       {prependSlots.map(renderSlot)}
-      <Container className={className}>{content}</Container>
+      <Container data-slot-name={name} className={className}>
+        {content}
+      </Container>
       {appendSlots.map(renderSlot)}
     </>
   );
