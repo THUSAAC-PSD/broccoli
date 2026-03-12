@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::str::FromStr;
 
@@ -121,9 +121,7 @@ impl FromStr for SubmissionStatus {
 }
 
 /// Execution verdict for a test case or submission.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema, Default,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, utoipa::ToSchema, Default)]
 #[cfg_attr(
     feature = "sea-orm",
     derive(DeriveValueType),
@@ -143,6 +141,7 @@ pub enum Verdict {
     /// Internal judge error during test execution.
     #[default]
     SystemError,
+    Other(String),
 }
 
 impl Verdict {
@@ -162,7 +161,7 @@ impl Verdict {
     ];
 
     /// Returns the string representation.
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::Accepted => "Accepted",
             Self::WrongAnswer => "WrongAnswer",
@@ -170,6 +169,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => "MemoryLimitExceeded",
             Self::RuntimeError => "RuntimeError",
             Self::SystemError => "SystemError",
+            Self::Other(custom) => custom.as_str(),
         }
     }
 
@@ -182,6 +182,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => 3,
             Self::RuntimeError => 4,
             Self::SystemError => 5,
+            Self::Other(_) => 255,
         }
     }
 }
@@ -202,7 +203,7 @@ impl fmt::Display for ParseVerdictError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Invalid verdict '{}'. Valid values: {}",
+            "Invalid verdict '{}'. Valid values: {} or Other(<custom>)",
             self.invalid,
             Verdict::ALL
                 .iter()
@@ -226,9 +227,70 @@ impl FromStr for Verdict {
             "MemoryLimitExceeded" => Ok(Self::MemoryLimitExceeded),
             "RuntimeError" => Ok(Self::RuntimeError),
             "SystemError" => Ok(Self::SystemError),
-            _ => Err(ParseVerdictError {
-                invalid: s.to_string(),
-            }),
+            _ => {
+                if let Some(custom) = s
+                    .strip_prefix("Other(")
+                    .and_then(|v| v.strip_suffix(')'))
+                    .filter(|v| !v.trim().is_empty())
+                {
+                    return Ok(Self::Other(custom.to_string()));
+                }
+
+                Err(ParseVerdictError {
+                    invalid: s.to_string(),
+                })
+            }
         }
+    }
+}
+
+impl Serialize for Verdict {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Verdict {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Ok(Self::from_str(raw.as_str()).unwrap_or(Self::Other(raw)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Verdict;
+    use std::str::FromStr;
+
+    #[test]
+    fn parse_tagged_other_verdict() {
+        let v = Verdict::from_str("Other(PluginCustomStatus)").expect("parse verdict");
+        assert_eq!(v, Verdict::Other("PluginCustomStatus".to_string()));
+    }
+
+    #[test]
+    fn reject_unknown_unwrapped_verdict() {
+        let err =
+            Verdict::from_str("PluginCustomStatus").expect_err("should reject unknown verdict");
+        assert!(err.to_string().contains("Invalid verdict"));
+    }
+
+    #[test]
+    fn serialize_other_verdict_as_plain_string() {
+        let raw = serde_json::to_string(&Verdict::Other("CustomSignal".to_string()))
+            .expect("serialize verdict");
+        assert_eq!(raw, "\"CustomSignal\"");
+    }
+
+    #[test]
+    fn deserialize_unknown_verdict_from_plain_string() {
+        let v: Verdict = serde_json::from_str("\"PluginStatus\"").expect("deserialize verdict");
+        assert_eq!(v, Verdict::Other("PluginStatus".to_string()));
     }
 }

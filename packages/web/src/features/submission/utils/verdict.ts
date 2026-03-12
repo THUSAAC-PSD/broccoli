@@ -35,7 +35,7 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
     case 'RuntimeError':
       return t('result.runtimeError');
     default:
-      return t('result.unknownVerdict');
+      return verdict;
   }
 }
 

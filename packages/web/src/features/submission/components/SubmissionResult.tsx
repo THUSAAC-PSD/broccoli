@@ -20,6 +20,7 @@ type VerdictKey =
   | 'memory_limit'
   | 'runtime_error'
   | 'system_error'
+  | 'other'
   | 'pending';
 
 const VERDICT_CONFIG: Record<
@@ -60,6 +61,11 @@ const VERDICT_CONFIG: Record<
     color: 'text-gray-500',
     bgColor: 'bg-gray-500/10',
   },
+  other: {
+    icon: AlertCircle,
+    color: 'text-slate-500',
+    bgColor: 'bg-slate-500/10',
+  },
   pending: {
     icon: Clock,
     color: 'text-gray-500',
@@ -67,7 +73,7 @@ const VERDICT_CONFIG: Record<
   },
 };
 
-const VERDICT_MAP: Record<Verdict, VerdictKey> = {
+const VERDICT_MAP: Partial<Record<Verdict, VerdictKey>> = {
   Accepted: 'accepted',
   WrongAnswer: 'wrong_answer',
   TimeLimitExceeded: 'time_limit',
@@ -239,7 +245,9 @@ function TestCaseRow({
   index: number;
 }) {
   const { t } = useTranslation();
-  const verdictKey = VERDICT_MAP[testCase.verdict] ?? 'pending';
+  const verdictKey = testCase.verdict
+    ? (VERDICT_MAP[testCase.verdict] ?? 'other')
+    : 'pending';
   const config = VERDICT_CONFIG[verdictKey];
   const Icon = config.icon;
 
@@ -351,7 +359,7 @@ function getVerdictLabel(
     case 'SystemError':
       return t('result.systemError');
     default:
-      return t('result.unknownVerdict');
+      return verdict;
   }
 }
 
@@ -362,5 +370,15 @@ function getVerdictBadgeVariant(
   if (submission.status === 'SystemError') return 'secondary';
   const verdict = submission.result?.verdict;
   if (verdict === 'Accepted') return 'default';
+  if (
+    verdict === 'WrongAnswer' ||
+    verdict === 'TimeLimitExceeded' ||
+    verdict === 'MemoryLimitExceeded' ||
+    verdict === 'RuntimeError' ||
+    verdict === 'SystemError'
+  ) {
+    return 'destructive';
+  }
+  if (verdict) return 'secondary';
   return 'destructive';
 }
