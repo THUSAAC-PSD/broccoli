@@ -196,6 +196,26 @@ export interface paths {
         patch: operations["updateContest"];
         trace?: never;
     };
+    "/contests/{id}/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get current user's contest context
+         * @description Returns contest-related information for the authenticated user in the specified contest. Uses the same contest visibility rules as getContest.
+         */
+        get: operations["getContestMyInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{id}/participants": {
         parameters: {
             query?: never;
@@ -1338,8 +1358,6 @@ export interface components {
             id: number;
             /** @example true */
             is_public: boolean;
-            /** @example false */
-            is_registered: boolean;
             /**
              * @description Whether participants can see compile output during contest.
              * @example true
@@ -1473,6 +1491,26 @@ export interface components {
              * @example 2025-09-25T10:30:00Z
              */
             updated_at: string;
+        };
+        /** @description Current authenticated user's context in a contest. */
+        ContestUserContextResponse: {
+            /**
+             * Format: int32
+             * @example 1
+             */
+            contest_id: number;
+            /**
+             * Format: date-time
+             * @example 2025-09-30T12:00:00Z
+             */
+            registered_at?: string | null;
+            /** @example false */
+            is_registered: boolean;
+            /**
+             * Format: int32
+             * @example 7
+             */
+            user_id: number;
         };
         /** @description Request body for creating a contest. */
         CreateContestRequest: {
@@ -3035,6 +3073,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContestResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getContestMyInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current user's contest context */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestUserContextResponse"];
                 };
             };
             /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */

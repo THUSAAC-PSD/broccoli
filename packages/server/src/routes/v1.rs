@@ -130,6 +130,7 @@ fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
             handlers::contest::update_contest,
             handlers::contest::delete_contest,
         ))
+        .routes(routes!(handlers::contest::get_contest_my_info))
         .nest(
             "/{id}/problems",
             contest_problem_routes(submission_max_size),

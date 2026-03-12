@@ -177,6 +177,10 @@ pub mod routes {
         format!("/api/v1/contests/{id}/register")
     }
 
+    pub fn contest_my_info(id: i32) -> String {
+        format!("/api/v1/contests/{id}/me")
+    }
+
     pub fn test_cases_reorder(problem_id: i32) -> String {
         format!("/api/v1/problems/{problem_id}/test-cases/reorder")
     }
