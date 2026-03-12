@@ -44,6 +44,7 @@ export function TestCaseFormDialog({
   const [score, setScore] = useState(0);
   const [isSample, setIsSample] = useState(false);
   const [description, setDescription] = useState('');
+  const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [message, setMessage] = useState<{
@@ -68,6 +69,7 @@ export function TestCaseFormDialog({
           setScore(data.score);
           setIsSample(data.is_sample);
           setDescription(data.description ?? '');
+          setLabel(data.label ?? '');
         });
     } else {
       setInput('');
@@ -75,6 +77,7 @@ export function TestCaseFormDialog({
       setScore(0);
       setIsSample(false);
       setDescription('');
+      setLabel('');
     }
   }, [apiClient, open, testCaseId, problemId]);
 
@@ -89,6 +92,7 @@ export function TestCaseFormDialog({
       score,
       is_sample: isSample,
       description: description || null,
+      label: label || null,
     };
 
     const result = isEdit
@@ -159,7 +163,20 @@ export function TestCaseFormDialog({
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="tc-label">
+                  {t('admin.testCases.field.label')}
+                </Label>
+                <Input
+                  id="tc-label"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={64}
+                  placeholder="sample_01"
+                  className="font-mono"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="tc-score">
                   {t('admin.testCases.field.score')}

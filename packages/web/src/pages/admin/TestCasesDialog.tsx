@@ -113,6 +113,9 @@ export function TestCasesDialog({
                   <th className="px-3 py-2 text-left font-medium text-foreground/80 w-12">
                     #
                   </th>
+                  <th className="px-3 py-2 text-left font-medium text-foreground/80 w-32">
+                    {t('admin.testCases.field.label')}
+                  </th>
                   <th className="px-3 py-2 text-left font-medium text-foreground/80">
                     {t('admin.testCases.field.input')}
                   </th>
@@ -136,6 +139,11 @@ export function TestCasesDialog({
                   >
                     <td className="px-3 py-2 text-muted-foreground">
                       {tc.position + 1}
+                    </td>
+                    <td className="px-3 py-2">
+                      <code className="text-xs font-semibold text-foreground/90">
+                        {tc.label || `#${tc.id}`}
+                      </code>
                     </td>
                     <td className="px-3 py-2">
                       <code className="text-xs bg-muted px-1.5 py-0.5 rounded break-all">

@@ -1,5 +1,5 @@
 import { SchemaField } from './SchemaField';
-import type { JsonSchema } from './types';
+import type { ConfigScope, JsonSchema } from './types';
 
 export function SchemaFields({
   schema,
@@ -9,6 +9,7 @@ export function SchemaFields({
   errors,
   pluginId,
   namespace,
+  scope,
 }: Readonly<{
   schema: JsonSchema;
   values: Record<string, unknown>;
@@ -17,6 +18,7 @@ export function SchemaFields({
   errors: Record<string, string>;
   pluginId?: string;
   namespace?: string;
+  scope?: ConfigScope;
 }>) {
   if (!schema.properties) return null;
 
@@ -45,6 +47,7 @@ export function SchemaFields({
               errors={errors}
               pluginId={pluginId}
               namespace={namespace}
+              scope={scope}
             />
           ))}
         </div>
@@ -62,6 +65,7 @@ export function SchemaFields({
           errors={errors}
           pluginId={pluginId}
           namespace={namespace}
+          scope={scope}
         />
       ))}
     </div>

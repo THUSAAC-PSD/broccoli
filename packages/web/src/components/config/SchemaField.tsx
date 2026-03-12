@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { FieldError } from './FieldError';
 import { NumericInput } from './NumericInput';
 import { SchemaFields } from './SchemaFields';
-import type { JsonSchemaProperty } from './types';
+import type { ConfigScope, JsonSchemaProperty } from './types';
 import { defaultForType } from './utils';
 
 export function SchemaField({
@@ -22,6 +22,7 @@ export function SchemaField({
   errors,
   pluginId,
   namespace,
+  scope,
 }: Readonly<{
   name: string;
   prop: JsonSchemaProperty;
@@ -31,6 +32,7 @@ export function SchemaField({
   errors: Record<string, string>;
   pluginId?: string;
   namespace?: string;
+  scope?: ConfigScope;
 }>) {
   const { t } = useTranslation();
   const fieldId = `cfg-${path.join('-')}`;
@@ -55,6 +57,7 @@ export function SchemaField({
           schema: prop,
           onChange: (v: unknown) => updateValue(path, v),
           path,
+          scope,
         }}
       >
         {defaultField}
@@ -91,6 +94,7 @@ export function SchemaField({
               errors={errors}
               pluginId={pluginId}
               namespace={namespace}
+              scope={scope}
             />
           </div>
         </div>
@@ -224,6 +228,7 @@ export function SchemaField({
                     errors={errors}
                     pluginId={pluginId}
                     namespace={namespace}
+                    scope={scope}
                   />
                 </div>
                 <Button

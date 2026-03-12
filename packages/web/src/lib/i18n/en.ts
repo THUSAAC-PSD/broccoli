@@ -127,6 +127,8 @@ export const en: Record<string, string> = {
   'result.skipped': 'Skipped',
   'result.memoryLimit': 'Memory Limit',
   'result.submitError': 'Failed to submit. Please try again.',
+  'result.rejection.rateLimited': 'Too Many Requests',
+  'result.rejection.failed': 'Submission Failed',
   'result.compileOutput': 'Compile Output',
   'result.input': 'Input',
   'result.expectedOutput': 'Expected Output',
@@ -317,7 +319,7 @@ export const en: Record<string, string> = {
   'admin.field.showParticipantsList': 'Show Participants List',
   'admin.field.timeLimit': 'Time Limit',
   'admin.field.memoryLimit': 'Memory Limit',
-  'admin.field.showTestDetails': 'Show Test Details',
+
   'admin.field.problemType': 'Problem Type',
   'admin.field.checkerFormat': 'Checker Format',
   'admin.field.contestType': 'Contest Type',
@@ -340,6 +342,7 @@ export const en: Record<string, string> = {
   'admin.testCases.field.expectedOutput': 'Expected Output',
   'admin.testCases.field.score': 'Score',
   'admin.testCases.field.sample': 'Sample',
+  'admin.testCases.field.label': 'Label',
   'admin.testCases.field.description': 'Description',
   'admin.testCases.field.isSample': 'Sample Test Case',
 
@@ -373,6 +376,7 @@ export const en: Record<string, string> = {
   'plugins.config.loadError': 'Failed to load configuration.',
   'plugins.config.deleteSuccess': 'Configuration reset to defaults.',
   'plugins.config.deleteError': 'Failed to delete configuration.',
+  'plugins.config.enabled': 'Plugin enabled',
   'sidebar.plugins': 'Plugins',
 
   // Resource config

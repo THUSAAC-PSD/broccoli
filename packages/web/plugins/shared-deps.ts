@@ -11,9 +11,9 @@ import type { Plugin, ResolvedConfig } from 'vite';
  * It does two things:
  *   1. Exposes a virtual module (`virtual:shared-deps-map`) that returns
  *      a mapping of bare specifiers → browser-resolvable URLs.
- *   2. Emits thin re-export "shim" modules for each shared dep — in dev via
- *      middleware (extracting named exports from the CJS default), in production
- *      via emitted chunks.
+ *   2. Emits thin re-export "shim" modules for each shared dep. In dev via
+ *      middleware (re-exporting from Vite's pre-bundled deps), in production via
+ *      emitted chunks.
  *
  * The consumer (root.tsx) injects the map as a `<script type="importmap">`
  * in `<head>`, which the browser uses to resolve bare imports in any
@@ -26,6 +26,14 @@ const SHARED_DEPS = [
   'react/jsx-dev-runtime',
   'react-dom',
   'react-dom/client',
+  'react-router',
+  '@tanstack/react-query',
+  '@broccoli/sdk',
+  '@broccoli/sdk/react',
+  '@broccoli/sdk/api',
+  '@broccoli/sdk/i18n',
+  'lucide-react',
+  '@monaco-editor/react',
 ] as const;
 
 const VIRTUAL_MAP_ID = 'virtual:shared-deps-map';
@@ -48,27 +56,16 @@ const MANIFEST_FILENAME = 'shared-deps-map.json';
 
 /**
  * URL prefix for dev-mode shim modules served via middleware.
- * These extract named exports from Vite's pre-bundled CJS deps (which only
- * have `export default`). Vite normally handles this by rewriting import
- * statements in consuming code, but dynamically loaded plugins bypass that.
+ * These re-export from Vite's pre-bundled deps so dynamically loaded plugins
+ * (which bypass Vite's import rewriting) can resolve bare specifiers.
  */
 const DEV_SHIM_PREFIX = '/@shared-deps/';
 
-const SHARED_DEPS_SET: ReadonlySet<string> = new Set(SHARED_DEPS);
+/** Reverse lookup: flattened id -> original dep name (avoids lossy `_` → `/` reversal) */
+const FLAT_TO_DEP = new Map(SHARED_DEPS.map((dep) => [flattenId(dep), dep]));
 
 const IDENT_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
-/** Mirrors Vite's dep pre-bundling filename convention: `/` → `_` */
-function flattenId(dep: string): string {
-  return dep.replace(/\//g, '_');
-}
-
-/**
- * Discover the named exports of a CJS dependency using Node's native
- * `require()`. This is reliable because: (1) the middleware runs in Node.js
- * where CJS works natively, and (2) `createRequire` avoids rolldown/Vite
- * intercepting the resolution (unlike `import()` or `ssrLoadModule()`).
- */
 const nodeRequire = createRequire(import.meta.url);
 
 function getNamedExports(dep: string): string[] {
@@ -81,6 +78,11 @@ function getNamedExports(dep: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** Mirrors Vite's dep pre-bundling filename convention: `/` → `_` */
+function flattenId(dep: string): string {
+  return dep.replace(/\//g, '_');
 }
 
 /**
@@ -99,19 +101,33 @@ function readBrowserHash(cacheDir: string): string {
 }
 
 /**
- * Generate a dev-mode ESM shim that imports the pre-bundled dep's default
- * export (which is the CJS module.exports object) and re-exports each
- * property as a named export. The `?v={browserHash}` query is critical:
- * without it, the browser would load a separate module instance from the
- * one the host app uses (URL mismatch -> duplicate React -> broken hooks).
+ * Generate a dev-mode ESM shim that re-exports a pre-bundled dependency.
+ *
+ * Vite pre-bundles CJS deps (React) as `export default module.exports` with
+ * no named exports. ESM deps (@tanstack/react-query) keep their real named
+ * exports but have no default. We handle both via namespace import:
+ *
+ * ```
+ *   import * as __ns  -> { default: cjsExports } for CJS
+ *                     -> { useQuery, ... }       for ESM
+ * ```
+ *
+ * Then `__ns.default ?? __ns` gives the right object to extract names from.
+ *
+ * The `?v={browserHash}` query is critical, because without it, the browser would
+ * load a separate module instance (URL mismatch -> duplicate React -> broken
+ * hooks).
  */
 function generateDevShim(dep: string, browserHash: string): string {
   const named = getNamedExports(dep);
   const hashSuffix = browserHash ? `?v=${browserHash}` : '';
   const prebundledPath = `/node_modules/.vite/deps/${flattenId(dep)}.js${hashSuffix}`;
 
-  const lines = [`import __mod from '${prebundledPath}';`];
-  lines.push('export default __mod;');
+  const lines = [
+    `import * as __ns from '${prebundledPath}';`,
+    `const __mod = __ns.default ?? __ns;`,
+    `export default __mod;`,
+  ];
   for (const name of named) {
     lines.push(`export const ${name} = __mod.${name};`);
   }
@@ -134,22 +150,17 @@ export function sharedDepsPlugin(): Plugin {
     },
 
     configureServer(server) {
-      let browserHash = '';
-
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith(DEV_SHIM_PREFIX)) return next();
 
-        // Lazily read the hash (deps may not be optimized at server start).
-        if (!browserHash) {
-          browserHash = readBrowserHash(config.cacheDir);
-        }
+        const browserHash = readBrowserHash(config.cacheDir);
 
         const depFlat = req.url
           .slice(DEV_SHIM_PREFIX.length)
           .replace(/\.js$/, '');
-        const dep = depFlat.replaceAll('_', '/');
+        const dep = FLAT_TO_DEP.get(depFlat);
 
-        if (!SHARED_DEPS_SET.has(dep)) {
+        if (!dep) {
           res.statusCode = 404;
           res.end('Not a shared dep');
           return;
@@ -159,6 +170,69 @@ export function sharedDepsPlugin(): Plugin {
         res.setHeader('Content-Type', 'application/javascript');
         res.setHeader('Cache-Control', 'no-cache');
         res.end(code);
+      });
+
+      server.middlewares.use((_, res, next) => {
+        const imports: Record<string, string> = {};
+        for (const dep of SHARED_DEPS) {
+          imports[dep] = `${DEV_SHIM_PREFIX}${flattenId(dep)}.js`;
+        }
+        const importMapTag = `<script type="importmap">${JSON.stringify({ imports })}</script>`;
+
+        let injected = false;
+        const _end = res.end.bind(res);
+        const _write = res.write.bind(res);
+
+        function tryInject(chunk: unknown, enc?: string): unknown {
+          if (injected || chunk == null) return chunk;
+          const ct = res.getHeader('content-type');
+          if (!ct || !String(ct).includes('text/html')) return chunk;
+
+          const encoding = (enc || 'utf-8') as BufferEncoding;
+          const str =
+            typeof chunk === 'string'
+              ? chunk
+              : Buffer.isBuffer(chunk)
+                ? chunk.toString(encoding)
+                : null;
+          if (str === null) return chunk;
+
+          const match = /<head(\s[^>]*)?>|<head>/.exec(str);
+          if (!match) return chunk;
+
+          injected = true;
+          const at = match.index + match[0].length;
+          const patched = str.slice(0, at) + importMapTag + str.slice(at);
+          return typeof chunk === 'string'
+            ? patched
+            : Buffer.from(patched, encoding);
+        }
+
+        res.write = function (
+          chunk: unknown,
+          encOrCb?: BufferEncoding | ((err?: Error | null) => void),
+          cb?: (err?: Error | null) => void,
+        ): boolean {
+          const enc = typeof encOrCb === 'string' ? encOrCb : undefined;
+          const patched = tryInject(chunk, enc);
+          if (typeof encOrCb === 'function')
+            return _write(patched as string, encOrCb);
+          return _write(patched as string, encOrCb as BufferEncoding, cb);
+        } as typeof res.write;
+
+        res.end = function (
+          chunk?: unknown,
+          encOrCb?: BufferEncoding | ((err?: Error | null) => void),
+          cb?: (err?: Error | null) => void,
+        ) {
+          const enc = typeof encOrCb === 'string' ? encOrCb : undefined;
+          const patched = tryInject(chunk, enc);
+          if (typeof encOrCb === 'function')
+            return _end(patched as string, encOrCb);
+          return _end(patched as string, encOrCb as BufferEncoding, cb);
+        } as typeof res.end;
+
+        next();
       });
     },
 
@@ -171,12 +245,7 @@ export function sharedDepsPlugin(): Plugin {
       // Virtual import map module
       if (id === RESOLVED_MAP_ID) {
         if (isDev) {
-          // Point to dev shim modules served by configureServer middleware.
-          const imports: Record<string, string> = {};
-          for (const dep of SHARED_DEPS) {
-            imports[dep] = `${DEV_SHIM_PREFIX}${flattenId(dep)}.js`;
-          }
-          return `export default ${JSON.stringify(imports)};`;
+          return `export default {};`;
         }
 
         // For production:

@@ -2,7 +2,7 @@ import type { ConfigSchemaResponse, PluginDetailResponse } from '@broccoli/sdk';
 import { useApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Dialog,
@@ -11,6 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { ConfigForm } from './ConfigForm';
@@ -30,6 +32,7 @@ function scopeString(scope: ConfigScope): string {
 function buildConfigCallbacks(
   apiClient: ReturnType<typeof useApiClient>,
   scope: ConfigScope,
+  pluginId: string,
   namespace: string,
 ) {
   switch (scope.scope) {
@@ -75,34 +78,37 @@ function buildConfigCallbacks(
       return {
         getConfig: async () => {
           const { data, error } = await apiClient.GET(
-            '/contests/{id}/config/{namespace}',
+            '/contests/{id}/config/{plugin_id}/{namespace}',
             {
               params: {
-                path: { id: scope.contestId, namespace },
+                path: { id: scope.contestId, plugin_id: pluginId, namespace },
               },
             },
           );
           if (error) throw error;
           return (data?.config ?? {}) as Record<string, unknown>;
         },
-        putConfig: async (config: Record<string, unknown>) => {
+        putConfig: async (
+          config: Record<string, unknown>,
+          enabled?: boolean,
+        ) => {
           const { error } = await apiClient.PUT(
-            '/contests/{id}/config/{namespace}',
+            '/contests/{id}/config/{plugin_id}/{namespace}',
             {
               params: {
-                path: { id: scope.contestId, namespace },
+                path: { id: scope.contestId, plugin_id: pluginId, namespace },
               },
-              body: { config },
+              body: { config, ...(enabled !== undefined ? { enabled } : {}) },
             },
           );
           return { error };
         },
         deleteConfig: async () => {
           const { error } = await apiClient.DELETE(
-            '/contests/{id}/config/{namespace}',
+            '/contests/{id}/config/{plugin_id}/{namespace}',
             {
               params: {
-                path: { id: scope.contestId, namespace },
+                path: { id: scope.contestId, plugin_id: pluginId, namespace },
               },
             },
           );
@@ -113,34 +119,37 @@ function buildConfigCallbacks(
       return {
         getConfig: async () => {
           const { data, error } = await apiClient.GET(
-            '/problems/{id}/config/{namespace}',
+            '/problems/{id}/config/{plugin_id}/{namespace}',
             {
               params: {
-                path: { id: scope.problemId, namespace },
+                path: { id: scope.problemId, plugin_id: pluginId, namespace },
               },
             },
           );
           if (error) throw error;
           return (data?.config ?? {}) as Record<string, unknown>;
         },
-        putConfig: async (config: Record<string, unknown>) => {
+        putConfig: async (
+          config: Record<string, unknown>,
+          enabled?: boolean,
+        ) => {
           const { error } = await apiClient.PUT(
-            '/problems/{id}/config/{namespace}',
+            '/problems/{id}/config/{plugin_id}/{namespace}',
             {
               params: {
-                path: { id: scope.problemId, namespace },
+                path: { id: scope.problemId, plugin_id: pluginId, namespace },
               },
-              body: { config },
+              body: { config, ...(enabled !== undefined ? { enabled } : {}) },
             },
           );
           return { error };
         },
         deleteConfig: async () => {
           const { error } = await apiClient.DELETE(
-            '/problems/{id}/config/{namespace}',
+            '/problems/{id}/config/{plugin_id}/{namespace}',
             {
               params: {
-                path: { id: scope.problemId, namespace },
+                path: { id: scope.problemId, plugin_id: pluginId, namespace },
               },
             },
           );
@@ -151,12 +160,13 @@ function buildConfigCallbacks(
       return {
         getConfig: async () => {
           const { data, error } = await apiClient.GET(
-            '/contests/{id}/problems/{problem_id}/config/{namespace}',
+            '/contests/{id}/problems/{problem_id}/config/{plugin_id}/{namespace}',
             {
               params: {
                 path: {
                   id: scope.contestId,
                   problem_id: scope.problemId,
+                  plugin_id: pluginId,
                   namespace,
                 },
               },
@@ -167,12 +177,13 @@ function buildConfigCallbacks(
         },
         putConfig: async (config: Record<string, unknown>) => {
           const { error } = await apiClient.PUT(
-            '/contests/{id}/problems/{problem_id}/config/{namespace}',
+            '/contests/{id}/problems/{problem_id}/config/{plugin_id}/{namespace}',
             {
               params: {
                 path: {
                   id: scope.contestId,
                   problem_id: scope.problemId,
+                  plugin_id: pluginId,
                   namespace,
                 },
               },
@@ -183,12 +194,13 @@ function buildConfigCallbacks(
         },
         deleteConfig: async () => {
           const { error } = await apiClient.DELETE(
-            '/contests/{id}/problems/{problem_id}/config/{namespace}',
+            '/contests/{id}/problems/{problem_id}/config/{plugin_id}/{namespace}',
             {
               params: {
                 path: {
                   id: scope.contestId,
                   problem_id: scope.problemId,
+                  plugin_id: pluginId,
                   namespace,
                 },
               },
@@ -347,11 +359,55 @@ function SinglePluginContent({
   activeNamespace?: string;
   onNamespaceChange?: (ns: string) => void;
 }) {
+  const { t } = useTranslation();
   const [localNamespace, setLocalNamespace] = useState(
     schemas[0]?.namespace ?? '',
   );
   const activeNs = controlledNamespace ?? localNamespace;
   const setActiveNs = onNamespaceChange ?? setLocalNamespace;
+
+  const showEnabledToggle =
+    scope.scope === 'contest' || scope.scope === 'problem';
+  const [enabled, setEnabled] = useState(true);
+  const enabledRef = useRef(true);
+  enabledRef.current = enabled;
+
+  useEffect(() => {
+    if (!open || !showEnabledToggle || schemas.length === 0) return;
+    const firstNs = schemas[0].namespace;
+
+    // Load enabled from the first namespace's config row
+    let req: Promise<{ data?: { enabled: boolean }; error?: unknown }>;
+    if (scope.scope === 'contest') {
+      req = apiClient.GET('/contests/{id}/config/{plugin_id}/{namespace}', {
+        params: {
+          path: {
+            id: scope.contestId,
+            plugin_id: pluginId,
+            namespace: firstNs,
+          },
+        },
+      });
+    } else if (scope.scope === 'problem') {
+      req = apiClient.GET('/problems/{id}/config/{plugin_id}/{namespace}', {
+        params: {
+          path: {
+            id: scope.problemId,
+            plugin_id: pluginId,
+            namespace: firstNs,
+          },
+        },
+      });
+    } else {
+      return;
+    }
+
+    req
+      .then(({ data }) => {
+        setEnabled(data?.enabled ?? true);
+      })
+      .catch(() => setEnabled(true));
+  }, [open, showEnabledToggle, schemas, apiClient, scope, pluginId]);
 
   useEffect(() => {
     if (open && schemas.length > 0 && !controlledNamespace) {
@@ -359,49 +415,92 @@ function SinglePluginContent({
     }
   }, [open, schemas, controlledNamespace]);
 
-  const callbacksByNamespace = useMemo(
+  const rawCallbacks = useMemo(
     () =>
       Object.fromEntries(
         schemas.map((s) => [
           s.namespace,
-          buildConfigCallbacks(apiClient, scope, s.namespace),
+          buildConfigCallbacks(apiClient, scope, pluginId, s.namespace),
         ]),
       ),
-    [apiClient, scope, schemas],
+    [apiClient, scope, pluginId, schemas],
   );
+
+  const callbacksByNamespace = useMemo(() => {
+    if (!showEnabledToggle) return rawCallbacks;
+    return Object.fromEntries(
+      Object.entries(rawCallbacks).map(([ns, cbs]) => [
+        ns,
+        {
+          ...cbs,
+          putConfig: (config: Record<string, unknown>) =>
+            (
+              cbs.putConfig as (
+                c: Record<string, unknown>,
+                e?: boolean,
+              ) => Promise<{ error?: unknown }>
+            )(config, enabledRef.current),
+        },
+      ]),
+    );
+  }, [rawCallbacks, showEnabledToggle]);
+
+  const enabledToggle = showEnabledToggle ? (
+    <div className="flex items-center justify-between rounded-lg border p-3">
+      <Label
+        htmlFor={`plugin-enabled-${pluginId}`}
+        className="text-sm font-medium"
+      >
+        {t('plugins.config.enabled')}
+      </Label>
+      <Switch
+        id={`plugin-enabled-${pluginId}`}
+        checked={enabled}
+        onCheckedChange={setEnabled}
+      />
+    </div>
+  ) : null;
 
   if (schemas.length === 1) {
     return (
-      <ConfigForm
-        schema={schemas[0]}
-        open={open}
-        pluginId={pluginId}
-        {...callbacksByNamespace[schemas[0].namespace]}
-        invalidateQueryKeys={invalidateKeys}
-      />
+      <div className="space-y-4">
+        {enabledToggle}
+        <ConfigForm
+          schema={schemas[0]}
+          open={open}
+          pluginId={pluginId}
+          scope={scope}
+          {...callbacksByNamespace[schemas[0].namespace]}
+          invalidateQueryKeys={invalidateKeys}
+        />
+      </div>
     );
   }
 
   return (
-    <Tabs value={activeNs} onValueChange={setActiveNs}>
-      <TabsList>
+    <div className="space-y-4">
+      {enabledToggle}
+      <Tabs value={activeNs} onValueChange={setActiveNs}>
+        <TabsList>
+          {schemas.map((s) => (
+            <TabsTrigger key={s.namespace} value={s.namespace}>
+              {s.namespace}
+            </TabsTrigger>
+          ))}
+        </TabsList>
         {schemas.map((s) => (
-          <TabsTrigger key={s.namespace} value={s.namespace}>
-            {s.namespace}
-          </TabsTrigger>
+          <TabsContent key={s.namespace} value={s.namespace}>
+            <ConfigForm
+              schema={s}
+              open={open && activeNs === s.namespace}
+              pluginId={pluginId}
+              scope={scope}
+              {...callbacksByNamespace[s.namespace]}
+              invalidateQueryKeys={invalidateKeys}
+            />
+          </TabsContent>
         ))}
-      </TabsList>
-      {schemas.map((s) => (
-        <TabsContent key={s.namespace} value={s.namespace}>
-          <ConfigForm
-            schema={s}
-            open={open && activeNs === s.namespace}
-            pluginId={pluginId}
-            {...callbacksByNamespace[s.namespace]}
-            invalidateQueryKeys={invalidateKeys}
-          />
-        </TabsContent>
-      ))}
-    </Tabs>
+      </Tabs>
+    </div>
   );
 }

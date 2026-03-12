@@ -369,7 +369,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/contests/{id}/config/{namespace}": {
+    "/contests/{id}/config/{plugin_id}/{namespace}": {
         parameters: {
             query?: never;
             header?: never;
@@ -557,7 +557,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/contests/{id}/problems/{problem_id}/config/{namespace}": {
+    "/contests/{id}/problems/{problem_id}/config/{plugin_id}/{namespace}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1029,7 +1029,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/problems/{id}/config/{namespace}": {
+    "/problems/{id}/config/{plugin_id}/{namespace}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1900,6 +1900,11 @@ export interface components {
              */
             is_sample: boolean;
             /**
+             * @description Short identifier label (max 64 chars, alphanumeric + underscore/hyphen). Auto-generated from position if omitted.
+             * @example sample_01
+             */
+            label?: string | null;
+            /**
              * Format: int32
              * @description Display position (0-based). Auto-assigned if omitted.
              * @example 0
@@ -2103,7 +2108,7 @@ export interface components {
              * @description Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
              *     `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
              *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
-             *     `INTERNAL_ERROR`.
+             *     `PLUGIN_REJECTED`, `INTERNAL_ERROR`, or a custom plugin-defined code.
              * @example VALIDATION_ERROR
              */
             code: string;
@@ -2112,6 +2117,11 @@ export interface components {
              * @example Title must be 1-256 characters
              */
             message: string;
+            /**
+             * @description Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
+             *     Only present for `PluginRejection` errors.
+             */
+            details?: Record<string, unknown> | null;
         };
         /** @description Judge result for a submission. */
         JudgeResultResponse: {
@@ -2131,7 +2141,7 @@ export interface components {
              */
             memory_used?: number | null;
             /**
-             * Format: int32
+             * Format: double
              * @description Total score across all test cases.
              * @example 100
              */
@@ -2262,11 +2272,23 @@ export interface components {
         PluginConfigResponse: {
             /** @description Config JSON blob */
             config: unknown;
+            /** @description Whether this plugin is enabled for the given scope. */
+            enabled: boolean;
             /**
-             * @description Plugin namespace (e.g., "checker", "ioi-contest")
+             * @description Plugin namespace (e.g., "checker", "ioi")
              * @example checker
              */
             namespace: string;
+            /**
+             * @description The plugin that owns this config entry.
+             * @example cooldown
+             */
+            plugin_id: string;
+            /**
+             * Format: int32
+             * @description Hook execution order (lower runs first).
+             */
+            position: number;
             /**
              * Format: date-time
              * @description Last update timestamp. `null` when no config has been saved yet (using defaults).
@@ -2596,7 +2618,7 @@ export interface components {
             /** @example Two Sum */
             problem_title: string;
             /**
-             * Format: int32
+             * Format: double
              * @description Total score if judged, null otherwise.
              * @example 100
              */
@@ -2692,6 +2714,11 @@ export interface components {
             input_preview: string;
             /** @example true */
             is_sample: boolean;
+            /**
+             * @description Short identifier label for this test case.
+             * @example sample_01
+             */
+            label?: string | null;
             /** @example 0 1 */
             output_preview: string;
             /**
@@ -2735,6 +2762,11 @@ export interface components {
             /** @example true */
             is_sample: boolean;
             /**
+             * @description Short identifier label for this test case.
+             * @example sample_01
+             */
+            label?: string | null;
+            /**
              * Format: int32
              * @example 0
              */
@@ -2770,7 +2802,7 @@ export interface components {
              */
             memory_used?: number | null;
             /**
-             * Format: int32
+             * Format: double
              * @example 10
              */
             score: number;
@@ -2934,6 +2966,11 @@ export interface components {
              */
             is_sample?: boolean | null;
             /**
+             * @description Set to a string to update label, set to `null` to clear, or omit to leave unchanged.
+             * @example sample_01
+             */
+            label?: string | null;
+            /**
              * Format: int32
              * @description Display position (0-based).
              * @example 1
@@ -2959,6 +2996,13 @@ export interface components {
         UpsertPluginConfigRequest: {
             /** @description Config JSON blob to store */
             config: unknown;
+            /** @description Whether this plugin is enabled. Defaults to true if omitted (backward compat). */
+            enabled?: boolean;
+            /**
+             * Format: int32
+             * @description Hook execution order (lower runs first). Defaults to 0 if omitted.
+             */
+            position?: number;
         };
         /** @description User details returned by admin listing endpoint. */
         UserResponse: {
@@ -4147,6 +4191,8 @@ export interface operations {
             path: {
                 /** @description Contest ID */
                 id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -4199,6 +4245,8 @@ export interface operations {
             path: {
                 /** @description Contest ID */
                 id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -4255,6 +4303,8 @@ export interface operations {
             path: {
                 /** @description Contest ID */
                 id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -4946,6 +4996,8 @@ export interface operations {
                 id: number;
                 /** @description Problem ID */
                 problem_id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -5000,6 +5052,8 @@ export interface operations {
                 id: number;
                 /** @description Problem ID */
                 problem_id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -5058,6 +5112,8 @@ export interface operations {
                 id: number;
                 /** @description Problem ID */
                 problem_id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -5164,7 +5220,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Rate limit exceeded (RATE_LIMITED) */
+            /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6909,6 +6965,8 @@ export interface operations {
             path: {
                 /** @description Problem ID */
                 id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -6961,6 +7019,8 @@ export interface operations {
             path: {
                 /** @description Problem ID */
                 id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -7017,6 +7077,8 @@ export interface operations {
             path: {
                 /** @description Problem ID */
                 id: number;
+                /** @description Plugin ID */
+                plugin_id: string;
                 /** @description Config namespace */
                 namespace: string;
             };
@@ -7121,7 +7183,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Rate limit exceeded (RATE_LIMITED) */
+            /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
             429: {
                 headers: {
                     [name: string]: unknown;

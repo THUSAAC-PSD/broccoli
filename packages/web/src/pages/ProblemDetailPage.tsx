@@ -451,7 +451,11 @@ export function ProblemDetailPage() {
                 isSubmitting={isSubmitting}
                 error={submitError}
               />
-              <Slot name="problem-detail.sidebar" as="div" />
+              <Slot
+                name="problem-detail.sidebar"
+                as="div"
+                slotProps={{ submission, contestId: cId, problemId: id }}
+              />
             </div>
           )}
         </div>

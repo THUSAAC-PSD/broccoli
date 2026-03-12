@@ -3,6 +3,7 @@ import type { ApiClient } from '@broccoli/sdk/api';
 import { useTranslation } from '@broccoli/sdk/i18n';
 import { Slot } from '@broccoli/sdk/react';
 import { Trophy } from 'lucide-react';
+import { useParams } from 'react-router';
 
 import type { DataTableColumn } from '@/components/ui/data-table';
 import { DataTable } from '@/components/ui/data-table';
@@ -549,6 +550,7 @@ function useStandingsColumns(): DataTableColumn<StandingRow>[] {
 
 export function RankingPage() {
   const { t } = useTranslation();
+  const { contestId } = useParams();
   const standingsColumns = useStandingsColumns();
 
   return (
@@ -569,17 +571,23 @@ export function RankingPage() {
         }}
       />
 
-      <DataTable
-        columns={standingsColumns}
-        queryKey={['standings']}
-        fetchFn={fetchStandings}
-        searchable
-        searchPlaceholder={t('ranking.searchPlaceholder')}
-        defaultPerPage={10}
-        defaultSortBy="rank"
-        defaultSortOrder="asc"
-        emptyMessage={t('ranking.empty')}
-      />
+      <Slot
+        name="ranking.content"
+        as="div"
+        slotProps={{ contestId: contestId ? Number(contestId) : undefined }}
+      >
+        <DataTable
+          columns={standingsColumns}
+          queryKey={['standings']}
+          fetchFn={fetchStandings}
+          searchable
+          searchPlaceholder={t('ranking.searchPlaceholder')}
+          defaultPerPage={10}
+          defaultSortBy="rank"
+          defaultSortOrder="asc"
+          emptyMessage={t('ranking.empty')}
+        />
+      </Slot>
     </div>
   );
 }

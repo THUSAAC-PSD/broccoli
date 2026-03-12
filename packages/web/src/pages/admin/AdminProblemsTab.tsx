@@ -35,12 +35,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { useRegistries } from '@/hooks/use-registries';
 import type { ServerTableParams } from '@/hooks/use-server-table';
 
-import { formatDateTime, SwitchField } from './helpers';
+import { formatDateTime } from './helpers';
 import { TestCasesDialog } from './TestCasesDialog';
 
 // ── Data fetcher ──
@@ -114,7 +113,7 @@ export function ProblemFormDialog({
   const [memoryLimit, setMemoryLimit] = useState(262144);
   const [problemType, setProblemType] = useState('standard');
   const [checkerFormat, setCheckerFormat] = useState('exact');
-  const [showTestDetails, setShowTestDetails] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [message, setMessage] = useState<{
@@ -140,7 +139,6 @@ export function ProblemFormDialog({
           setMemoryLimit(data.memory_limit);
           setProblemType(data.problem_type);
           setCheckerFormat(data.checker_format);
-          setShowTestDetails(data.show_test_details);
         });
     } else {
       setTitle('');
@@ -149,7 +147,6 @@ export function ProblemFormDialog({
       setMemoryLimit(262144);
       setProblemType('standard');
       setCheckerFormat('exact');
-      setShowTestDetails(false);
     }
   }, [apiClient, open, problem]);
 
@@ -165,7 +162,6 @@ export function ProblemFormDialog({
       memory_limit: memoryLimit,
       problem_type: problemType,
       checker_format: checkerFormat,
-      show_test_details: showTestDetails,
     };
 
     const result = isEdit
@@ -297,20 +293,6 @@ export function ProblemFormDialog({
                   ))}
                 </select>
               </div>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-3">
-              <Label className="text-sm text-muted-foreground">
-                {t('admin.field.options')}
-              </Label>
-              <SwitchField
-                id="problem-test-details"
-                label={t('admin.field.showTestDetails')}
-                checked={showTestDetails}
-                onCheckedChange={setShowTestDetails}
-              />
             </div>
 
             {message && (

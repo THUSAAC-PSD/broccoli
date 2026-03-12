@@ -1,5 +1,6 @@
 import type { ConfigSchemaResponse } from '@broccoli/sdk';
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { Slot } from '@broccoli/sdk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -8,13 +9,14 @@ import { Button } from '@/components/ui/button';
 import { DialogFooter } from '@/components/ui/dialog';
 
 import { SchemaFields } from './SchemaFields';
-import type { JsonSchema } from './types';
+import type { ConfigScope, JsonSchema } from './types';
 import { deepMerge, extractDefaults, validateAll } from './utils';
 
 export interface ConfigFormProps {
   schema: ConfigSchemaResponse;
   open: boolean;
   pluginId?: string;
+  scope?: ConfigScope;
   getConfig: () => Promise<Record<string, unknown>>;
   putConfig: (config: Record<string, unknown>) => Promise<{ error?: unknown }>;
   deleteConfig: () => Promise<{ error?: unknown }>;
@@ -25,6 +27,7 @@ export function ConfigForm({
   schema,
   open,
   pluginId,
+  scope,
   getConfig,
   putConfig,
   deleteConfig,
@@ -52,16 +55,15 @@ export function ConfigForm({
 
     getConfig()
       .then((config) => {
-        setLoadingData(false);
         setValues(deepMerge(defaults, config));
       })
       .catch((err) => {
-        setLoadingData(false);
         if (err?.code !== 'NOT_FOUND') {
           setMessage({ type: 'error', text: t('plugins.config.loadError') });
         }
         setValues(defaults);
-      });
+      })
+      .finally(() => setLoadingData(false));
   }, [open, schema.namespace]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateValue = useCallback((path: string[], value: unknown) => {
@@ -165,6 +167,20 @@ export function ConfigForm({
         </p>
       )}
 
+      {pluginId && (
+        <Slot
+          name={`config.form.${pluginId}.${schema.namespace}`}
+          as="div"
+          slotProps={{
+            scope,
+            pluginId,
+            namespace: schema.namespace,
+            values,
+            schema: jsonSchema,
+          }}
+        />
+      )}
+
       <div className="space-y-5">
         <SchemaFields
           schema={jsonSchema}
@@ -174,6 +190,7 @@ export function ConfigForm({
           errors={errors}
           pluginId={pluginId}
           namespace={schema.namespace}
+          scope={scope}
         />
       </div>
 

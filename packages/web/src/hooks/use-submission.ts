@@ -18,6 +18,26 @@ const FILENAME_MAP: Record<string, string> = {
   java: 'Main.java',
 };
 
+export interface SubmissionError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+function parseSubmissionError(err: unknown): SubmissionError {
+  if (err && typeof err === 'object') {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.code === 'string' && typeof obj.message === 'string') {
+      const result: SubmissionError = { code: obj.code, message: obj.message };
+      if (obj.details != null && typeof obj.details === 'object') {
+        result.details = obj.details as Record<string, unknown>;
+      }
+      return result;
+    }
+  }
+  return { code: 'UNKNOWN', message: String(err) };
+}
+
 interface UseSubmissionOptions {
   problemId: number;
   contestId?: number;
@@ -42,7 +62,7 @@ export function useSubmission({
   const apiClient = useApiClient();
   const [submission, setSubmission] = useState<SubmissionResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SubmissionError | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -132,7 +152,7 @@ export function useSubmission({
         startPolling(data.id);
       } catch (err) {
         console.error('Submission failed:', err);
-        setError(String(err));
+        setError(parseSubmissionError(err));
         setIsSubmitting(false);
       }
     },
@@ -145,6 +165,12 @@ export function useSubmission({
     setIsSubmitting(false);
     setError(null);
   }, [stopPolling]);
+
+  // Reset when problem changes (e.g. navigating between problems in a contest)
+  useEffect(() => {
+    reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problemId]);
 
   // Cleanup on unmount
   useEffect(() => {

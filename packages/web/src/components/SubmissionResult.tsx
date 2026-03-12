@@ -4,16 +4,19 @@ import type {
   Verdict,
 } from '@broccoli/sdk';
 import { useTranslation } from '@broccoli/sdk/i18n';
+import { Slot } from '@broccoli/sdk/react';
 import {
   AlertCircle,
   CheckCircle2,
   Clock,
   MinusCircle,
+  Timer,
   XCircle,
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { SubmissionError } from '@/hooks/use-submission';
 
 type VerdictKey =
   | 'accepted'
@@ -102,7 +105,7 @@ function formatMemory(kb: number): string {
 interface SubmissionResultProps {
   submission?: SubmissionResponse | null;
   isSubmitting?: boolean;
-  error?: string | null;
+  error?: SubmissionError | null;
 }
 
 export function SubmissionResult({
@@ -131,33 +134,17 @@ export function SubmissionResult({
   // Submission error
   if (error && !submission) {
     return (
-      <Card className="h-full">
-        <CardHeader>
-          <CardTitle>{t('result.title')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center h-32 text-destructive">
-            {t('result.submitError')}
-          </div>
-        </CardContent>
-      </Card>
+      <Slot name="submission-result.rejection" slotProps={{ error }}>
+        <GenericRejectionCard error={error} />
+      </Slot>
     );
   }
 
-  // In-progress states: Pending, Compiling, Running
+  // Pure spinner states: Pending, Compiling (no data to show yet)
   const status = submission?.status;
-  if (
-    isSubmitting ||
-    status === 'Pending' ||
-    status === 'Compiling' ||
-    status === 'Running'
-  ) {
+  if (isSubmitting || status === 'Pending' || status === 'Compiling') {
     const statusLabel =
-      status === 'Compiling'
-        ? t('result.compiling')
-        : status === 'Running'
-          ? t('result.running')
-          : t('result.judging');
+      status === 'Compiling' ? t('result.compiling') : t('result.judging');
 
     return (
       <Card className="h-full">
@@ -176,16 +163,47 @@ export function SubmissionResult({
     );
   }
 
-  // Terminal states
   if (!submission) return null;
 
   const result = submission.result;
+  const isRunning = status === 'Running';
+  const testCases = result?.test_case_results ?? [];
+
+  if (isRunning) {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>{t('result.title')}</CardTitle>
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+              <span className="text-sm text-muted-foreground">
+                {t('result.running')}
+              </span>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Slot
+            name="submission-result.content"
+            as="div"
+            className="space-y-2"
+            slotProps={{ submission, testCases }}
+          >
+            {testCases.map((tc, index) => (
+              <TestCaseRow key={tc.id} testCase={tc} index={index + 1} />
+            ))}
+          </Slot>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Terminal states
   const verdictLabel = getVerdictLabel(submission, t);
   const verdictVariant = getVerdictBadgeVariant(submission);
-
   const totalTime = result?.time_used;
   const totalMemory = result?.memory_used;
-  const testCases = result?.test_case_results ?? [];
 
   return (
     <Card className="h-full">
@@ -232,15 +250,70 @@ export function SubmissionResult({
         )}
 
         {/* Test case results */}
-        {testCases.length > 0
-          ? testCases.map((tc, index) => (
-              <TestCaseRow key={tc.id} testCase={tc} index={index + 1} />
-            ))
-          : status === 'Judged' && (
-              <div className="text-center text-muted-foreground py-8">
-                {t('result.noResults')}
-              </div>
-            )}
+        <Slot
+          name="submission-result.content"
+          as="div"
+          className="space-y-2"
+          slotProps={{ submission, testCases }}
+        >
+          {testCases.length > 0
+            ? testCases.map((tc, index) => (
+                <TestCaseRow key={tc.id} testCase={tc} index={index + 1} />
+              ))
+            : status === 'Judged' && (
+                <div className="text-center text-muted-foreground py-8">
+                  {t('result.noResults')}
+                </div>
+              )}
+        </Slot>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GenericRejectionCard({ error }: { error: SubmissionError }) {
+  const { t } = useTranslation();
+
+  if (error.code === 'RATE_LIMITED') {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle>{t('result.title')}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center gap-3 py-6">
+            <div className="rounded-full bg-amber-500/10 p-3">
+              <Timer className="h-6 w-6 text-amber-500" />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="text-sm font-medium">
+                {t('result.rejection.rateLimited')}
+              </p>
+              <p className="text-xs text-muted-foreground">{error.message}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle>{t('result.title')}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col items-center gap-3 py-6">
+          <div className="rounded-full bg-destructive/10 p-3">
+            <XCircle className="h-6 w-6 text-destructive" />
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-medium">
+              {t('result.rejection.failed')}
+            </p>
+            <p className="text-xs text-muted-foreground">{error.message}</p>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
