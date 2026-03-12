@@ -436,6 +436,7 @@ pub async fn add_contest_problem(
     responses(
         (status = 200, description = "List of contest problems", body = Vec<ContestProblemResponse>),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),

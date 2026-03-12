@@ -14,7 +14,7 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::entity::submission::SubmissionFile;
 use crate::entity::{
-    contest, contest_problem, contest_user, problem, submission, test_case, test_case_result, user,
+    contest, contest_problem, problem, submission, test_case, test_case_result, user,
 };
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -22,6 +22,9 @@ use crate::extractors::json::AppJson;
 use crate::models::shared::Pagination;
 use crate::models::submission::*;
 use crate::state::AppState;
+use crate::utils::contest::{
+    is_contest_participant, require_contest_participant, require_contest_running,
+};
 
 /// Check rate limit for a user.
 ///
@@ -92,21 +95,6 @@ async fn find_contest<C: ConnectionTrait>(db: &C, id: i32) -> Result<contest::Mo
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Contest not found".into()))
-}
-
-/// Check if a user is a participant of a contest.
-async fn is_contest_participant<C: ConnectionTrait>(
-    db: &C,
-    contest_id: i32,
-    user_id: i32,
-) -> Result<bool, AppError> {
-    let exists = contest_user::Entity::find()
-        .filter(contest_user::Column::ContestId.eq(contest_id))
-        .filter(contest_user::Column::UserId.eq(user_id))
-        .one(db)
-        .await?
-        .is_some();
-    Ok(exists)
 }
 
 /// Check if a problem belongs to a contest.
@@ -765,20 +753,9 @@ pub async fn create_contest_submission(
         ));
     }
 
-    let can_manage = auth_user.has_permission("contest:manage");
-    let is_participant = is_contest_participant(&txn, contest_id, auth_user.user_id).await?;
-
-    if !can_manage && !is_participant {
-        return Err(AppError::NotFound("Contest not found".into())); // Prevent enumeration
-    }
-
     let now = Utc::now();
-    if now < contest_model.start_time {
-        return Err(AppError::Validation("Contest has not started yet".into()));
-    }
-    if now > contest_model.end_time {
-        return Err(AppError::Validation("Contest has ended".into()));
-    }
+    require_contest_running(&auth_user, &contest_model, now)?;
+    require_contest_participant(&state.db, &auth_user, &contest_model).await?;
 
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),

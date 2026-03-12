@@ -689,7 +689,7 @@ mod contest_submissions {
     }
 
     #[tokio::test]
-    async fn non_participant_cannot_submit_to_contest() {
+    async fn non_participant_cannot_submit_to_public_contest() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin1", "pass1234", "admin")
@@ -697,6 +697,35 @@ mod contest_submissions {
         let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
         let contest_id = app
             .create_contest(&admin_token, "Test Contest", true, false)
+            .await;
+        app.add_problem_to_contest(contest_id, problem_id, &admin_token)
+            .await;
+
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        // Not registering for contest
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(
+                &routes::contest_problem_submissions(contest_id, problem_id),
+                &body,
+                &user_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn non_participant_cannot_submit_to_private_contest() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
+        let contest_id = app
+            .create_contest(&admin_token, "Private Contest", false, false)
             .await;
         app.add_problem_to_contest(contest_id, problem_id, &admin_token)
             .await;
@@ -772,6 +801,99 @@ mod contest_submissions {
     }
 
     #[tokio::test]
+    async fn cannot_submit_before_contest_activates() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
+
+        // Create a contest that activates in the future
+        let res = app
+            .post_with_token(
+                routes::CONTESTS,
+                &json!({
+                    "title": "Future Contest",
+                    "description": "Hasn't activated yet",
+                    "activate_time": "2099-01-01T00:00:00Z",
+                    "start_time": "2099-01-02T00:00:00Z",
+                    "end_time": "2099-12-31T00:00:00Z",
+                    "is_public": true,
+                    "submissions_visible": false,
+                }),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(res.status, 201);
+        let contest_id = res.id();
+
+        app.add_problem_to_contest(contest_id, problem_id, &admin_token)
+            .await;
+
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        // Not registering for contest since it hasn't activated
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(
+                &routes::contest_problem_submissions(contest_id, problem_id),
+                &body,
+                &user_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn cannot_submit_after_contest_deactivates() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
+
+        // Create a contest that has already deactivated
+        let res = app
+            .post_with_token(
+                routes::CONTESTS,
+                &json!({
+                    "title": "Past Contest",
+                    "description": "Already deactivated",
+                    "activate_time": "2020-01-01T00:00:00Z",
+                    "start_time": "2020-01-02T00:00:00Z",
+                    "end_time": "2020-12-31T00:00:00Z",
+                    "deactivate_time": "2020-12-31T00:00:00Z",
+                    "is_public": true,
+                    "submissions_visible": false,
+                }),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(res.status, 201);
+        let contest_id = res.id();
+
+        app.add_problem_to_contest(contest_id, problem_id, &admin_token)
+            .await;
+
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        // Not registering for contest since it has deactivated
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(
+                &routes::contest_problem_submissions(contest_id, problem_id),
+                &body,
+                &user_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
     async fn cannot_submit_before_contest_starts() {
         let app = TestApp::spawn().await;
         let admin_token = app
@@ -838,6 +960,7 @@ mod contest_submissions {
                 &json!({
                     "title": "Past Contest",
                     "description": "Already ended",
+                    "activate_time": "2020-01-01T00:00:00Z",
                     "start_time": "2020-01-01T00:00:00Z",
                     "end_time": "2020-01-02T00:00:00Z",
                     "is_public": true,
@@ -852,14 +975,15 @@ mod contest_submissions {
         app.add_problem_to_contest(contest_id, problem_id, &admin_token)
             .await;
 
-        // Admin (who has contest:manage) can submit without registration
-        // but should still be blocked by timing constraint
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        // Not registering for contest since it has ended
+
         let body = valid_submission_body("cpp");
         let res = app
             .post_with_token(
                 &routes::contest_problem_submissions(contest_id, problem_id),
                 &body,
-                &admin_token,
+                &user_token,
             )
             .await;
 
