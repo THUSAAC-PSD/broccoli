@@ -108,6 +108,7 @@ export const en: Record<string, string> = {
   'problem.downloadSampleFile': 'Download {file} ({size})',
   'problem.startCoding': 'Start Coding',
   'problem.backToDescription': 'Description',
+  'problem.editor': 'Edit',
 
   // Code editor
   'editor.title': 'Code',
