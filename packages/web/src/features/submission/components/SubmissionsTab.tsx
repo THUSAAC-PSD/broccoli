@@ -12,13 +12,22 @@ import { BookOpen, Code2, ListFilter, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
+import { useAuth } from '@/features/auth/hooks/use-auth';
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
 import { useContest } from '@/features/contest/contexts/contest-context';
 import { fetchContestSubmissions } from '@/features/submission/api/fetch-contest-submissions';
 import { useSubmissionColumns } from '@/features/submission/hooks/use-submission-columns';
 
+const LANGUAGE_OPTIONS = [
+  { label: 'C++', value: 'cpp' },
+  { label: 'C', value: 'c' },
+  { label: 'Java', value: 'java' },
+  { label: 'Python', value: 'python' },
+] as const;
+
 export function SubmissionsTab({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const apiClient = useApiClient();
   const { filterProblemId, setFilterProblemId } = useContest();
   const columns = useSubmissionColumns(contestId);
@@ -40,36 +49,6 @@ export function SubmissionsTab({ contestId }: { contestId: number }) {
     queryKey: ['contest-problems', contestId],
     queryFn: () => fetchContestProblemList(apiClient, contestId),
   });
-
-  const { data: languageSeed } = useQuery({
-    queryKey: ['contest-submission-languages', contestId],
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET(
-        '/contests/{id}/submissions',
-        {
-          params: {
-            path: { id: contestId },
-            query: {
-              page: 1,
-              per_page: 100,
-              sort_by: 'created_at',
-              sort_order: 'desc',
-            },
-          },
-        },
-      );
-      if (error) throw error;
-      return data.data;
-    },
-  });
-
-  const languageOptions = useMemo(() => {
-    const set = new Set<string>();
-    (languageSeed ?? []).forEach((s) => {
-      if (s.language?.trim()) set.add(s.language.trim());
-    });
-    return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [languageSeed]);
 
   const problemOptions = useMemo(
     () => [
@@ -94,11 +73,9 @@ export function SubmissionsTab({ contestId }: { contestId: number }) {
   const languageDropdownOptions = useMemo(
     () => [
       { value: 'all', label: t('submissions.filters.allLanguages') },
-      ...languageOptions
-        .filter((v) => v !== 'all')
-        .map((lang) => ({ value: lang, label: lang })),
+      ...LANGUAGE_OPTIONS,
     ],
-    [languageOptions, t],
+    [t],
   );
 
   if (isProblemsLoading) {
@@ -172,6 +149,7 @@ export function SubmissionsTab({ contestId }: { contestId: number }) {
             problemId: filterProblemId,
             language: appliedLanguage,
             status: toSubmissionStatus(appliedStatus),
+            userId: user?.id,
           })
         }
         defaultPerPage={20}
