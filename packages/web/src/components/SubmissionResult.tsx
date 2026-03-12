@@ -142,7 +142,11 @@ export function SubmissionResult({
 
   // Pure spinner states: Pending, Compiling (no data to show yet)
   const status = submission?.status;
-  if (isSubmitting || status === 'Pending' || status === 'Compiling') {
+  if (
+    (!submission && isSubmitting) ||
+    status === 'Pending' ||
+    status === 'Compiling'
+  ) {
     const statusLabel =
       status === 'Compiling' ? t('result.compiling') : t('result.judging');
 

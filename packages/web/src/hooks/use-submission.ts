@@ -3,7 +3,6 @@ import { useApiClient } from '@broccoli/sdk/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 60_000;
 
 const TERMINAL_STATUSES = new Set([
   'Judged',
@@ -88,28 +87,17 @@ export function useSubmission({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<SubmissionError | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
   }, []);
 
   const startPolling = useCallback(
     (submissionId: number) => {
       stopPolling();
-
-      // Stop polling after timeout
-      timeoutRef.current = setTimeout(() => {
-        stopPolling();
-        setIsSubmitting(false);
-      }, POLL_TIMEOUT_MS);
 
       pollingRef.current = setInterval(async () => {
         try {
