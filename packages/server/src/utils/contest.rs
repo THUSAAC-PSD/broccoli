@@ -1,8 +1,9 @@
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 
-use crate::entity::{contest, contest_problem, contest_user};
+use crate::entity::{contest, contest_problem, contest_user, problem};
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
+use crate::utils::soft_delete::SoftDeletable;
 
 /// Verify the caller can access the given contest.
 pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
@@ -37,7 +38,7 @@ pub async fn find_contest<C: sea_orm::ConnectionTrait>(
     db: &C,
     id: i32,
 ) -> Result<contest::Model, AppError> {
-    contest::Entity::find_by_id(id)
+    contest::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Contest not found".into()))
@@ -165,7 +166,7 @@ pub async fn can_access_problem_via_contest<C: sea_orm::ConnectionTrait>(
 
     let now = chrono::Utc::now();
 
-    let has_public = contest::Entity::find()
+    let has_public = contest::Entity::find_active()
         .filter(contest::Column::Id.is_in(contest_ids.clone()))
         .filter(contest::Column::IsPublic.eq(true))
         .filter(contest::Column::StartTime.lte(now))
@@ -176,7 +177,7 @@ pub async fn can_access_problem_via_contest<C: sea_orm::ConnectionTrait>(
         return Ok(());
     }
 
-    let started_contest_ids: Vec<i32> = contest::Entity::find()
+    let started_contest_ids: Vec<i32> = contest::Entity::find_active()
         .filter(contest::Column::Id.is_in(contest_ids))
         .filter(contest::Column::StartTime.lte(now))
         .select_only()
@@ -209,7 +210,7 @@ pub async fn require_problem_read_access<C: sea_orm::ConnectionTrait>(
     problem_id: i32,
 ) -> Result<(), AppError> {
     if auth_user.has_permission("problem:create") || auth_user.has_permission("problem:edit") {
-        crate::entity::problem::Entity::find_by_id(problem_id)
+        problem::Entity::find_active_by_id(problem_id)
             .one(db)
             .await?
             .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;

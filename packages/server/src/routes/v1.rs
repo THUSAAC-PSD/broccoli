@@ -28,7 +28,9 @@ fn auth_routes() -> OpenApiRouter<AppState> {
 }
 
 fn user_routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(handlers::user::list_users))
+    OpenApiRouter::new()
+        .routes(routes!(handlers::user::list_users))
+        .routes(routes!(handlers::user::delete_user))
 }
 
 fn admin_routes() -> OpenApiRouter<AppState> {

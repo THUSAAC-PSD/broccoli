@@ -1,9 +1,9 @@
 use common::storage::database::DatabaseBlobStore;
 use sea_orm::*;
-use sea_query::{Index, PostgresQueryBuilder};
+use sea_query::{Expr, Index, PostgresQueryBuilder};
 use tracing::info;
 
-use crate::entity::{blob_ref, dead_letter_message, role, role_permission, submission};
+use crate::entity::{blob_ref, dead_letter_message, role, role_permission, submission, user};
 
 /// Default roles seeded on startup.
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
@@ -144,6 +144,23 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         Err(e) => {
             tracing::warn!("Failed to create index idx_dlq_resolved_created: {}", e);
         }
+    }
+
+    // For soft-delete: user.username was previously a full UNIQUE constraint.
+    // The constraint is now dropped in init_db (before schema-sync).
+    // Here we only need to ensure the partial unique index exists.
+    let stmt = Index::create()
+        .if_not_exists()
+        .unique()
+        .name("idx_user_username_active")
+        .table(user::Entity)
+        .col(user::Column::Username)
+        .and_where(Expr::col(user::Column::DeletedAt).is_null())
+        .to_string(PostgresQueryBuilder);
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => info!("Ensured partial unique index idx_user_username_active exists"),
+        Err(e) => tracing::warn!("Failed to create idx_user_username_active: {}", e),
     }
 
     // Composite index for blob_ref upsert.

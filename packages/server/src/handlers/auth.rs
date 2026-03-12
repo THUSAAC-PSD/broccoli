@@ -12,6 +12,7 @@ use crate::models::auth::{
     validate_login_request, validate_register_request,
 };
 use crate::state::AppState;
+use crate::utils::soft_delete::SoftDeletable;
 use crate::utils::{hash, jwt};
 
 /// A pre-computed dummy hash used during login when the username does not exist,
@@ -60,14 +61,15 @@ pub async fn register(
         ..Default::default()
     };
 
+    // The partial unique index (WHERE deleted_at IS NULL) guarantees that this
+    // INSERT only fails with UniqueConstraintViolation when an *active* user
+    // already holds the same username.  Soft-deleted accounts are outside the
+    // index and therefore never block re-registration.
     let user = new_user
         .insert(&state.db)
         .await
         .map_err(|e| match e.sql_err() {
-            Some(SqlErr::UniqueConstraintViolation(_)) => {
-                tracing::debug!("Registration race condition: unique constraint caught on insert");
-                AppError::UsernameTaken
-            }
+            Some(SqlErr::UniqueConstraintViolation(_)) => AppError::UsernameTaken,
             _ => AppError::from(e),
         })?;
 
@@ -97,7 +99,7 @@ pub async fn login(
 
     let username = payload.username.trim();
 
-    let maybe_user = user::Entity::find()
+    let maybe_user = user::Entity::find_active()
         .filter(user::Column::Username.eq(username))
         .one(&state.db)
         .await?;

@@ -25,6 +25,7 @@ use crate::state::AppState;
 use crate::utils::contest::{
     is_contest_participant, require_contest_participant, require_contest_running,
 };
+use crate::utils::soft_delete::SoftDeletable;
 
 /// Check rate limit for a user.
 ///
@@ -70,9 +71,9 @@ async fn check_rate_limit(
     Ok(())
 }
 
-/// Find a problem by ID or return 404.
+/// Find a problem by ID or return 404. Soft-deleted problems are treated as not found.
 async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Model, AppError> {
-    problem::Entity::find_by_id(id)
+    problem::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))
@@ -89,9 +90,9 @@ async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
-/// Find a contest by ID or return 404.
+/// Find a contest by ID or return 404. Soft-deleted contests are treated as not found.
 async fn find_contest<C: ConnectionTrait>(db: &C, id: i32) -> Result<contest::Model, AppError> {
-    contest::Entity::find_by_id(id)
+    contest::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Contest not found".into()))

@@ -6,11 +6,11 @@ use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use sea_orm::prelude::Expr;
-use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
+use sea_orm::sea_query::{Func, LikeExpr};
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{blob_ref, contest_problem, problem, submission, test_case, test_case_result};
+use crate::entity::{contest, contest_problem, problem, test_case, test_case_result};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -18,6 +18,7 @@ use crate::models::problem::*;
 use crate::state::AppState;
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{is_sample_directory, split_dir_filename};
+use crate::utils::soft_delete::SoftDeletable;
 
 #[utoipa::path(
     post,
@@ -91,7 +92,7 @@ pub async fn list_problems(
     let page = Ord::max(query.page.unwrap_or(1), 1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
 
-    let mut select = problem::Entity::find();
+    let mut select = problem::Entity::find_active();
 
     if let Some(ref search) = query.search {
         let term = escape_like(search.trim());
@@ -263,15 +264,15 @@ pub async fn update_problem(
     path = "/{id}",
     tag = "Problems",
     operation_id = "deleteProblem",
-    summary = "Delete a problem by ID",
-    description = "Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.",
+    summary = "Soft-delete a problem by ID",
+    description = "Marks a problem as deleted without removing historical data. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem is currently part of a contest.",
     params(("id" = i32, Path, description = "Problem ID")),
     responses(
         (status = 204, description = "Problem deleted"),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 409, description = "Cannot delete: has submissions or contest associations (CONFLICT)", body = ErrorBody),
+        (status = 409, description = "Cannot delete: part of a contest (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -285,52 +286,31 @@ pub async fn delete_problem(
 
     let txn = state.db.begin().await?;
 
-    let _problem = find_problem_for_update(&txn, id).await?;
+    let problem = find_problem_for_update(&txn, id).await?;
 
-    let sub_count = submission::Entity::find()
-        .filter(submission::Column::ProblemId.eq(id))
-        .count(&txn)
-        .await?;
-    if sub_count > 0 {
-        return Err(AppError::Conflict(
-            "Cannot delete problem with existing submissions".into(),
-        ));
-    }
-
-    let contest_count = contest_problem::Entity::find()
+    let contest_ids_with_problem: Vec<i32> = contest_problem::Entity::find()
         .filter(contest_problem::Column::ProblemId.eq(id))
-        .count(&txn)
+        .select_only()
+        .column(contest_problem::Column::ContestId)
+        .into_tuple()
+        .all(&txn)
         .await?;
-    if contest_count > 0 {
-        return Err(AppError::Conflict(
-            "Cannot delete problem associated with a contest".into(),
-        ));
+
+    if !contest_ids_with_problem.is_empty() {
+        let active_contest_count = contest::Entity::find_active()
+            .filter(contest::Column::Id.is_in(contest_ids_with_problem))
+            .count(&txn)
+            .await?;
+        if active_contest_count > 0 {
+            return Err(AppError::Conflict(
+                "Cannot delete problem associated with a contest".into(),
+            ));
+        }
     }
 
-    blob_ref::Entity::delete_many()
-        .filter(blob_ref::Column::OwnerType.eq("problem"))
-        .filter(blob_ref::Column::OwnerId.eq(id.to_string()))
-        .exec(&txn)
-        .await?;
-
-    test_case_result::Entity::delete_many()
-        .filter(
-            test_case_result::Column::TestCaseId.in_subquery(
-                SeaQuery::select()
-                    .column(test_case::Column::Id)
-                    .from(test_case::Entity)
-                    .and_where(test_case::Column::ProblemId.eq(id))
-                    .to_owned(),
-            ),
-        )
-        .exec(&txn)
-        .await?;
-
-    test_case::Entity::delete_many()
-        .filter(test_case::Column::ProblemId.eq(id))
-        .exec(&txn)
-        .await?;
-    problem::Entity::delete_by_id(id).exec(&txn).await?;
+    let mut active: problem::ActiveModel = problem.into();
+    active.deleted_at = Set(Some(chrono::Utc::now()));
+    active.update(&txn).await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -863,7 +843,7 @@ pub fn upload_body_limit() -> DefaultBodyLimit {
 }
 
 async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Model, AppError> {
-    problem::Entity::find_by_id(id)
+    problem::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))
@@ -894,7 +874,7 @@ async fn find_problem_for_update(
     id: i32,
 ) -> Result<problem::Model, AppError> {
     use sea_orm::sea_query::LockType;
-    problem::Entity::find_by_id(id)
+    problem::Entity::find_active_by_id(id)
         .lock(LockType::Update)
         .one(txn)
         .await?

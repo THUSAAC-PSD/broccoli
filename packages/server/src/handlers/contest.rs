@@ -17,6 +17,7 @@ use crate::state::AppState;
 use crate::utils::contest::{
     check_contest_access, find_contest, find_contest_problem, require_contest_started,
 };
+use crate::utils::soft_delete::SoftDeletable;
 
 #[utoipa::path(
     post,
@@ -88,7 +89,7 @@ pub async fn list_contests(
     let page = Ord::max(query.page.unwrap_or(1), 1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
 
-    let mut select = contest::Entity::find();
+    let mut select = contest::Entity::find_active();
 
     if !auth_user.has_permission("contest:manage") {
         let now = chrono::Utc::now();
@@ -342,8 +343,8 @@ pub async fn update_contest(
     path = "/{id}",
     tag = "Contests",
     operation_id = "deleteContest",
-    summary = "Delete a contest by ID",
-    description = "Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.",
+    summary = "Soft-delete a contest by ID",
+    description = "Marks a contest as deleted without removing historical submissions or participant records. Requires `contest:delete` permission.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 204, description = "Contest deleted"),
@@ -362,19 +363,11 @@ pub async fn delete_contest(
     auth_user.require_permission("contest:delete")?;
 
     let txn = state.db.begin().await?;
-    let _contest = find_contest_for_update(&txn, id).await?;
+    let contest = find_contest_for_update(&txn, id).await?;
 
-    // TODO: check for contest-scoped submissions before deleting.
-
-    contest_problem::Entity::delete_many()
-        .filter(contest_problem::Column::ContestId.eq(id))
-        .exec(&txn)
-        .await?;
-    contest_user::Entity::delete_many()
-        .filter(contest_user::Column::ContestId.eq(id))
-        .exec(&txn)
-        .await?;
-    contest::Entity::delete_by_id(id).exec(&txn).await?;
+    let mut active: contest::ActiveModel = contest.into();
+    active.deleted_at = Set(Some(chrono::Utc::now()));
+    active.update(&txn).await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -412,7 +405,7 @@ pub async fn add_contest_problem(
     let txn = state.db.begin().await?;
     let _contest = find_contest_for_update(&txn, contest_id).await?;
 
-    let problem_model = problem::Entity::find_by_id(payload.problem_id)
+    let problem_model = problem::Entity::find_active_by_id(payload.problem_id)
         .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
@@ -717,7 +710,7 @@ pub async fn add_participant(
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
 
-    let target_user = user::Entity::find_by_id(payload.user_id)
+    let target_user = user::Entity::find_active_by_id(payload.user_id)
         .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
@@ -738,6 +731,7 @@ pub async fn add_participant(
                     contest_id: model.contest_id,
                     user_id: model.user_id,
                     username: target_user.username,
+                    is_deleted: target_user.deleted_at.is_some(),
                     registered_at: model.registered_at,
                 }),
             ))
@@ -790,7 +784,8 @@ pub async fn list_participants(
         .map(|(cu, usr)| ContestParticipantResponse {
             contest_id: cu.contest_id,
             user_id: cu.user_id,
-            username: usr.map(|u| u.username).unwrap_or_default(),
+            username: usr.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+            is_deleted: usr.as_ref().is_some_and(|u| u.deleted_at.is_some()),
             registered_at: cu.registered_at,
         })
         .collect();
@@ -1091,13 +1086,17 @@ pub async fn bulk_add_participants(
                 users_to_enroll.push((m.id, username));
             }
             Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                let existing = user::Entity::find()
+                // The partial unique index (WHERE deleted_at IS NULL) guarantees that a
+                // constraint violation here always means an *active* user exists with this
+                // username.  Soft-deleted accounts are excluded from the index and never
+                // cause a conflict.
+                let existing = user::Entity::find_active()
                     .filter(user::Column::Username.eq(&username))
                     .one(&txn)
                     .await?
                     .ok_or_else(|| {
                         AppError::Internal(format!(
-                            "User '{username}' caused UniqueConstraintViolation but not found"
+                            "User '{username}' caused UniqueConstraintViolation but no active user found"
                         ))
                     })?;
                 users_to_enroll.push((existing.id, username));
@@ -1113,7 +1112,7 @@ pub async fn bulk_add_participants(
             .map(|u| u.trim().to_string())
             .collect();
 
-        let found_users: Vec<user::Model> = user::Entity::find()
+        let found_users: Vec<user::Model> = user::Entity::find_active()
             .filter(user::Column::Username.is_in(trimmed_usernames.clone()))
             .all(&txn)
             .await?;
@@ -1213,7 +1212,7 @@ async fn find_contest_for_update(
     id: i32,
 ) -> Result<contest::Model, AppError> {
     use sea_orm::sea_query::LockType;
-    contest::Entity::find_by_id(id)
+    contest::Entity::find_active_by_id(id)
         .lock(LockType::Update)
         .one(txn)
         .await?
