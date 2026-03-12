@@ -5,9 +5,19 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { Link } from 'react-router';
 
+import { useAuth } from '@/features/auth/hooks/use-auth';
+import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
+
 export function ContestProblemsCard({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const apiClient = useApiClient();
+  const { contest } = useContestInfo(contestId);
+
+  const canManageContest = !!user?.permissions.includes('contest:manage');
+  const contestNotStarted =
+    !!contest && Date.now() < new Date(contest.start_time).getTime();
+  const shouldBlockByStartTime = contestNotStarted && !canManageContest;
 
   const {
     data: problems = [],
@@ -15,7 +25,7 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
     error,
   } = useQuery({
     queryKey: ['contest-problems', contestId],
-    enabled: Number.isFinite(contestId),
+    enabled: Number.isFinite(contestId) && !shouldBlockByStartTime,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId } },
@@ -28,7 +38,11 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
   return (
     <div>
       <h3 className="text-lg font-semibold mb-3">{t('contests.problems')}</h3>
-      {isLoading ? (
+      {shouldBlockByStartTime ? (
+        <div className="text-sm text-muted-foreground">
+          {t('contests.problemsAvailableAfterStart')}
+        </div>
+      ) : isLoading ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />
