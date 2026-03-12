@@ -403,6 +403,7 @@ pub async fn list_test_cases(
         .select_only()
         .column(test_case::Column::Id)
         .column(test_case::Column::Score)
+        .column(test_case::Column::Label)
         .column(test_case::Column::Description)
         .column(test_case::Column::IsSample)
         .column(test_case::Column::Position)
