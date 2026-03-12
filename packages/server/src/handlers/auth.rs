@@ -1,5 +1,6 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use sea_orm::*;
+use std::sync::OnceLock;
 use tracing::instrument;
 
 use crate::entity::{role, role_permission, user};
@@ -12,6 +13,18 @@ use crate::models::auth::{
 };
 use crate::state::AppState;
 use crate::utils::{hash, jwt};
+
+/// A pre-computed dummy hash used during login when the username does not exist,
+/// ensuring the response time is consistent regardless of username validity
+/// (prevents username enumeration via timing attacks).
+static DUMMY_HASH: OnceLock<String> = OnceLock::new();
+
+fn dummy_hash() -> &'static str {
+    DUMMY_HASH.get_or_init(|| {
+        hash::hash_password("__broccoli_dummy__")
+            .expect("Failed to pre-compute dummy password hash")
+    })
+}
 
 #[utoipa::path(
     post,
@@ -84,18 +97,26 @@ pub async fn login(
 
     let username = payload.username.trim();
 
-    let user = user::Entity::find()
+    let maybe_user = user::Entity::find()
         .filter(user::Column::Username.eq(username))
         .one(&state.db)
-        .await?
-        .ok_or(AppError::InvalidCredentials)?;
+        .await?;
 
-    let is_valid = hash::verify_password(&payload.password, &user.password)
+    // Always run Argon2 verification to prevent timing-based username enumeration.
+    // When the user does not exist we verify against a dummy hash and discard the
+    // result, so the response time is the same whether the username is valid or not.
+    let hash_to_verify: String = maybe_user
+        .as_ref()
+        .map(|u| u.password.clone())
+        .unwrap_or_else(|| dummy_hash().to_owned());
+
+    let is_valid = hash::verify_password(&payload.password, &hash_to_verify)
         .map_err(|e| AppError::Internal(format!("Password verify error: {}", e)))?;
 
-    if !is_valid {
-        return Err(AppError::InvalidCredentials);
-    }
+    let user = match (maybe_user, is_valid) {
+        (Some(u), true) => u,
+        _ => return Err(AppError::InvalidCredentials),
+    };
 
     let role_perms = role_permission::Entity::find()
         .filter(role_permission::Column::Role.eq(&user.role))
