@@ -178,6 +178,8 @@ export const en: Record<string, string> = {
   'contests.notFound': 'Contest not found.',
   'contests.loadError': 'Failed to load contest data.',
   'contests.loadProblemsError': 'Failed to load contest problems.',
+  'contests.problemsAvailableAfterStart':
+    'Problems will be available after the contest starts.',
   'contests.inDays': 'in {count} days',
   'contests.inHours': 'in {count} hours',
   'contests.inMinutes': 'in {count} min',
