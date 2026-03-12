@@ -43,24 +43,28 @@ impl MockHost {
         }
     }
 
-    pub fn with_test_case(mut self, id: i32, score: i32) -> Self {
+    pub fn with_test_case(mut self, id: i32, score: f64) -> Self {
         let pos = self.test_cases.len() as i32;
         self.test_cases.push(TestCaseRow {
             id,
             score,
             is_sample: false,
             position: pos,
+            description: None,
+            label: Some(id.to_string()),
         });
         self
     }
 
-    pub fn with_sample(mut self, id: i32, score: i32) -> Self {
+    pub fn with_sample(mut self, id: i32, score: f64) -> Self {
         let pos = self.test_cases.len() as i32;
         self.test_cases.push(TestCaseRow {
             id,
             score,
             is_sample: true,
             position: pos,
+            description: None,
+            label: Some(id.to_string()),
         });
         self
     }
@@ -95,16 +99,15 @@ impl MockHost {
         self
     }
 
-    /// Returns the single captured submission update. Panics if count != 1.
+    /// Returns the last captured submission update (the terminal one).
+    /// Panics if no updates were recorded.
     pub fn submission(&self) -> SubmissionUpdate {
         let updates = self.submission_updates.borrow();
-        assert_eq!(
-            updates.len(),
-            1,
-            "Expected 1 submission update, got {}",
-            updates.len()
+        assert!(
+            !updates.is_empty(),
+            "Expected at least 1 submission update, got 0"
         );
-        updates[0].clone()
+        updates.last().unwrap().clone()
     }
 
     pub fn submission_updates(&self) -> Vec<SubmissionUpdate> {

@@ -5,11 +5,18 @@ use utoipa::ToSchema;
 /// Response for a single plugin config entry.
 #[derive(Serialize, ToSchema)]
 pub struct PluginConfigResponse {
-    /// Plugin namespace (e.g., "checker", "ioi-contest")
+    /// The plugin that owns this config entry.
+    #[schema(example = "cooldown")]
+    pub plugin_id: String,
+    /// Plugin namespace (e.g., "checker", "ioi")
     #[schema(example = "checker")]
     pub namespace: String,
     /// Config JSON blob
     pub config: serde_json::Value,
+    /// Whether this plugin is enabled for the given scope.
+    pub enabled: bool,
+    /// Hook execution order (lower runs first).
+    pub position: i32,
     /// Last update timestamp. `null` when no config has been saved yet (using defaults).
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -19,6 +26,16 @@ pub struct PluginConfigResponse {
 pub struct UpsertPluginConfigRequest {
     /// Config JSON blob to store
     pub config: serde_json::Value,
+    /// Whether this plugin is enabled. Defaults to true if omitted (backward compat).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Hook execution order (lower runs first). Defaults to 0 if omitted.
+    #[serde(default)]
+    pub position: i32,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Helper functions to build scope-specific ref_id strings.

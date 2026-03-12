@@ -2,31 +2,83 @@ use crate::error::SdkError;
 use crate::host;
 use crate::types::{SubmissionUpdate, TestCaseResultRow};
 
-/// Update a submission's status, verdict, score, and resource usage.
+/// Update a submission.
+///
+/// `judged_at = NOW()` is auto-added when the status is terminal (Judged/CompilationError).
 pub fn update_submission(update: &SubmissionUpdate) -> Result<(), SdkError> {
-    let verdict_sql = match update.verdict {
-        Some(v) => format!("'{}'", v.to_db_str()),
-        None => "NULL".to_string(),
-    };
+    let mut sets = Vec::new();
 
-    let score_int = if update.score.is_finite() {
-        update.score.round() as i64
-    } else {
-        0
-    };
+    if let Some(status) = &update.status {
+        sets.push(format!("status = '{}'", status.as_str()));
+        if status.is_terminal() {
+            sets.push("judged_at = NOW()".to_string());
+        }
+    }
+
+    if let Some(verdict_opt) = &update.verdict {
+        match verdict_opt {
+            Some(v) => sets.push(format!("verdict = '{}'", v.to_db_str())),
+            None => sets.push("verdict = NULL".to_string()),
+        }
+    }
+
+    if let Some(score) = update.score {
+        let score_val = if score.is_finite() { score } else { 0.0 };
+        sets.push(format!("score = {}", score_val));
+    }
+
+    if let Some(time_opt) = &update.time_used {
+        match time_opt {
+            Some(t) => sets.push(format!("time_used = {}", t)),
+            None => sets.push("time_used = NULL".to_string()),
+        }
+    }
+
+    if let Some(mem_opt) = &update.memory_used {
+        match mem_opt {
+            Some(m) => sets.push(format!("memory_used = {}", m)),
+            None => sets.push("memory_used = NULL".to_string()),
+        }
+    }
+
+    if let Some(co_opt) = &update.compile_output {
+        match co_opt {
+            Some(text) => {
+                let escaped = text.replace('\0', "").replace('\'', "''");
+                sets.push(format!("compile_output = '{}'", escaped));
+            }
+            None => sets.push("compile_output = NULL".to_string()),
+        }
+    }
+
+    if let Some(ec_opt) = &update.error_code {
+        match ec_opt {
+            Some(text) => {
+                let escaped = text.replace('\0', "").replace('\'', "''");
+                sets.push(format!("error_code = '{}'", escaped));
+            }
+            None => sets.push("error_code = NULL".to_string()),
+        }
+    }
+
+    if let Some(em_opt) = &update.error_message {
+        match em_opt {
+            Some(text) => {
+                let escaped = text.replace('\0', "").replace('\'', "''");
+                sets.push(format!("error_message = '{}'", escaped));
+            }
+            None => sets.push("error_message = NULL".to_string()),
+        }
+    }
+
+    if sets.is_empty() {
+        return Ok(());
+    }
+
     let sql = format!(
-        "UPDATE submission SET status = '{}', verdict = {}, score = {}, \
-         time_used = {}, memory_used = {}, judged_at = NOW() WHERE id = {}",
-        update.status.as_str(),
-        verdict_sql,
-        score_int,
-        update
-            .time_used
-            .map_or("NULL".to_string(), |t| t.to_string()),
-        update
-            .memory_used
-            .map_or("NULL".to_string(), |m| m.to_string()),
-        update.submission_id,
+        "UPDATE submission SET {} WHERE id = {}",
+        sets.join(", "),
+        update.submission_id
     );
     host::db::db_execute(&sql)
 }
@@ -40,22 +92,32 @@ pub fn insert_test_case_results(results: &[TestCaseResultRow]) -> Result<(), Sdk
             .map(|m| format!("'{}'", m.replace('\0', "").replace('\'', "''")))
             .unwrap_or_else(|| "NULL".to_string());
 
-        let score_int = if r.score.is_finite() {
-            r.score.round() as i64
-        } else {
-            0
-        };
+        let stdout_escaped = r
+            .stdout
+            .as_ref()
+            .map(|s| format!("'{}'", s.replace('\0', "").replace('\'', "''")))
+            .unwrap_or_else(|| "NULL".to_string());
+
+        let stderr_escaped = r
+            .stderr
+            .as_ref()
+            .map(|s| format!("'{}'", s.replace('\0', "").replace('\'', "''")))
+            .unwrap_or_else(|| "NULL".to_string());
+
+        let score_val = if r.score.is_finite() { r.score } else { 0.0 };
         let sql = format!(
             "INSERT INTO test_case_result \
-             (submission_id, test_case_id, verdict, score, time_used, memory_used, checker_output, created_at) \
-             VALUES ({}, {}, '{}', {}, {}, {}, {}, NOW())",
+             (submission_id, test_case_id, verdict, score, time_used, memory_used, checker_output, stdout, stderr, created_at) \
+             VALUES ({}, {}, '{}', {}, {}, {}, {}, {}, {}, NOW())",
             r.submission_id,
             r.test_case_id,
             r.verdict.to_db_str(),
-            score_int,
+            score_val,
             r.time_used.map_or("NULL".to_string(), |t| t.to_string()),
             r.memory_used.map_or("NULL".to_string(), |m| m.to_string()),
             message_escaped,
+            stdout_escaped,
+            stderr_escaped,
         );
         host::db::db_execute(&sql)?;
     }

@@ -23,9 +23,19 @@ pub async fn serve_plugin_asset(
 
     let mime = mime_guess::from_path(&safe_path).first_or_octet_stream();
 
+    let mtime = safe_path
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let etag = format!("W/\"{:x}-{:x}\"", content.len(), mtime);
+
     Response::builder()
         .header(header::CONTENT_TYPE, mime.as_ref())
-        .header(header::CACHE_CONTROL, "public, no-cache")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .header(header::ETAG, etag)
         .body(Body::from(content))
         .map_err(|e| AppError::Internal(e.to_string()))
 }

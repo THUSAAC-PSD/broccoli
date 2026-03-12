@@ -272,16 +272,16 @@ pub mod routes {
         format!("/api/v1/problems/{problem_id}/config")
     }
 
-    pub fn problem_config_ns(problem_id: i32, namespace: &str) -> String {
-        format!("/api/v1/problems/{problem_id}/config/{namespace}")
+    pub fn problem_config_ns(problem_id: i32, plugin_id: &str, namespace: &str) -> String {
+        format!("/api/v1/problems/{problem_id}/config/{plugin_id}/{namespace}")
     }
 
     pub fn contest_config(contest_id: i32) -> String {
         format!("/api/v1/contests/{contest_id}/config")
     }
 
-    pub fn contest_config_ns(contest_id: i32, namespace: &str) -> String {
-        format!("/api/v1/contests/{contest_id}/config/{namespace}")
+    pub fn contest_config_ns(contest_id: i32, plugin_id: &str, namespace: &str) -> String {
+        format!("/api/v1/contests/{contest_id}/config/{plugin_id}/{namespace}")
     }
 
     pub fn plugin_global_config(plugin_id: &str) -> String {
@@ -296,8 +296,15 @@ pub mod routes {
         format!("/api/v1/contests/{contest_id}/problems/{problem_id}/config")
     }
 
-    pub fn contest_problem_config_ns(contest_id: i32, problem_id: i32, namespace: &str) -> String {
-        format!("/api/v1/contests/{contest_id}/problems/{problem_id}/config/{namespace}")
+    pub fn contest_problem_config_ns(
+        contest_id: i32,
+        problem_id: i32,
+        plugin_id: &str,
+        namespace: &str,
+    ) -> String {
+        format!(
+            "/api/v1/contests/{contest_id}/problems/{problem_id}/config/{plugin_id}/{namespace}"
+        )
     }
 }
 
@@ -474,6 +481,7 @@ impl TestApp {
                 operation_batches,
                 operation_waiters,
                 evaluate_batches,
+                hook_registry: server::hooks::new_shared_registry(),
             },
             device_codes: std::sync::Arc::new(dashmap::DashMap::new()),
         };

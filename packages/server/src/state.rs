@@ -8,6 +8,7 @@ use plugin_core::traits::PluginManager;
 use sea_orm::DatabaseConnection;
 
 use crate::config::AppConfig;
+use crate::hooks::SharedHookRegistry;
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     OperationBatches, OperationWaiters,
@@ -34,6 +35,7 @@ pub struct RegistryState {
     pub operation_batches: OperationBatches,
     pub operation_waiters: OperationWaiters,
     pub evaluate_batches: EvaluateBatches,
+    pub hook_registry: SharedHookRegistry,
 }
 
 #[derive(Clone)]

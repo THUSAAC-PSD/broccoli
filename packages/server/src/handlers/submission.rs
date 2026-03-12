@@ -19,9 +19,11 @@ use crate::entity::{
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::hooks::{self, HookOutcome};
 use crate::models::shared::Pagination;
 use crate::models::submission::*;
 use crate::state::AppState;
+use broccoli_server_sdk::types::{AfterSubmissionEvent, BeforeSubmissionEvent};
 
 /// Check rate limit for a user.
 ///
@@ -65,6 +67,56 @@ async fn check_rate_limit(
     }
 
     Ok(())
+}
+
+/// Dispatch `before_submission` hooks and convert the outcome to an AppError if rejected.
+async fn dispatch_before_submission_hooks(
+    state: &AppState,
+    event: &BeforeSubmissionEvent,
+    enabled_plugins: Option<&hooks::ResourceEnablements>,
+) -> Result<(), AppError> {
+    let outcome =
+        hooks::dispatch_hooks_typed(event, enabled_plugins, &state.registries.hook_registry)
+            .await?;
+
+    match outcome {
+        HookOutcome::Allowed(_) | HookOutcome::Stopped => Ok(()), // Stopped is treated as success.
+        HookOutcome::Rejected {
+            // Plugins can use Rejected to block.
+            code,
+            message,
+            status_code,
+            details,
+        } => Err(AppError::PluginRejection {
+            code,
+            message,
+            status_code,
+            details,
+        }),
+    }
+}
+
+/// Fire `after_submission` hooks in the background. Non-blocking.
+fn fire_after_submission_hooks(
+    state: &AppState,
+    submission_id: i32,
+    user_id: i32,
+    problem_id: i32,
+    contest_id: Option<i32>,
+    language: String,
+    enabled_plugins: Option<hooks::ResourceEnablements>,
+) {
+    hooks::dispatch_hooks_background_typed(
+        AfterSubmissionEvent {
+            submission_id,
+            user_id,
+            problem_id,
+            contest_id,
+            language,
+        },
+        enabled_plugins,
+        state.registries.hook_registry.clone(),
+    );
 }
 
 /// Find a problem by ID or return 404.
@@ -329,6 +381,7 @@ async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
 
     let input = OnSubmissionInput {
         submission_id: submission.id,
+        user_id: submission.user_id,
         problem_id: submission.problem_id,
         contest_id: submission.contest_id,
         files,
@@ -541,71 +594,80 @@ async fn build_submission_response(
             .as_ref()
             .is_some_and(|c| c.show_compile_output);
 
-    let include_test_details =
-        has_view_all || problem_model.show_test_details || (is_owner && contest_ended);
+    let is_running = sub.status == SubmissionStatus::Running;
+    let show_results = sub.status.is_terminal() || is_running;
 
-    let result_response = if sub.status.is_terminal() {
-        let test_case_results = if include_test_details {
-            let test_results = test_case_result::Entity::find()
-                .filter(test_case_result::Column::SubmissionId.eq(sub.id))
-                .find_also_related(test_case::Entity)
-                .all(db)
-                .await?;
+    let result_response = if show_results {
+        let test_results = test_case_result::Entity::find()
+            .filter(test_case_result::Column::SubmissionId.eq(sub.id))
+            .find_also_related(test_case::Entity)
+            .order_by_asc(test_case::Column::Position)
+            .all(db)
+            .await?;
 
-            test_results
-                .into_iter()
-                .map(|(result, tc)| {
-                    let is_sample = tc.as_ref().is_some_and(|t| t.is_sample);
-                    let show_output = has_view_all || is_sample;
-                    TestCaseResultResponse {
-                        id: result.id,
-                        verdict: result.verdict,
-                        score: result.score,
-                        time_used: result.time_used,
-                        memory_used: result.memory_used,
-                        test_case_id: result.test_case_id,
-                        input: if show_output {
-                            tc.as_ref().map(|t| t.input.clone())
-                        } else {
-                            None
-                        },
-                        expected_output: if show_output {
-                            tc.as_ref().map(|t| t.expected_output.clone())
-                        } else {
-                            None
-                        },
-                        stdout: if show_output { result.stdout } else { None },
-                        stderr: if show_output { result.stderr } else { None },
-                        checker_output: if show_output {
-                            result.checker_output
-                        } else {
-                            None
-                        },
-                    }
-                })
-                .collect()
+        let test_case_results = test_results
+            .into_iter()
+            .map(|(result, tc)| {
+                let is_sample = tc.as_ref().is_some_and(|t| t.is_sample);
+                // Only admins and sample tests get I/O data.
+                let show_io = has_view_all || is_sample;
+                TestCaseResultResponse {
+                    id: result.id,
+                    verdict: result.verdict,
+                    score: result.score,
+                    time_used: result.time_used,
+                    memory_used: result.memory_used,
+                    test_case_id: result.test_case_id,
+                    input: if show_io {
+                        tc.as_ref().map(|t| t.input.clone())
+                    } else {
+                        None
+                    },
+                    expected_output: if show_io {
+                        tc.as_ref().map(|t| t.expected_output.clone())
+                    } else {
+                        None
+                    },
+                    stdout: if show_io { result.stdout } else { None },
+                    stderr: if show_io { result.stderr } else { None },
+                    checker_output: if show_io { result.checker_output } else { None },
+                }
+            })
+            .collect();
+
+        if is_running {
+            // Running: return partial results without submission-level aggregates
+            Some(JudgeResultResponse {
+                verdict: None,
+                score: None,
+                time_used: None,
+                memory_used: None,
+                compile_output: None,
+                error_message: None,
+                judged_at: None,
+                test_case_results,
+            })
         } else {
-            vec![]
-        };
-
-        Some(JudgeResultResponse {
-            verdict: sub.verdict,
-            score: sub.score,
-            time_used: sub.time_used,
-            memory_used: sub.memory_used,
-            compile_output: if show_compile_output {
-                sub.compile_output.clone()
-            } else {
-                None
-            },
-            error_message: if show_compile_output {
-                sub.error_message.clone()
-            } else {
-                None
-            },
-            judged_at: sub.judged_at,
-            test_case_results,
-        })
+            // Terminal: full result with submission-level aggregates
+            Some(JudgeResultResponse {
+                verdict: sub.verdict,
+                score: sub.score,
+                time_used: sub.time_used,
+                memory_used: sub.memory_used,
+                compile_output: if show_compile_output {
+                    sub.compile_output.clone()
+                } else {
+                    None
+                },
+                error_message: if show_compile_output {
+                    sub.error_message.clone()
+                } else {
+                    None
+                },
+                judged_at: sub.judged_at,
+                test_case_results,
+            })
+        }
     } else {
         None
     };
@@ -650,7 +712,7 @@ async fn build_submission_response(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 429, description = "Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -692,10 +754,21 @@ pub async fn create_submission(
         None => problem.default_contest_type.clone(),
     };
 
+    let hook_event = BeforeSubmissionEvent {
+        user_id: auth_user.user_id,
+        problem_id,
+        contest_id: None,
+        language: payload.language.trim().to_string(),
+        file_count: payload.files.len(),
+    };
+    let enabled_plugins = hooks::fetch_resource_enablements(problem_id, None, &state.db).await?;
+    dispatch_before_submission_hooks(&state, &hook_event, Some(&enabled_plugins)).await?;
+
     let now = Utc::now();
+    let language = payload.language.trim().to_string();
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
-        language: Set(payload.language.trim().to_string()),
+        language: Set(language.clone()),
         status: Set(SubmissionStatus::Pending),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
@@ -707,6 +780,16 @@ pub async fn create_submission(
 
     let model = new_submission.insert(&txn).await?;
     txn.commit().await?;
+
+    fire_after_submission_hooks(
+        &state,
+        model.id,
+        auth_user.user_id,
+        problem_id,
+        None,
+        language,
+        Some(enabled_plugins),
+    );
 
     let state_clone = state.clone();
     let model_clone = model.clone();
@@ -945,7 +1028,7 @@ pub async fn rejudge_submission(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Contest or problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limit exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 429, description = "Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -992,9 +1075,21 @@ pub async fn create_contest_submission(
         return Err(AppError::Validation("Contest has ended".into()));
     }
 
+    let enabled_plugins =
+        hooks::fetch_resource_enablements(problem_id, Some(contest_id), &state.db).await?;
+    let hook_event = BeforeSubmissionEvent {
+        user_id: auth_user.user_id,
+        problem_id,
+        contest_id: Some(contest_id),
+        language: payload.language.trim().to_string(),
+        file_count: payload.files.len(),
+    };
+    dispatch_before_submission_hooks(&state, &hook_event, Some(&enabled_plugins)).await?;
+
+    let language = payload.language.trim().to_string();
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
-        language: Set(payload.language.trim().to_string()),
+        language: Set(language.clone()),
         status: Set(SubmissionStatus::Pending),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
@@ -1009,6 +1104,16 @@ pub async fn create_contest_submission(
 
     let model = new_submission.insert(&txn).await?;
     txn.commit().await?;
+
+    fire_after_submission_hooks(
+        &state,
+        model.id,
+        auth_user.user_id,
+        problem_id,
+        Some(contest_id),
+        language,
+        Some(enabled_plugins),
+    );
 
     let state_clone = state.clone();
     let model_clone = model.clone();

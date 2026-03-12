@@ -1,5 +1,7 @@
 mod checker;
 mod evaluate;
+pub mod hook_events;
+mod http;
 mod operation;
 mod persistence;
 mod query;
@@ -8,6 +10,8 @@ mod verdict;
 
 pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
 pub use evaluate::{BuildEvalOpsInput, StartEvaluateBatchInput, TestCaseVerdict};
+pub use hook_events::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent, HookEvent};
+pub use http::{PluginHttpRequest, PluginHttpResponse};
 pub use operation::{OperationResult, SandboxResult, TaskExecutionResult};
 pub use persistence::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow};
 pub use query::{ProblemCheckerInfo, TestCaseData, TestCaseRow};

@@ -70,7 +70,7 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
     let mut test_results = Vec::new();
     let mut max_time: i32 = 0;
     let mut max_memory: i32 = 0;
-    let mut total_score: i32 = 0;
+    let mut total_score: f64 = 0.0;
     let mut worst_verdict = Verdict::Accepted;
 
     for tc in &job.test_cases {
@@ -78,7 +78,7 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
             &executable,
             &tc.input,
             &tc.expected_output,
-            tc.score,
+            tc.score as f64,
             wall_timeout,
             time_limit,
         );
@@ -222,7 +222,7 @@ fn compile(job: &JudgeJob, tmp_dir: &str) -> Result<String, CompileError> {
 
 struct TestCaseResult {
     verdict: Verdict,
-    score: i32,
+    score: f64,
     time_ms: i32,
     memory_kb: i32,
     stdout: Option<String>,
@@ -233,7 +233,7 @@ fn run_test_case(
     executable: &str,
     input: &str,
     expected_output: &str,
-    max_score: i32,
+    max_score: f64,
     wall_timeout: Duration,
     _time_limit: Duration,
 ) -> TestCaseResult {
@@ -293,7 +293,7 @@ fn run_test_case(
             if elapsed > wall_timeout {
                 return TestCaseResult {
                     verdict: Verdict::TimeLimitExceeded,
-                    score: 0,
+                    score: 0.0,
                     time_ms,
                     memory_kb: 0,
                     stdout: Some(stdout_str),
@@ -308,7 +308,7 @@ fn run_test_case(
                 );
                 return TestCaseResult {
                     verdict: Verdict::RuntimeError,
-                    score: 0,
+                    score: 0.0,
                     time_ms,
                     memory_kb: 0,
                     stdout: Some(stdout_str),
@@ -333,7 +333,7 @@ fn run_test_case(
             } else {
                 TestCaseResult {
                     verdict: Verdict::WrongAnswer,
-                    score: 0,
+                    score: 0.0,
                     time_ms,
                     memory_kb: 0,
                     stdout: Some(stdout_str),
@@ -349,7 +349,7 @@ fn run_test_case(
             warn!(error = %e, "Failed to execute program");
             TestCaseResult {
                 verdict: Verdict::SystemError,
-                score: 0,
+                score: 0.0,
                 time_ms,
                 memory_kb: 0,
                 stdout: None,

@@ -13,7 +13,7 @@ pub struct SubmissionFile {
 }
 
 #[sea_orm::model]
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "submission")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -45,7 +45,8 @@ pub struct Model {
     pub error_message: Option<String>,
 
     /// Total score across all test cases.
-    pub score: Option<i32>,
+    #[sea_orm(column_type = "Double", nullable)]
+    pub score: Option<f64>,
     /// Maximum time used across all test cases (milliseconds).
     pub time_used: Option<i32>,
     /// Maximum memory used across all test cases (kilobytes).

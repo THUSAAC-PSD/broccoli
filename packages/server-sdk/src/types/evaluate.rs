@@ -48,6 +48,10 @@ pub struct TestCaseVerdict {
     /// Memory used, in kilobytes.
     pub memory_used_kb: Option<i64>,
     pub message: Option<String>,
+    #[serde(default)]
+    pub stdout: Option<String>,
+    #[serde(default)]
+    pub stderr: Option<String>,
 }
 
 impl TestCaseVerdict {
@@ -60,6 +64,8 @@ impl TestCaseVerdict {
             time_used_ms: Some(100),
             memory_used_kb: Some(1024),
             message: None,
+            stdout: None,
+            stderr: None,
         }
     }
 
@@ -72,6 +78,8 @@ impl TestCaseVerdict {
             time_used_ms: Some(50),
             memory_used_kb: Some(512),
             message: Some("Wrong answer".into()),
+            stdout: None,
+            stderr: None,
         }
     }
 
@@ -84,6 +92,8 @@ impl TestCaseVerdict {
             time_used_ms: None,
             memory_used_kb: Some(512),
             message: Some("Time limit exceeded".into()),
+            stdout: None,
+            stderr: None,
         }
     }
 
@@ -96,6 +106,8 @@ impl TestCaseVerdict {
             time_used_ms: None,
             memory_used_kb: None,
             message: Some("Compilation failed".into()),
+            stdout: None,
+            stderr: None,
         }
     }
 
@@ -108,6 +120,8 @@ impl TestCaseVerdict {
             time_used_ms: None,
             memory_used_kb: None,
             message: Some("System error".into()),
+            stdout: None,
+            stderr: None,
         }
     }
 }

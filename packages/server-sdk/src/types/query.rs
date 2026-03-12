@@ -4,9 +4,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestCaseRow {
     pub id: i32,
-    pub score: i32,
+    pub score: f64,
     pub is_sample: bool,
     pub position: i32,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// DB query result for test case content (input and expected output).

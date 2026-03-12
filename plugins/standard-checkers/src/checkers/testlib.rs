@@ -61,8 +61,8 @@ impl Default for TestlibConfig {
 #[cfg(feature = "wasm")]
 fn load_testlib_config() -> TestlibConfig {
     match host::config::get_global_config("testlib") {
-        Ok(Some(value)) => serde_json::from_value(value).unwrap_or_default(),
-        _ => TestlibConfig::default(),
+        Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
+        Err(_) => TestlibConfig::default(),
     }
 }
 
@@ -122,7 +122,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         Some(files) => files,
         None => {
             return CheckerVerdict {
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some("Testlib checker requires checker_source in metadata".into()),
             }
@@ -131,7 +131,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
 
     if checker_source.is_empty() {
         return CheckerVerdict {
-            verdict: Verdict::JudgeError,
+            verdict: Verdict::SystemError,
             score: 0.0,
             message: Some("checker_source is empty".into()),
         };
@@ -149,7 +149,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         Ok(cmd) => cmd,
         Err(e) => {
             return CheckerVerdict {
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(e),
             }
@@ -227,7 +227,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         Ok(j) => j,
         Err(e) => {
             return CheckerVerdict {
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(format!("Failed to serialize checker operation: {}", e)),
             }
@@ -238,7 +238,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         Ok(id) => id,
         Err(e) => {
             return CheckerVerdict {
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(format!("Failed to dispatch checker operation: {:?}", e)),
             }
@@ -249,7 +249,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         Ok(r) => r,
         Err(e) => {
             return CheckerVerdict {
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(format!("Failed to get checker result: {:?}", e)),
             }
@@ -258,7 +258,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
 
     if !op_result.success && op_result.task_results.is_empty() {
         return CheckerVerdict {
-            verdict: Verdict::JudgeError,
+            verdict: Verdict::SystemError,
             score: 0.0,
             message: op_result
                 .error
@@ -275,7 +275,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
                     truncate(&cc_result.sandbox_result.stderr, 4096)
                 };
                 return CheckerVerdict {
-                    verdict: Verdict::JudgeError,
+                    verdict: Verdict::SystemError,
                     score: 0.0,
                     message: Some(msg),
                 };
@@ -289,7 +289,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
             &check_result.sandbox_result.stderr,
         ),
         None => CheckerVerdict {
-            verdict: Verdict::JudgeError,
+            verdict: Verdict::SystemError,
             score: 0.0,
             message: Some("Checker operation completed but no check result found".into()),
         },

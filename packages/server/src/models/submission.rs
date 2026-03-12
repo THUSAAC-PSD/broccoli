@@ -133,8 +133,8 @@ pub struct SubmissionListItem {
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Total score if judged, null otherwise.
-    #[schema(example = 100)]
-    pub score: Option<i32>,
+    #[schema(example = 100.0)]
+    pub score: Option<f64>,
     /// Total time used in ms if judged, null otherwise.
     #[schema(example = 50)]
     pub time_used: Option<i32>,
@@ -156,8 +156,8 @@ pub struct JudgeResultResponse {
     /// Execution verdict (null if compilation failed or system error).
     pub verdict: Option<Verdict>,
     /// Total score across all test cases.
-    #[schema(example = 100)]
-    pub score: Option<i32>,
+    #[schema(example = 100.0)]
+    pub score: Option<f64>,
     /// Maximum time used in milliseconds.
     #[schema(example = 50)]
     pub time_used: Option<i32>,
@@ -180,8 +180,8 @@ pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
     pub verdict: Verdict,
-    #[schema(example = 10)]
-    pub score: i32,
+    #[schema(example = 10.0)]
+    pub score: f64,
     /// Time used in milliseconds.
     #[schema(example = 5)]
     pub time_used: Option<i32>,

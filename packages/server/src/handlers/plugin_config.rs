@@ -15,6 +15,7 @@ use crate::entity::{contest, contest_problem, plugin_config, problem};
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::host_funcs::config::{extract_plugin_id, resolve_namespace, strip_namespace_prefix};
 use crate::models::plugin_config::{PluginConfigResponse, UpsertPluginConfigRequest, config_key};
 use crate::state::AppState;
 
@@ -76,10 +77,25 @@ async fn list_config_inner<C: ConnectionTrait>(
 
     let response: Vec<PluginConfigResponse> = rows
         .into_iter()
-        .map(|r| PluginConfigResponse {
-            namespace: r.namespace,
-            config: r.config,
-            updated_at: Some(r.updated_at),
+        .map(|r| {
+            let (plugin_id, namespace) = if scope == "plugin" {
+                // Plugin-global scope: ref_id is the plugin_id, namespace is raw
+                (ref_id.to_string(), r.namespace.clone())
+            } else {
+                // Resource scopes: namespace is composite "{plugin_id}:{raw_ns}"
+                (
+                    extract_plugin_id(&r.namespace).to_string(),
+                    strip_namespace_prefix(&r.namespace).to_string(),
+                )
+            };
+            PluginConfigResponse {
+                plugin_id,
+                namespace,
+                config: r.config,
+                enabled: r.enabled,
+                position: r.position,
+                updated_at: Some(r.updated_at),
+            }
         })
         .collect();
 
@@ -91,6 +107,7 @@ async fn get_config_inner<C: ConnectionTrait>(
     scope: &str,
     ref_id: &str,
     namespace: &str,
+    plugin_id: &str,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     let row = plugin_config::Entity::find_by_id((
         scope.to_string(),
@@ -101,14 +118,23 @@ async fn get_config_inner<C: ConnectionTrait>(
     .await?;
 
     match row {
-        Some(r) => Ok(Json(PluginConfigResponse {
-            namespace: r.namespace,
-            config: r.config,
-            updated_at: Some(r.updated_at),
-        })),
-        None => Err(AppError::NotFound(format!(
-            "Config '{namespace}' not found"
-        ))),
+        Some(r) => {
+            let namespace = strip_namespace_prefix(&r.namespace).to_string();
+            Ok(Json(PluginConfigResponse {
+                plugin_id: plugin_id.to_string(),
+                namespace,
+                config: r.config,
+                enabled: r.enabled,
+                position: r.position,
+                updated_at: Some(r.updated_at),
+            }))
+        }
+        None => {
+            let display_ns = strip_namespace_prefix(namespace);
+            Err(AppError::NotFound(format!(
+                "Config '{display_ns}' not found"
+            )))
+        }
     }
 }
 
@@ -120,6 +146,9 @@ async fn upsert_config_inner<C: ConnectionTrait>(
     ref_id: &str,
     namespace: &str,
     config: serde_json::Value,
+    enabled: bool,
+    position: i32,
+    plugin_id: &str,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     let now = Utc::now();
     let active = plugin_config::ActiveModel {
@@ -127,6 +156,8 @@ async fn upsert_config_inner<C: ConnectionTrait>(
         ref_id: Set(ref_id.to_string()),
         namespace: Set(namespace.to_string()),
         config: Set(config.clone()),
+        enabled: Set(enabled),
+        position: Set(position),
         updated_at: Set(now),
     };
 
@@ -139,6 +170,8 @@ async fn upsert_config_inner<C: ConnectionTrait>(
             ])
             .update_columns([
                 plugin_config::Column::Config,
+                plugin_config::Column::Enabled,
+                plugin_config::Column::Position,
                 plugin_config::Column::UpdatedAt,
             ])
             .to_owned(),
@@ -147,8 +180,11 @@ async fn upsert_config_inner<C: ConnectionTrait>(
         .await?;
 
     Ok(Json(PluginConfigResponse {
-        namespace: namespace.to_string(),
+        plugin_id: plugin_id.to_string(),
+        namespace: strip_namespace_prefix(namespace).to_string(),
         config,
+        enabled,
+        position,
         updated_at: Some(now),
     }))
 }
@@ -173,9 +209,12 @@ async fn delete_config_inner<C: ConnectionTrait>(
             active.delete(db).await?;
             Ok(StatusCode::NO_CONTENT)
         }
-        None => Err(AppError::NotFound(format!(
-            "Config '{namespace}' not found"
-        ))),
+        None => {
+            let display_ns = strip_namespace_prefix(namespace);
+            Err(AppError::NotFound(format!(
+                "Config '{display_ns}' not found"
+            )))
+        }
     }
 }
 
@@ -283,7 +322,7 @@ pub async fn get_plugin_global_config(
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let ref_id = config_key::plugin(&plugin_id);
-    get_config_inner(&state.db, "plugin", &ref_id, &namespace).await
+    get_config_inner(&state.db, "plugin", &ref_id, &namespace, &plugin_id).await
 }
 
 #[utoipa::path(
@@ -316,7 +355,17 @@ pub async fn upsert_plugin_global_config(
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let ref_id = config_key::plugin(&plugin_id);
-    upsert_config_inner(&state.db, "plugin", &ref_id, &namespace, payload.config).await
+    upsert_config_inner(
+        &state.db,
+        "plugin",
+        &ref_id,
+        &namespace,
+        payload.config,
+        payload.enabled,
+        payload.position,
+        &plugin_id,
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -382,12 +431,13 @@ pub async fn list_problem_config(
 
 #[utoipa::path(
     get,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "getProblemConfig",
     summary = "Get config for a specific namespace on a problem",
     params(
         ("id" = i32, Path, description = "Problem ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
@@ -399,27 +449,30 @@ pub async fn list_problem_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(problem_id, namespace))]
+#[instrument(skip(state, auth_user), fields(problem_id, plugin_id, namespace))]
 pub async fn get_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, namespace)): Path<(i32, String)>,
+    Path((problem_id, plugin_id, namespace)): Path<(i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_problem(&state.db, problem_id).await?;
     let ref_id = config_key::problem(problem_id);
-    get_config_inner(&state.db, "problem", &ref_id, &namespace).await
+    let composite_ns = resolve_namespace("problem", &plugin_id, &namespace);
+    get_config_inner(&state.db, "problem", &ref_id, &composite_ns, &plugin_id).await
 }
 
 #[utoipa::path(
     put,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "upsertProblemConfig",
     summary = "Create or update config for a namespace on a problem",
     params(
         ("id" = i32, Path, description = "Problem ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     request_body = UpsertPluginConfigRequest,
@@ -431,31 +484,47 @@ pub async fn get_problem_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user, payload), fields(problem_id, namespace))]
+#[instrument(
+    skip(state, auth_user, payload),
+    fields(problem_id, plugin_id, namespace)
+)]
 pub async fn upsert_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, namespace)): Path<(i32, String)>,
+    Path((problem_id, plugin_id, namespace)): Path<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_problem(&txn, problem_id).await?;
     let ref_id = config_key::problem(problem_id);
-    let result = upsert_config_inner(&txn, "problem", &ref_id, &namespace, payload.config).await?;
+    let composite_ns = resolve_namespace("problem", &plugin_id, &namespace);
+    let result = upsert_config_inner(
+        &txn,
+        "problem",
+        &ref_id,
+        &composite_ns,
+        payload.config,
+        payload.enabled,
+        payload.position,
+        &plugin_id,
+    )
+    .await?;
     txn.commit().await?;
     Ok(result)
 }
 
 #[utoipa::path(
     delete,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "deleteProblemConfig",
     summary = "Delete config for a namespace on a problem",
     params(
         ("id" = i32, Path, description = "Problem ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
@@ -466,18 +535,20 @@ pub async fn upsert_problem_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(problem_id, namespace))]
+#[instrument(skip(state, auth_user), fields(problem_id, plugin_id, namespace))]
 pub async fn delete_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, namespace)): Path<(i32, String)>,
+    Path((problem_id, plugin_id, namespace)): Path<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_problem(&txn, problem_id).await?;
     let ref_id = config_key::problem(problem_id);
-    let result = delete_config_inner(&txn, "problem", &ref_id, &namespace).await?;
+    let composite_ns = resolve_namespace("problem", &plugin_id, &namespace);
+    let result = delete_config_inner(&txn, "problem", &ref_id, &composite_ns).await?;
     txn.commit().await?;
     Ok(result)
 }
@@ -514,13 +585,14 @@ pub async fn list_contest_problem_config(
 
 #[utoipa::path(
     get,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "getContestProblemConfig",
     summary = "Get config for a specific namespace on a contest-problem",
     params(
         ("id" = i32, Path, description = "Contest ID"),
         ("problem_id" = i32, Path, description = "Problem ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
@@ -532,28 +604,41 @@ pub async fn list_contest_problem_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(contest_id, problem_id, namespace))]
+#[instrument(
+    skip(state, auth_user),
+    fields(contest_id, problem_id, plugin_id, namespace)
+)]
 pub async fn get_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id, namespace)): Path<(i32, i32, String)>,
+    Path((contest_id, problem_id, plugin_id, namespace)): Path<(i32, i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
     let ref_id = config_key::contest_problem(contest_id, problem_id);
-    get_config_inner(&state.db, "contest_problem", &ref_id, &namespace).await
+    let composite_ns = resolve_namespace("contest_problem", &plugin_id, &namespace);
+    get_config_inner(
+        &state.db,
+        "contest_problem",
+        &ref_id,
+        &composite_ns,
+        &plugin_id,
+    )
+    .await
 }
 
 #[utoipa::path(
     put,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "upsertContestProblemConfig",
     summary = "Create or update config for a namespace on a contest-problem",
     params(
         ("id" = i32, Path, description = "Contest ID"),
         ("problem_id" = i32, Path, description = "Problem ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     request_body = UpsertPluginConfigRequest,
@@ -567,34 +652,46 @@ pub async fn get_contest_problem_config(
 )]
 #[instrument(
     skip(state, auth_user, payload),
-    fields(contest_id, problem_id, namespace)
+    fields(contest_id, problem_id, plugin_id, namespace)
 )]
 pub async fn upsert_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id, namespace)): Path<(i32, i32, String)>,
+    Path((contest_id, problem_id, plugin_id, namespace)): Path<(i32, i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest_problem(&txn, contest_id, problem_id).await?;
     let ref_id = config_key::contest_problem(contest_id, problem_id);
-    let result =
-        upsert_config_inner(&txn, "contest_problem", &ref_id, &namespace, payload.config).await?;
+    let composite_ns = resolve_namespace("contest_problem", &plugin_id, &namespace);
+    let result = upsert_config_inner(
+        &txn,
+        "contest_problem",
+        &ref_id,
+        &composite_ns,
+        payload.config,
+        payload.enabled,
+        payload.position,
+        &plugin_id,
+    )
+    .await?;
     txn.commit().await?;
     Ok(result)
 }
 
 #[utoipa::path(
     delete,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "deleteContestProblemConfig",
     summary = "Delete config for a namespace on a contest-problem",
     params(
         ("id" = i32, Path, description = "Contest ID"),
         ("problem_id" = i32, Path, description = "Problem ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
@@ -605,18 +702,23 @@ pub async fn upsert_contest_problem_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(contest_id, problem_id, namespace))]
+#[instrument(
+    skip(state, auth_user),
+    fields(contest_id, problem_id, plugin_id, namespace)
+)]
 pub async fn delete_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id, namespace)): Path<(i32, i32, String)>,
+    Path((contest_id, problem_id, plugin_id, namespace)): Path<(i32, i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest_problem(&txn, contest_id, problem_id).await?;
     let ref_id = config_key::contest_problem(contest_id, problem_id);
-    let result = delete_config_inner(&txn, "contest_problem", &ref_id, &namespace).await?;
+    let composite_ns = resolve_namespace("contest_problem", &plugin_id, &namespace);
+    let result = delete_config_inner(&txn, "contest_problem", &ref_id, &composite_ns).await?;
     txn.commit().await?;
     Ok(result)
 }
@@ -650,12 +752,13 @@ pub async fn list_contest_config(
 
 #[utoipa::path(
     get,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "getContestConfig",
     summary = "Get config for a specific namespace on a contest",
     params(
         ("id" = i32, Path, description = "Contest ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
@@ -667,27 +770,30 @@ pub async fn list_contest_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(contest_id, namespace))]
+#[instrument(skip(state, auth_user), fields(contest_id, plugin_id, namespace))]
 pub async fn get_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, namespace)): Path<(i32, String)>,
+    Path((contest_id, plugin_id, namespace)): Path<(i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_contest(&state.db, contest_id).await?;
     let ref_id = config_key::contest(contest_id);
-    get_config_inner(&state.db, "contest", &ref_id, &namespace).await
+    let composite_ns = resolve_namespace("contest", &plugin_id, &namespace);
+    get_config_inner(&state.db, "contest", &ref_id, &composite_ns, &plugin_id).await
 }
 
 #[utoipa::path(
     put,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "upsertContestConfig",
     summary = "Create or update config for a namespace on a contest",
     params(
         ("id" = i32, Path, description = "Contest ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     request_body = UpsertPluginConfigRequest,
@@ -699,31 +805,47 @@ pub async fn get_contest_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user, payload), fields(contest_id, namespace))]
+#[instrument(
+    skip(state, auth_user, payload),
+    fields(contest_id, plugin_id, namespace)
+)]
 pub async fn upsert_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, namespace)): Path<(i32, String)>,
+    Path((contest_id, plugin_id, namespace)): Path<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest(&txn, contest_id).await?;
     let ref_id = config_key::contest(contest_id);
-    let result = upsert_config_inner(&txn, "contest", &ref_id, &namespace, payload.config).await?;
+    let composite_ns = resolve_namespace("contest", &plugin_id, &namespace);
+    let result = upsert_config_inner(
+        &txn,
+        "contest",
+        &ref_id,
+        &composite_ns,
+        payload.config,
+        payload.enabled,
+        payload.position,
+        &plugin_id,
+    )
+    .await?;
     txn.commit().await?;
     Ok(result)
 }
 
 #[utoipa::path(
     delete,
-    path = "/{namespace}",
+    path = "/{plugin_id}/{namespace}",
     tag = "Plugin Config",
     operation_id = "deleteContestConfig",
     summary = "Delete config for a namespace on a contest",
     params(
         ("id" = i32, Path, description = "Contest ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
         ("namespace" = String, Path, description = "Config namespace"),
     ),
     responses(
@@ -734,18 +856,20 @@ pub async fn upsert_contest_config(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(contest_id, namespace))]
+#[instrument(skip(state, auth_user), fields(contest_id, plugin_id, namespace))]
 pub async fn delete_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, namespace)): Path<(i32, String)>,
+    Path((contest_id, plugin_id, namespace)): Path<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
+    validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest(&txn, contest_id).await?;
     let ref_id = config_key::contest(contest_id);
-    let result = delete_config_inner(&txn, "contest", &ref_id, &namespace).await?;
+    let composite_ns = resolve_namespace("contest", &plugin_id, &namespace);
+    let result = delete_config_inner(&txn, "contest", &ref_id, &composite_ns).await?;
     txn.commit().await?;
     Ok(result)
 }

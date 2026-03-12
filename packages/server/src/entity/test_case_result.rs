@@ -3,7 +3,7 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[sea_orm::model]
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "test_case_result")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -15,7 +15,8 @@ pub struct Model {
     pub test_case_id: i32,
 
     pub verdict: Verdict,
-    pub score: i32,
+    #[sea_orm(column_type = "Double")]
+    pub score: f64,
 
     pub time_used: Option<i32>,   // in miliseconds
     pub memory_used: Option<i32>, // in kilobytes

@@ -145,8 +145,13 @@ pub fn init_host_functions(
     });
 
     let db_clone = db.clone();
+    let registry = plugin_manager.get_registry().clone();
     hr.register("config:read", move |plugin_id| {
-        config::create_config_get_function(plugin_id.to_string(), db_clone.clone())
+        config::create_config_get_function(
+            plugin_id.to_string(),
+            db_clone.clone(),
+            registry.clone(),
+        )
     });
 
     let db_clone = db;

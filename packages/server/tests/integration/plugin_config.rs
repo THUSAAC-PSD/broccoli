@@ -31,7 +31,7 @@ mod problem_config {
         let body = json!({"config": {"tolerance": 0.001}});
         let res = app
             .put_with_token(
-                &routes::problem_config_ns(problem_id, "checker"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
                 &body,
                 &token,
             )
@@ -42,7 +42,10 @@ mod problem_config {
         assert_eq!(res.body["config"]["tolerance"], 0.001);
 
         let res = app
-            .get_with_token(&routes::problem_config_ns(problem_id, "checker"), &token)
+            .get_with_token(
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
+                &token,
+            )
             .await;
 
         assert_eq!(res.status, 200);
@@ -60,7 +63,7 @@ mod problem_config {
 
         let body1 = json!({"config": {"v": 1}});
         app.put_with_token(
-            &routes::problem_config_ns(problem_id, "checker"),
+            &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
             &body1,
             &token,
         )
@@ -69,7 +72,7 @@ mod problem_config {
         let body2 = json!({"config": {"v": 2}});
         let res = app
             .put_with_token(
-                &routes::problem_config_ns(problem_id, "checker"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
                 &body2,
                 &token,
             )
@@ -79,7 +82,10 @@ mod problem_config {
         assert_eq!(res.body["config"]["v"], 2);
 
         let res = app
-            .get_with_token(&routes::problem_config_ns(problem_id, "checker"), &token)
+            .get_with_token(
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
+                &token,
+            )
             .await;
         assert_eq!(res.body["config"]["v"], 2);
     }
@@ -94,19 +100,25 @@ mod problem_config {
 
         let body = json!({"config": {"k": "v"}});
         app.put_with_token(
-            &routes::problem_config_ns(problem_id, "checker"),
+            &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
             &body,
             &token,
         )
         .await;
 
         let res = app
-            .delete_with_token(&routes::problem_config_ns(problem_id, "checker"), &token)
+            .delete_with_token(
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
+                &token,
+            )
             .await;
         assert_eq!(res.status, 204);
 
         let res = app
-            .get_with_token(&routes::problem_config_ns(problem_id, "checker"), &token)
+            .get_with_token(
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
+                &token,
+            )
             .await;
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
@@ -121,13 +133,13 @@ mod problem_config {
         let problem_id = app.create_problem(&token, "P1").await;
 
         app.put_with_token(
-            &routes::problem_config_ns(problem_id, "checker"),
+            &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
             &json!({"config": {"a": 1}}),
             &token,
         )
         .await;
         app.put_with_token(
-            &routes::problem_config_ns(problem_id, "scoring"),
+            &routes::problem_config_ns(problem_id, "test-plugin", "scoring"),
             &json!({"config": {"b": 2}}),
             &token,
         )
@@ -150,7 +162,11 @@ mod problem_config {
 
         let body = json!({"config": {"k": "v"}});
         let res = app
-            .put_with_token(&routes::problem_config_ns(99999, "checker"), &body, &token)
+            .put_with_token(
+                &routes::problem_config_ns(99999, "test-plugin", "checker"),
+                &body,
+                &token,
+            )
             .await;
 
         assert_eq!(res.status, 404);
@@ -167,7 +183,7 @@ mod problem_config {
 
         let res = app
             .get_with_token(
-                &routes::problem_config_ns(problem_id, "nonexistent"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "nonexistent"),
                 &token,
             )
             .await;
@@ -186,7 +202,7 @@ mod problem_config {
 
         let res = app
             .delete_with_token(
-                &routes::problem_config_ns(problem_id, "nonexistent"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "nonexistent"),
                 &token,
             )
             .await;
@@ -208,7 +224,10 @@ mod namespace_validation {
         let problem_id = app.create_problem(&token, "P1").await;
 
         let res = app
-            .get_with_token(&routes::problem_config_ns(problem_id, ""), &token)
+            .get_with_token(
+                &routes::problem_config_ns(problem_id, "test-plugin", ""),
+                &token,
+            )
             .await;
 
         // Empty namespace in path becomes /config/ which doesn't match any route
@@ -227,7 +246,7 @@ mod namespace_validation {
         let body = json!({"config": {}});
         let res = app
             .put_with_token(
-                &routes::problem_config_ns(problem_id, &long_namespace),
+                &routes::problem_config_ns(problem_id, "test-plugin", &long_namespace),
                 &body,
                 &token,
             )
@@ -248,7 +267,7 @@ mod namespace_validation {
         let body = json!({"config": {}});
         let res = app
             .put_with_token(
-                &routes::problem_config_ns(problem_id, "bad.name"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "bad.name"),
                 &body,
                 &token,
             )
@@ -269,7 +288,7 @@ mod namespace_validation {
         let body = json!({"config": {}});
         let res = app
             .put_with_token(
-                &routes::problem_config_ns(problem_id, "my-checker_v2"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "my-checker_v2"),
                 &body,
                 &token,
             )
@@ -301,7 +320,7 @@ mod permissions {
         let body = json!({"config": {}});
         let res = app
             .put_with_token(
-                &routes::problem_config_ns(problem_id, "checker"),
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
                 &body,
                 &user,
             )
@@ -341,7 +360,7 @@ mod contest_config {
         let body = json!({"config": {"type": "icpc"}});
         let res = app
             .put_with_token(
-                &routes::contest_config_ns(contest_id, "contest-type"),
+                &routes::contest_config_ns(contest_id, "test-plugin", "contest-type"),
                 &body,
                 &token,
             )
@@ -353,7 +372,7 @@ mod contest_config {
 
         let res = app
             .get_with_token(
-                &routes::contest_config_ns(contest_id, "contest-type"),
+                &routes::contest_config_ns(contest_id, "test-plugin", "contest-type"),
                 &token,
             )
             .await;
@@ -371,19 +390,25 @@ mod contest_config {
 
         let body = json!({"config": {"k": "v"}});
         app.put_with_token(
-            &routes::contest_config_ns(contest_id, "scoring"),
+            &routes::contest_config_ns(contest_id, "test-plugin", "scoring"),
             &body,
             &token,
         )
         .await;
 
         let res = app
-            .delete_with_token(&routes::contest_config_ns(contest_id, "scoring"), &token)
+            .delete_with_token(
+                &routes::contest_config_ns(contest_id, "test-plugin", "scoring"),
+                &token,
+            )
             .await;
         assert_eq!(res.status, 204);
 
         let res = app
-            .get_with_token(&routes::contest_config_ns(contest_id, "scoring"), &token)
+            .get_with_token(
+                &routes::contest_config_ns(contest_id, "test-plugin", "scoring"),
+                &token,
+            )
             .await;
         assert_eq!(res.status, 404);
     }
@@ -397,7 +422,11 @@ mod contest_config {
 
         let body = json!({"config": {"k": "v"}});
         let res = app
-            .put_with_token(&routes::contest_config_ns(99999, "scoring"), &body, &token)
+            .put_with_token(
+                &routes::contest_config_ns(99999, "test-plugin", "scoring"),
+                &body,
+                &token,
+            )
             .await;
 
         assert_eq!(res.status, 404);
@@ -422,7 +451,7 @@ mod contest_problem_config {
         let body = json!({"config": {"time_limit": 2000}});
         let res = app
             .put_with_token(
-                &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+                &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
                 &body,
                 &token,
             )
@@ -434,7 +463,7 @@ mod contest_problem_config {
 
         let res = app
             .get_with_token(
-                &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+                &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
                 &token,
             )
             .await;
@@ -455,7 +484,7 @@ mod contest_problem_config {
 
         let body = json!({"config": {"k": "v"}});
         app.put_with_token(
-            &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+            &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
             &body,
             &token,
         )
@@ -463,7 +492,7 @@ mod contest_problem_config {
 
         let res = app
             .delete_with_token(
-                &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+                &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
                 &token,
             )
             .await;
@@ -471,7 +500,7 @@ mod contest_problem_config {
 
         let res = app
             .get_with_token(
-                &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+                &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
                 &token,
             )
             .await;
@@ -490,7 +519,7 @@ mod contest_problem_config {
             .await;
 
         app.put_with_token(
-            &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+            &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
             &json!({"config": {"t": 1}}),
             &token,
         )
@@ -518,7 +547,7 @@ mod contest_problem_config {
         let body = json!({"config": {}});
         let res = app
             .put_with_token(
-                &routes::contest_problem_config_ns(contest_id, 99999, "limits"),
+                &routes::contest_problem_config_ns(contest_id, 99999, "test-plugin", "limits"),
                 &body,
                 &token,
             )
@@ -734,7 +763,7 @@ mod cascade_deletion {
         let problem_id = app.create_problem(&token, "P1").await;
 
         app.put_with_token(
-            &routes::problem_config_ns(problem_id, "checker"),
+            &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
             &json!({"config": {"k": "v"}}),
             &token,
         )
@@ -750,7 +779,10 @@ mod cascade_deletion {
         // but the old config should be gone. We verify by checking directly
         // that the original problem's config endpoint returns 404 (problem gone).
         let res = app
-            .get_with_token(&routes::problem_config_ns(problem_id, "checker"), &token)
+            .get_with_token(
+                &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
+                &token,
+            )
             .await;
         assert_eq!(res.status, 404);
     }
@@ -764,7 +796,7 @@ mod cascade_deletion {
         let contest_id = app.create_contest(&token, "C1", true, true).await;
 
         app.put_with_token(
-            &routes::contest_config_ns(contest_id, "scoring"),
+            &routes::contest_config_ns(contest_id, "test-plugin", "scoring"),
             &json!({"config": {"k": "v"}}),
             &token,
         )
@@ -776,7 +808,10 @@ mod cascade_deletion {
         assert_eq!(res.status, 204);
 
         let res = app
-            .get_with_token(&routes::contest_config_ns(contest_id, "scoring"), &token)
+            .get_with_token(
+                &routes::contest_config_ns(contest_id, "test-plugin", "scoring"),
+                &token,
+            )
             .await;
         assert_eq!(res.status, 404);
     }
@@ -793,7 +828,7 @@ mod cascade_deletion {
             .await;
 
         app.put_with_token(
-            &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+            &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
             &json!({"config": {"k": "v"}}),
             &token,
         )
@@ -808,7 +843,7 @@ mod cascade_deletion {
         // Contest problem config should be gone (contest problem no longer exists)
         let res = app
             .get_with_token(
-                &routes::contest_problem_config_ns(contest_id, problem_id, "limits"),
+                &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
                 &token,
             )
             .await;

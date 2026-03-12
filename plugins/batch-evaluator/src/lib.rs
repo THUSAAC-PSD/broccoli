@@ -9,8 +9,8 @@ pub mod batch;
 #[cfg(feature = "wasm")]
 fn load_sandbox_config() -> batch::SandboxConfig {
     match host::config::get_global_config("sandbox") {
-        Ok(Some(value)) => serde_json::from_value(value).unwrap_or_default(),
-        _ => batch::SandboxConfig::default(),
+        Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
+        Err(_) => batch::SandboxConfig::default(),
     }
 }
 

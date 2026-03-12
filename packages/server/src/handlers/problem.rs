@@ -62,7 +62,6 @@ pub async fn create_problem(
         content: Set(payload.content),
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
-        show_test_details: Set(payload.show_test_details.unwrap_or(false)),
         problem_type: Set(payload.problem_type),
         checker_format: Set(payload.checker_format),
         default_contest_type: Set(payload.default_contest_type),
@@ -258,9 +257,6 @@ pub async fn update_problem(
     if let Some(ml) = payload.memory_limit {
         active.memory_limit = Set(ml);
     }
-    if let Some(show_test_details) = payload.show_test_details {
-        active.show_test_details = Set(show_test_details);
-    }
     if let Some(problem_type) = payload.problem_type {
         active.problem_type = Set(problem_type);
     }
@@ -403,11 +399,13 @@ pub async fn create_test_case(
         None => next_test_case_position(&txn, problem_id).await?,
     };
 
+    let label = payload.label.trim().to_string();
     let new_tc = test_case::ActiveModel {
         input: Set(payload.input),
         expected_output: Set(payload.expected_output),
         score: Set(payload.score),
         description: Set(payload.description.map(|d| d.trim().to_string())),
+        label: Set(label),
         is_sample: Set(payload.is_sample),
         position: Set(position),
         problem_id: Set(problem_id),
@@ -455,6 +453,7 @@ pub async fn list_test_cases(
         .column(test_case::Column::Id)
         .column(test_case::Column::Score)
         .column(test_case::Column::Description)
+        .column(test_case::Column::Label)
         .column(test_case::Column::IsSample)
         .column(test_case::Column::Position)
         .column_as(
@@ -575,6 +574,9 @@ pub async fn update_test_case(
     }
     if let Some(position) = payload.position {
         active.position = Set(position);
+    }
+    if let Some(label) = payload.label {
+        active.label = Set(label);
     }
     match payload.description {
         Some(Some(desc)) => active.description = Set(Some(desc.trim().to_string())),
@@ -700,6 +702,7 @@ pub async fn upload_test_cases(
             input: Set(entry.input),
             expected_output: Set(entry.expected_output),
             score: Set(0),
+            label: Set(entry.stem.clone()),
             description: Set(Some(entry.stem)),
             is_sample: Set(entry.is_sample),
             position: Set(start_pos),
@@ -974,6 +977,7 @@ fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
         id: m.id,
         score: m.score,
         description: m.description,
+        label: m.label,
         is_sample: m.is_sample,
         position: m.position,
         input_preview,

@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::PluginError;
+use crate::hook::{HookMode, HookScope};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PluginManifest {
@@ -119,6 +120,26 @@ pub struct ServerConfig {
     /// List of HTTP routes exposed by the plugin
     #[serde(default)]
     pub routes: Vec<ServerRouteConfig>,
+
+    /// Hook declarations: event topics this plugin intercepts
+    #[serde(default)]
+    pub hooks: Vec<HookDeclaration>,
+}
+
+/// A hook declared in plugin.toml that maps an event topic to a WASM function.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct HookDeclaration {
+    /// Event topic to intercept, e.g., "before_submission"
+    pub topic: String,
+    /// WASM function name to call when the event fires
+    pub function: String,
+    /// What scope this hook runs in
+    #[serde(default)]
+    pub scope: HookScope,
+    /// Whether this hook blocks the caller or just receives a notification.
+    /// Defaults to `blocking` (the hook's response is respected).
+    #[serde(default)]
+    pub mode: HookMode,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -235,6 +256,17 @@ pub struct ConfigNamespace {
 }
 
 impl ConfigNamespace {
+    /// Build a JSON object from the `default` values declared in this namespace's properties.
+    pub fn defaults(&self) -> serde_json::Value {
+        let mut obj = serde_json::Map::new();
+        for (key, prop) in &self.properties {
+            if let Some(val) = prop.default_value() {
+                obj.insert(key.clone(), val);
+            }
+        }
+        serde_json::Value::Object(obj)
+    }
+
     /// Convert this namespace to a JSON Schema object.
     pub fn to_json_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
@@ -283,6 +315,25 @@ pub struct SchemaProperty {
 }
 
 impl SchemaProperty {
+    /// Build a default value for this property from the schema declaration.
+    pub fn default_value(&self) -> Option<serde_json::Value> {
+        if let Some(ref d) = self.default {
+            return Some(d.clone());
+        }
+        if self.schema_type == "object" && !self.properties.is_empty() {
+            let mut obj = serde_json::Map::new();
+            for (key, prop) in &self.properties {
+                if let Some(val) = prop.default_value() {
+                    obj.insert(key.clone(), val);
+                }
+            }
+            if !obj.is_empty() {
+                return Some(serde_json::Value::Object(obj));
+            }
+        }
+        None
+    }
+
     /// Convert this property to a JSON Schema value.
     pub fn to_json_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
@@ -518,6 +569,103 @@ mod tests {
     }
 
     #[test]
+    fn config_namespace_defaults_collects_property_defaults() {
+        let toml_str = r#"
+            name = "test"
+            version = "1.0.0"
+
+            [config.cooldown]
+            scopes = ["problem"]
+
+            [config.cooldown.properties.cooldown_seconds]
+            type = "integer"
+            default = 60
+
+            [config.cooldown.properties.enabled]
+            type = "boolean"
+            default = true
+
+            [config.cooldown.properties.label]
+            type = "string"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let defaults = manifest.config["cooldown"].defaults();
+
+        assert_eq!(defaults["cooldown_seconds"], 60);
+        assert_eq!(defaults["enabled"], true);
+        // "label" has no default, so should be absent
+        assert!(defaults.get("label").is_none());
+    }
+
+    #[test]
+    fn config_namespace_defaults_recurses_into_nested_objects() {
+        let toml_str = r#"
+            name = "test"
+            version = "1.0.0"
+
+            [config.testlib]
+            scopes = ["plugin"]
+
+            [config.testlib.properties.compile_time_limit_s]
+            type = "number"
+            default = 10.0
+
+            [config.testlib.properties.cpp]
+            type = "object"
+
+            [config.testlib.properties.cpp.properties.compiler]
+            type = "string"
+            default = "/usr/bin/g++"
+
+            [config.testlib.properties.cpp.properties.flags]
+            type = "array"
+            default = ["-O2", "-std=c++17"]
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let defaults = manifest.config["testlib"].defaults();
+
+        assert_eq!(defaults["compile_time_limit_s"], 10.0);
+        assert_eq!(defaults["cpp"]["compiler"], "/usr/bin/g++");
+        assert_eq!(defaults["cpp"]["flags"], json!(["-O2", "-std=c++17"]));
+    }
+
+    #[test]
+    fn config_namespace_defaults_empty_when_no_defaults() {
+        let toml_str = r#"
+            name = "test"
+            version = "1.0.0"
+
+            [config.bare]
+            scopes = ["plugin"]
+
+            [config.bare.properties.name]
+            type = "string"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let defaults = manifest.config["bare"].defaults();
+        assert_eq!(defaults, json!({}));
+    }
+
+    #[test]
+    fn schema_property_default_value_prefers_explicit_over_recursive() {
+        let toml_str = r#"
+            type = "object"
+            default = { key = "explicit" }
+
+            [properties.key]
+            type = "string"
+            default = "recursive"
+        "#;
+
+        let prop: SchemaProperty = toml::from_str(toml_str).unwrap();
+        // Explicit default takes precedence over recursing into sub-properties
+        assert_eq!(prop.default_value(), Some(json!({"key": "explicit"})));
+    }
+
+    #[test]
     fn resolve_schema_includes_loads_external_file() {
         let dir = tempfile::tempdir().unwrap();
         let schema_dir = dir.path().join("config");
@@ -646,5 +794,129 @@ mod tests {
         assert_eq!(compile_mem["multipleOf"], 1024.0);
         assert_eq!(compile_mem["x-unit"], "KB");
         assert!(compile_mem.get("x-precision").is_none());
+    }
+
+    #[test]
+    fn server_hooks_section_parses_topic_function_and_scope() {
+        let toml_str = r#"
+            name = "cooldown"
+            version = "0.1.0"
+
+            [server]
+            entry = "cooldown.wasm"
+            permissions = ["sql", "logger"]
+
+            [[server.hooks]]
+            topic = "before_submission"
+            function = "check_cooldown"
+            scope = "resource"
+
+            [[server.hooks]]
+            topic = "before_submission"
+            function = "global_audit"
+            scope = "global"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let server = manifest.server.unwrap();
+        assert_eq!(server.hooks.len(), 2);
+
+        assert_eq!(server.hooks[0].topic, "before_submission");
+        assert_eq!(server.hooks[0].function, "check_cooldown");
+        assert_eq!(server.hooks[0].scope, HookScope::Resource);
+        assert_eq!(server.hooks[0].mode, HookMode::Blocking); // default
+
+        assert_eq!(server.hooks[1].topic, "before_submission");
+        assert_eq!(server.hooks[1].function, "global_audit");
+        assert_eq!(server.hooks[1].scope, HookScope::Global);
+        assert_eq!(server.hooks[1].mode, HookMode::Blocking); // default
+    }
+
+    #[test]
+    fn hook_scope_defaults_to_resource_when_omitted() {
+        let toml_str = r#"
+            name = "test"
+            version = "1.0.0"
+
+            [server]
+            entry = "test.wasm"
+
+            [[server.hooks]]
+            topic = "before_submission"
+            function = "my_hook"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let server = manifest.server.unwrap();
+        assert_eq!(server.hooks.len(), 1);
+        assert_eq!(server.hooks[0].scope, HookScope::Resource);
+        assert_eq!(server.hooks[0].mode, HookMode::Blocking);
+    }
+
+    #[test]
+    fn manifest_without_hooks_section_has_empty_hooks_list() {
+        let toml_str = r#"
+            name = "test"
+            version = "1.0.0"
+
+            [server]
+            entry = "test.wasm"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let server = manifest.server.unwrap();
+        assert!(server.hooks.is_empty());
+    }
+
+    #[test]
+    fn hook_mode_parses_notify_and_blocking_values() {
+        let toml_str = r#"
+            name = "audit"
+            version = "0.1.0"
+
+            [server]
+            entry = "audit.wasm"
+
+            [[server.hooks]]
+            topic = "after_submission"
+            function = "log_submission"
+            scope = "resource"
+            mode = "notify"
+
+            [[server.hooks]]
+            topic = "before_submission"
+            function = "check_access"
+            mode = "blocking"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let server = manifest.server.unwrap();
+        assert_eq!(server.hooks.len(), 2);
+
+        assert_eq!(server.hooks[0].topic, "after_submission");
+        assert_eq!(server.hooks[0].mode, HookMode::Notify);
+        assert_eq!(server.hooks[0].scope, HookScope::Resource);
+
+        assert_eq!(server.hooks[1].topic, "before_submission");
+        assert_eq!(server.hooks[1].mode, HookMode::Blocking);
+    }
+
+    #[test]
+    fn hook_mode_defaults_to_blocking_when_omitted() {
+        let toml_str = r#"
+            name = "test"
+            version = "1.0.0"
+
+            [server]
+            entry = "test.wasm"
+
+            [[server.hooks]]
+            topic = "after_judging"
+            function = "on_judged"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        let server = manifest.server.unwrap();
+        assert_eq!(server.hooks[0].mode, HookMode::Blocking);
     }
 }

@@ -10,7 +10,6 @@ pub enum Verdict {
     RuntimeError,
     SystemError,
     CompileError,
-    JudgeError,
     Skipped,
 }
 
@@ -25,14 +24,13 @@ impl Verdict {
             Self::MemoryLimitExceeded => 3,
             Self::RuntimeError => 4,
             Self::SystemError => 5,
-            Self::JudgeError => 6,
-            Self::CompileError => 7,
+            Self::CompileError => 6,
         }
     }
 
     /// Maps this verdict to the DB-compatible string representation.
     ///
-    /// `CompileError`, `JudgeError` -> `"SystemError"` in the DB.
+    /// `CompileError` -> `"SystemError"` in the DB.
     pub fn to_db_str(&self) -> &'static str {
         match self {
             Self::Accepted => "Accepted",
@@ -41,7 +39,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => "MemoryLimitExceeded",
             Self::RuntimeError => "RuntimeError",
             Self::Skipped => "Skipped",
-            Self::SystemError | Self::CompileError | Self::JudgeError => "SystemError",
+            Self::SystemError | Self::CompileError => "SystemError",
         }
     }
 
@@ -71,15 +69,13 @@ mod tests {
         assert!(Verdict::TimeLimitExceeded.severity() < Verdict::MemoryLimitExceeded.severity());
         assert!(Verdict::MemoryLimitExceeded.severity() < Verdict::RuntimeError.severity());
         assert!(Verdict::RuntimeError.severity() < Verdict::SystemError.severity());
-        assert!(Verdict::SystemError.severity() < Verdict::JudgeError.severity());
-        assert!(Verdict::JudgeError.severity() < Verdict::CompileError.severity());
+        assert!(Verdict::SystemError.severity() < Verdict::CompileError.severity());
         assert_eq!(Verdict::Skipped.severity(), 0);
     }
 
     #[test]
     fn to_db_str_maps_correctly() {
         assert_eq!(Verdict::CompileError.to_db_str(), "SystemError");
-        assert_eq!(Verdict::JudgeError.to_db_str(), "SystemError");
         assert_eq!(Verdict::Skipped.to_db_str(), "Skipped");
         assert_eq!(Verdict::Accepted.to_db_str(), "Accepted");
     }
@@ -103,7 +99,6 @@ mod tests {
             "RuntimeError",
             "SystemError",
             "CompileError",
-            "JudgeError",
             "Skipped",
         ] {
             let json = format!("\"{name}\"");

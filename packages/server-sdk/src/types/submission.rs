@@ -11,6 +11,7 @@ pub struct SourceFile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnSubmissionInput {
     pub submission_id: i32,
+    pub user_id: i32,
     pub problem_id: i32,
     pub contest_id: Option<i32>,
     pub files: Vec<SourceFile>,

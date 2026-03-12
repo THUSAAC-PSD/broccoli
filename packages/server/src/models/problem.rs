@@ -25,10 +25,6 @@ pub struct CreateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Whether contestants see full input/output for all test cases.
-    /// If omitted, defaults to false.
-    #[schema(example = false)]
-    pub show_test_details: Option<bool>,
     /// Problem type for evaluator dispatch, e.g. "standard" or "interactive".
     #[serde(default = "default_problem_type")]
     #[schema(example = "standard")]
@@ -58,9 +54,6 @@ pub struct UpdateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 524288)]
     pub memory_limit: Option<i32>,
-    /// Whether contestants see full input/output for all test cases.
-    #[schema(example = true)]
-    pub show_test_details: Option<bool>,
     /// Problem type for evaluator dispatch: "standard" or "interactive".
     #[schema(example = "standard")]
     pub problem_type: Option<String>,
@@ -85,9 +78,6 @@ pub struct ProblemResponse {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Whether contestants see full input/output for all test cases.
-    #[schema(example = false)]
-    pub show_test_details: bool,
     /// Problem type for evaluator dispatch.
     #[schema(example = "standard")]
     pub problem_type: String,
@@ -131,9 +121,6 @@ pub struct ProblemListItem {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Whether contestants see full input/output for all test cases.
-    #[schema(example = false)]
-    pub show_test_details: bool,
     /// Problem type for evaluator dispatch.
     #[schema(example = "standard")]
     pub problem_type: String,
@@ -195,6 +182,9 @@ pub struct CreateTestCaseRequest {
     /// Optional human-readable description (max 256 chars).
     #[schema(example = "Basic case")]
     pub description: Option<String>,
+    /// Short identifier (unique within problem, max 64 chars).
+    #[schema(example = "sample_01")]
+    pub label: String,
 }
 
 /// PATCH body for updating a test case. Only provided fields are modified.
@@ -219,6 +209,9 @@ pub struct UpdateTestCaseRequest {
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<String>, example = "Updated edge case")]
     pub description: Option<Option<String>>,
+    /// Short identifier (unique within problem, max 64 chars).
+    #[schema(example = "sample_01")]
+    pub label: Option<String>,
 }
 
 /// Request body for reordering test cases.
@@ -242,6 +235,9 @@ pub struct TestCaseResponse {
     pub score: i32,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
+    /// Short identifier (unique within problem).
+    #[schema(example = "sample_01")]
+    pub label: String,
     #[schema(example = true)]
     pub is_sample: bool,
     #[schema(example = 0)]
@@ -261,6 +257,9 @@ pub struct TestCaseListItem {
     pub score: i32,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
+    /// Short identifier (unique within problem).
+    #[schema(example = "sample_01")]
+    pub label: String,
     #[schema(example = true)]
     pub is_sample: bool,
     #[schema(example = 0)]
@@ -292,7 +291,6 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             content: m.content,
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
-            show_test_details: m.show_test_details,
             problem_type: m.problem_type,
             checker_source: m.checker_source,
             checker_format: m.checker_format,
@@ -312,6 +310,7 @@ impl From<crate::entity::test_case::Model> for TestCaseResponse {
             expected_output: m.expected_output,
             score: m.score,
             description: m.description,
+            label: m.label,
             is_sample: m.is_sample,
             position: m.position,
             problem_id: m.problem_id,
@@ -452,6 +451,20 @@ pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppE
             "Description must be at most 256 characters".into(),
         ));
     }
+    validate_label(&req.label)?;
+    Ok(())
+}
+
+fn validate_label(label: &str) -> Result<(), AppError> {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Label must be non-empty".into()));
+    }
+    if trimmed.chars().count() > 64 {
+        return Err(AppError::Validation(
+            "Label must be at most 64 characters".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -492,6 +505,9 @@ pub fn validate_update_test_case(req: &UpdateTestCaseRequest) -> Result<(), AppE
         return Err(AppError::Validation(
             "Description must be at most 256 characters".into(),
         ));
+    }
+    if let Some(ref label) = req.label {
+        validate_label(label)?;
     }
     Ok(())
 }

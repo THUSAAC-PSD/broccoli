@@ -6,6 +6,7 @@ pub mod entity;
 pub mod error;
 pub mod extractors;
 pub mod handlers;
+pub mod hooks;
 pub mod host_funcs;
 pub mod manager;
 pub mod models;

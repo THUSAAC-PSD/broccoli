@@ -14,11 +14,6 @@ pub struct Model {
     pub time_limit: i32,   // in milliseconds
     pub memory_limit: i32, // in kilobytes
 
-    /// When true, contestants see full input/output for all test cases.
-    /// When false, contestants see only verdict/score for non-sample tests.
-    #[sea_orm(default_value = false)]
-    pub show_test_details: bool,
-
     /// Problem type for evaluator dispatch (e.g., "standard", "interactive").
     #[sea_orm(default_value = "standard")]
     pub problem_type: String,

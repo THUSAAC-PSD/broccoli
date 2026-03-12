@@ -254,7 +254,7 @@ impl From<broccoli_server_sdk::types::Verdict> for Verdict {
             Sdk::TimeLimitExceeded => Self::TimeLimitExceeded,
             Sdk::MemoryLimitExceeded => Self::MemoryLimitExceeded,
             Sdk::RuntimeError => Self::RuntimeError,
-            Sdk::SystemError | Sdk::CompileError | Sdk::JudgeError => Self::SystemError,
+            Sdk::SystemError | Sdk::CompileError => Self::SystemError,
             Sdk::Skipped => Self::Skipped,
         }
     }

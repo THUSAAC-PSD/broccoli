@@ -253,6 +253,8 @@ fn start_evaluate_batch_fn(
                         time_used_ms: None,
                         memory_used_kb: None,
                         message: Some(format!("Failed to serialize evaluator input: {}", e)),
+                        stdout: None,
+                        stderr: None,
                     });
                     pending.fetch_sub(1, Ordering::SeqCst);
                     return;
@@ -279,6 +281,8 @@ fn start_evaluate_batch_fn(
                                     "Failed to deserialize evaluator result: {}",
                                     e
                                 )),
+                                stdout: None,
+                                stderr: None,
                             });
                         }
                     }
@@ -291,6 +295,8 @@ fn start_evaluate_batch_fn(
                         time_used_ms: None,
                         memory_used_kb: None,
                         message: Some(format!("Evaluator call failed: {}", e)),
+                        stdout: None,
+                        stderr: None,
                     });
                 }
             }

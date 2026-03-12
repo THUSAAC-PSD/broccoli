@@ -193,6 +193,7 @@ async fn main() -> anyhow::Result<()> {
             operation_batches: operation_batches.clone(),
             operation_waiters: operation_waiters.clone(),
             evaluate_batches: evaluate_batches.clone(),
+            hook_registry: server::hooks::new_shared_registry(),
         },
         device_codes,
     };

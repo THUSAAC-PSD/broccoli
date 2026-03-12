@@ -12,11 +12,13 @@ pub fn interpret_sandbox_result(
     if !result.success && result.task_results.is_empty() {
         return Ok(TestCaseVerdict {
             test_case_id,
-            verdict: Verdict::JudgeError,
+            verdict: Verdict::SystemError,
             score: 0.0,
             time_used_ms: None,
             memory_used_kb: None,
             message: result.error.clone(),
+            stdout: None,
+            stderr: None,
         });
     }
 
@@ -33,13 +35,15 @@ pub fn interpret_sandbox_result(
                         &compile_result.sandbox_result.stderr,
                         "Compilation failed",
                     ),
+                    stdout: None,
+                    stderr: None,
                 });
             }
         } else if !compile_result.success {
             // Sandbox failure before execution (no exit code available)
             return Ok(TestCaseVerdict {
                 test_case_id,
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 time_used_ms: None,
                 memory_used_kb: None,
@@ -47,21 +51,27 @@ pub fn interpret_sandbox_result(
                     &compile_result.sandbox_result.stderr,
                     "Compilation step failed (sandbox error)",
                 ),
+                stdout: None,
+                stderr: None,
             });
         }
     }
 
     if let Some(exec_result) = result.task_results.get("exec") {
         let sandbox = &exec_result.sandbox_result;
+        let exec_stdout = opt_nonempty(&sandbox.stdout);
+        let exec_stderr = opt_nonempty(&sandbox.stderr);
 
         if !exec_result.success && sandbox.status.is_empty() {
             return Ok(TestCaseVerdict {
                 test_case_id,
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 time_used_ms: None,
                 memory_used_kb: None,
                 message: Some("Execution step was skipped".into()),
+                stdout: None,
+                stderr: None,
             });
         }
 
@@ -76,6 +86,8 @@ pub fn interpret_sandbox_result(
                     "Memory limit exceeded ({}KB)",
                     sandbox.memory_used.unwrap_or(0)
                 )),
+                stdout: exec_stdout,
+                stderr: exec_stderr,
             });
         }
 
@@ -92,6 +104,8 @@ pub fn interpret_sandbox_result(
                         "Time limit exceeded ({}ms)",
                         time_ms.map_or("?".into(), |t| t.to_string())
                     )),
+                    stdout: exec_stdout,
+                    stderr: exec_stderr,
                 });
             }
             "SG" => {
@@ -102,6 +116,8 @@ pub fn interpret_sandbox_result(
                     time_used_ms: extract_time_used(result),
                     memory_used_kb: extract_memory_used(result),
                     message: Some(sandbox.message.clone()),
+                    stdout: exec_stdout,
+                    stderr: exec_stderr,
                 });
             }
             "RE" => {
@@ -112,6 +128,8 @@ pub fn interpret_sandbox_result(
                     time_used_ms: extract_time_used(result),
                     memory_used_kb: extract_memory_used(result),
                     message: Some(format!("Exit code: {}", sandbox.exit_code.unwrap_or(-1))),
+                    stdout: exec_stdout,
+                    stderr: exec_stderr,
                 });
             }
             _ => {} // "OK" or other, continue to checker
@@ -123,11 +141,13 @@ pub fn interpret_sandbox_result(
         None => {
             return Ok(TestCaseVerdict {
                 test_case_id,
-                verdict: Verdict::JudgeError,
+                verdict: Verdict::SystemError,
                 score: 0.0,
                 time_used_ms: None,
                 memory_used_kb: None,
                 message: Some("No exec result found".into()),
+                stdout: None,
+                stderr: None,
             });
         }
     };
@@ -139,6 +159,8 @@ pub fn interpret_sandbox_result(
 
     let time_used_ms = extract_time_used(result);
     let memory_used_kb = extract_memory_used(result);
+    let exec_stdout = opt_nonempty(&exec_result.sandbox_result.stdout);
+    let exec_stderr = opt_nonempty(&exec_result.sandbox_result.stderr);
 
     match host::checker::run_checker(checker_format, &input) {
         Ok(v) => Ok(TestCaseVerdict {
@@ -148,14 +170,18 @@ pub fn interpret_sandbox_result(
             time_used_ms,
             memory_used_kb,
             message: v.message,
+            stdout: exec_stdout,
+            stderr: exec_stderr,
         }),
         Err(e) => Ok(TestCaseVerdict {
             test_case_id,
-            verdict: Verdict::JudgeError,
+            verdict: Verdict::SystemError,
             score: 0.0,
             time_used_ms,
             memory_used_kb,
             message: Some(format!("Checker call failed: {:?}", e)),
+            stdout: exec_stdout,
+            stderr: exec_stderr,
         }),
     }
 }
@@ -176,6 +202,14 @@ fn extract_memory_used(result: &OperationResult) -> Option<i64> {
         .task_results
         .get("exec")
         .and_then(|exec_result| exec_result.sandbox_result.memory_used.map(|m| m as i64))
+}
+
+fn opt_nonempty(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
 }
 
 fn truncate_stderr(stderr: &str, fallback: &str) -> Option<String> {

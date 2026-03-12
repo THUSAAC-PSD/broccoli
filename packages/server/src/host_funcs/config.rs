@@ -1,10 +1,12 @@
 use crate::entity::plugin_config;
 use chrono::Utc;
 use extism::{Function, UserData, Val, ValType};
+use plugin_core::registry::PluginRegistry;
 use sea_orm::{DatabaseConnection, EntityTrait, Set, sea_query::OnConflict};
 use serde::Deserialize;
 
-type ConfigUserData = (String, DatabaseConnection);
+type ConfigGetUserData = (String, DatabaseConnection, PluginRegistry);
+type ConfigSetUserData = (String, DatabaseConnection);
 
 const VALID_SCOPES: &[&str] = &["problem", "contest_problem", "contest", "plugin"];
 
@@ -54,12 +56,28 @@ fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(
 
 /// For non-plugin scopes, prefix the namespace with `{plugin_id}:` to prevent
 /// cross-plugin collisions in shared resource configs.
-fn resolve_namespace(scope: &str, plugin_id: &str, namespace: String) -> String {
+pub fn resolve_namespace(scope: &str, plugin_id: &str, namespace: &str) -> String {
     if scope == "plugin" {
-        namespace
+        namespace.to_string()
     } else {
         format!("{}:{}", plugin_id, namespace)
     }
+}
+
+/// Strip the `{plugin_id}:` prefix from a composite namespace, returning the raw namespace.
+pub fn strip_namespace_prefix(composite: &str) -> &str {
+    composite
+        .split_once(':')
+        .map(|(_, raw)| raw)
+        .unwrap_or(composite)
+}
+
+/// Extract the plugin_id from a composite namespace.
+pub fn extract_plugin_id(composite: &str) -> &str {
+    composite
+        .split_once(':')
+        .map(|(prefix, _)| prefix)
+        .unwrap_or(composite)
 }
 
 #[derive(Deserialize)]
@@ -77,12 +95,16 @@ struct ConfigSetInput {
     config: serde_json::Value,
 }
 
-pub fn create_config_get_function(plugin_id: String, db: DatabaseConnection) -> Function {
+pub fn create_config_get_function(
+    plugin_id: String,
+    db: DatabaseConnection,
+    registry: PluginRegistry,
+) -> Function {
     Function::new(
         "config_get",
         [ValType::I64],
         [ValType::I64],
-        UserData::new((plugin_id, db)),
+        UserData::new((plugin_id, db, registry)),
         config_get_fn,
     )
 }
@@ -97,18 +119,97 @@ pub fn create_config_set_function(plugin_id: String, db: DatabaseConnection) -> 
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_namespace_plugin_scope_returns_raw() {
+        assert_eq!(
+            resolve_namespace("plugin", "my-plugin", "settings"),
+            "settings"
+        );
+    }
+
+    #[test]
+    fn resolve_namespace_non_plugin_scope_prefixes() {
+        assert_eq!(
+            resolve_namespace("contest", "cooldown", "cooldown"),
+            "cooldown:cooldown"
+        );
+        assert_eq!(resolve_namespace("problem", "ioi", "task"), "ioi:task");
+        assert_eq!(
+            resolve_namespace("contest_problem", "submission-limit", "limits"),
+            "submission-limit:limits"
+        );
+    }
+
+    #[test]
+    fn strip_namespace_prefix_with_colon() {
+        assert_eq!(strip_namespace_prefix("cooldown:cooldown"), "cooldown");
+        assert_eq!(strip_namespace_prefix("ioi:task"), "task");
+    }
+
+    #[test]
+    fn strip_namespace_prefix_without_colon() {
+        assert_eq!(strip_namespace_prefix("settings"), "settings");
+    }
+
+    #[test]
+    fn strip_namespace_prefix_multiple_colons() {
+        // Only splits on the first colon
+        assert_eq!(strip_namespace_prefix("a:b:c"), "b:c");
+    }
+
+    #[test]
+    fn extract_plugin_id_with_colon() {
+        assert_eq!(extract_plugin_id("cooldown:cooldown"), "cooldown");
+        assert_eq!(extract_plugin_id("ioi:task"), "ioi");
+    }
+
+    #[test]
+    fn extract_plugin_id_without_colon() {
+        assert_eq!(extract_plugin_id("settings"), "settings");
+    }
+
+    #[test]
+    fn extract_plugin_id_multiple_colons() {
+        // Only splits on the first colon
+        assert_eq!(extract_plugin_id("a:b:c"), "a");
+    }
+
+    #[test]
+    fn resolve_and_strip_roundtrip() {
+        let raw = "cooldown";
+        let plugin_id = "cooldown";
+        let composite = resolve_namespace("contest", plugin_id, raw);
+        assert_eq!(strip_namespace_prefix(&composite), raw);
+        assert_eq!(extract_plugin_id(&composite), plugin_id);
+    }
+
+    #[test]
+    fn resolve_and_strip_different_ids() {
+        let raw = "limits";
+        let plugin_id = "submission-limit";
+        let composite = resolve_namespace("problem", plugin_id, raw);
+        assert_eq!(composite, "submission-limit:limits");
+        assert_eq!(strip_namespace_prefix(&composite), raw);
+        assert_eq!(extract_plugin_id(&composite), plugin_id);
+    }
+}
+
 fn config_get_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
     outputs: &mut [Val],
-    user_data: UserData<ConfigUserData>,
+    user_data: UserData<ConfigGetUserData>,
 ) -> Result<(), extism::Error> {
     let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
     let input: ConfigGetInput = serde_json::from_slice(&input_bytes).map_err(|e| {
         extism::Error::msg(format!("Failed to deserialize config_get input: {}", e))
     })?;
 
-    let (plugin_id, db) = {
+    let (plugin_id, db, registry) = {
         let guard = user_data.get()?;
         let data = guard
             .lock()
@@ -116,14 +217,16 @@ fn config_get_fn(
         data.clone()
     };
 
+    let raw_namespace = input.namespace.clone();
+
     let ref_id = if input.scope == "plugin" {
         plugin_id.clone()
     } else {
         input.ref_id
     };
 
-    validate_raw_namespace(&input.namespace)?;
-    let namespace = resolve_namespace(&input.scope, &plugin_id, input.namespace);
+    validate_raw_namespace(&raw_namespace)?;
+    let namespace = resolve_namespace(&input.scope, &plugin_id, &raw_namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
     let result = tokio::task::block_in_place(|| {
@@ -136,8 +239,21 @@ fn config_get_fn(
     .map_err(|e| extism::Error::msg(format!("DB error in config_get: {}", e)))?;
 
     let output_value = match result {
-        Some(row) => serde_json::json!({ "config": row.config }),
-        None => serde_json::Value::Null,
+        Some(row) => serde_json::json!({ "config": row.config, "is_default": false }),
+        None => {
+            // No explicit config, so we build defaults from the plugin manifest's schema
+            let defaults = registry
+                .read()
+                .ok()
+                .and_then(|reg| {
+                    reg.get(&plugin_id)
+                        .and_then(|entry| entry.manifest.config.get(&raw_namespace))
+                        .map(|ns| ns.defaults())
+                })
+                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+
+            serde_json::json!({ "config": defaults, "is_default": true })
+        }
     };
 
     let output_bytes = serde_json::to_vec(&output_value)
@@ -152,7 +268,7 @@ fn config_set_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
     _outputs: &mut [Val],
-    user_data: UserData<ConfigUserData>,
+    user_data: UserData<ConfigSetUserData>,
 ) -> Result<(), extism::Error> {
     let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
     let input: ConfigSetInput = serde_json::from_slice(&input_bytes).map_err(|e| {
@@ -174,7 +290,7 @@ fn config_set_fn(
     };
 
     validate_raw_namespace(&input.namespace)?;
-    let namespace = resolve_namespace(&input.scope, &plugin_id, input.namespace);
+    let namespace = resolve_namespace(&input.scope, &plugin_id, &input.namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
     tokio::task::block_in_place(|| {
@@ -184,6 +300,8 @@ fn config_set_fn(
                 ref_id: Set(ref_id),
                 namespace: Set(namespace),
                 config: Set(input.config),
+                enabled: Set(true),
+                position: Set(0),
                 updated_at: Set(Utc::now()),
             };
 
