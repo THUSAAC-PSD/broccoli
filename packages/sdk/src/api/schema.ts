@@ -2624,6 +2624,11 @@ export interface components {
              */
             created: number;
             test_cases: components["schemas"]["TestCaseListItem"][];
+            /**
+             * @description Number of test cases updated (only for "overwrite" strategy).
+             * @example 2
+             */
+            updated: number;
         };
         /** @description User details returned by admin listing endpoint. */
         UserResponse: {
@@ -5524,7 +5529,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Multipart form data with fields: `file` (ZIP archive), `input_format` (e.g. `input_*.txt`), `output_format` (e.g. `output_*.txt`). */
+        /** @description Multipart form data with fields: `file` (ZIP archive), `input_format` (e.g. `input_*.txt`), `output_format` (e.g. `output_*.txt`), `strategy` (one of `abort`, `skip`, `overwrite`, `replace`) */
         requestBody?: {
             content: {
                 "multipart/form-data": unknown;
