@@ -8,7 +8,7 @@ React, TypeScript, and Vite.
 ```
 broccoli/
 ├── packages/
-│   ├── sdk/              # Core SDK for plugin system
+│   ├── web-sdk/          # Core SDK for plugin system
 │   │   ├── src/
 │   │   │   ├── index.ts         # Main SDK exports
 │   │   │   ├── react.tsx        # React-specific hooks and components
