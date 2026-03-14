@@ -868,25 +868,34 @@ function TotalScoreSummary({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 12,
         padding: '16px 20px',
         borderRadius: 8,
         background: 'var(--muted, rgba(0,0,0,0.02))',
         border: '1px solid var(--border, rgba(0,0,0,0.08))',
       }}
     >
-      <div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          width: '100%',
+        }}
+      >
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: 6,
             fontSize: 10,
             fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.08em',
             color: 'var(--muted-foreground, #94a3b8)',
-            marginBottom: 2,
+            marginBottom: 6,
           }}
         >
           {t('ioi.submission.totalScore')}
@@ -895,6 +904,9 @@ function TotalScoreSummary({
         <div
           style={{
             ...MONO,
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'center',
             fontSize: 24,
             fontWeight: 700,
             color: scoreColor(totalScore, maxScore),

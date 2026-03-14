@@ -47,9 +47,9 @@ export function IoiContestInfo() {
       style={{
         border: '1px solid var(--border, #e5e7eb)',
         borderRadius: 8,
-        padding: '14px 18px',
         background: 'var(--card, #fff)',
-        marginBottom: 4,
+        marginBottom: 16,
+        textAlign: 'left',
       }}
     >
       {/* Title row */}
@@ -106,6 +106,7 @@ export function IoiContestInfo() {
           gap: 16,
           fontSize: 12,
           color: 'var(--muted-foreground, #666)',
+          justifyContent: 'flex-start',
         }}
       >
         <MetaItem
@@ -136,7 +137,6 @@ function MetaItem({ label }: { label: string }) {
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
-        padding: '2px 8px',
         borderRadius: 4,
         background: 'var(--muted, #f3f4f6)',
         fontSize: 11,
