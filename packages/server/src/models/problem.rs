@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
@@ -199,16 +201,17 @@ pub struct UpdateTestCaseRequest {
     pub label: Option<Option<String>>,
 }
 
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct UploadTestCasesRequest {
-    /// Input file name format for ZIP upload. Must include `*` which is replaced by test case
-    /// label or position.
-    #[schema(example = "input_*.txt")]
-    pub input_format: Option<String>,
-    /// Output file name format for ZIP upload. Must include `*` which is replaced by test case
-    /// label or position.
-    #[schema(example = "output_*.txt")]
-    pub output_format: Option<String>,
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestCaseUploadMergeStrategy {
+    /// Abort the entire upload if any test case label in the ZIP file matches an existing one.
+    Abort,
+    /// Skip creating any test case whose label matches an existing one.
+    Skip,
+    /// Update existing test cases with matching labels, create new ones for non-existing labels.
+    Overwrite,
+    /// Delete all existing test cases before creating new ones from the ZIP file.
+    Replace,
 }
 
 /// Request body for reordering test cases.
@@ -275,6 +278,9 @@ pub struct UploadTestCasesResponse {
     /// Number of test cases created.
     #[schema(example = 5)]
     pub created: usize,
+    /// Number of test cases updated (only for "overwrite" strategy).
+    #[schema(example = 2)]
+    pub updated: usize,
     pub test_cases: Vec<TestCaseListItem>,
 }
 
@@ -311,6 +317,22 @@ impl From<crate::entity::test_case::Model> for TestCaseResponse {
             position: m.position,
             problem_id: m.problem_id,
             created_at: m.created_at,
+        }
+    }
+}
+
+impl FromStr for TestCaseUploadMergeStrategy {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "replace" => Ok(Self::Replace),
+            "overwrite" => Ok(Self::Overwrite),
+            "skip" => Ok(Self::Skip),
+            "abort" => Ok(Self::Abort),
+            _ => Err(AppError::Validation(
+                "Invalid merge strategy. Must be one of: replace, overwrite, skip, abort".into(),
+            )),
         }
     }
 }

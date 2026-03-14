@@ -18,6 +18,27 @@ fn build_zip(files: &[(&str, &str)]) -> Vec<u8> {
     cursor.into_inner()
 }
 
+/// Helper to create a problem and one initial test case for matching.
+async fn setup_problem_with_test_case(app: &TestApp, token: &str, label: &str) -> i32 {
+    let pid = app.create_problem(token, "Merge Strategy Test").await;
+    let res = app
+        .post_with_token(
+            &routes::test_cases(pid),
+            &json!({
+                "input": "original_in",
+                "expected_output": "original_out",
+                "score": 10,
+                "is_sample": false,
+                "label": label
+            }),
+            token,
+        )
+        .await;
+    assert_eq!(res.status, 201);
+    assert_eq!(res.body["position"], 0);
+    pid
+}
+
 /// Insert a submission row directly into the DB for a given problem.
 async fn insert_submission_for_problem(app: &TestApp, problem_id: i32) {
     use sea_orm::{ActiveModelTrait, Set};
@@ -1395,6 +1416,7 @@ mod test_case_zip_upload {
                 zip_data,
                 Some("*.in"),
                 Some("*.ans"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1430,6 +1452,7 @@ mod test_case_zip_upload {
                 zip_data,
                 Some("*.in"),
                 Some("*.ans"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1465,6 +1488,7 @@ mod test_case_zip_upload {
                 zip_data,
                 Some("*.in"),
                 Some("*.ans"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1495,6 +1519,7 @@ mod test_case_zip_upload {
                 zip_data,
                 Some("input_*_data.txt"),
                 Some("answer_*_result.ans"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1523,6 +1548,7 @@ mod test_case_zip_upload {
                 b"this is not a zip file".to_vec(),
                 Some("*.in"),
                 Some("*.ans"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1547,6 +1573,7 @@ mod test_case_zip_upload {
                 zip_data,
                 Some("*.in"),
                 Some("*.ans"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1573,12 +1600,214 @@ mod test_case_zip_upload {
                 zip_data,
                 None,
                 None,
+                Some("replace"),
                 &token,
             )
             .await;
 
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_invalid_filename_formats() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin51", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+
+        let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
+
+        // Invalid format with multiple wildcards
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*_input_*.txt"),
+                Some("*_answer_*.ans"),
+                Some("replace"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_missing_merge_strategy() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin52", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Test Problem").await;
+
+        let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                None, // Missing merge strategy
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn abort_strategy_fails_if_any_label_exists() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin53", "password123", "admin")
+            .await;
+
+        let pid = setup_problem_with_test_case(&app, &token, "01").await;
+
+        let zip_data = build_zip(&[("01.in", "new input\n"), ("01.ans", "new output\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                Some("abort"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn skip_strategy_skips_existing_labels_and_creates_new_ones() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin54", "password123", "admin")
+            .await;
+
+        let pid = setup_problem_with_test_case(&app, &token, "01").await;
+
+        let zip_data = build_zip(&[
+            ("01.in", "new input\n"),
+            ("01.ans", "new output\n"),
+            ("02.in", "second input\n"),
+            ("02.ans", "second output\n"),
+        ]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                Some("skip"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["created"], 1); // Only the new label "02" should be created
+        assert_eq!(res.body["updated"], 0); // "01" should be skipped, not updated
+
+        // Verify that "01" was not updated and "02" was created
+        let list = app.get_with_token(&routes::test_cases(pid), &token).await;
+        let cases = list.body.as_array().unwrap();
+        assert_eq!(cases.len(), 2);
+        let tc1 = cases.iter().find(|tc| tc["label"] == "01").unwrap();
+        assert_ne!(tc1["input_preview"], "new input\n");
+        let tc2 = cases.iter().find(|tc| tc["label"] == "02").unwrap();
+        assert_eq!(tc2["position"], 1); // New test case should be added at the end
+    }
+
+    #[tokio::test]
+    async fn overwrite_strategy_updates_existing_and_creates_new_ones() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin55", "password123", "admin")
+            .await;
+
+        let pid = setup_problem_with_test_case(&app, &token, "01").await;
+
+        let zip_data = build_zip(&[
+            ("01.in", "updated input\n"),
+            ("01.ans", "updated output\n"),
+            ("02.in", "second input\n"),
+            ("02.ans", "second output\n"),
+        ]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                Some("overwrite"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 201, "{}", res.body["message"]);
+        assert_eq!(res.body["created"], 1); // New label "02" created
+        assert_eq!(res.body["updated"], 1); // Existing label "01" updated
+
+        // Verify that "01" was updated and "02" was created
+        let list = app.get_with_token(&routes::test_cases(pid), &token).await;
+        let cases = list.body.as_array().unwrap();
+        assert_eq!(cases.len(), 2);
+        let tc1 = cases.iter().find(|tc| tc["label"] == "01").unwrap();
+        assert_eq!(tc1["input_preview"], "updated input\n");
+        let tc2 = cases.iter().find(|tc| tc["label"] == "02").unwrap();
+        assert_eq!(tc2["position"], 1); // New test case should be added at the end
+    }
+
+    #[tokio::test]
+    async fn replace_strategy_wipes_all_existing_test_cases() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin56", "password123", "admin")
+            .await;
+
+        let pid = setup_problem_with_test_case(&app, &token, "01").await;
+
+        let zip_data = build_zip(&[("02.in", "second input\n"), ("02.ans", "second output\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                Some("replace"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["created"], 1);
+        assert_eq!(res.body["updated"], 0);
+
+        // Verify that only "02" exists now
+        let list = app.get_with_token(&routes::test_cases(pid), &token).await;
+        let cases = list.body.as_array().unwrap();
+        assert_eq!(cases.len(), 1);
+        assert_eq!(cases[0]["label"], "02");
+        assert_eq!(cases[0]["position"], 0); // Should be reset to position 0
     }
 }
 
