@@ -3,7 +3,9 @@ use sea_orm::*;
 use sea_query::{Expr, Index, PostgresQueryBuilder};
 use tracing::info;
 
-use crate::entity::{blob_ref, dead_letter_message, role, role_permission, submission, user};
+use crate::entity::{
+    blob_ref, clarification, dead_letter_message, role, role_permission, submission, user,
+};
 
 /// Default roles seeded on startup.
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
@@ -203,6 +205,28 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
         Err(e) => {
             tracing::warn!("Failed to create index idx_blob_ref_owner: {}", e);
+        }
+    }
+
+    // Composite index for listing clarifications by contest.
+    let stmt = Index::create()
+        .if_not_exists()
+        .name("idx_clarification_contest_created")
+        .table(clarification::Entity)
+        .col(clarification::Column::ContestId)
+        .col(clarification::Column::CreatedAt)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => {
+            info!("Ensured index idx_clarification_contest_created exists");
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create index idx_clarification_contest_created: {}",
+                e
+            );
         }
     }
 
