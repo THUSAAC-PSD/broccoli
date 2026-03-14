@@ -2,6 +2,7 @@ pub mod admin;
 pub mod assets;
 pub mod attachment;
 pub mod auth;
+pub mod clarification;
 pub mod contest;
 pub mod dlq;
 pub mod i18n;
