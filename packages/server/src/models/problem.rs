@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use axum::body::Bytes;
+use axum_typed_multipart::{TryFromField, TryFromMultipart};
 use chrono::{DateTime, Utc};
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
@@ -201,9 +203,11 @@ pub struct UpdateTestCaseRequest {
     pub label: Option<Option<String>>,
 }
 
-#[derive(Deserialize, Serialize)]
+/// Merge strategy for handling test case label conflicts during ZIP upload.
+#[derive(Deserialize, Serialize, TryFromField, utoipa::ToSchema)]
+#[try_from_field(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
-pub enum TestCaseUploadMergeStrategy {
+pub enum UploadTestCasesMergeStrategy {
     /// Abort the entire upload if any test case label in the ZIP file matches an existing one.
     Abort,
     /// Skip creating any test case whose label matches an existing one.
@@ -212,6 +216,29 @@ pub enum TestCaseUploadMergeStrategy {
     Overwrite,
     /// Delete all existing test cases before creating new ones from the ZIP file.
     Replace,
+}
+
+/// Multipart form data for uploading test cases via ZIP file. The ZIP should contain pairs of
+/// input/output files
+#[derive(TryFromMultipart, utoipa::ToSchema)]
+pub struct UploadTestCasesRequest {
+    /// ZIP file containing test cases. Each test case consists of an input file and an output
+    /// file.
+    #[form_data(limit = "unlimited")] // Actual file size limits are enforced in the handler.
+    #[schema(value_type = String, format = Binary)]
+    pub file: Bytes,
+    /// Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
+    /// `input_01.txt` with label `01`.
+    #[schema(example = "input_*.txt")]
+    pub input_format: String,
+    /// Output file name format with `*` as wildcard for label. E.g. `output_*.txt` matches
+    /// `output_01.txt` with label `01`.
+    #[schema(example = "output_*.txt")]
+    pub output_format: String,
+    /// Merge strategy when test case labels in the ZIP conflict with existing ones. See
+    /// `UploadTestCasesMergeStrategy` docs for details.
+    #[schema(example = "abort")]
+    pub strategy: UploadTestCasesMergeStrategy,
 }
 
 /// Request body for reordering test cases.
@@ -321,7 +348,7 @@ impl From<crate::entity::test_case::Model> for TestCaseResponse {
     }
 }
 
-impl FromStr for TestCaseUploadMergeStrategy {
+impl FromStr for UploadTestCasesMergeStrategy {
     type Err = AppError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
