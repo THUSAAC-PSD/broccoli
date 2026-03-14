@@ -1,5 +1,5 @@
 import { SchemaField } from './SchemaField';
-import type { ConfigScope, JsonSchema } from './types';
+import type { ConfigScope, JsonSchema, JsonSchemaProperty } from './types';
 
 export function SchemaFields({
   schema,
@@ -30,40 +30,48 @@ export function SchemaFields({
 
   // Separate top-level scalars from object groups for better layout
   const entries = Object.entries(schema.properties);
-  const scalars = entries.filter(
-    ([, prop]) => !(prop.type === 'object' && prop.properties),
-  );
-  const objects = entries.filter(
-    ([, prop]) => prop.type === 'object' && prop.properties,
-  );
+  const isObjectGroup = (prop: JsonSchemaProperty) =>
+    prop.type === 'object' && prop.properties;
+  const gridFields = entries.filter(([, prop]) => !isObjectGroup(prop));
+  const fullWidthFields = entries.filter(([, prop]) => isObjectGroup(prop));
 
   return (
     <div className="space-y-5">
-      {/* Scalar fields in a grid for compact layout */}
-      {scalars.length > 0 && (
+      {/* Grid fields in a responsive 2-column layout */}
+      {gridFields.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-          {scalars.map(([key, prop]) => (
-            <SchemaField
-              key={key}
-              name={key}
-              prop={prop}
-              value={values[key]}
-              rootValues={rootValues}
-              path={[...path, key]}
-              updateValue={updateValue}
-              errors={errors}
-              pluginId={pluginId}
-              namespace={namespace}
-              scope={scope}
-              isExplicitValue={isExplicitValue}
-              hasExplicitDescendant={hasExplicitDescendant}
-            />
-          ))}
+          {gridFields.map(([key, prop]) => {
+            // Arrays and fields with x-span>=2 span both grid columns
+            const wideField =
+              (prop['x-span'] != null && prop['x-span'] >= 2) ||
+              prop.type === 'array';
+            return (
+              <div
+                key={key}
+                className={wideField ? 'sm:col-span-2' : undefined}
+              >
+                <SchemaField
+                  name={key}
+                  prop={prop}
+                  value={values[key]}
+                  rootValues={rootValues}
+                  path={[...path, key]}
+                  updateValue={updateValue}
+                  errors={errors}
+                  pluginId={pluginId}
+                  namespace={namespace}
+                  scope={scope}
+                  isExplicitValue={isExplicitValue}
+                  hasExplicitDescendant={hasExplicitDescendant}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Object sections rendered full-width */}
-      {objects.map(([key, prop]) => (
+      {fullWidthFields.map(([key, prop]) => (
         <SchemaField
           key={key}
           name={key}

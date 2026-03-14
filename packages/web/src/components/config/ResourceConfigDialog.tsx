@@ -2,12 +2,12 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
   Label,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
   Switch,
   Tabs,
   TabsContent,
@@ -274,74 +274,79 @@ export function ResourceConfigDialog({
     invalidateKeys.push(['admin-problems']);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {t('config.title', { name: resourceLabel })}
-          </DialogTitle>
-          <DialogDescription>{t('config.description')}</DialogDescription>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        size="3xl"
+        className="flex flex-col overflow-hidden p-0"
+      >
+        <SheetHeader className="shrink-0 border-b px-6 py-4">
+          <SheetTitle>{t('config.title', { name: resourceLabel })}</SheetTitle>
+          <SheetDescription>{t('config.description')}</SheetDescription>
+        </SheetHeader>
 
-        {pluginsWithSchemas.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground text-sm">
-            {t('config.noSchemas')}
-          </div>
-        ) : pluginsWithSchemas.length === 1 ? (
-          <SinglePluginContent
-            pluginId={pluginsWithSchemas[0].plugin.id}
-            schemas={pluginsWithSchemas[0].schemas}
-            apiClient={apiClient}
-            scope={scope}
-            open={open}
-            invalidateKeys={invalidateKeys}
-          />
-        ) : (
-          <Tabs
-            value={activePlugin}
-            onValueChange={(v) => {
-              setActivePlugin(v);
-              const entry = pluginsWithSchemas.find(
-                (e: { plugin: PluginDetailResponse }) => e.plugin.id === v,
-              );
-              if (entry) setActiveNamespace(entry.schemas[0]?.namespace ?? '');
-            }}
-          >
-            <TabsList>
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {pluginsWithSchemas.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground text-sm">
+              {t('config.noSchemas')}
+            </div>
+          ) : pluginsWithSchemas.length === 1 ? (
+            <SinglePluginContent
+              pluginId={pluginsWithSchemas[0].plugin.id}
+              schemas={pluginsWithSchemas[0].schemas}
+              apiClient={apiClient}
+              scope={scope}
+              open={open}
+              invalidateKeys={invalidateKeys}
+            />
+          ) : (
+            <Tabs
+              value={activePlugin}
+              onValueChange={(v) => {
+                setActivePlugin(v);
+                const entry = pluginsWithSchemas.find(
+                  (e: { plugin: PluginDetailResponse }) => e.plugin.id === v,
+                );
+                if (entry)
+                  setActiveNamespace(entry.schemas[0]?.namespace ?? '');
+              }}
+            >
+              <TabsList>
+                {pluginsWithSchemas.map(
+                  (entry: {
+                    plugin: PluginDetailResponse;
+                    schemas: ConfigSchemaResponse[];
+                  }) => (
+                    <TabsTrigger key={entry.plugin.id} value={entry.plugin.id}>
+                      {entry.plugin.name}
+                    </TabsTrigger>
+                  ),
+                )}
+              </TabsList>
               {pluginsWithSchemas.map(
                 (entry: {
                   plugin: PluginDetailResponse;
                   schemas: ConfigSchemaResponse[];
                 }) => (
-                  <TabsTrigger key={entry.plugin.id} value={entry.plugin.id}>
-                    {entry.plugin.name}
-                  </TabsTrigger>
+                  <TabsContent key={entry.plugin.id} value={entry.plugin.id}>
+                    <SinglePluginContent
+                      pluginId={entry.plugin.id}
+                      schemas={entry.schemas}
+                      apiClient={apiClient}
+                      scope={scope}
+                      open={open && activePlugin === entry.plugin.id}
+                      invalidateKeys={invalidateKeys}
+                      activeNamespace={activeNamespace}
+                      onNamespaceChange={setActiveNamespace}
+                    />
+                  </TabsContent>
                 ),
               )}
-            </TabsList>
-            {pluginsWithSchemas.map(
-              (entry: {
-                plugin: PluginDetailResponse;
-                schemas: ConfigSchemaResponse[];
-              }) => (
-                <TabsContent key={entry.plugin.id} value={entry.plugin.id}>
-                  <SinglePluginContent
-                    pluginId={entry.plugin.id}
-                    schemas={entry.schemas}
-                    apiClient={apiClient}
-                    scope={scope}
-                    open={open && activePlugin === entry.plugin.id}
-                    invalidateKeys={invalidateKeys}
-                    activeNamespace={activeNamespace}
-                    onNamespaceChange={setActiveNamespace}
-                  />
-                </TabsContent>
-              ),
-            )}
-          </Tabs>
-        )}
-      </DialogContent>
-    </Dialog>
+            </Tabs>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

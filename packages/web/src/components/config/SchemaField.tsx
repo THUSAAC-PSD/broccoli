@@ -231,7 +231,7 @@ export function SchemaField({
         : t('plugins.config.addItem');
 
       return (
-        <div className="space-y-1.5 sm:col-span-2">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               {label}

@@ -14,6 +14,7 @@ export interface JsonSchemaProperty {
   multipleOf?: number;
   'x-precision'?: number;
   'x-unit'?: string;
+  'x-span'?: number;
 }
 
 export interface JsonSchema extends JsonSchemaProperty {

@@ -321,6 +321,8 @@ pub struct SchemaProperty {
     pub precision: Option<u32>,
     /// Unit suffix label for numeric fields (e.g., "s", "KB", "MB").
     pub unit: Option<String>,
+    /// Number of grid columns this field should span in the config UI (1 or 2).
+    pub span: Option<u8>,
 }
 
 impl SchemaProperty {
@@ -403,6 +405,9 @@ impl SchemaProperty {
         if let Some(ref v) = self.unit {
             schema.insert("x-unit".into(), v.clone().into());
         }
+        if let Some(v) = self.span {
+            schema.insert("x-span".into(), v.into());
+        }
 
         schema.into()
     }
@@ -479,6 +484,7 @@ mod tests {
             step: None,
             precision: None,
             unit: None,
+            span: None,
         };
 
         let schema = prop.to_json_schema();
@@ -556,6 +562,7 @@ mod tests {
             step: None,
             precision: None,
             unit: None,
+            span: None,
         };
 
         let schema = prop.to_json_schema();

@@ -1,7 +1,7 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { Slot } from '@broccoli/web-sdk/slot';
-import { Button, DialogFooter } from '@broccoli/web-sdk/ui';
+import { Button, SheetFooter } from '@broccoli/web-sdk/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -243,7 +243,7 @@ export function ConfigForm({
         </div>
       )}
 
-      <DialogFooter className="gap-2 sm:gap-0 pt-2">
+      <SheetFooter className="gap-2 sm:gap-0 pt-2">
         <div className="flex gap-2 mr-auto">
           <Button
             type="button"
@@ -270,7 +270,7 @@ export function ConfigForm({
         <Button type="submit" disabled={loading}>
           {loading ? t('plugins.config.saving') : t('plugins.config.save')}
         </Button>
-      </DialogFooter>
+      </SheetFooter>
     </form>
   );
 }
