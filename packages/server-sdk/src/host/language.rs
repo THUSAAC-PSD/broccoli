@@ -1,14 +1,5 @@
-use serde::Deserialize;
-
 use crate::error::SdkError;
-
-#[derive(Debug, Deserialize)]
-pub struct ResolvedLanguage {
-    pub compile_cmd: Option<Vec<String>>,
-    pub run_cmd: Vec<String>,
-    pub source_filename: String,
-    pub binary_name: String,
-}
+use crate::types::ResolvedLanguage;
 
 /// Get language compilation/execution configuration from the host.
 pub fn get_language_config(

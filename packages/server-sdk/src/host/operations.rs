@@ -1,5 +1,5 @@
 use crate::error::SdkError;
-use crate::types::OperationResult;
+use crate::types::{OperationResult, OperationTask};
 
 /// Start an operation batch and return the batch ID.
 pub fn start_batch(ops_json: &str) -> Result<String, SdkError> {
@@ -12,6 +12,12 @@ pub fn start_batch(ops_json: &str) -> Result<String, SdkError> {
         })?
         .to_string();
     Ok(batch_id)
+}
+
+/// Serialize and start a typed operation batch.
+pub fn start_batch_tasks(operations: &[OperationTask]) -> Result<String, SdkError> {
+    let ops_json = serde_json::to_string(operations)?;
+    start_batch(&ops_json)
 }
 
 /// Poll for the next operation result. Returns the OperationResult or error on timeout.

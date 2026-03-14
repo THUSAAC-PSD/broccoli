@@ -8,7 +8,6 @@ use broccoli_server_sdk::host;
 
 // submission_files (language: cpp17): ("Shape.cpp", "Shape.h")   additional_files: ("cpp17" -> [(language: "cpp17" source: "main.cpp"), (language: "make" source: "Makefile")])
 
-
 /// Compiler configuration for a single language.
 #[derive(Deserialize, Clone)]
 #[serde(default)]
@@ -85,8 +84,7 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
         2 => CheckerVerdict {
             verdict: Verdict::WrongAnswer,
             score: 0.0,
-            message: extract_testlib_message(stderr)
-                .or_else(|| Some("Presentation error".into())),
+            message: extract_testlib_message(stderr).or_else(|| Some("Presentation error".into())),
         },
         3 => CheckerVerdict {
             verdict: Verdict::SystemError,
@@ -128,7 +126,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
                 verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some("Testlib checker requires checker_source in metadata".into()),
-            }
+            };
         }
     };
 
@@ -155,96 +153,122 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
                 verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(e),
-            }
+            };
         }
     };
 
     let mut files_in = Vec::new();
     for (filename, content) in &files {
-        files_in
-            .push(serde_json::json!([filename, {"type": "content", "content": content}]));
-    }
-    files_in.push(serde_json::json!(["input.txt", {"type": "content", "content": test_input}]));
-    files_in
-        .push(serde_json::json!(["output.txt", {"type": "content", "content": &req.stdout}]));
-    files_in.push(
-        serde_json::json!(["answer.txt", {"type": "content", "content": expected_output}]),
-    );
-
-    let key_inputs: Vec<&str> = files.iter().map(|(f, _)| *f).collect();
-
-    let operation = serde_json::json!({
-        "environments": [{
-            "id": "checker_sandbox",
-            "files_in": files_in,
-            "conf": {}
-        }],
-        "tasks": [
-            {
-                "id": "compile_checker",
-                "env_ref": "checker_sandbox",
-                "argv": compile_cmd,
-                "conf": {
-                    "resource_limits": {
-                        "time_limit": config.compile_time_limit_s,
-                        "memory_limit": config.compile_memory_limit_kb,
-                        "process_limit": 64,
-                    },
-                    "env_rules": ["FullEnv"]
-                },
-                "io": {
-                    "stdin": {"type": "null"},
-                    "stdout": {"type": "file", "path": "checker_compile.log"},
-                    "stderr": {"type": "file", "path": "checker_compile_err.log"}
-                },
-                "collect": ["checker", "checker_compile.log", "checker_compile_err.log"],
-                "depends_on": [],
-                "cache": {
-                    "key_inputs": key_inputs,
-                    "outputs": ["checker"]
-                }
+        files_in.push((
+            (*filename).to_string(),
+            SessionFile::Content {
+                content: (*content).to_string(),
             },
-            {
-                "id": "check",
-                "env_ref": "checker_sandbox",
-                "argv": ["./checker", "input.txt", "output.txt", "answer.txt"],
-                "conf": {
-                    "resource_limits": {
-                        "time_limit": config.run_time_limit_s,
-                        "memory_limit": config.run_memory_limit_kb,
-                    }
+        ));
+    }
+    files_in.push((
+        "input.txt".to_string(),
+        SessionFile::Content {
+            content: test_input.to_string(),
+        },
+    ));
+    files_in.push((
+        "output.txt".to_string(),
+        SessionFile::Content {
+            content: req.stdout.clone(),
+        },
+    ));
+    files_in.push((
+        "answer.txt".to_string(),
+        SessionFile::Content {
+            content: expected_output.to_string(),
+        },
+    ));
+
+    let key_inputs: Vec<String> = files.iter().map(|(f, _)| (*f).to_string()).collect();
+
+    let operations = vec![OperationTask {
+        environments: vec![Environment {
+            id: "checker_sandbox".to_string(),
+            files_in,
+        }],
+        tasks: vec![
+            Step {
+                id: "compile_checker".to_string(),
+                env_ref: "checker_sandbox".to_string(),
+                argv: compile_cmd,
+                conf: RunOptions {
+                    resource_limits: ResourceLimits {
+                        time_limit: Some(config.compile_time_limit_s),
+                        memory_limit: Some(config.compile_memory_limit_kb),
+                        process_limit: Some(64),
+                        ..Default::default()
+                    },
+                    env_rules: vec![EnvRule::FullEnv],
+                    ..Default::default()
                 },
-                "io": {
-                    "stdin": {"type": "null"},
-                    "stdout": {"type": "file", "path": "checker_out.txt"},
-                    "stderr": {"type": "file", "path": "checker_err.txt"}
+                io: IOConfig {
+                    stdin: IOTarget::Null,
+                    stdout: IOTarget::File {
+                        path: "checker_compile.log".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "checker_compile_err.log".to_string(),
+                    },
                 },
-                "collect": ["checker_out.txt", "checker_err.txt"],
-                "depends_on": ["compile_checker"],
-            }
+                collect: vec![
+                    "checker".to_string(),
+                    "checker_compile.log".to_string(),
+                    "checker_compile_err.log".to_string(),
+                ],
+                depends_on: vec![],
+                cache: Some(StepCacheConfig {
+                    key_inputs,
+                    outputs: vec!["checker".to_string()],
+                }),
+            },
+            Step {
+                id: "check".to_string(),
+                env_ref: "checker_sandbox".to_string(),
+                argv: vec![
+                    "./checker".to_string(),
+                    "input.txt".to_string(),
+                    "output.txt".to_string(),
+                    "answer.txt".to_string(),
+                ],
+                conf: RunOptions {
+                    resource_limits: ResourceLimits {
+                        time_limit: Some(config.run_time_limit_s),
+                        memory_limit: Some(config.run_memory_limit_kb),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                io: IOConfig {
+                    stdin: IOTarget::Null,
+                    stdout: IOTarget::File {
+                        path: "checker_out.txt".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "checker_err.txt".to_string(),
+                    },
+                },
+                collect: vec!["checker_out.txt".to_string(), "checker_err.txt".to_string()],
+                depends_on: vec!["compile_checker".to_string()],
+                cache: None,
+            },
         ],
-        "channels": []
-    });
+        channels: vec![],
+    }];
 
-    let ops_json = match serde_json::to_string(&vec![operation]) {
-        Ok(j) => j,
-        Err(e) => {
-            return CheckerVerdict {
-                verdict: Verdict::SystemError,
-                score: 0.0,
-                message: Some(format!("Failed to serialize checker operation: {}", e)),
-            }
-        }
-    };
-
-    let batch_id = match host::operations::start_batch(&ops_json) {
+    let batch_id = match host::operations::start_batch_tasks(&operations) {
         Ok(id) => id,
         Err(e) => {
             return CheckerVerdict {
                 verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(format!("Failed to dispatch checker operation: {:?}", e)),
-            }
+            };
         }
     };
 
@@ -255,7 +279,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
                 verdict: Verdict::SystemError,
                 score: 0.0,
                 message: Some(format!("Failed to get checker result: {:?}", e)),
-            }
+            };
         }
     };
 

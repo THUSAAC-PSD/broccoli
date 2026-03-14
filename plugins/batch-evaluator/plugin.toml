@@ -20,6 +20,25 @@ step = 1.0
 precision = 1
 unit = "s"
 
+[config.sandbox.properties.compile_wall_time_multiplier]
+type = "number"
+title = "Compile Wall Time Multiplier"
+description = "Multiplier applied to compile time limit for wall clock limit"
+default = 2.0
+min = 1.0
+step = 0.5
+precision = 1
+
+[config.sandbox.properties.compile_extra_time_s]
+type = "number"
+title = "Compile Extra Time"
+description = "Additional compile grace time in seconds after the CPU limit"
+default = 0.0
+min = 0.0
+step = 0.5
+precision = 1
+unit = "s"
+
 [config.sandbox.properties.compile_memory_limit_kb]
 type = "integer"
 title = "Compile Memory Limit"
@@ -51,6 +70,16 @@ default = 524288
 min = 1024
 step = 1024
 unit = "KB"
+
+[config.sandbox.properties.exec_extra_time_s]
+type = "number"
+title = "Exec Extra Time"
+description = "Additional execution grace time in seconds after the CPU limit"
+default = 0.0
+min = 0.0
+step = 0.5
+precision = 1
+unit = "s"
 
 [config.sandbox.properties.exec_process_limit]
 type = "integer"

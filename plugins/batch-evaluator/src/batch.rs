@@ -1,17 +1,9 @@
-use broccoli_server_sdk::types::BuildEvalOpsInput;
-use serde::{Deserialize, Serialize};
+use broccoli_server_sdk::types::{
+    BuildEvalOpsInput, Environment, IOConfig, IOTarget, OperationTask, ResolvedLanguage,
+    ResourceLimits, RunOptions, SessionFile, Step, StepCacheConfig,
+};
+use serde::Deserialize;
 use std::collections::HashSet;
-
-/// Language configuration resolved by the host.
-/// Mirrors `broccoli_server_sdk::host::language::ResolvedLanguage`
-/// but defined locally so batch.rs stays testable without the `guest` feature.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ResolvedLanguage {
-    pub compile_cmd: Option<Vec<String>>,
-    pub run_cmd: Vec<String>,
-    pub source_filename: String,
-    pub binary_name: String,
-}
 
 /// Admin-configurable sandbox resource limits.
 /// All fields have sensible defaults so zero-config deployments work unchanged.
@@ -19,10 +11,13 @@ pub struct ResolvedLanguage {
 #[serde(default)]
 pub struct SandboxConfig {
     pub compile_time_limit_s: f64,
+    pub compile_wall_time_multiplier: f64,
+    pub compile_extra_time_s: f64,
     pub compile_memory_limit_kb: u32,
     pub compile_process_limit: u32,
     pub compile_open_files_limit: u32,
     pub compile_file_size_limit_kb: u32,
+    pub exec_extra_time_s: f64,
     pub exec_process_limit: u32,
     pub exec_open_files_limit: u32,
     pub exec_file_size_limit_kb: u32,
@@ -34,10 +29,13 @@ impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
             compile_time_limit_s: 30.0,
+            compile_wall_time_multiplier: 2.0,
+            compile_extra_time_s: 0.0,
             compile_memory_limit_kb: 524_288, // 512 MB
             compile_process_limit: 32,
             compile_open_files_limit: 256,
             compile_file_size_limit_kb: 524_288, // 512 MB
+            exec_extra_time_s: 0.0,
             exec_process_limit: 1,
             exec_open_files_limit: 64,
             exec_file_size_limit_kb: 65_536, // 64 MB
@@ -47,117 +45,52 @@ impl Default for SandboxConfig {
     }
 }
 
-/// Environment configuration — represents a sandbox instance.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Environment {
-    pub id: String,
-    pub files_in: Vec<(String, SessionFile)>,
-}
+impl SandboxConfig {
+    /// Build ResourceLimits for the compilation step.
+    pub fn compile_limits(&self) -> ResourceLimits {
+        ResourceLimits {
+            time_limit: Some(self.compile_time_limit_s),
+            wall_time_limit: Some(self.compile_time_limit_s * self.compile_wall_time_multiplier),
+            extra_time: if self.compile_extra_time_s > 0.0 {
+                Some(self.compile_extra_time_s)
+            } else {
+                None
+            },
+            memory_limit: Some(self.compile_memory_limit_kb),
+            process_limit: Some(self.compile_process_limit),
+            open_files_limit: Some(self.compile_open_files_limit),
+            file_size_limit: Some(self.compile_file_size_limit_kb),
+            ..Default::default()
+        }
+    }
 
-/// File source for initial environment setup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum SessionFile {
-    #[serde(rename = "content")]
-    Content { content: String },
-}
-
-/// IO target for task stdin/stdout/stderr.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(tag = "type")]
-pub enum IOTarget {
-    #[serde(rename = "null")]
-    Null,
-    #[default]
-    #[serde(rename = "inherit")]
-    Inherit,
-    #[serde(rename = "file")]
-    File { path: String },
-}
-
-/// IO configuration for task execution.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct IOConfig {
-    pub stdin: IOTarget,
-    pub stdout: IOTarget,
-    pub stderr: IOTarget,
-}
-
-/// Resource limits for sandbox execution.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ResourceLimits {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time_limit: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wall_time_limit: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_time: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_limit: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stack_limit: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub process_limit: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub open_files_limit: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_size_limit: Option<u32>,
-}
-
-/// Run configuration for a step.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RunConfig {
-    pub resource_limits: ResourceLimits,
-    #[serde(default)]
-    pub wait: bool,
-    #[serde(default)]
-    pub env_rules: Vec<serde_json::Value>,
-}
-
-fn default_env_rules() -> Vec<serde_json::Value> {
-    vec![serde_json::json!("FullEnv")]
-}
-
-/// Step-level cache configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepCacheConfig {
-    pub key_inputs: Vec<String>,
-    pub outputs: Vec<String>,
-}
-
-/// A step (task) within an operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Step {
-    pub id: String,
-    pub env_ref: String,
-    pub argv: Vec<String>,
-    pub conf: RunConfig,
-    pub io: IOConfig,
-    pub collect: Vec<String>,
-    #[serde(default)]
-    pub depends_on: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cache: Option<StepCacheConfig>,
-}
-
-/// A single operation task dispatched to the worker.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OperationTask {
-    pub environments: Vec<Environment>,
-    pub tasks: Vec<Step>,
-    #[serde(default)]
-    pub channels: Vec<serde_json::Value>,
+    /// Build ResourceLimits for the execution step.
+    pub fn exec_limits(&self, time_limit_s: f64, memory_limit_kb: u32) -> ResourceLimits {
+        ResourceLimits {
+            time_limit: Some(time_limit_s),
+            wall_time_limit: Some(time_limit_s * self.exec_wall_time_multiplier),
+            extra_time: if self.exec_extra_time_s > 0.0 {
+                Some(self.exec_extra_time_s)
+            } else {
+                None
+            },
+            memory_limit: Some(memory_limit_kb),
+            process_limit: Some(self.exec_process_limit),
+            open_files_limit: Some(self.exec_open_files_limit),
+            file_size_limit: Some(self.exec_file_size_limit_kb),
+            ..Default::default()
+        }
+    }
 }
 
 /// Build a sandbox OperationTask from enriched evaluator input.
 ///
-/// Returns JSON string of `Vec<OperationTask>` (single-element array)
-/// ready for `host::operations::start_batch()`.
+/// Returns `Vec<OperationTask>` ready for `PluginHost::start_operation_batch()`.
 pub fn build_operation(
     req: &BuildEvalOpsInput,
     lang: &ResolvedLanguage,
     config: &SandboxConfig,
-) -> Result<String, String> {
+) -> Result<Vec<OperationTask>, String> {
     let primary_source = req
         .solution_source
         .iter()
@@ -217,18 +150,11 @@ pub fn build_operation(
             id: "compile".to_string(),
             env_ref: "sandbox".to_string(),
             argv: compile_cmd.clone(),
-            conf: RunConfig {
-                resource_limits: ResourceLimits {
-                    time_limit: Some(config.compile_time_limit_s),
-                    wall_time_limit: Some(config.compile_time_limit_s * 2.0),
-                    memory_limit: Some(config.compile_memory_limit_kb),
-                    process_limit: Some(config.compile_process_limit),
-                    open_files_limit: Some(config.compile_open_files_limit),
-                    file_size_limit: Some(config.compile_file_size_limit_kb),
-                    ..Default::default()
-                },
+            conf: RunOptions {
+                resource_limits: config.compile_limits(),
                 wait: true,
-                env_rules: default_env_rules(),
+                env_rules: vec![],
+                ..Default::default()
             },
             io: IOConfig {
                 stdin: IOTarget::Null,
@@ -258,18 +184,11 @@ pub fn build_operation(
         id: "exec".to_string(),
         env_ref: "sandbox".to_string(),
         argv: lang.run_cmd.clone(),
-        conf: RunConfig {
-            resource_limits: ResourceLimits {
-                time_limit: Some(time_limit_s),
-                wall_time_limit: Some(time_limit_s * config.exec_wall_time_multiplier),
-                memory_limit: Some(memory_limit_kb),
-                process_limit: Some(config.exec_process_limit),
-                open_files_limit: Some(config.exec_open_files_limit),
-                file_size_limit: Some(config.exec_file_size_limit_kb),
-                ..Default::default()
-            },
+        conf: RunOptions {
+            resource_limits: config.exec_limits(time_limit_s, memory_limit_kb),
             wait: true,
-            env_rules: default_env_rules(),
+            env_rules: vec![],
+            ..Default::default()
         },
         io: IOConfig {
             stdin: IOTarget::File {
@@ -294,7 +213,7 @@ pub fn build_operation(
         channels: vec![],
     };
 
-    serde_json::to_string(&vec![op]).map_err(|e| format!("Failed to serialize operation: {e}"))
+    Ok(vec![op])
 }
 
 #[cfg(test)]
@@ -349,14 +268,9 @@ mod tests {
         SandboxConfig::default()
     }
 
-    fn parse_ops(json: &str) -> Vec<OperationTask> {
-        serde_json::from_str(json).expect("Failed to parse operation JSON")
-    }
-
     #[test]
     fn compiled_language_produces_compile_and_exec_steps() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         assert_eq!(ops.len(), 1);
         let tasks = &ops[0].tasks;
@@ -368,8 +282,7 @@ mod tests {
 
     #[test]
     fn interpreted_language_produces_only_exec_step() {
-        let json = build_operation(&make_req(), &interpreted_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &interpreted_lang(), &default_config()).unwrap();
 
         assert_eq!(ops.len(), 1);
         let tasks = &ops[0].tasks;
@@ -380,8 +293,7 @@ mod tests {
 
     #[test]
     fn test_input_wired_to_environment_files() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let env = &ops[0].environments[0];
         let input_file = env
@@ -393,13 +305,13 @@ mod tests {
             SessionFile::Content { content } => {
                 assert_eq!(content, "hello\n");
             }
+            _ => panic!("expected inline content for input.txt"),
         }
     }
 
     #[test]
     fn source_file_placed_with_correct_filename() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let env = &ops[0].environments[0];
         let source_file = env
@@ -411,6 +323,7 @@ mod tests {
             SessionFile::Content { content } => {
                 assert_eq!(content, "int main() {}");
             }
+            _ => panic!("expected inline content for source file"),
         }
     }
 
@@ -422,8 +335,7 @@ mod tests {
             content: "// helper".to_string(),
         });
 
-        let json = build_operation(&req, &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&req, &compiled_lang(), &default_config()).unwrap();
         let env = &ops[0].environments[0];
 
         assert!(env.files_in.iter().any(|(name, _)| name == "main.cpp"));
@@ -447,8 +359,7 @@ mod tests {
 
     #[test]
     fn compile_step_has_cache_config() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let compile = &ops[0].tasks[0];
         let cache = compile
@@ -464,8 +375,7 @@ mod tests {
 
     #[test]
     fn time_limit_converted_from_ms_to_seconds() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.time_limit, Some(1.0));
@@ -473,8 +383,7 @@ mod tests {
 
     #[test]
     fn memory_limit_passed_through() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.memory_limit, Some(262144));
@@ -491,8 +400,7 @@ mod tests {
 
     #[test]
     fn exec_step_collects_stdout_and_stderr() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert!(exec.collect.contains(&"output.txt".to_string()));
@@ -500,18 +408,16 @@ mod tests {
     }
 
     #[test]
-    fn env_rules_default_to_full_env() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+    fn env_rules_are_empty() {
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
-        assert_eq!(ops[0].tasks[0].conf.env_rules, default_env_rules());
-        assert_eq!(ops[0].tasks[1].conf.env_rules, default_env_rules());
+        assert!(ops[0].tasks[0].conf.env_rules.is_empty());
+        assert!(ops[0].tasks[1].conf.env_rules.is_empty());
     }
 
     #[test]
     fn exec_step_has_process_limit() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.process_limit, Some(1));
@@ -519,8 +425,7 @@ mod tests {
 
     #[test]
     fn compile_step_has_process_limit() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let compile = &ops[0].tasks[0];
         assert_eq!(compile.conf.resource_limits.process_limit, Some(32));
@@ -546,8 +451,7 @@ mod tests {
 
     #[test]
     fn exec_step_has_file_size_limit() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.file_size_limit, Some(65_536));
@@ -555,8 +459,7 @@ mod tests {
 
     #[test]
     fn exec_step_has_open_files_limit() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.open_files_limit, Some(64));
@@ -564,8 +467,7 @@ mod tests {
 
     #[test]
     fn compile_step_has_file_and_fd_limits() {
-        let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
         let compile = &ops[0].tasks[0];
         assert_eq!(compile.conf.resource_limits.file_size_limit, Some(524_288));
@@ -579,7 +481,10 @@ mod tests {
         assert_eq!(config.exec_process_limit, 4);
         // All other fields should be their defaults
         assert_eq!(config.compile_time_limit_s, 30.0);
+        assert_eq!(config.compile_wall_time_multiplier, 2.0);
+        assert_eq!(config.compile_extra_time_s, 0.0);
         assert_eq!(config.compile_memory_limit_kb, 524_288);
+        assert_eq!(config.exec_extra_time_s, 0.0);
         assert_eq!(config.exec_wall_time_multiplier, 3.0);
         assert_eq!(config.result_timeout_ms, 30_000);
     }
@@ -602,8 +507,7 @@ mod tests {
             compile_time_limit_s: 60.0,
             ..SandboxConfig::default()
         };
-        let json = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
-        let ops = parse_ops(&json);
+        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
 
         let compile = &ops[0].tasks[0];
         assert_eq!(compile.conf.resource_limits.time_limit, Some(60.0));
@@ -612,5 +516,33 @@ mod tests {
         assert_eq!(exec.conf.resource_limits.process_limit, Some(4));
         // 1000ms = 1.0s, wall_time = 1.0 * 5.0 = 5.0s
         assert_eq!(exec.conf.resource_limits.wall_time_limit, Some(5.0));
+    }
+
+    #[test]
+    fn compile_limits_use_configured_wall_time_multiplier_and_extra_time() {
+        let config = SandboxConfig {
+            compile_time_limit_s: 40.0,
+            compile_wall_time_multiplier: 3.5,
+            compile_extra_time_s: 1.5,
+            ..SandboxConfig::default()
+        };
+        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+
+        let compile = &ops[0].tasks[0];
+        assert_eq!(compile.conf.resource_limits.time_limit, Some(40.0));
+        assert_eq!(compile.conf.resource_limits.wall_time_limit, Some(140.0));
+        assert_eq!(compile.conf.resource_limits.extra_time, Some(1.5));
+    }
+
+    #[test]
+    fn exec_limits_use_configured_extra_time() {
+        let config = SandboxConfig {
+            exec_extra_time_s: 2.5,
+            ..SandboxConfig::default()
+        };
+        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.extra_time, Some(2.5));
     }
 }

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+broccoli-server-sdk.workspace = true
 chrono.workspace = true
 common = { workspace = true, features = ["sea-orm", "object-storage"] }
 config.workspace = true

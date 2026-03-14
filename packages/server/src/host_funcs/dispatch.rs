@@ -1,4 +1,5 @@
 use crate::registry::{BatchState, OperationBatches, OperationWaiters};
+use broccoli_server_sdk::types::OperationTask;
 use common::worker::{Task, TaskResult};
 use extism::{Function, UserData, Val, ValType};
 use mq::MqQueue;
@@ -7,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
-use worker::models::operation::models::OperationTask;
 
 /// Input for get_next_operation_result
 #[derive(Deserialize)]

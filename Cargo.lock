@@ -7302,6 +7302,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "broccoli-server-sdk",
  "chrono",
  "common",
  "config",

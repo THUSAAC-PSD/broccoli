@@ -38,20 +38,14 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
         .find(|file| file.filename == default_lang.source_filename)
         .or_else(|| req.solution_source.first())
         .ok_or_else(|| extism_pdk::Error::msg("No source file provided"))?;
-    let host_lang =
+    let lang =
         host::language::get_language_config(&req.solution_language, &primary_source.filename)
             .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
-    let lang = batch::ResolvedLanguage {
-        compile_cmd: host_lang.compile_cmd,
-        run_cmd: host_lang.run_cmd,
-        source_filename: host_lang.source_filename,
-        binary_name: host_lang.binary_name,
-    };
 
-    let ops_json = batch::build_operation(&req, &lang, &sandbox_config)
+    let operations = batch::build_operation(&req, &lang, &sandbox_config)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    let batch_id = host::operations::start_batch(&ops_json)
+    let batch_id = host::operations::start_batch_tasks(&operations)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let result = host::operations::wait_for_result(&batch_id, sandbox_config.result_timeout_ms)
