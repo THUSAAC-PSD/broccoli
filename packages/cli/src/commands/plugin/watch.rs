@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -124,7 +125,9 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
     let web_root_str = manifest.web.as_ref().map(|w| w.root.as_str());
     let dev = dev_config::resolve(&plugin_dir, web_root_str);
 
-    let web_root_abs = manifest.web.as_ref().map(|w| plugin_dir.join(&w.root));
+    let mut web_root_abs = manifest.web.as_ref().map(|w| plugin_dir.join(&w.root));
+    let mut server_entry_abs = manifest.server.as_ref().map(|s| plugin_dir.join(&s.entry));
+    let mut last_uploaded_archive_fingerprint = None;
 
     let mut fe_child: Option<Child> = None;
     if manifest.web.is_some() {
@@ -188,16 +191,21 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
         style("✓").green().bold()
     );
 
-    if let Err(e) =
-        initial_build_and_upload(&plugin_dir, &manifest_path, &creds, &dev, args.release)
-    {
+    if let Err(e) = initial_build_and_upload(
+        &plugin_dir,
+        &manifest_path,
+        &creds,
+        &dev,
+        args.release,
+        &mut last_uploaded_archive_fingerprint,
+    ) {
         eprintln!("{}  Initial build failed: {}", style("✗").red().bold(), e);
     }
 
     let debounce = Duration::from_millis(args.debounce);
     let mut last_build = Instant::now();
     let mut pending_changes: HashSet<PathBuf> = HashSet::new();
-    let mut manifest_changed = false;
+    let mut last_manifest_fingerprint = fingerprint_file(&manifest_path)?;
 
     loop {
         match rx.recv_timeout(debounce) {
@@ -214,10 +222,6 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                         None, // Don't ignore web root
                     ) {
                         continue;
-                    }
-
-                    if relative.file_name().is_some_and(|f| f == "plugin.toml") {
-                        manifest_changed = true;
                     }
 
                     pending_changes.insert(path);
@@ -242,27 +246,43 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
             &pending_changes,
             &plugin_dir,
             web_root_abs.as_deref(),
+            server_entry_abs.as_deref(),
             dev.frontend_dir.as_deref(),
         );
         pending_changes.clear();
         last_build = Instant::now();
 
-        if manifest_changed {
-            manifest_changed = false;
-        }
-
         match change_kind {
             ChangeKind::ManifestChanged => {
+                let current_manifest_fingerprint = fingerprint_file(&manifest_path)?;
+                if current_manifest_fingerprint == last_manifest_fingerprint {
+                    continue;
+                }
+                last_manifest_fingerprint = current_manifest_fingerprint;
+
                 println!(
                     "\n{}  plugin.toml changed, rebuilding backend...",
                     style("→").blue().bold(),
                 );
 
-                if let Err(e) =
-                    backend_build_and_upload(&plugin_dir, &manifest_path, &creds, args.release)
-                {
+                if let Err(e) = backend_build_and_upload(
+                    &plugin_dir,
+                    &manifest_path,
+                    &creds,
+                    args.release,
+                    &mut last_uploaded_archive_fingerprint,
+                ) {
                     eprintln!("{}  Build/upload failed: {}", style("✗").red().bold(), e);
                     eprintln!("   Waiting for next change...");
+                } else if let Ok(updated_manifest) = read_manifest(&manifest_path) {
+                    web_root_abs = updated_manifest
+                        .web
+                        .as_ref()
+                        .map(|w| plugin_dir.join(&w.root));
+                    server_entry_abs = updated_manifest
+                        .server
+                        .as_ref()
+                        .map(|s| plugin_dir.join(&s.entry));
                 }
             }
             ChangeKind::Backend => {
@@ -271,9 +291,13 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                     style("→").blue().bold(),
                 );
 
-                if let Err(e) =
-                    backend_build_and_upload(&plugin_dir, &manifest_path, &creds, args.release)
-                {
+                if let Err(e) = backend_build_and_upload(
+                    &plugin_dir,
+                    &manifest_path,
+                    &creds,
+                    args.release,
+                    &mut last_uploaded_archive_fingerprint,
+                ) {
                     eprintln!("{}  Build/upload failed: {}", style("✗").red().bold(), e);
                     eprintln!("   Waiting for next change...");
                 }
@@ -284,7 +308,12 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                     style("→").blue().bold(),
                 );
 
-                if let Err(e) = package_and_upload(&plugin_dir, &manifest_path, &creds) {
+                if let Err(e) = package_and_upload(
+                    &plugin_dir,
+                    &manifest_path,
+                    &creds,
+                    &mut last_uploaded_archive_fingerprint,
+                ) {
                     eprintln!("{}  Upload failed: {}", style("✗").red().bold(), e);
                     eprintln!("   Waiting for next change...");
                 }
@@ -305,11 +334,20 @@ fn read_manifest(path: &Path) -> anyhow::Result<WatchManifest> {
     toml::from_str(&content).context("Failed to parse plugin.toml")
 }
 
+fn fingerprint_file(path: &Path) -> anyhow::Result<u64> {
+    let content =
+        std::fs::read(path).with_context(|| format!("Failed to read '{}'", path.display()))?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut hasher);
+    Ok(hasher.finish())
+}
+
 /// Classify a batch of changed files into a single action to take.
 fn classify_changes(
     changed: &HashSet<PathBuf>,
     plugin_dir: &Path,
     web_root_abs: Option<&Path>,
+    server_entry_abs: Option<&Path>,
     frontend_dir: Option<&Path>,
 ) -> ChangeKind {
     let mut has_backend = false;
@@ -321,6 +359,10 @@ fn classify_changes(
 
         if filename == "plugin.toml" {
             return ChangeKind::ManifestChanged;
+        }
+
+        if server_entry_abs.is_some_and(|entry| path == entry) {
+            continue;
         }
 
         // Check if this is inside the web root output directory
@@ -396,6 +438,7 @@ fn initial_build_and_upload(
     creds: &auth::Credentials,
     dev: &ResolvedDevConfig,
     release: bool,
+    last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let manifest = read_manifest(manifest_path)?;
 
@@ -412,7 +455,7 @@ fn initial_build_and_upload(
     }
 
     let archive = package_plugin(plugin_dir, &manifest)?;
-    upload_plugin(&archive, creds)?;
+    upload_plugin(&archive, creds, last_uploaded_archive_fingerprint)?;
 
     println!("{}  Plugin uploaded to server", style("✓").green().bold());
 
@@ -425,6 +468,7 @@ fn backend_build_and_upload(
     manifest_path: &Path,
     creds: &auth::Credentials,
     release: bool,
+    last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let manifest = read_manifest(manifest_path)?;
 
@@ -437,7 +481,7 @@ fn backend_build_and_upload(
     }
 
     let archive = package_plugin(plugin_dir, &manifest)?;
-    upload_plugin(&archive, creds)?;
+    upload_plugin(&archive, creds, last_uploaded_archive_fingerprint)?;
 
     println!("{}  Plugin reloaded on server", style("✓").green().bold());
 
@@ -449,10 +493,11 @@ fn package_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
     creds: &auth::Credentials,
+    last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let manifest = read_manifest(manifest_path)?;
     let archive = package_plugin(plugin_dir, &manifest)?;
-    upload_plugin(&archive, creds)?;
+    upload_plugin(&archive, creds, last_uploaded_archive_fingerprint)?;
 
     println!("{}  Plugin reloaded on server", style("✓").green().bold());
 
@@ -597,7 +642,26 @@ fn add_dir_to_tar(
     Ok(())
 }
 
-fn upload_plugin(archive: &[u8], creds: &auth::Credentials) -> anyhow::Result<()> {
+fn fingerprint_bytes(bytes: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn upload_plugin(
+    archive: &[u8],
+    creds: &auth::Credentials,
+    last_uploaded_archive_fingerprint: &mut Option<u64>,
+) -> anyhow::Result<()> {
+    let fingerprint = fingerprint_bytes(archive);
+    if last_uploaded_archive_fingerprint.is_some_and(|last| last == fingerprint) {
+        println!(
+            "{}  Plugin output unchanged, skipping upload",
+            style("✓").green().bold()
+        );
+        return Ok(());
+    }
+
     let client = reqwest::blocking::Client::new();
 
     let form = reqwest::blocking::multipart::Form::new().part(
@@ -626,6 +690,8 @@ fn upload_plugin(archive: &[u8], creds: &auth::Credentials) -> anyhow::Result<()
         let body = resp.text().unwrap_or_default();
         bail!("Upload failed ({}): {}", status, body);
     }
+
+    *last_uploaded_archive_fingerprint = Some(fingerprint);
 
     Ok(())
 }
