@@ -1,8 +1,8 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
-  TEST_CASE_UPLOAD_MERGE_STRATEGIES,
-  type TestCaseUploadMergeStrategy,
+  TEST_CASE_MERGE_STRATEGIES,
+  type TestCaseMergeStrategy,
 } from '@broccoli/web-sdk/problem';
 import {
   Button,
@@ -46,8 +46,7 @@ export function TestCaseBulkUploadDialog({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [inputFormat, setInputFormat] = useState('*.in');
   const [outputFormat, setOutputFormat] = useState('*.out');
-  const [strategy, setStrategy] =
-    useState<TestCaseUploadMergeStrategy>('abort');
+  const [strategy, setStrategy] = useState<TestCaseMergeStrategy>('abort');
   const [loading, setLoading] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,15 +106,22 @@ export function TestCaseBulkUploadDialog({
     setLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('input_format', inputFormat);
-      formData.append('output_format', outputFormat);
-      formData.append('strategy', strategy);
-
       const result = await apiClient.POST('/problems/{id}/test-cases/upload', {
         params: { path: { id: problemId } },
-        body: formData,
+        body: {
+          file: selectedFile,
+          input_format: inputFormat,
+          output_format: outputFormat,
+          strategy,
+        },
+        bodySerializer: (body) => {
+          const formData = new FormData();
+          formData.append('file', body.file);
+          formData.append('input_format', body.input_format);
+          formData.append('output_format', body.output_format);
+          formData.append('strategy', body.strategy);
+          return formData;
+        },
       });
 
       if (result.error) {
@@ -234,14 +240,14 @@ export function TestCaseBulkUploadDialog({
             <Select
               value={strategy}
               onValueChange={(value) =>
-                setStrategy(value as TestCaseUploadMergeStrategy)
+                setStrategy(value as TestCaseMergeStrategy)
               }
             >
               <SelectTrigger id="strategy">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {TEST_CASE_UPLOAD_MERGE_STRATEGIES.map((s) => (
+                {TEST_CASE_MERGE_STRATEGIES.map((s) => (
                   <SelectItem key={s} value={s}>
                     {t(`admin.testCases.bulkUpload.strategy.${s}`)}
                   </SelectItem>

@@ -196,6 +196,50 @@ export interface paths {
     patch: operations['updateContest'];
     trace?: never;
   };
+  '/contests/{id}/clarifications': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List clarifications for a contest
+     * @description Returns clarifications visible to the current user. Admins see all; contestants see own questions, public announcements, public replies, and direct messages addressed to them.
+     */
+    get: operations['listClarifications'];
+    put?: never;
+    /**
+     * Create a clarification
+     * @description Contestants can create questions. Admins can also create announcements and direct messages to specific participants.
+     */
+    post: operations['createClarification'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/clarifications/{clarification_id}/reply': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reply to a clarification
+     * @description Admin replies to a question or direct message. When `is_public` is true the reply becomes visible to all participants.
+     */
+    post: operations['replyClarification'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/me': {
     parameters: {
       query?: never;
@@ -1344,6 +1388,50 @@ export interface components {
        */
       id: number;
     };
+    /** @description Response for listing clarifications. */
+    ClarificationListResponse: {
+      data: components['schemas']['ClarificationResponse'][];
+    };
+    /** @description A single clarification with author names resolved. */
+    ClarificationResponse: {
+      /**
+       * Format: int32
+       * @example 101
+       */
+      author_id: number;
+      /** @example alice */
+      author_name: string;
+      /** @example question */
+      clarification_type: string;
+      content: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      contest_id: number;
+      /** Format: date-time */
+      created_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example false */
+      is_public: boolean;
+      /** Format: int32 */
+      recipient_id?: number | null;
+      recipient_name?: string | null;
+      /** Format: date-time */
+      replied_at?: string | null;
+      /** Format: int32 */
+      reply_author_id?: number | null;
+      reply_author_name?: string | null;
+      reply_content?: string | null;
+      /** @example false */
+      reply_is_public: boolean;
+      /** Format: date-time */
+      updated_at: string;
+    };
     /**
      * @example {
      *       "MyComponent": "MyComponent",
@@ -1540,6 +1628,30 @@ export interface components {
        * @example 7
        */
       user_id: number;
+    };
+    /** @description Request body for creating a clarification. */
+    CreateClarificationRequest: {
+      /**
+       * @description Type of clarification: `announcement`, `question`, or `direct_message`.
+       * @example question
+       */
+      clarification_type: string;
+      /**
+       * @description The clarification body (1 – 10 000 chars).
+       * @example Is the input guaranteed to be sorted?
+       */
+      content: string;
+      /**
+       * @description Override default visibility. Announcements are always public.
+       * @example false
+       */
+      is_public?: boolean | null;
+      /**
+       * Format: int32
+       * @description Target user ID (required when `clarification_type` is `direct_message`).
+       * @example 7
+       */
+      recipient_id?: number | null;
     };
     /** @description Request body for creating a contest. */
     CreateContestRequest: {
@@ -2191,6 +2303,19 @@ export interface components {
        */
       test_case_ids: number[];
     };
+    /** @description Request body for replying to a clarification (admin-only). */
+    ReplyClarificationRequest: {
+      /**
+       * @description Reply content (1 – 10 000 chars).
+       * @example Yes, the input is always sorted in ascending order.
+       */
+      content: string;
+      /**
+       * @description If true the reply is visible to all contest participants.
+       * @example true
+       */
+      is_public: boolean;
+    };
     /** @description A sample test case metadata included in problem detail responses. */
     SampleTestCaseMeta: {
       /**
@@ -2621,6 +2746,40 @@ export interface components {
        * @example 20
        */
       score?: number | null;
+    };
+    /**
+     * @description Merge strategy for handling test case label conflicts during ZIP upload.
+     * @enum {string}
+     */
+    UploadTestCasesMergeStrategy: 'abort' | 'skip' | 'overwrite' | 'replace';
+    /**
+     * @description Multipart form data for uploading test cases via ZIP file. The ZIP should contain pairs of
+     *     input/output files
+     */
+    UploadTestCasesRequest: {
+      /**
+       * Format: binary
+       * @description ZIP file containing test cases. Each test case consists of an input file and an output
+       *     file.
+       */
+      file: File;
+      /**
+       * @description Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
+       *     `input_01.txt` with label `01`.
+       * @example input_*.txt
+       */
+      input_format: string;
+      /**
+       * @description Output file name format with `*` as wildcard for label. E.g. `output_*.txt` matches
+       *     `output_01.txt` with label `01`.
+       * @example output_*.txt
+       */
+      output_format: string;
+      /**
+       * @description Merge strategy when test case labels in the ZIP conflict with existing ones. See
+       *     `UploadTestCasesMergeStrategy` docs for details.
+       */
+      strategy: components['schemas']['UploadTestCasesMergeStrategy'];
     };
     /** @description Response from ZIP upload. */
     UploadTestCasesResponse: {
@@ -3282,6 +3441,179 @@ export interface operations {
       };
       /** @description Contest not found (NOT_FOUND) */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listClarifications: {
+    parameters: {
+      query?: {
+        /**
+         * @description Filter by type: `announcement`, `question`, or `direct_message`.
+         * @example question
+         */
+        type?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of clarifications */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClarificationListResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  createClarification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateClarificationRequest'];
+      };
+    };
+    responses: {
+      /** @description Clarification created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClarificationResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  replyClarification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReplyClarificationRequest'];
+      };
+    };
+    responses: {
+      /** @description Reply saved */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClarificationResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Clarification not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Already replied */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -5548,10 +5880,9 @@ export interface operations {
       };
       cookie?: never;
     };
-    /** @description Multipart form data with fields: `file` (ZIP archive), `input_format` (e.g. `input_*.txt`), `output_format` (e.g. `output_*.txt`), `strategy` (one of `abort`, `skip`, `overwrite`, `replace`) */
-    requestBody?: {
+    requestBody: {
       content: {
-        'multipart/form-data': unknown;
+        'multipart/form-data': components['schemas']['UploadTestCasesRequest'];
       };
     };
     responses: {
