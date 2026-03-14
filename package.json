@@ -46,5 +46,10 @@
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.6.2",
     "typescript-eslint": "^8.46.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "npm:rolldown-vite@7.1.14"
+    }
   }
 }
