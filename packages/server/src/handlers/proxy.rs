@@ -25,12 +25,18 @@ fn resolve_optional_auth_user(
         None => return Ok(None),
     };
 
-    let auth_header = auth_header.to_str().map_err(|_| AppError::TokenInvalid)?;
-    let token = auth_header
-        .strip_prefix("Bearer ")
-        .ok_or(AppError::TokenInvalid)?;
-    let claims =
-        jwt::verify(token, &state.config.auth.jwt_secret).map_err(|_| AppError::TokenInvalid)?;
+    let auth_header = match auth_header.to_str() {
+        Ok(h) => h,
+        Err(_) => return Ok(None),
+    };
+    let token = match auth_header.strip_prefix("Bearer ") {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+    let claims = match jwt::verify(token, &state.config.auth.jwt_secret) {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
 
     Ok(Some(AuthUser {
         user_id: claims.uid,

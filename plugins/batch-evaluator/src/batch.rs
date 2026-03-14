@@ -114,6 +114,10 @@ pub struct RunConfig {
     pub env_rules: Vec<serde_json::Value>,
 }
 
+fn default_env_rules() -> Vec<serde_json::Value> {
+    vec![serde_json::json!("FullEnv")]
+}
+
 /// Step-level cache configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepCacheConfig {
@@ -224,7 +228,7 @@ pub fn build_operation(
                     ..Default::default()
                 },
                 wait: true,
-                env_rules: vec![],
+                env_rules: default_env_rules(),
             },
             io: IOConfig {
                 stdin: IOTarget::Null,
@@ -265,7 +269,7 @@ pub fn build_operation(
                 ..Default::default()
             },
             wait: true,
-            env_rules: vec![],
+            env_rules: default_env_rules(),
         },
         io: IOConfig {
             stdin: IOTarget::File {
@@ -496,18 +500,12 @@ mod tests {
     }
 
     #[test]
-    fn env_rules_are_empty() {
+    fn env_rules_default_to_full_env() {
         let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
 
-        assert!(
-            ops[0].tasks[0].conf.env_rules.is_empty(),
-            "compile step must not leak env vars"
-        );
-        assert!(
-            ops[0].tasks[1].conf.env_rules.is_empty(),
-            "exec step must not leak env vars"
-        );
+        assert_eq!(ops[0].tasks[0].conf.env_rules, default_env_rules());
+        assert_eq!(ops[0].tasks[1].conf.env_rules, default_env_rules());
     }
 
     #[test]
