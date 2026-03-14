@@ -250,6 +250,11 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
             dev.frontend_dir.as_deref(),
         );
         pending_changes.clear();
+
+        let Some(change_kind) = change_kind else {
+            // All changes were build artifacts (e.g. copied WASM entry). Skip.
+            continue;
+        };
         last_build = Instant::now();
 
         match change_kind {
@@ -349,18 +354,20 @@ fn classify_changes(
     web_root_abs: Option<&Path>,
     server_entry_abs: Option<&Path>,
     frontend_dir: Option<&Path>,
-) -> ChangeKind {
+) -> Option<ChangeKind> {
     let mut has_backend = false;
     let mut has_frontend_output = false;
+    let mut has_unknown = false;
 
     for path in changed {
         let relative = path.strip_prefix(plugin_dir).unwrap_or(path);
         let filename = relative.file_name().unwrap_or_default().to_string_lossy();
 
         if filename == "plugin.toml" {
-            return ChangeKind::ManifestChanged;
+            return Some(ChangeKind::ManifestChanged);
         }
 
+        // Skip the WASM entry artifact (written by copy_wasm_artifact)
         if server_entry_abs.is_some_and(|entry| path == entry) {
             continue;
         }
@@ -380,18 +387,22 @@ fn classify_changes(
         // Everything else is backend-relevant
         match dev_config::classify_file(path, plugin_dir, frontend_dir) {
             FileKind::Backend => has_backend = true,
-            FileKind::PluginManifest => return ChangeKind::ManifestChanged,
-            _ => {}
+            FileKind::PluginManifest => return Some(ChangeKind::ManifestChanged),
+            _ => has_unknown = true,
         }
     }
 
     if has_backend {
-        ChangeKind::Backend
+        Some(ChangeKind::Backend)
     } else if has_frontend_output {
-        ChangeKind::FrontendOutput
+        Some(ChangeKind::FrontendOutput)
+    } else if has_unknown {
+        // Unknown files changed outside known dirs. Treat as backend to be safe.
+        Some(ChangeKind::Backend)
     } else {
-        // Unknown files changed. Treat as backend to be safe
-        ChangeKind::Backend
+        // All changed files were explicitly skipped (e.g. only the WASM entry
+        // artifact was updated by copy_wasm_artifact). No rebuild needed.
+        None
     }
 }
 
@@ -648,6 +659,12 @@ fn fingerprint_bytes(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
+/// Maximum number of upload retries for transient failures.
+const MAX_UPLOAD_RETRIES: u32 = 3;
+
+/// Initial retry delay (doubles each attempt).
+const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(2);
+
 fn upload_plugin(
     archive: &[u8],
     creds: &auth::Credentials,
@@ -663,35 +680,67 @@ fn upload_plugin(
     }
 
     let client = reqwest::blocking::Client::new();
+    let mut last_err = None;
 
-    let form = reqwest::blocking::multipart::Form::new().part(
-        "plugin",
-        reqwest::blocking::multipart::Part::bytes(archive.to_vec())
-            .file_name("plugin.tar.gz")
-            .mime_str("application/gzip")?,
-    );
+    for attempt in 0..=MAX_UPLOAD_RETRIES {
+        if attempt > 0 {
+            let delay = INITIAL_RETRY_DELAY * 2u32.pow(attempt - 1);
+            eprintln!(
+                "   Retrying upload in {}s (attempt {}/{})...",
+                delay.as_secs(),
+                attempt + 1,
+                MAX_UPLOAD_RETRIES + 1
+            );
+            std::thread::sleep(delay);
+        }
 
-    let resp = client
-        .post(format!("{}/api/v1/admin/plugins/upload", creds.server))
-        .bearer_auth(&creds.token)
-        .multipart(form)
-        .send()
-        .context("Failed to upload plugin")?;
-
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        bail!(
-            "Authentication failed (401). Your token may have expired.\n\
-             Run `broccoli login` again to refresh your credentials."
+        let form = reqwest::blocking::multipart::Form::new().part(
+            "plugin",
+            reqwest::blocking::multipart::Part::bytes(archive.to_vec())
+                .file_name("plugin.tar.gz")
+                .mime_str("application/gzip")?,
         );
-    }
 
-    if !resp.status().is_success() {
+        let resp = match client
+            .post(format!("{}/api/v1/admin/plugins/upload", creds.server))
+            .bearer_auth(&creds.token)
+            .multipart(form)
+            .send()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(format!("Connection error: {e}"));
+                continue;
+            }
+        };
+
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            bail!(
+                "Authentication failed (401). Your token may have expired.\n\
+                 Run `broccoli login` again to refresh your credentials."
+            );
+        }
+
+        if resp.status().is_success() {
+            *last_uploaded_archive_fingerprint = Some(fingerprint);
+            return Ok(());
+        }
+
         let status = resp.status();
         let body = resp.text().unwrap_or_default();
+
+        // Only retry on server errors (5xx) — client errors won't self-resolve
+        if status.is_server_error() {
+            last_err = Some(format!("Upload failed ({status}): {body}"));
+            continue;
+        }
+
         bail!("Upload failed ({}): {}", status, body);
     }
 
-    *last_uploaded_archive_fingerprint = Some(fingerprint);
-
-    Ok(())
+    bail!(
+        "{}. Giving up after {} attempts",
+        last_err.unwrap_or_else(|| "Upload failed".into()),
+        MAX_UPLOAD_RETRIES + 1
+    );
 }
