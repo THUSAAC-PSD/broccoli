@@ -6,13 +6,7 @@ import {
   CardContent,
   Skeleton,
 } from '@broccoli/web-sdk/ui';
-import {
-  Filter,
-  LogIn,
-  Mail,
-  Megaphone,
-  MessageCircle,
-} from 'lucide-react';
+import { Filter, LogIn, Mail, Megaphone, MessageCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 

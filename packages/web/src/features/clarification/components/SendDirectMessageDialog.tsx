@@ -166,7 +166,9 @@ export function SendDirectMessageDialog({
             <p className="text-xs text-muted-foreground">
               This message will only be visible to the selected participant.
             </p>
-            <span className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <span
+              className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
               {trimmed.length}/{MAX_LENGTH}
             </span>
           </div>
@@ -175,10 +177,7 @@ export function SendDirectMessageDialog({
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!isValid}
-          >
+          <Button onClick={handleSubmit} disabled={!isValid}>
             Send
           </Button>
         </DialogFooter>

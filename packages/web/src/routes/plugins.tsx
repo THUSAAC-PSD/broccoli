@@ -52,7 +52,9 @@ export default function PluginsPage() {
             error && typeof error === 'object' && 'message' in error
               ? (error as { message?: string }).message
               : undefined;
-          toast.error(msg || `Failed to ${enable ? 'enable' : 'disable'} plugin`);
+          toast.error(
+            msg || `Failed to ${enable ? 'enable' : 'disable'} plugin`,
+          );
         } else {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
           queryClient.invalidateQueries({ queryKey: ['i18n'] });

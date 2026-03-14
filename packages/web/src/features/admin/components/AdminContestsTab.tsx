@@ -498,7 +498,9 @@ export function ContestProblemsDialog({
       },
     );
     if (apiError) {
-      toast.error(extractErrorMessage(apiError, t('toast.problem.removeError')));
+      toast.error(
+        extractErrorMessage(apiError, t('toast.problem.removeError')),
+      );
     } else {
       toast.success(t('toast.problem.removed'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });

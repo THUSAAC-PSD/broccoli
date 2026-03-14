@@ -41,10 +41,10 @@ export async function createClarification(
   contestId: number,
   body: CreateClarificationBody,
 ): Promise<Clarification> {
-  return apiFetch<Clarification>(
-    `/contests/${contestId}/clarifications`,
-    { method: 'POST', body: JSON.stringify(body) },
-  );
+  return apiFetch<Clarification>(`/contests/${contestId}/clarifications`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export async function replyClarification(
