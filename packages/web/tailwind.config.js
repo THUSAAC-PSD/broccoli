@@ -7,7 +7,7 @@ export default {
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',
     // FIX: do not use relative path to sdk
-    '../sdk/src/**/*.{js,ts,jsx,tsx}',
+    '../web-sdk/src/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {
