@@ -98,5 +98,13 @@ publish-server-sdk-dry:
 publish-server-sdk:
     cargo publish -p broccoli-server-sdk
 
+# Dry-run publish CLI to crates.io
+publish-cli-dry:
+    cargo publish -p broccoli-cli --dry-run
+
+# Publish CLI to crates.io
+publish-cli:
+    cargo publish -p broccoli-cli
+
 # Run all checks (clippy + test + lint + format check)
 check-all: clippy test lint-js format-check
