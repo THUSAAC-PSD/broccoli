@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::io::Read;
 
 use axum::Json;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum_typed_multipart::BaseMultipart;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::{Func, LikeExpr};
 use sea_orm::*;
@@ -600,7 +601,7 @@ pub async fn delete_test_case(
     summary = "Upload test cases from a ZIP file",
     description = "Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
     params(("id" = i32, Path, description = "Problem ID")),
-    request_body(content_type = "multipart/form-data", description = "Multipart form data with fields: `file` (ZIP archive), `input_format` (e.g. `input_*.txt`), `output_format` (e.g. `output_*.txt`), `strategy` (one of `abort`, `skip`, `overwrite`, `replace`)"),
+    request_body(content_type = "multipart/form-data", content = UploadTestCasesRequest),
     responses(
         (status = 201, description = "Test cases uploaded", body = UploadTestCasesResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
@@ -610,74 +611,23 @@ pub async fn delete_test_case(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user, multipart), fields(problem_id))]
+#[instrument(skip(state, auth_user, data), fields(problem_id))]
 pub async fn upload_test_cases(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(problem_id): Path<i32>,
-    mut multipart: Multipart,
+    BaseMultipart { data, .. }: BaseMultipart<UploadTestCasesRequest, AppError>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    let mut zip_bytes: Option<Vec<u8>> = None;
-    let mut input_format = None;
-    let mut output_format = None;
-    let mut strategy = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::Validation(format!("Multipart error: {e}")))?
-    {
-        match field.name() {
-            Some("file") => {
-                let data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| AppError::Validation(format!("Failed to read file: {e}")))?;
-                zip_bytes = Some(data.to_vec());
-            }
-            Some("input_format") => {
-                let fmt = field.text().await.map_err(|e| {
-                    AppError::Validation(format!("Failed to read input_format: {e}"))
-                })?;
-                input_format = Some(fmt);
-            }
-            Some("output_format") => {
-                let fmt = field.text().await.map_err(|e| {
-                    AppError::Validation(format!("Failed to read output_format: {e}"))
-                })?;
-                output_format = Some(fmt);
-            }
-            Some("strategy") => {
-                let strat = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::Validation(format!("Failed to read strategy: {e}")))?;
-                let strat = strat.parse::<TestCaseUploadMergeStrategy>().map_err(|_| {
-                    AppError::Validation(format!("Invalid strategy value: {strat}"))
-                })?;
-                strategy = Some(strat);
-            }
-            _ => {}
-        }
-    }
-
-    let zip_bytes = zip_bytes.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
-    let input_fmt =
-        input_format.ok_or_else(|| AppError::Validation("Missing 'input_format' field".into()))?;
-    let output_fmt = output_format
-        .ok_or_else(|| AppError::Validation("Missing 'output_format' field".into()))?;
-    let strategy =
-        strategy.ok_or_else(|| AppError::Validation("Missing 'strategy' field".into()))?;
-
     // Ensure there is exactly one wildcard
-    if input_fmt.matches('*').count() != 1 || output_fmt.matches('*').count() != 1 {
+    if data.input_format.matches('*').count() != 1 || data.output_format.matches('*').count() != 1 {
         return Err(AppError::Validation(
             "Formats must contain exactly one '*' wildcard".into(),
         ));
     }
 
-    let entries = parse_zip_test_cases(&zip_bytes, &input_fmt, &output_fmt)?;
+    let entries = parse_zip_test_cases(&data.file, &data.input_format, &data.output_format)?;
     if entries.is_empty() {
         return Err(AppError::Validation(
             "ZIP contains no valid input/output file pairs matching the specified formats".into(),
@@ -687,7 +637,7 @@ pub async fn upload_test_cases(
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
 
-    let is_replace = matches!(strategy, TestCaseUploadMergeStrategy::Replace);
+    let is_replace = matches!(data.strategy, UploadTestCasesMergeStrategy::Replace);
     if is_replace {
         // Delete existing test cases
         test_case::Entity::delete_many()
@@ -719,15 +669,15 @@ pub async fn upload_test_cases(
 
     for entry in entries {
         if let Some(existing) = existing_cases.remove(&entry.label) {
-            match strategy {
-                TestCaseUploadMergeStrategy::Abort => {
+            match data.strategy {
+                UploadTestCasesMergeStrategy::Abort => {
                     return Err(AppError::Conflict(format!(
                         "Test case with label '{}' already exists",
                         entry.label
                     )));
                 }
-                TestCaseUploadMergeStrategy::Skip => continue,
-                TestCaseUploadMergeStrategy::Overwrite => {
+                UploadTestCasesMergeStrategy::Skip => continue,
+                UploadTestCasesMergeStrategy::Overwrite => {
                     // Update existing test case
                     let mut active: test_case::ActiveModel = existing.into();
                     active.input = Set(entry.input);
@@ -739,7 +689,7 @@ pub async fn upload_test_cases(
                     updated_count += 1;
                     continue;
                 }
-                TestCaseUploadMergeStrategy::Replace => {
+                UploadTestCasesMergeStrategy::Replace => {
                     unreachable!(); // should have been deleted at the start
                 }
             }
