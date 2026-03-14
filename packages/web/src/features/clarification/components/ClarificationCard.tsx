@@ -39,8 +39,7 @@ export function ClarificationCard({
   const { locale } = useTranslation();
 
   const isAnnouncement = clarification.clarification_type === 'announcement';
-  const isDirectMessage =
-    clarification.clarification_type === 'direct_message';
+  const isDirectMessage = clarification.clarification_type === 'direct_message';
   const isPending = !clarification.reply_content && !isAnnouncement;
   const isOwn = clarification.author_id === currentUserId;
 
@@ -122,7 +121,9 @@ export function ClarificationCard({
                 maxLength={MAX_REPLY_LENGTH}
                 className="min-h-[100px]"
               />
-              <span className={`text-xs ${replyTrimmed.length > MAX_REPLY_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+              <span
+                className={`text-xs ${replyTrimmed.length > MAX_REPLY_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
                 {replyTrimmed.length}/{MAX_REPLY_LENGTH}
               </span>
             </div>
@@ -147,11 +148,7 @@ export function ClarificationCard({
                 </Button>
               </div>
 
-              <Button
-                onClick={handleSubmit}
-                disabled={!replyValid}
-                size="sm"
-              >
+              <Button onClick={handleSubmit} disabled={!replyValid} size="sm">
                 <Send className="h-4 w-4 mr-2" />
                 Submit
               </Button>

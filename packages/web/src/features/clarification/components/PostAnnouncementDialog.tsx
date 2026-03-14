@@ -56,7 +56,9 @@ export function PostAnnouncementDialog({
             <p className="text-xs text-muted-foreground">
               This announcement will be immediately visible to all participants.
             </p>
-            <span className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <span
+              className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
               {trimmed.length}/{MAX_LENGTH}
             </span>
           </div>

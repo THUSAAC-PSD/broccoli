@@ -46,8 +46,8 @@ pub async fn list_clarifications(
 
     let is_admin = auth_user.has_permission("contest:manage");
 
-    let mut select = clarification::Entity::find()
-        .filter(clarification::Column::ContestId.eq(contest_id));
+    let mut select =
+        clarification::Entity::find().filter(clarification::Column::ContestId.eq(contest_id));
 
     // Optional type filter
     if let Some(ref type_filter) = query.r#type {
@@ -104,9 +104,7 @@ pub async fn list_clarifications(
                 .get(&r.author_id)
                 .cloned()
                 .unwrap_or_else(|| "[Deleted]".into());
-            let recipient_name = r
-                .recipient_id
-                .and_then(|rid| user_map.get(&rid).cloned());
+            let recipient_name = r.recipient_id.and_then(|rid| user_map.get(&rid).cloned());
             let reply_author_name = r
                 .reply_author_id
                 .and_then(|raid| user_map.get(&raid).cloned());

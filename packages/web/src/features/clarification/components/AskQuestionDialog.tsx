@@ -55,7 +55,9 @@ export function AskQuestionDialog({ onSubmit }: AskQuestionDialogProps) {
               Your question will be visible only to judges until they decide to
               make it public.
             </p>
-            <span className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <span
+              className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
               {trimmed.length}/{MAX_LENGTH}
             </span>
           </div>

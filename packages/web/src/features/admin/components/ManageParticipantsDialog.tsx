@@ -1,6 +1,5 @@
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestSummary } from '@broccoli/web-sdk/contest';
-import { extractErrorMessage } from '@/lib/extract-error';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -24,6 +23,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+
+import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Types ──
 
@@ -79,7 +80,10 @@ function normalizeBulkUsers(input: unknown): ParsedBulkUser[] {
       throw new Error('admin.bulkParticipantsInvalidUsername');
     }
 
-    if (password !== undefined && (password.length < 8 || password.length > 128)) {
+    if (
+      password !== undefined &&
+      (password.length < 8 || password.length > 128)
+    ) {
       throw new Error('admin.bulkParticipantsInvalidPassword');
     }
 
@@ -151,7 +155,9 @@ function EnrolledTab({
     );
     setRemovingId(null);
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.participant.removeError')));
+      toast.error(
+        extractErrorMessage(error, t('toast.participant.removeError')),
+      );
     } else {
       toast.success(t('toast.participant.removed'));
       queryClient.invalidateQueries({
