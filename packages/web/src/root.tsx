@@ -1,4 +1,3 @@
-import '@/index.css';
 import '@/App.css';
 
 import { ApiClientProvider } from '@broccoli/web-sdk/api';

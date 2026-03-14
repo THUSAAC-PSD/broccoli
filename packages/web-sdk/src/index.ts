@@ -4,3 +4,5 @@
  */
 
 // TODO: generic types can be exported here
+
+import './index.css';
