@@ -1,5 +1,6 @@
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestSummary } from '@broccoli/web-sdk/contest';
+import { extractErrorMessage } from '@/lib/extract-error';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -78,6 +79,10 @@ function normalizeBulkUsers(input: unknown): ParsedBulkUser[] {
       throw new Error('admin.bulkParticipantsInvalidUsername');
     }
 
+    if (password !== undefined && (password.length < 8 || password.length > 128)) {
+      throw new Error('admin.bulkParticipantsInvalidPassword');
+    }
+
     const key = username.toLowerCase();
     if (seen.has(key)) {
       throw new Error('admin.bulkParticipantsDuplicate');
@@ -146,7 +151,7 @@ function EnrolledTab({
     );
     setRemovingId(null);
     if (error) {
-      toast.error(t('toast.participant.removeError'));
+      toast.error(extractErrorMessage(error, t('toast.participant.removeError')));
     } else {
       toast.success(t('toast.participant.removed'));
       queryClient.invalidateQueries({
@@ -288,7 +293,7 @@ function AddParticipantsTab({
     });
     setAddingId(null);
     if (error) {
-      toast.error(t('toast.participant.addError'));
+      toast.error(extractErrorMessage(error, t('toast.participant.addError')));
     } else {
       toast.success(t('toast.participant.added'));
       queryClient.invalidateQueries({
@@ -500,6 +505,9 @@ function BulkImportTab({
           case 'admin.bulkParticipantsEmpty':
             setErrorMsg(t('admin.bulkParticipantsEmpty'));
             break;
+          case 'admin.bulkParticipantsInvalidPassword':
+            setErrorMsg('Password must be 8-128 characters');
+            break;
           default:
             setErrorMsg(t('admin.bulkParticipantsInvalidJson'));
             break;
@@ -539,8 +547,9 @@ function BulkImportTab({
     setSubmitting(false);
 
     if (error || !data) {
-      setErrorMsg(t('admin.bulkParticipantsError'));
-      toast.error(t('toast.participant.bulkError'));
+      const msg = extractErrorMessage(error, t('admin.bulkParticipantsError'));
+      setErrorMsg(msg);
+      toast.error(msg);
       return;
     }
 

@@ -60,9 +60,14 @@ export function SendDirectMessageDialog({
     );
   }, [participants, search]);
 
+  const MAX_LENGTH = 10000;
+  const trimmed = content.trim();
+  const isValid =
+    trimmed.length > 0 && trimmed.length <= MAX_LENGTH && !!selectedUser;
+
   const handleSubmit = () => {
-    if (!content.trim() || !selectedUser) return;
-    onSubmit(content, selectedUser.user_id);
+    if (!isValid) return;
+    onSubmit(content, selectedUser!.user_id);
     setContent('');
     setSearch('');
     setSelectedUser(null);
@@ -152,13 +157,19 @@ export function SendDirectMessageDialog({
             <Textarea
               placeholder="Write a message to this participant..."
               className="min-h-[120px]"
+              maxLength={MAX_LENGTH}
               value={content}
               onChange={(e) => setContent(e.target.value)}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            This message will only be visible to the selected participant.
-          </p>
+          <div className="flex justify-between">
+            <p className="text-xs text-muted-foreground">
+              This message will only be visible to the selected participant.
+            </p>
+            <span className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {trimmed.length}/{MAX_LENGTH}
+            </span>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
@@ -166,7 +177,7 @@ export function SendDirectMessageDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!content.trim() || !selectedUser}
+            disabled={!isValid}
           >
             Send
           </Button>

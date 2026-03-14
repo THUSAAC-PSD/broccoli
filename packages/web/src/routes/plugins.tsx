@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Puzzle } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
 
 import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
@@ -46,7 +47,13 @@ export default function PluginsPage() {
           params: { path: { id: plugin.id } },
         });
 
-        if (!error) {
+        if (error) {
+          const msg =
+            error && typeof error === 'object' && 'message' in error
+              ? (error as { message?: string }).message
+              : undefined;
+          toast.error(msg || `Failed to ${enable ? 'enable' : 'disable'} plugin`);
+        } else {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
           queryClient.invalidateQueries({ queryKey: ['i18n'] });
 

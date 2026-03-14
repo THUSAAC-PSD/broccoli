@@ -47,6 +47,7 @@ import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { getContestStatus } from '@/features/contest/utils/status';
+import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Data fetcher ──
 
@@ -188,14 +189,36 @@ export function ContestFormDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!title.trim()) {
+      toast.error('Title is required');
+      return;
+    }
+    if (!startTime || !endTime) {
+      toast.error('Start time and end time are required');
+      return;
+    }
+    if (startTime >= endTime) {
+      toast.error('Start time must be before end time');
+      return;
+    }
+    if (activateTime && activateTime > startTime) {
+      toast.error('Activate time must be before or equal to start time');
+      return;
+    }
+    if (deactivateTime && deactivateTime < endTime) {
+      toast.error('Deactivate time must be after or equal to end time');
+      return;
+    }
+
     setLoading(true);
 
     const body = {
       title,
       description,
       activate_time: activateTime?.toISOString() ?? null,
-      start_time: startTime!.toISOString(),
-      end_time: endTime!.toISOString(),
+      start_time: startTime.toISOString(),
+      end_time: endTime.toISOString(),
       deactivate_time: deactivateTime?.toISOString() ?? null,
       is_public: isPublic,
       submissions_visible: submissionsVisible,
@@ -212,7 +235,12 @@ export function ContestFormDialog({
 
     setLoading(false);
     if (result.error) {
-      toast.error(isEdit ? t('admin.editError') : t('admin.createError'));
+      toast.error(
+        extractErrorMessage(
+          result.error,
+          isEdit ? t('admin.editError') : t('admin.createError'),
+        ),
+      );
     } else {
       toast.success(
         isEdit ? t('toast.contest.updated') : t('toast.contest.created'),
@@ -454,7 +482,7 @@ export function ContestProblemsDialog({
     );
     setAddingId(null);
     if (apiError) {
-      toast.error(t('toast.problem.addError'));
+      toast.error(extractErrorMessage(apiError, t('toast.problem.addError')));
     } else {
       toast.success(t('toast.problem.added'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
@@ -470,7 +498,7 @@ export function ContestProblemsDialog({
       },
     );
     if (apiError) {
-      toast.error(t('toast.problem.removeError'));
+      toast.error(extractErrorMessage(apiError, t('toast.problem.removeError')));
     } else {
       toast.success(t('toast.problem.removed'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
@@ -792,7 +820,7 @@ export function AdminContestsTab() {
       params: { path: { id: contest.id } },
     });
     if (error) {
-      toast.error(t('toast.contest.deleteError'));
+      toast.error(extractErrorMessage(error, t('toast.contest.deleteError')));
     } else {
       toast.success(t('toast.contest.deleted'));
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });

@@ -44,8 +44,13 @@ export function ClarificationCard({
   const isPending = !clarification.reply_content && !isAnnouncement;
   const isOwn = clarification.author_id === currentUserId;
 
+  const MAX_REPLY_LENGTH = 10000;
+  const replyTrimmed = answerContent.trim();
+  const replyValid =
+    replyTrimmed.length > 0 && replyTrimmed.length <= MAX_REPLY_LENGTH;
+
   const handleSubmit = () => {
-    if (!answerContent.trim()) return;
+    if (!replyValid) return;
     onReply(answerContent, replyIsPublic);
     setAnswerContent('');
   };
@@ -114,8 +119,12 @@ export function ClarificationCard({
                 placeholder="Type your answer here..."
                 value={answerContent}
                 onChange={(e) => setAnswerContent(e.target.value)}
+                maxLength={MAX_REPLY_LENGTH}
                 className="min-h-[100px]"
               />
+              <span className={`text-xs ${replyTrimmed.length > MAX_REPLY_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {replyTrimmed.length}/{MAX_REPLY_LENGTH}
+              </span>
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -140,7 +149,7 @@ export function ClarificationCard({
 
               <Button
                 onClick={handleSubmit}
-                disabled={!answerContent.trim()}
+                disabled={!replyValid}
                 size="sm"
               >
                 <Send className="h-4 w-4 mr-2" />
