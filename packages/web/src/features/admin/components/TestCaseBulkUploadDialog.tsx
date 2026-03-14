@@ -1,6 +1,10 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
+  TEST_CASE_UPLOAD_MERGE_STRATEGIES,
+  type TestCaseUploadMergeStrategy,
+} from '@broccoli/web-sdk/problem';
+import {
   Button,
   Dialog,
   DialogContent,
@@ -10,6 +14,11 @@ import {
   DialogTitle,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@broccoli/web-sdk/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { Upload } from 'lucide-react';
@@ -37,6 +46,8 @@ export function TestCaseBulkUploadDialog({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [inputFormat, setInputFormat] = useState('*.in');
   const [outputFormat, setOutputFormat] = useState('*.out');
+  const [strategy, setStrategy] =
+    useState<TestCaseUploadMergeStrategy>('abort');
   const [loading, setLoading] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -100,6 +111,7 @@ export function TestCaseBulkUploadDialog({
       formData.append('file', selectedFile);
       formData.append('input_format', inputFormat);
       formData.append('output_format', outputFormat);
+      formData.append('strategy', strategy);
 
       const result = await apiClient.POST('/problems/{id}/test-cases/upload', {
         params: { path: { id: problemId } },
@@ -116,6 +128,7 @@ export function TestCaseBulkUploadDialog({
       setSelectedFile(null);
       setInputFormat('*.in');
       setOutputFormat('*.out');
+      setStrategy('abort');
     } catch (error) {
       console.error('Bulk upload error:', error);
       toast.error(
@@ -135,6 +148,7 @@ export function TestCaseBulkUploadDialog({
         setSelectedFile(null);
         setInputFormat('*.in');
         setOutputFormat('*.out');
+        setStrategy('abort');
       }
     }
   };
@@ -211,6 +225,29 @@ export function TestCaseBulkUploadDialog({
             <p className="text-xs text-muted-foreground">
               {t('admin.testCases.bulkUpload.formatHint')}
             </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="strategy">
+              {t('admin.testCases.bulkUpload.strategy')}
+            </Label>
+            <Select
+              value={strategy}
+              onValueChange={(value) =>
+                setStrategy(value as TestCaseUploadMergeStrategy)
+              }
+            >
+              <SelectTrigger id="strategy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TEST_CASE_UPLOAD_MERGE_STRATEGIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {t(`admin.testCases.bulkUpload.strategy.${s}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter>

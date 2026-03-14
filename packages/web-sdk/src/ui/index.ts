@@ -11,6 +11,7 @@ export * from '@/ui/input';
 export * from '@/ui/label';
 export * from '@/ui/navigation-menu';
 export * from '@/ui/popover';
+export * from '@/ui/select';
 export * from '@/ui/separator';
 export * from '@/ui/sheet';
 export * from '@/ui/sidebar';

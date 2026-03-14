@@ -378,6 +378,13 @@ export const en: Record<string, string> = {
   'admin.testCases.bulkUpload.outputFormat': 'Output Format',
   'admin.testCases.bulkUpload.formatHint':
     'Pattern with exactly one * (e.g., "*.in", "test*.txt")',
+  'admin.testCases.bulkUpload.strategy': 'Strategy',
+  'admin.testCases.bulkUpload.strategy.abort': 'Abort on first error',
+  'admin.testCases.bulkUpload.strategy.skip': 'Skip existing test cases',
+  'admin.testCases.bulkUpload.strategy.overwrite':
+    'Overwrite existing test cases',
+  'admin.testCases.bulkUpload.strategy.replace':
+    'Replace all test cases (delete then upload)',
   'admin.testCases.bulkUpload.upload': 'Upload',
   'admin.testCases.bulkUpload.uploading': 'Uploading...',
   'admin.testCases.bulkUpload.uploadSuccess':
