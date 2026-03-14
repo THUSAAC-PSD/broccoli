@@ -46,12 +46,7 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
   >(null);
 
   const tokenMode = contestInfo?.token_mode;
-  const scoringMode = contestInfo?.scoring_mode;
-  const showTokens =
-    isIoi &&
-    tokenMode &&
-    tokenMode !== 'none' &&
-    scoringMode === 'best_tokened_or_last';
+  const showTokens = isIoi && tokenMode && tokenMode !== 'none';
 
   const { data: tokenStatus } = useQuery({
     queryKey: ['ioi-token-status', cId],

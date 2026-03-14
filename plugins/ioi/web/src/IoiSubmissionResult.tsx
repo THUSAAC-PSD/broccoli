@@ -33,6 +33,20 @@ interface IoiSubmissionResultProps {
   testCases?: TestCaseResult[];
 }
 
+type SubmissionResponse = Submission;
+type TestCaseResultResponse = TestCaseResult;
+
+type DisplayTestCaseResult = TestCaseResultResponse & {
+  isPlaceholder?: boolean;
+  label?: string;
+};
+
+type DisplaySubtaskResult = {
+  subtask: SubtaskInfo;
+  score: number;
+  testCases: DisplayTestCaseResult[];
+};
+
 const MONO: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
   fontFamily:
@@ -64,6 +78,8 @@ const VERDICT_META: Record<string, { color: string; bg: string }> = {
   RuntimeError: { color: '#a855f7', bg: 'rgba(168,85,247,0.1)' },
   SystemError: { color: '#6b7280', bg: 'rgba(107,114,128,0.1)' },
   Skipped: { color: '#9ca3af', bg: 'rgba(156,163,175,0.08)' },
+  Pending: { color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
+  Running: { color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
 };
 
 const VERDICT_ICONS = {
@@ -74,6 +90,8 @@ const VERDICT_ICONS = {
   RuntimeError: AlertCircle,
   SystemError: AlertCircle,
   Skipped: MinusCircle,
+  Pending: Clock,
+  Running: Loader2,
 } as const;
 
 function VerdictIcon({
@@ -88,7 +106,14 @@ function VerdictIcon({
   const Icon =
     VERDICT_ICONS[verdict as keyof typeof VERDICT_ICONS] ?? AlertCircle;
 
-  return <Icon size={size} color={c} style={{ flexShrink: 0 }} />;
+  return (
+    <Icon
+      size={size}
+      color={c}
+      style={{ flexShrink: 0 }}
+      className={verdict === 'Running' ? 'animate-spin' : undefined}
+    />
+  );
 }
 
 function scoreColor(score: number, maxScore: number): string {
@@ -106,6 +131,179 @@ function formatMs(ms: number): string {
 function formatKb(kb: number): string {
   const mb = kb / 1024;
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function createPlaceholderTestCase(
+  label: string,
+  testCaseId: number | undefined,
+  placeholderId: number,
+  verdict: 'Pending' | 'Running',
+): DisplayTestCaseResult {
+  return {
+    id: placeholderId,
+    test_case_id: testCaseId ?? placeholderId,
+    score: 0,
+    verdict,
+    isPlaceholder: true,
+    label,
+  };
+}
+
+function buildStaticTestCaseList({
+  labels,
+  labelMap,
+  tcById,
+  subtaskIndex,
+}: {
+  labels: string[];
+  labelMap: Record<string, number>;
+  tcById: Map<number, TestCaseResultResponse>;
+  subtaskIndex: number;
+}): DisplayTestCaseResult[] {
+  return labels.map((label, labelIndex) => {
+    const resolvedId =
+      labelMap[label] ??
+      (Number.isNaN(Number(label)) ? undefined : Number(label));
+    const actual = resolvedId != null ? tcById.get(resolvedId) : undefined;
+    if (actual) {
+      return actual;
+    }
+
+    return createPlaceholderTestCase(
+      label,
+      resolvedId,
+      -((subtaskIndex + 1) * 10000 + labelIndex + 1),
+      'Pending',
+    );
+  });
+}
+
+function getNormalizedTestCaseScore(
+  testCase: DisplayTestCaseResult,
+  maxScore: number | undefined,
+): number | null {
+  if (testCase.isPlaceholder) {
+    return null;
+  }
+  if (!maxScore || maxScore <= 0) {
+    return testCase.verdict === 'Accepted' ? 1 : 0;
+  }
+  return clamp01(testCase.score / maxScore);
+}
+
+function computeProvisionalSubtaskScore(
+  subtask: SubtaskInfo,
+  testCases: DisplayTestCaseResult[],
+  testCaseMaxScores: Record<string, number>,
+): number {
+  const labels = subtask.test_cases ?? [];
+  if (labels.length === 0) {
+    return 0;
+  }
+
+  const normalized = labels.map((label, index) =>
+    getNormalizedTestCaseScore(testCases[index], testCaseMaxScores[label]),
+  );
+  const judged = normalized.filter((value): value is number => value != null);
+
+  if (judged.length === 0) {
+    return 0;
+  }
+
+  switch (subtask.scoring_method) {
+    case 'group_min':
+      return judged.every((value) => value >= 1) ? subtask.max_score : 0;
+    case 'group_mul':
+      return Number(
+        (
+          judged.reduce((product, value) => product * value, 1) *
+          subtask.max_score
+        ).toFixed(2),
+      );
+    case 'sum':
+    default:
+      return Number(
+        (
+          (normalized.reduce((sum, value) => sum + (value ?? 0), 0) /
+            labels.length) *
+          subtask.max_score
+        ).toFixed(2),
+      );
+  }
+}
+
+function buildSubtaskResults({
+  taskSubtasks,
+  subtaskScores,
+  effectiveFeedback,
+  labelMap,
+  testCaseMaxScores,
+  allTestCases,
+}: {
+  taskSubtasks: SubtaskInfo[];
+  subtaskScores: SubtaskScoreEntry[] | null | undefined;
+  effectiveFeedback: string;
+  labelMap: Record<string, number>;
+  testCaseMaxScores: Record<string, number>;
+  allTestCases: TestCaseResultResponse[];
+}): DisplaySubtaskResult[] {
+  const tcById = new Map<number, TestCaseResultResponse>();
+  for (const testCase of allTestCases) {
+    tcById.set(testCase.test_case_id, testCase);
+  }
+
+  const subtaskCount = Math.max(
+    taskSubtasks.length,
+    subtaskScores?.length ?? 0,
+  );
+  const results: DisplaySubtaskResult[] = [];
+
+  for (let index = 0; index < subtaskCount; index += 1) {
+    const scoreEntry = subtaskScores?.[index];
+    const configSubtask = taskSubtasks[index];
+    if (!configSubtask && !scoreEntry) {
+      continue;
+    }
+
+    const subtask: SubtaskInfo = configSubtask ?? {
+      name: scoreEntry?.name ?? '',
+      scoring_method: scoreEntry?.scoring_method ?? 'sum',
+      max_score: scoreEntry?.max_score ?? 0,
+    };
+
+    const testCases =
+      effectiveFeedback === 'full' && subtask.test_cases?.length
+        ? buildStaticTestCaseList({
+            labels: subtask.test_cases,
+            labelMap,
+            tcById,
+            subtaskIndex: index,
+          })
+        : [];
+
+    const score =
+      scoreEntry?.score ??
+      (testCases.length > 0
+        ? computeProvisionalSubtaskScore(subtask, testCases, testCaseMaxScores)
+        : 0);
+
+    results.push({
+      subtask: {
+        name: subtask.name,
+        scoring_method: subtask.scoring_method,
+        max_score: subtask.max_score,
+        test_cases: subtask.test_cases,
+      },
+      score,
+      testCases,
+    });
+  }
+
+  return results;
 }
 
 const MONACO_LANG: Record<string, string> = {
@@ -1299,20 +1497,19 @@ export function IoiSubmissionResult({
 
   const allTestCases = testCases ?? submission.result.test_case_results ?? [];
   const { effectiveFeedback } = visibility;
-
-  if (
-    submission.status === 'Running' &&
-    allTestCases.length > 0 &&
-    effectiveFeedback === 'full'
-  ) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        <SubmissionStatusBadge status={submission.status} />
-        <TestCaseResultList testCases={allTestCases} />
-      </div>
-    );
-  }
+  const taskSubtasks = taskConfig.subtasks ?? [];
+  const subtaskScores = subtaskScoresData?.subtasks;
+  const labelMap: Record<string, number> = taskConfig.label_map ?? {};
+  const testCaseMaxScores: Record<string, number> =
+    taskConfig.test_case_max_scores ?? {};
+  const subtaskResults = buildSubtaskResults({
+    taskSubtasks,
+    subtaskScores,
+    effectiveFeedback,
+    labelMap,
+    testCaseMaxScores,
+    allTestCases,
+  });
 
   if (effectiveFeedback === 'none') {
     return (
@@ -1350,9 +1547,15 @@ export function IoiSubmissionResult({
 
   // Compute max possible score from task config subtasks (fallback to 100 if not available)
   const configMaxScore =
-    taskConfig.subtasks && taskConfig.subtasks.length > 0
-      ? taskConfig.subtasks.reduce((sum, s) => sum + s.max_score, 0)
+    taskSubtasks.length > 0
+      ? taskSubtasks.reduce((sum, s) => sum + s.max_score, 0)
       : 100;
+  const liveStatusBadge =
+    submission.status === 'Pending' ||
+    submission.status === 'Compiling' ||
+    submission.status === 'Running' ? (
+      <SubmissionStatusBadge status={submission.status} />
+    ) : null;
 
   // Feedback: total_only
   if (effectiveFeedback === 'total_only') {
@@ -1360,6 +1563,7 @@ export function IoiSubmissionResult({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {codeViewer}
+        {liveStatusBadge}
         <TotalScoreSummary
           totalScore={totalScore}
           maxScore={configMaxScore}
@@ -1370,15 +1574,14 @@ export function IoiSubmissionResult({
   }
 
   // Feedback: subtask_scores or full
-  const subtaskScores = subtaskScoresData?.subtasks;
-
-  if (!subtaskScores || subtaskScores.length === 0) {
+  if (subtaskResults.length === 0) {
     const totalScore = submission.result.score ?? 0;
 
     if (effectiveFeedback === 'full' && allTestCases.length > 0) {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {codeViewer}
+          {liveStatusBadge}
           <TotalScoreSummary
             totalScore={totalScore}
             maxScore={configMaxScore}
@@ -1392,60 +1595,25 @@ export function IoiSubmissionResult({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {codeViewer}
+        {liveStatusBadge}
         <TotalScoreSummary totalScore={totalScore} maxScore={configMaxScore} />
       </div>
     );
   }
 
-  // Build TC lookup for full feedback
-  const tcById: Map<number, TestCaseResultResponse> = new Map();
-  for (const tc of allTestCases) {
-    tcById.set(tc.test_case_id, tc);
-  }
-
-  // label_map from the task config API: label string → test_case_id (number)
-  const labelMap: Record<string, number> = taskConfig.label_map ?? {};
-
-  const taskSubtasks = taskConfig.subtasks ?? [];
-  const subtaskResults = subtaskScores.map(
-    (ss: SubtaskScoreEntry, i: number) => {
-      const stTestCases: TestCaseResultResponse[] = [];
-      const configSubtask = taskSubtasks[i];
-      if (configSubtask?.test_cases) {
-        for (const label of configSubtask.test_cases) {
-          // Resolve label → test_case_id via the label_map, fallback to parsing as numeric ID
-          const resolvedId =
-            labelMap[label] ??
-            (isNaN(Number(label)) ? undefined : Number(label));
-          const tc = resolvedId != null ? tcById.get(resolvedId) : undefined;
-          if (tc) stTestCases.push(tc);
-        }
-      }
-      return {
-        subtask: {
-          name: ss.name,
-          scoring_method: ss.scoring_method,
-          max_score: ss.max_score,
-          test_cases: configSubtask?.test_cases,
-        } as SubtaskInfo,
-        score: ss.score,
-        testCases: stTestCases,
-      };
-    },
-  );
-
   const totalScore = subtaskResults.reduce(
     (sum: number, r: { score: number }) => sum + r.score,
     0,
   );
-  const maxPossible = subtaskScores.reduce(
-    (sum: number, s: SubtaskScoreEntry) => sum + s.max_score,
+  const maxPossible = subtaskResults.reduce(
+    (sum: number, result) => sum + result.subtask.max_score,
     0,
   );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {codeViewer}
+      {liveStatusBadge}
 
       {/* Total score summary bar */}
       <div

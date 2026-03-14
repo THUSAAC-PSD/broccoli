@@ -27,7 +27,6 @@ const FEEDBACK_KEYS: Record<string, string> = {
   subtask_scores: 'ioi.contestInfo.feedback.subtaskScores',
   total_only: 'ioi.contestInfo.feedback.totalOnly',
   none: 'ioi.contestInfo.feedback.none',
-  tokened_full: 'ioi.contestInfo.feedback.tokenedFull',
 };
 
 export function IoiContestInfo() {

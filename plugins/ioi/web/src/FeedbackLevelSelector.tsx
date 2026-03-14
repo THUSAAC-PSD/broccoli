@@ -1,10 +1,6 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { useEffect } from 'react';
 
-import {
-  getConfiguredTokenMode,
-  normalizeFeedbackLevelForTokenMode,
-} from './config-rules';
+import { getConfiguredTokenMode } from './config-rules';
 import type { FeedbackLevel } from './types';
 
 interface FeedbackLevelSelectorProps {
@@ -25,10 +21,6 @@ const FEEDBACK_OPTIONS: ReadonlyArray<{
   },
   { value: 'total_only', labelKey: 'ioi.contestInfo.feedback.totalOnly' },
   { value: 'none', labelKey: 'ioi.contestInfo.feedback.none' },
-  {
-    value: 'tokened_full',
-    labelKey: 'ioi.contestInfo.feedback.tokenedFull',
-  },
 ];
 
 export function FeedbackLevelSelector({
@@ -40,17 +32,11 @@ export function FeedbackLevelSelector({
   const { t } = useTranslation();
   const tokenMode = getConfiguredTokenMode(formValues);
   const tokenEnabled = tokenMode !== 'none';
-  const normalizedValue = normalizeFeedbackLevelForTokenMode(value, tokenMode);
-
-  useEffect(() => {
-    if (normalizedValue !== undefined && normalizedValue !== value) {
-      onChange(normalizedValue);
-    }
-  }, [normalizedValue, onChange, value]);
-
-  const options = FEEDBACK_OPTIONS.filter((option) =>
-    tokenEnabled ? option.value !== 'full' : option.value !== 'tokened_full',
-  );
+  const selectedValue =
+    typeof value === 'string' &&
+    FEEDBACK_OPTIONS.some((option) => option.value === value)
+      ? value
+      : 'full';
 
   return (
     <div
@@ -80,11 +66,11 @@ export function FeedbackLevelSelector({
       )}
 
       <select
-        value={normalizedValue ?? ''}
+        value={selectedValue}
         onChange={(event) => onChange(event.target.value)}
         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        {options.map((option) => (
+        {FEEDBACK_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
             {t(option.labelKey)}
           </option>

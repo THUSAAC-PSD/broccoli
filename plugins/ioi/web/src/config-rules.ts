@@ -1,19 +1,4 @@
-import type { FeedbackLevel, TokenMode } from './types';
-
-const FEEDBACK_LEVELS: readonly FeedbackLevel[] = [
-  'full',
-  'subtask_scores',
-  'total_only',
-  'none',
-  'tokened_full',
-];
-
-function isFeedbackLevel(value: unknown): value is FeedbackLevel {
-  return (
-    typeof value === 'string' &&
-    FEEDBACK_LEVELS.includes(value as FeedbackLevel)
-  );
-}
+import type { ScoringMode, TokenMode } from './types';
 
 export function getConfiguredTokenMode(formValues: unknown): TokenMode {
   if (!formValues || typeof formValues !== 'object') {
@@ -29,17 +14,14 @@ export function getConfiguredTokenMode(formValues: unknown): TokenMode {
   return mode === 'fixed_budget' || mode === 'regenerating' ? mode : 'none';
 }
 
-export function normalizeFeedbackLevelForTokenMode(
-  feedbackLevel: unknown,
-  tokenMode: TokenMode,
-): FeedbackLevel | undefined {
-  if (!isFeedbackLevel(feedbackLevel)) {
-    return undefined;
+export function getConfiguredScoringMode(formValues: unknown): ScoringMode {
+  if (!formValues || typeof formValues !== 'object') {
+    return 'max_submission';
   }
 
-  if (tokenMode === 'none') {
-    return feedbackLevel === 'tokened_full' ? 'full' : feedbackLevel;
-  }
-
-  return feedbackLevel === 'full' ? 'tokened_full' : feedbackLevel;
+  const scoringMode = (formValues as Record<string, unknown>).scoring_mode;
+  return scoringMode === 'best_tokened_or_last' ||
+    scoringMode === 'sum_best_subtask'
+    ? scoringMode
+    : 'max_submission';
 }

@@ -4,10 +4,14 @@
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 
+import { getConfiguredTokenMode } from './config-rules';
+
 interface ScoringModeSelectorProps {
   value: unknown;
   schema: { title?: string; description?: string };
   onChange: (value: unknown) => void;
+  formValues?: unknown;
+  setFieldValue?: (path: string[], value: unknown) => void;
 }
 
 const MODES = [
@@ -41,9 +45,24 @@ export function ScoringModeSelector({
   value,
   schema,
   onChange,
+  formValues,
+  setFieldValue,
 }: ScoringModeSelectorProps) {
   const { t } = useTranslation();
   const selected = typeof value === 'string' ? value : '';
+  const tokenMode = getConfiguredTokenMode(formValues);
+
+  const handleSelect = (mode: string) => {
+    onChange(mode);
+
+    if (
+      mode === 'best_tokened_or_last' &&
+      tokenMode === 'none' &&
+      setFieldValue
+    ) {
+      setFieldValue(['tokens', 'mode'], 'fixed_budget');
+    }
+  };
 
   return (
     <div
@@ -107,7 +126,7 @@ export function ScoringModeSelector({
               <button
                 key={mode.key}
                 type="button"
-                onClick={() => onChange(mode.key)}
+                onClick={() => handleSelect(mode.key)}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',

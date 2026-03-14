@@ -14,11 +14,12 @@ mod wasm_entries {
     use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
 
-    use crate::config::{ContestConfig, ScoringMode, TaskConfig, round_score};
-    use crate::judge::{JudgeContext, judge_with_context};
-    use crate::scoring::{
-        score_best_tokened_or_last, score_max_submission, score_sum_best_subtask,
+    use crate::config::{
+        ContestConfig, FeedbackLevel, ScoringMode, SubtaskDef, TaskConfig, TokenMode,
+        resolve_tc_label, round_score,
     };
+    use crate::judge::{JudgeContext, judge_with_context};
+    use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
     use crate::subtasks::{build_default_subtasks, score_all_subtasks};
     use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
 
@@ -146,6 +147,52 @@ mod wasm_entries {
         req.has_permission("contest:manage") || req.has_permission("submission:view_all")
     }
 
+    fn tokens_enabled(config: &ContestConfig) -> bool {
+        config.tokens.mode != TokenMode::None
+    }
+
+    fn load_contest_config(contest_id: i32) -> Result<ContestConfig, SdkError> {
+        Ok(
+            serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+                .unwrap_or_default(),
+        )
+    }
+
+    fn load_task_config(contest_id: i32, problem_id: i32) -> Result<TaskConfig, SdkError> {
+        Ok(serde_json::from_value(
+            host::config::get_contest_problem_config(contest_id, problem_id, "task")?.config,
+        )
+        .unwrap_or_default())
+    }
+
+    fn load_effective_subtasks(
+        problem_id: i32,
+        task_config: &TaskConfig,
+    ) -> Result<(Vec<TestCaseRow>, Vec<SubtaskDef>), SdkError> {
+        let host_impl = WasmHost;
+        let test_cases = host_impl.query_test_cases(problem_id)?;
+        let subtasks = if task_config.subtasks.is_empty() {
+            build_default_subtasks(&test_cases)
+        } else {
+            task_config.subtasks.clone()
+        };
+
+        Ok((test_cases, subtasks))
+    }
+
+    fn viewer_has_token_feedback_for_submission(
+        req: &PluginHttpRequest,
+        contest_id: i32,
+        submission_id: i32,
+    ) -> Result<bool, SdkError> {
+        let Some(user_id) = req.user_id() else {
+            return Ok(false);
+        };
+
+        let token_state = load_token_state(contest_id, user_id)?;
+        Ok(token_state.tokened_submission_ids.contains(&submission_id))
+    }
+
     fn should_include_in_contest_aggregations(
         contest_id: i32,
         user_id: i32,
@@ -243,14 +290,12 @@ mod wasm_entries {
             host::storage::store_set(&key, &serde_json::to_string(&subtask_data)?)?;
         }
 
-        if let Some(sub_score) = result.submission_score {
+        if result.submission_score.is_some() {
             update_task_score(
                 &contest_config,
                 contest_id,
                 req.problem_id,
-                req.submission_id,
                 req.user_id,
-                sub_score,
                 &ctx,
             )?;
         }
@@ -262,49 +307,21 @@ mod wasm_entries {
         config: &ContestConfig,
         contest_id: i32,
         problem_id: i32,
-        submission_id: i32,
         user_id: i32,
-        submission_score: f64,
         ctx: &JudgeContext,
     ) -> Result<(), SdkError> {
         if !should_include_in_contest_aggregations(contest_id, user_id)? {
             return Ok(());
         }
 
-        let task_score = match config.scoring_mode {
-            ScoringMode::MaxSubmission => {
-                let rows: Vec<MaxScore> = host::db::db_query(&format!(
-                    "SELECT MAX(score) as max_score FROM submission \
-                     WHERE user_id = {} AND problem_id = {} AND contest_id = {} AND id != {}",
-                    user_id, problem_id, contest_id, submission_id
-                ))?;
-                let historical = rows.first().and_then(|r| r.max_score).unwrap_or(0.0);
-                score_max_submission(submission_score, historical)
-            }
-            ScoringMode::SumBestSubtask => {
-                recompute_sum_best_subtask(contest_id, problem_id, user_id, ctx)?
-            }
-            ScoringMode::BestTokenedOrLast => {
-                let token_state = load_token_state(contest_id, user_id)?;
-                let tokened_best = if token_state.tokened_submission_ids.is_empty() {
-                    0.0
-                } else {
-                    let ids: Vec<String> = token_state
-                        .tokened_submission_ids
-                        .iter()
-                        .map(|id| id.to_string())
-                        .collect();
-                    let rows: Vec<MaxScore> = host::db::db_query(&format!(
-                        "SELECT MAX(score) as max_score FROM submission \
-                         WHERE id IN ({}) AND problem_id = {}",
-                        ids.join(","),
-                        problem_id
-                    ))?;
-                    rows.first().and_then(|r| r.max_score).unwrap_or(0.0)
-                };
-                score_best_tokened_or_last(tokened_best, submission_score)
-            }
-        };
+        let task_score = compute_official_task_score(
+            config,
+            contest_id,
+            problem_id,
+            user_id,
+            Some(&ctx.test_cases),
+            Some(&ctx.subtask_defs),
+        )?;
 
         let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
         host::storage::store_set(&key, &round_score(task_score).to_string())?;
@@ -316,10 +333,9 @@ mod wasm_entries {
         contest_id: i32,
         problem_id: i32,
         user_id: i32,
-        ctx: &JudgeContext,
+        test_cases: &[TestCaseRow],
+        subtask_defs: &[SubtaskDef],
     ) -> Result<f64, SdkError> {
-        use crate::config::resolve_tc_label;
-
         let tc_results: Vec<TcResultRow> = host::db::db_query(&format!(
             "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
              FROM test_case_result tcr \
@@ -338,8 +354,7 @@ mod wasm_entries {
             .map(|t| (t.test_case_id, t.max_score))
             .collect();
 
-        let id_to_label: HashMap<i32, String> = ctx
-            .test_cases
+        let id_to_label: HashMap<i32, String> = test_cases
             .iter()
             .map(|tc| (tc.id, resolve_tc_label(tc)))
             .collect();
@@ -364,11 +379,79 @@ mod wasm_entries {
 
         let mut all_subtask_scores: Vec<Vec<f64>> = Vec::new();
         for tc_scores in by_submission.values() {
-            let results = score_all_subtasks(&ctx.subtask_defs, tc_scores);
+            let results = score_all_subtasks(subtask_defs, tc_scores);
             all_subtask_scores.push(results.iter().map(|r| r.score).collect());
         }
 
         Ok(score_sum_best_subtask(&all_subtask_scores))
+    }
+
+    fn compute_official_task_score(
+        config: &ContestConfig,
+        contest_id: i32,
+        problem_id: i32,
+        user_id: i32,
+        test_cases: Option<&[TestCaseRow]>,
+        subtask_defs: Option<&[SubtaskDef]>,
+    ) -> Result<f64, SdkError> {
+        match config.scoring_mode {
+            ScoringMode::MaxSubmission => {
+                let rows: Vec<MaxScore> = host::db::db_query(&format!(
+                    "SELECT MAX(score) as max_score FROM submission \
+                     WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
+                    user_id, problem_id, contest_id
+                ))?;
+                Ok(rows.first().and_then(|r| r.max_score).unwrap_or(0.0))
+            }
+            ScoringMode::SumBestSubtask => {
+                let owned;
+                let (test_cases, subtask_defs) = match (test_cases, subtask_defs) {
+                    (Some(test_cases), Some(subtask_defs)) => (test_cases, subtask_defs),
+                    _ => {
+                        let task_config = load_task_config(contest_id, problem_id)?;
+                        owned = load_effective_subtasks(problem_id, &task_config)?;
+                        (&owned.0[..], &owned.1[..])
+                    }
+                };
+
+                recompute_sum_best_subtask(
+                    contest_id,
+                    problem_id,
+                    user_id,
+                    test_cases,
+                    subtask_defs,
+                )
+            }
+            ScoringMode::BestTokenedOrLast => {
+                let token_state = load_token_state(contest_id, user_id)?;
+                let tokened_best = if token_state.tokened_submission_ids.is_empty() {
+                    0.0
+                } else {
+                    let ids: Vec<String> = token_state
+                        .tokened_submission_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect();
+                    let rows: Vec<MaxScore> = host::db::db_query(&format!(
+                        "SELECT MAX(score) as max_score FROM submission \
+                         WHERE id IN ({}) AND problem_id = {}",
+                        ids.join(","),
+                        problem_id
+                    ))?;
+                    rows.first().and_then(|r| r.max_score).unwrap_or(0.0)
+                };
+
+                let last_rows: Vec<SubmissionScore> = host::db::db_query(&format!(
+                    "SELECT id, score FROM submission \
+                     WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
+                     ORDER BY created_at DESC LIMIT 1",
+                    user_id, problem_id, contest_id
+                ))?;
+                let last_score = last_rows.first().map(|r| r.score).unwrap_or(0.0);
+
+                Ok(score_best_tokened_or_last(tokened_best, last_score))
+            }
+        }
     }
 
     fn load_token_state(contest_id: i32, user_id: i32) -> Result<TokenState, SdkError> {
@@ -453,17 +536,13 @@ mod wasm_entries {
         }
         let problem_id = sub_info.problem_id;
 
-        let contest_config: ContestConfig =
-            serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
-                .unwrap_or_default();
+        let contest_config = load_contest_config(contest_id)?;
 
-        if contest_config.scoring_mode != ScoringMode::BestTokenedOrLast {
+        if !tokens_enabled(&contest_config) {
             return Ok(PluginHttpResponse {
                 status: 400,
                 headers: None,
-                body: Some(
-                    serde_json::json!({ "error": "Tokens are not enabled for this contest's scoring mode" }),
-                ),
+                body: Some(serde_json::json!({ "error": "Tokens are disabled for this contest" })),
             });
         }
 
@@ -501,28 +580,14 @@ mod wasm_entries {
         token_state.tokened_submission_ids.push(submission_id);
         save_token_state(contest_id, user_id, &token_state)?;
 
-        let ids: Vec<String> = token_state
-            .tokened_submission_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect();
-        let rows: Vec<MaxScore> = host::db::db_query(&format!(
-            "SELECT MAX(score) as max_score FROM submission \
-             WHERE id IN ({}) AND problem_id = {}",
-            ids.join(","),
-            problem_id
-        ))?;
-        let tokened_best = rows.first().and_then(|r| r.max_score).unwrap_or(0.0);
-
-        let last_rows: Vec<SubmissionScore> = host::db::db_query(&format!(
-            "SELECT id, score FROM submission \
-             WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-             ORDER BY created_at DESC LIMIT 1",
-            user_id, problem_id, contest_id
-        ))?;
-        let last_score = last_rows.first().map(|r| r.score).unwrap_or(0.0);
-
-        let task_score = score_best_tokened_or_last(tokened_best, last_score);
+        let task_score = compute_official_task_score(
+            &contest_config,
+            contest_id,
+            problem_id,
+            user_id,
+            None,
+            None,
+        )?;
 
         if should_include_in_contest_aggregations(contest_id, user_id)? {
             let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
@@ -570,9 +635,6 @@ mod wasm_entries {
         };
         if contest.contest_type.as_deref() != Some("ioi") {
             return Ok(plugin_error(404, "Not an IOI contest"));
-        }
-        if contest.phase != "after" && req.user_id().is_none() {
-            return Ok(plugin_error(401, "Authentication required during contest"));
         }
         if !can_view_contest(&req, contest_id, &contest)? {
             return Ok(plugin_error(404, "Contest not found"));
@@ -639,107 +701,61 @@ mod wasm_entries {
             return Ok(plugin_error(404, "Contest not found"));
         }
 
-        let contest_config: ContestConfig =
-            serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
-                .unwrap_or_default();
+        let contest_config = load_contest_config(contest_id)?;
+        let task_config = load_task_config(contest_id, problem_id)?;
+        let (test_cases_list, effective_subtasks) =
+            load_effective_subtasks(problem_id, &task_config)?;
 
-        let task_config: TaskConfig = serde_json::from_value(
-            host::config::get_contest_problem_config(contest_id, problem_id, "task")?.config,
-        )
-        .unwrap_or_default();
+        let expose_full_task_feedback = can_view_privileged_submission_feedback(&req)
+            || (tokens_enabled(&contest_config) && req.user_id().is_some())
+            || contest_config.feedback_level == FeedbackLevel::Full;
 
-        let host_impl = WasmHost;
-        let test_cases_list = host_impl.query_test_cases(problem_id)?;
-        let effective_subtasks = if task_config.subtasks.is_empty() {
-            build_default_subtasks(&test_cases_list)
-        } else {
-            task_config.subtasks.clone()
-        };
-
-        use crate::config::FeedbackLevel;
-
-        let subtasks = match contest_config.feedback_level {
-            FeedbackLevel::None | FeedbackLevel::TotalOnly => {
-                // No subtask details exposed
-                None
-            }
-            FeedbackLevel::SubtaskScores => {
-                // Show subtask names/methods/scores but not test_cases
-                Some(
-                    effective_subtasks
-                        .iter()
-                        .map(|s| {
-                            serde_json::json!({
-                                "name": s.name,
-                                "scoring_method": s.scoring_method,
-                                "max_score": s.max_score,
-                            })
+        let subtasks = match (contest_config.feedback_level, expose_full_task_feedback) {
+            (_, true) => Some(
+                effective_subtasks
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "name": s.name,
+                            "scoring_method": s.scoring_method,
+                            "max_score": s.max_score,
+                            "test_cases": s.test_cases,
                         })
-                        .collect::<Vec<_>>(),
-                )
-            }
-            FeedbackLevel::Full => {
-                // Show everything including test_cases
-                Some(
-                    effective_subtasks
-                        .iter()
-                        .map(|s| {
-                            serde_json::json!({
-                                "name": s.name,
-                                "scoring_method": s.scoring_method,
-                                "max_score": s.max_score,
-                                "test_cases": s.test_cases,
-                            })
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            (FeedbackLevel::SubtaskScores, false) => Some(
+                effective_subtasks
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "name": s.name,
+                            "scoring_method": s.scoring_method,
+                            "max_score": s.max_score,
                         })
-                        .collect::<Vec<_>>(),
-                )
-            }
-            FeedbackLevel::TokenedFull => {
-                // Authenticated users get full config (needed to render tokened submissions).
-                // Unauthenticated users get subtask-level only (no test case labels).
-                if req.user_id().is_some() {
-                    Some(
-                        effective_subtasks
-                            .iter()
-                            .map(|s| {
-                                serde_json::json!({
-                                    "name": s.name,
-                                    "scoring_method": s.scoring_method,
-                                    "max_score": s.max_score,
-                                    "test_cases": s.test_cases,
-                                })
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                } else {
-                    Some(
-                        effective_subtasks
-                            .iter()
-                            .map(|s| {
-                                serde_json::json!({
-                                    "name": s.name,
-                                    "scoring_method": s.scoring_method,
-                                    "max_score": s.max_score,
-                                })
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                }
-            }
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            (FeedbackLevel::None | FeedbackLevel::TotalOnly, false) => None,
+            (FeedbackLevel::Full, false) => unreachable!(),
         };
 
-        use crate::config::resolve_tc_label;
-        let needs_label_map = match contest_config.feedback_level {
-            FeedbackLevel::Full => true,
-            // TokenedFull: only authenticated users need label_map (to render tokened submissions)
-            FeedbackLevel::TokenedFull => req.user_id().is_some(),
-            _ => false,
-        };
+        let needs_label_map = expose_full_task_feedback;
         let label_map: Option<HashMap<String, i32>> = if needs_label_map {
             Some(
                 test_cases_list
                     .iter()
                     .map(|tc| (resolve_tc_label(tc), tc.id))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let test_case_max_scores: Option<HashMap<String, f64>> = if needs_label_map {
+            Some(
+                test_cases_list
+                    .iter()
+                    .map(|tc| (resolve_tc_label(tc), tc.score))
                     .collect(),
             )
         } else {
@@ -756,6 +772,9 @@ mod wasm_entries {
         }
         if let Some(label_map) = label_map {
             body["label_map"] = serde_json::json!(label_map);
+        }
+        if let Some(test_case_max_scores) = test_case_max_scores {
+            body["test_case_max_scores"] = serde_json::json!(test_case_max_scores);
         }
 
         Ok(PluginHttpResponse {
@@ -962,9 +981,6 @@ mod wasm_entries {
             }
         };
 
-        if (phase == "before" || phase == "during") && req.user_id().is_none() {
-            return Ok(plugin_error(401, "Authentication required during contest"));
-        }
         let contest = match load_contest_route_info(contest_id) {
             Ok(contest) => contest,
             Err(_) => return Ok(plugin_error(404, "Contest not found")),
@@ -1058,13 +1074,9 @@ mod wasm_entries {
                 });
             }
 
-            use crate::config::FeedbackLevel;
             let problems = match contest_config.feedback_level {
                 FeedbackLevel::None | FeedbackLevel::TotalOnly => None,
-                // TokenedFull gates per-submission details, not aggregate scoreboard scores
-                FeedbackLevel::SubtaskScores | FeedbackLevel::Full | FeedbackLevel::TokenedFull => {
-                    Some(prob_scores)
-                }
+                FeedbackLevel::SubtaskScores | FeedbackLevel::Full => Some(prob_scores),
             };
 
             entries.push(RankEntry {
@@ -1196,89 +1208,31 @@ mod wasm_entries {
         }
 
         let key = format!("subtask_scores:{}:{}", submission_id, problem_id);
-        let stored = host::storage::store_get(&key)?;
+        let subtasks: serde_json::Value = host::storage::store_get(&key)?
+            .map(|json| serde_json::from_str(&json).unwrap_or(serde_json::Value::Null))
+            .unwrap_or(serde_json::Value::Null);
 
-        use crate::config::FeedbackLevel;
-        match contest_config.feedback_level {
-            FeedbackLevel::None | FeedbackLevel::TotalOnly => Ok(PluginHttpResponse {
-                status: 200,
-                headers: None,
-                body: Some(serde_json::json!({ "subtasks": null })),
-            }),
-            FeedbackLevel::TokenedFull => {
-                // Post-contest: results are public, show full data
-                if phase == "after" {
-                    let subtasks: serde_json::Value = match stored {
-                        Some(json) => {
-                            serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
-                        }
-                        None => serde_json::Value::Null,
-                    };
-                    return Ok(PluginHttpResponse {
-                        status: 200,
-                        headers: None,
-                        body: Some(serde_json::json!({ "subtasks": subtasks })),
-                    });
-                }
-                if can_view_all_submissions {
-                    let subtasks: serde_json::Value = match stored {
-                        Some(json) => {
-                            serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
-                        }
-                        None => serde_json::Value::Null,
-                    };
-                    return Ok(PluginHttpResponse {
-                        status: 200,
-                        headers: None,
-                        body: Some(serde_json::json!({ "subtasks": subtasks })),
-                    });
-                }
-                // During contest: check if this submission is tokened by the requesting user
-                let user_id = match req.user_id() {
-                    Some(id) => id,
-                    None => {
-                        return Ok(PluginHttpResponse {
-                            status: 200,
-                            headers: None,
-                            body: Some(serde_json::json!({ "subtasks": null })),
-                        });
-                    }
-                };
-                let token_key = format!("tokens:{}:{}", contest_id, user_id);
-                let token_state: TokenState = host::storage::store_get(&token_key)?
-                    .and_then(|s| serde_json::from_str(&s).ok())
-                    .unwrap_or_default();
-                if token_state.tokened_submission_ids.contains(&submission_id) {
-                    let subtasks: serde_json::Value = match stored {
-                        Some(json) => {
-                            serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
-                        }
-                        None => serde_json::Value::Null,
-                    };
-                    Ok(PluginHttpResponse {
-                        status: 200,
-                        headers: None,
-                        body: Some(serde_json::json!({ "subtasks": subtasks })),
-                    })
+        let can_view_full_feedback = can_view_all_submissions
+            || phase == "after"
+            || (tokens_enabled(&contest_config)
+                && viewer_has_token_feedback_for_submission(&req, contest_id, submission_id)?);
+
+        let can_view_subtask_scores = can_view_full_feedback
+            || matches!(
+                contest_config.feedback_level,
+                FeedbackLevel::Full | FeedbackLevel::SubtaskScores
+            );
+
+        Ok(PluginHttpResponse {
+            status: 200,
+            headers: None,
+            body: Some(serde_json::json!({
+                "subtasks": if can_view_subtask_scores {
+                    subtasks
                 } else {
-                    Ok(PluginHttpResponse {
-                        status: 200,
-                        headers: None,
-                        body: Some(serde_json::json!({ "subtasks": null })),
-                    })
+                    serde_json::Value::Null
                 }
-            }
-            FeedbackLevel::SubtaskScores | FeedbackLevel::Full => {
-                let subtasks: serde_json::Value = match stored {
-                    Some(json) => serde_json::from_str(&json).unwrap_or(serde_json::Value::Null),
-                    None => serde_json::Value::Null,
-                };
-                Ok(PluginHttpResponse {
-                    status: 200,
-                    headers: None,
-                    body: Some(serde_json::json!({ "subtasks": subtasks })),
-                })
-            }
-        }
+            })),
+        })
     }
 }

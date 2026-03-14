@@ -5,11 +5,10 @@
 'ioi.contestInfo.scoringMode.sumBestSubtask.description' = 'For each subtask, your best score across all submissions is taken, then summed.'
 'ioi.contestInfo.scoringMode.bestTokenedOrLast.title' = 'Best Tokened or Last'
 'ioi.contestInfo.scoringMode.bestTokenedOrLast.description' = 'Your task score is max(best tokened submission, last submission).'
-'ioi.contestInfo.feedback.full' = 'Full feedback'
-'ioi.contestInfo.feedback.subtaskScores' = 'Subtask scores only'
-'ioi.contestInfo.feedback.totalOnly' = 'Total score only'
-'ioi.contestInfo.feedback.none' = 'No feedback'
-'ioi.contestInfo.feedback.tokenedFull' = 'Tokened full feedback'
+'ioi.contestInfo.feedback.full' = 'Full feedback without token'
+'ioi.contestInfo.feedback.subtaskScores' = 'Subtask scores without token'
+'ioi.contestInfo.feedback.totalOnly' = 'Total score only without token'
+'ioi.contestInfo.feedback.none' = 'No feedback without token'
 'ioi.contestInfo.tokenMode.fixedBudget' = 'Fixed token budget'
 'ioi.contestInfo.tokenMode.regenerating' = 'Regenerating tokens'
 
@@ -62,14 +61,14 @@
 
 # ScoringModeSelector
 'ioi.scoringMode.label' = 'Scoring Mode'
-'ioi.scoringMode.bestTokenedOrLast.title' = 'Token System'
-'ioi.scoringMode.bestTokenedOrLast.description' = 'Best among token-released submissions and the last submission'
+'ioi.scoringMode.bestTokenedOrLast.title' = 'Best Tokened or Last'
+'ioi.scoringMode.bestTokenedOrLast.description' = 'Official score is the better of your best tokened submission and your latest submission'
 'ioi.scoringMode.bestTokenedOrLast.era' = '2010\u20132012'
 'ioi.scoringMode.maxSubmission.title' = 'Maximum Score'
-'ioi.scoringMode.maxSubmission.description' = 'Best score across all submissions becomes the task score'
+'ioi.scoringMode.maxSubmission.description' = 'Official score is the best score across all submissions'
 'ioi.scoringMode.maxSubmission.era' = '2013\u20132016'
 'ioi.scoringMode.sumBestSubtask.title' = 'Best Per Subtask'
-'ioi.scoringMode.sumBestSubtask.description' = 'For each subtask, take the best score across submissions and sum'
+'ioi.scoringMode.sumBestSubtask.description' = 'Official score is the sum of each subtask’s best score across all submissions'
 'ioi.scoringMode.sumBestSubtask.era' = '2017+'
 'ioi.scoringMode.howItWorks' = 'How scoring works'
 'ioi.scoringMode.explanation' = 'Scoring is two-level: (1) Within each submission, subtask scores are computed using the method configured per-subtask (Min, Sum, Multiply). (2) Your final problem score across all submissions is determined by the scoring mode selected above.'
@@ -164,7 +163,8 @@
 'ioi.tokenConfig.minutesPerToken' = 'Minutes per token'
 'ioi.tokenConfig.tokensSummary' = '{count} tokens'
 'ioi.tokenConfig.tokensRange' = '{min}\u2013{max} tokens'
-'ioi.tokenConfig.scoringModeNote' = 'Tokens only take effect when the scoring mode is set to "Best Tokened or Last".'
+'ioi.tokenConfig.feedbackNote' = 'A token unlocks full feedback for that submission. Official scoring still follows the scoring mode above.'
+'ioi.tokenConfig.requiredForScoringMode' = 'Best Tokened or Last requires tokens, so the token system cannot be disabled.'
 
 # TokenPanel
 'ioi.tokenPanel.title' = 'Tokens'
@@ -184,7 +184,5 @@
 
 # Feedback levels (used in FeedbackLevelSelector)
 'ioi.feedbackLevel.label' = 'Feedback Level'
-'ioi.feedbackLevel.tokenEnabledHint' = 'With a token system enabled, full feedback is exposed through Tokened Full instead of plain Full.'
-'ioi.feedbackLevel.tokenDisabledHint' = 'Tokened Full is only available when a token system is enabled.'
-'ioi.feedbackLevel.tokenedFull.label' = 'Tokened Full'
-'ioi.feedbackLevel.tokenedFull.description' = 'No feedback unless a token is used. Tokened submissions show full results.'
+'ioi.feedbackLevel.tokenEnabledHint' = 'This is the baseline feedback shown without spending a token. A tokened submission always reveals full feedback.'
+'ioi.feedbackLevel.tokenDisabledHint' = 'This is the submission feedback shown during the contest.'

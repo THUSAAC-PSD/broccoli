@@ -3,7 +3,7 @@ import type { ContestInfoResponse, TaskConfigResponse } from './types';
 type EffectiveFeedback = 'none' | 'total_only' | 'subtask_scores' | 'full';
 
 interface ResolveFeedbackVisibilityInput {
-  taskConfig: Pick<TaskConfigResponse, 'feedback_level' | 'scoring_mode'>;
+  taskConfig: Pick<TaskConfigResponse, 'feedback_level'>;
   contestInfo?: Pick<ContestInfoResponse, 'token_mode'> | null;
   isTokened: boolean;
   canViewPrivilegedSubmissionFeedback: boolean;
@@ -21,61 +21,27 @@ export function resolveFeedbackVisibility({
   isTokened,
   canViewPrivilegedSubmissionFeedback,
 }: ResolveFeedbackVisibilityInput): FeedbackVisibility {
-  const feedbackLevel = taskConfig.feedback_level;
-  const usesTokenMode =
-    contestInfo?.token_mode !== 'none' ||
-    taskConfig.scoring_mode === 'best_tokened_or_last' ||
-    feedbackLevel === 'tokened_full';
+  const usesTokenMode = contestInfo?.token_mode !== 'none';
 
   if (canViewPrivilegedSubmissionFeedback) {
     return {
-      effectiveFeedback:
-        feedbackLevel === 'tokened_full'
-          ? 'full'
-          : normalizeFeedback(feedbackLevel),
+      effectiveFeedback: 'full',
       usesTokenMode,
       needsTokenStatus: false,
     };
   }
 
-  if (feedbackLevel === 'tokened_full') {
+  if (usesTokenMode && isTokened) {
     return {
-      effectiveFeedback: isTokened ? 'full' : 'none',
+      effectiveFeedback: 'full',
       usesTokenMode,
-      needsTokenStatus: usesTokenMode,
-    };
-  }
-
-  if (
-    taskConfig.scoring_mode === 'best_tokened_or_last' &&
-    feedbackLevel === 'full'
-  ) {
-    return {
-      effectiveFeedback: isTokened ? 'full' : 'subtask_scores',
-      usesTokenMode,
-      needsTokenStatus: usesTokenMode,
+      needsTokenStatus: true,
     };
   }
 
   return {
-    effectiveFeedback: normalizeFeedback(feedbackLevel),
+    effectiveFeedback: taskConfig.feedback_level,
     usesTokenMode,
-    needsTokenStatus: false,
+    needsTokenStatus: usesTokenMode,
   };
-}
-
-function normalizeFeedback(
-  feedbackLevel: TaskConfigResponse['feedback_level'],
-): EffectiveFeedback {
-  switch (feedbackLevel) {
-    case 'none':
-    case 'total_only':
-    case 'subtask_scores':
-    case 'full':
-      return feedbackLevel;
-    case 'tokened_full':
-      return 'none';
-    default:
-      return 'none';
-  }
 }

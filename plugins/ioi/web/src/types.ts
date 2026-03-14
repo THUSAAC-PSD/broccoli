@@ -8,7 +8,7 @@ export interface SubtaskInfo {
   name: string;
   scoring_method: SubtaskScoringMethod;
   max_score: number;
-  /** Only present when feedback_level is "full" */
+  /** Present when full testcase mapping is available for this viewer. */
   test_cases?: string[];
 }
 
@@ -16,8 +16,10 @@ export interface TaskConfigResponse {
   scoring_mode: ScoringMode;
   feedback_level: FeedbackLevel;
   subtasks?: SubtaskInfo[];
-  /** Maps test case label -\> test_case_id. Only present when feedback_level is "full". */
+  /** Maps test case label -\> test_case_id when full testcase mapping is available. */
   label_map?: Record<string, number>;
+  /** Maps test case label -\> max score when full testcase mapping is available. */
+  test_case_max_scores?: Record<string, number>;
 }
 
 export interface TokenStatusResponse {
@@ -75,11 +77,6 @@ export type ScoringMode =
   | 'max_submission'
   | 'sum_best_subtask'
   | 'best_tokened_or_last';
-export type FeedbackLevel =
-  | 'full'
-  | 'subtask_scores'
-  | 'total_only'
-  | 'none'
-  | 'tokened_full';
+export type FeedbackLevel = 'full' | 'subtask_scores' | 'total_only' | 'none';
 export type TokenMode = 'none' | 'fixed_budget' | 'regenerating';
 export type SubtaskScoringMethod = 'group_min' | 'sum' | 'group_mul';

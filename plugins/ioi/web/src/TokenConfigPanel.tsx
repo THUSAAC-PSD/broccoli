@@ -6,10 +6,7 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type React from 'react';
 
-import {
-  getConfiguredTokenMode,
-  normalizeFeedbackLevelForTokenMode,
-} from './config-rules';
+import { getConfiguredScoringMode } from './config-rules';
 
 interface TokenConfigPanelProps {
   value: unknown;
@@ -79,40 +76,19 @@ export function TokenConfigPanel({
   schema,
   onChange,
   formValues,
-  setFieldValue,
 }: TokenConfigPanelProps) {
   const { t } = useTranslation();
   const val: TokenValue = (
     typeof value === 'object' && value !== null ? value : {}
   ) as TokenValue;
+  const scoringMode = getConfiguredScoringMode(formValues);
+  const tokensRequired = scoringMode === 'best_tokened_or_last';
   const mode = val.mode ?? 'none';
   const initial = val.initial ?? 2;
   const max = val.max ?? 5;
 
   const update = (patch: Partial<TokenValue>) => {
-    const nextValue = { ...val, ...patch };
-    onChange(nextValue);
-
-    const nextTokenMode = getConfiguredTokenMode({
-      ...formValues,
-      tokens: nextValue,
-    });
-    const currentFeedbackLevel =
-      formValues && typeof formValues === 'object'
-        ? (formValues as Record<string, unknown>).feedback_level
-        : undefined;
-    const normalizedFeedbackLevel = normalizeFeedbackLevelForTokenMode(
-      currentFeedbackLevel,
-      nextTokenMode,
-    );
-
-    if (
-      setFieldValue &&
-      normalizedFeedbackLevel !== undefined &&
-      normalizedFeedbackLevel !== currentFeedbackLevel
-    ) {
-      setFieldValue(['feedback_level'], normalizedFeedbackLevel);
-    }
+    onChange({ ...val, ...patch });
   };
 
   const isActive = mode !== 'none';
@@ -189,11 +165,17 @@ export function TokenConfigPanel({
       >
         {TOKEN_MODES.map((m, i) => {
           const isCurrent = mode === m.key;
+          const isDisabled = tokensRequired && m.key === 'none';
           return (
             <button
               key={m.key}
               type="button"
-              onClick={() => update({ mode: m.key })}
+              onClick={() => {
+                if (!isDisabled) {
+                  update({ mode: m.key });
+                }
+              }}
+              disabled={isDisabled}
               style={{
                 padding: '8px 4px',
                 border: 'none',
@@ -202,11 +184,11 @@ export function TokenConfigPanel({
                     ? '1px solid var(--border, #e5e7eb)'
                     : 'none',
                 background: isCurrent ? 'var(--card, #fff)' : 'transparent',
-                cursor: 'pointer',
+                cursor: isDisabled ? 'not-allowed' : 'pointer',
                 fontSize: '12px',
                 fontWeight: isCurrent ? 600 : 400,
                 color: 'inherit',
-                opacity: isCurrent ? 1 : 0.6,
+                opacity: isDisabled ? 0.35 : isCurrent ? 1 : 0.6,
                 transition: 'all 0.15s',
                 display: 'flex',
                 flexDirection: 'column',
@@ -253,33 +235,22 @@ export function TokenConfigPanel({
         </p>
       )}
 
+      {tokensRequired && (
+        <p
+          style={{
+            fontSize: 12,
+            margin: 0,
+            color: 'var(--muted-foreground, #6b7280)',
+            lineHeight: 1.5,
+          }}
+        >
+          {t('ioi.tokenConfig.requiredForScoringMode')}
+        </p>
+      )}
+
       {/* Fixed budget mode */}
       {mode === 'fixed_budget' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {/* Token budget visualization */}
-          <div
-            style={{
-              display: 'flex',
-              gap: '4px',
-              padding: '10px 0',
-              justifyContent: 'center',
-            }}
-          >
-            {Array.from({ length: Math.min(initial, 20) }).map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  width: '10px',
-                  height: '10px',
-                  borderRadius: '50%',
-                  background: 'var(--primary, #4f46e5)',
-                  opacity: 0.2 + (0.8 * (i + 1)) / Math.min(initial, 20),
-                  transition: 'all 0.15s',
-                  transitionDelay: `${i * 30}ms`,
-                }}
-              />
-            ))}
-          </div>
           <div>
             <label style={fieldLabel}>
               {t('ioi.tokenConfig.initialTokens')}
@@ -309,7 +280,7 @@ export function TokenConfigPanel({
             padding: '4px 0',
           }}
         >
-          {t('ioi.tokenConfig.scoringModeNote')}
+          {t('ioi.tokenConfig.feedbackNote')}
         </div>
       )}
 

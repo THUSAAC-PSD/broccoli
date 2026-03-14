@@ -22,7 +22,6 @@ pub enum FeedbackLevel {
     SubtaskScores,
     TotalOnly,
     None,
-    TokenedFull,
 }
 
 impl Default for FeedbackLevel {

@@ -65,14 +65,14 @@ default = "max_submission"
 [config.contest.properties.feedback_level]
 type = "string"
 title = "Feedback Level"
-description = "How much detail contestants see on the scoreboard"
-enum = ["full", "subtask_scores", "total_only", "none", "tokened_full"]
+description = "Baseline submission feedback visible before a token is used"
+enum = ["full", "subtask_scores", "total_only", "none"]
 default = "full"
 
 [config.contest.properties.tokens]
 type = "object"
 title = "Token Configuration"
-description = "Token system for releasing full feedback on submissions"
+description = "Token system that can unlock full feedback on a submission"
 
 [config.contest.properties.tokens.properties.mode]
 type = "string"
