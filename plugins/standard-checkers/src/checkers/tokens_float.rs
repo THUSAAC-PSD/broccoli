@@ -88,7 +88,11 @@ pub fn check(req: &CheckerParseInput) -> Result<CheckerVerdict, String> {
                         score: 0.0,
                         message: Some(format!(
                             "Float mismatch at token {}: expected {}, got {}, diff {} > tolerance {}",
-                            i + 1, exp, act, diff, tolerance
+                            i + 1,
+                            exp,
+                            act,
+                            diff,
+                            tolerance
                         )),
                     });
                 }

@@ -148,7 +148,7 @@ description = "Labels of test cases in this subtask"
 type = "string"
 
 [web]
-root = "web/dist"
+root = "frontend/dist"
 entry = "index.js"
 
 [web.components]
