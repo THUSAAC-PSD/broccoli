@@ -21,7 +21,12 @@ export function PostAnnouncementDialog({
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
 
+  const MAX_LENGTH = 10000;
+  const trimmed = content.trim();
+  const isValid = trimmed.length > 0 && trimmed.length <= MAX_LENGTH;
+
   const handleSubmit = () => {
+    if (!isValid) return;
     onSubmit(content);
     setContent('');
     setOpen(false);
@@ -43,18 +48,24 @@ export function PostAnnouncementDialog({
           <Textarea
             placeholder="Write an announcement visible to all participants..."
             className="min-h-[150px]"
+            maxLength={MAX_LENGTH}
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground mt-2">
-            This announcement will be immediately visible to all participants.
-          </p>
+          <div className="flex justify-between mt-2">
+            <p className="text-xs text-muted-foreground">
+              This announcement will be immediately visible to all participants.
+            </p>
+            <span className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {trimmed.length}/{MAX_LENGTH}
+            </span>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!content.trim()}>
+          <Button onClick={handleSubmit} disabled={!isValid}>
             Post
           </Button>
         </DialogFooter>

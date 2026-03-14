@@ -32,8 +32,12 @@ export default function LoginForm() {
     try {
       await login({ username, password });
       navigate('/');
-    } catch {
-      setError(t('auth.invalidCredentials'));
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('auth.invalidCredentials');
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }

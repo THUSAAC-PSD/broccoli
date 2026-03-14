@@ -19,7 +19,12 @@ export function AskQuestionDialog({ onSubmit }: AskQuestionDialogProps) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
 
+  const MAX_LENGTH = 10000;
+  const trimmed = content.trim();
+  const isValid = trimmed.length > 0 && trimmed.length <= MAX_LENGTH;
+
   const handleSubmit = () => {
+    if (!isValid) return;
     onSubmit(content);
     setContent('');
     setOpen(false);
@@ -41,19 +46,25 @@ export function AskQuestionDialog({ onSubmit }: AskQuestionDialogProps) {
           <Textarea
             placeholder="Describe your issue clearly (e.g., Problem ID, specific error)..."
             className="min-h-[150px]"
+            maxLength={MAX_LENGTH}
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground mt-2">
-            Your question will be visible only to judges until they decide to
-            make it public.
-          </p>
+          <div className="flex justify-between mt-2">
+            <p className="text-xs text-muted-foreground">
+              Your question will be visible only to judges until they decide to
+              make it public.
+            </p>
+            <span className={`text-xs ${trimmed.length > MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {trimmed.length}/{MAX_LENGTH}
+            </span>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!content.trim()}>
+          <Button onClick={handleSubmit} disabled={!isValid}>
             Send
           </Button>
         </DialogFooter>

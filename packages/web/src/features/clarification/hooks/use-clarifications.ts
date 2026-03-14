@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 import {
   createClarification,
@@ -20,6 +21,12 @@ export function useCreateClarification(contestId: number) {
   return useMutation({
     mutationFn: (body: CreateClarificationBody) =>
       createClarification(contestId, body),
+    onSuccess: () => {
+      toast.success('Submitted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to submit');
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: ['contest-clarifications', contestId],
@@ -40,6 +47,12 @@ export function useReplyClarification(contestId: number) {
         content: payload.content,
         is_public: payload.is_public,
       }),
+    onSuccess: () => {
+      toast.success('Reply sent');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to send reply');
+    },
     onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: ['contest-clarifications', contestId],

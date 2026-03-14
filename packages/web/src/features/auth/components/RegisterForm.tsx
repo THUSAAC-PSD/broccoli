@@ -31,6 +31,22 @@ export default function RegisterForm() {
     e.preventDefault();
     setError('');
 
+    if (
+      !username.trim() ||
+      username.length > 32 ||
+      !/^[A-Za-z0-9_]+$/.test(username)
+    ) {
+      setError(
+        'Username must be 1-32 characters (letters, digits, underscores only)',
+      );
+      return;
+    }
+
+    if (password.length < 8 || password.length > 128) {
+      setError('Password must be 8-128 characters');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError(t('auth.passwordMismatch'));
       return;

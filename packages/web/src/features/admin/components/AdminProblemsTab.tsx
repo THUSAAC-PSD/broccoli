@@ -31,6 +31,7 @@ import {
 import { TestCasesDialog } from '@/features/admin/components/TestCasesDialog';
 import { fetchContestProblems } from '@/features/contest/api/fetch-contest-problems';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
+import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Problem Form Dialog ──
 
@@ -105,6 +106,16 @@ export function ProblemFormDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!title.trim()) {
+      toast.error('Title is required');
+      return;
+    }
+    if (!content.trim()) {
+      toast.error('Problem content is required');
+      return;
+    }
+
     setLoading(true);
 
     const body = {
@@ -126,7 +137,12 @@ export function ProblemFormDialog({
 
     setLoading(false);
     if (result.error) {
-      toast.error(isEdit ? t('admin.editError') : t('admin.createError'));
+      toast.error(
+        extractErrorMessage(
+          result.error,
+          isEdit ? t('admin.editError') : t('admin.createError'),
+        ),
+      );
     } else {
       toast.success(
         isEdit ? t('toast.problem.updated') : t('toast.problem.created'),
@@ -301,7 +317,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
       params: { path: { id: problem.id } },
     });
     if (error) {
-      toast.error(t('toast.problem.deleteError'));
+      toast.error(extractErrorMessage(error, t('toast.problem.deleteError')));
     } else {
       toast.success(t('toast.problem.deleted'));
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });

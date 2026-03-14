@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SwitchField } from '@/features/admin/components/SwitchField';
+import { extractErrorMessage } from '@/lib/extract-error';
 
 interface TestCaseFormDialogProps {
   problemId: number;
@@ -101,7 +102,12 @@ export function TestCaseFormDialog({
 
     setLoading(false);
     if (result.error) {
-      toast.error(isEdit ? t('admin.editError') : t('admin.createError'));
+      toast.error(
+        extractErrorMessage(
+          result.error,
+          isEdit ? t('admin.editError') : t('admin.createError'),
+        ),
+      );
     } else {
       toast.success(
         isEdit ? t('toast.testCase.updated') : t('toast.testCase.created'),
