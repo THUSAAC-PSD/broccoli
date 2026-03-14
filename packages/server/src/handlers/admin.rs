@@ -17,7 +17,7 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::plugin::{PluginDetailResponse, ReloadAllResponse, ReloadFailure};
 use crate::state::AppState;
-use crate::utils::plugin::{call_plugin_init, purge_plugin_registrations};
+use crate::utils::plugin::{activate_plugin, purge_plugin_registrations};
 
 #[utoipa::path(
     get,
@@ -118,9 +118,7 @@ pub async fn enable_plugin(
         )));
     }
 
-    state.plugins.load_plugin(&id)?;
-    call_plugin_init(state.plugins.as_ref(), &id).await;
-    state.plugins.update_translations()?;
+    activate_plugin(&state, &id).await.map_err(AppError::from)?;
 
     let plugin_model = plugin_entity::ActiveModel {
         id: Unchanged(id.clone()),
@@ -220,8 +218,7 @@ pub async fn reload_plugin(
 
     purge_plugin_registrations(&state.registries, &id).await;
     state.plugins.reload_plugin(&id)?;
-    call_plugin_init(state.plugins.as_ref(), &id).await;
-    state.plugins.update_translations()?;
+    activate_plugin(&state, &id).await.map_err(AppError::from)?;
 
     Ok(Json(serde_json::json!({
         "message": format!("Plugin '{}' reloaded successfully", id)
@@ -265,7 +262,15 @@ pub async fn reload_all_plugins(
         purge_plugin_registrations(&state.registries, id).await;
         match state.plugins.reload_plugin(id) {
             Ok(()) => {
-                reloaded.push(id.clone());
+                if let Err(e) = activate_plugin(&state, id).await {
+                    tracing::error!("Failed to activate plugin '{}' after reload: {}", id, e);
+                    failed.push(ReloadFailure {
+                        id: id.clone(),
+                        error: e.to_string(),
+                    });
+                } else {
+                    reloaded.push(id.clone());
+                }
             }
             Err(e) => {
                 tracing::error!("Failed to reload plugin '{}': {}", id, e);
@@ -300,7 +305,7 @@ pub async fn reload_all_plugins(
             }
         }
 
-        match state.plugins.load_plugin(id) {
+        match activate_plugin(&state, id).await {
             Ok(()) => {}
             Err(e) => {
                 tracing::error!("Failed to load new plugin '{}': {}", id, e);
@@ -311,19 +316,6 @@ pub async fn reload_all_plugins(
             }
         }
     }
-
-    let failed_ids: std::collections::HashSet<&str> =
-        failed.iter().map(|f| f.id.as_str()).collect();
-    for id in reloaded.iter().chain(new_ids.iter()) {
-        if !failed_ids.contains(id.as_str()) {
-            call_plugin_init(state.plugins.as_ref(), id).await;
-        }
-    }
-
-    state
-        .plugins
-        .update_translations()
-        .map_err(AppError::from)?;
 
     Ok(Json(ReloadAllResponse {
         reloaded,
@@ -587,16 +579,9 @@ pub async fn upload_plugin(
         registry.insert(plugin_id.clone(), new_entry);
     }
 
-    state
-        .plugins
-        .load_plugin(&plugin_id)
-        .map_err(|e| AppError::Internal(format!("Failed to load plugin after upload: {}", e)))?;
-
-    call_plugin_init(state.plugins.as_ref(), &plugin_id).await;
-    state
-        .plugins
-        .update_translations()
-        .map_err(AppError::from)?;
+    activate_plugin(&state, &plugin_id).await.map_err(|e| {
+        AppError::Internal(format!("Failed to activate plugin after upload: {}", e))
+    })?;
 
     let existing = plugin_entity::Entity::find_by_id(plugin_id.clone())
         .one(&state.db)

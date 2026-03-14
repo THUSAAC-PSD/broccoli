@@ -131,6 +131,47 @@ mod plugin_routing {
         assert_eq!(res.body["method"], "GET");
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn valid_token_is_forwarded_to_unprotected_plugin_routes() {
+        let app = TestApp::spawn_with_plugins().await;
+        let token = app
+            .create_user_with_role("plugin_user", "securepass", "contestant")
+            .await;
+
+        let me = app.get_with_token(routes::ME, &token).await;
+        assert_eq!(me.status, 200);
+
+        let res = app
+            .get_with_token(
+                &routes::plugin_proxy("server-plugin", "reflect/123"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["auth_user_id"], me.body["id"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn protected_route_distinguishes_missing_and_invalid_tokens() {
+        let app = TestApp::spawn_with_plugins().await;
+
+        let missing = app
+            .get_without_token(&routes::plugin_proxy("server-plugin", "protected/123"))
+            .await;
+        assert_eq!(missing.status, 401);
+        assert_eq!(missing.body["code"], "TOKEN_MISSING");
+
+        let invalid = app
+            .get_with_token(
+                &routes::plugin_proxy("server-plugin", "protected/123"),
+                "bad.token",
+            )
+            .await;
+        assert_eq!(invalid.status, 401);
+        assert_eq!(invalid.body["code"], "TOKEN_INVALID");
+    }
+
     #[tokio::test]
     async fn nonexistent_route_returns_not_found() {
         let app = TestApp::spawn().await;

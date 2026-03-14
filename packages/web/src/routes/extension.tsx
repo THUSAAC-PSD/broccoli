@@ -1,8 +1,8 @@
-import { usePluginRegistry } from '@broccoli/sdk/react';
+import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
+import { Skeleton } from '@broccoli/web-sdk/ui';
 import { matchPath, useLocation } from 'react-router';
 
 import { ErrorCatcher } from '@/components/ErrorCatcher';
-import { Skeleton } from '@/components/ui/skeleton';
 
 /**
  * ExtensionPage

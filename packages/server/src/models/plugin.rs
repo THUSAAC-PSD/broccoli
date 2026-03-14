@@ -2,6 +2,19 @@ use plugin_core::manifest::{ComponentMap, WebRouteConfig, WebSlotConfig};
 use plugin_core::registry::{PluginInfo, PluginStatus};
 use serde::Serialize;
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct LanguageRegistryItem {
+    /// Language identifier used in submission payloads.
+    #[schema(example = "cpp")]
+    pub id: String,
+    /// Human-friendly display name.
+    #[schema(example = "C++")]
+    pub name: String,
+    /// Default source filename derived from the language config.
+    #[schema(example = "solution.cpp")]
+    pub default_filename: String,
+}
+
 /// Available registry values for problem types, checker formats, and contest types.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct RegistriesResponse {
@@ -16,6 +29,9 @@ pub struct RegistriesResponse {
     /// Available contest types (e.g. "icpc", "ioi").
     #[schema(example = json!(["icpc", "ioi"]))]
     pub contest_types: Vec<String>,
+
+    /// Configured submission languages from the server config.
+    pub languages: Vec<LanguageRegistryItem>,
 }
 
 /// Response model for listing active web plugins.

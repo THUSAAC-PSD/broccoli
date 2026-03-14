@@ -1,16 +1,22 @@
-import type { ConfigSchemaResponse } from '@broccoli/sdk';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { PluginDetail } from '@broccoli/web-sdk/plugin';
+import { Slot } from '@broccoli/web-sdk/slot';
+import { Button, DialogFooter } from '@broccoli/web-sdk/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { DialogFooter } from '@/components/ui/dialog';
-
 import { SchemaFields } from './SchemaFields';
 import type { ConfigScope, JsonSchema } from './types';
-import { deepMerge, extractDefaults, validateAll } from './utils';
+import {
+  deepMerge,
+  extractDefaults,
+  hasOwnDescendantValue,
+  hasOwnValueAtPath,
+  validateAll,
+} from './utils';
+
+type ConfigSchemaResponse = PluginDetail['config_schemas'][number];
 
 export interface ConfigFormProps {
   schema: ConfigSchemaResponse;
@@ -39,6 +45,7 @@ export function ConfigForm({
   const defaults = useMemo(() => extractDefaults(jsonSchema), [jsonSchema]);
 
   const [values, setValues] = useState<Record<string, unknown>>(defaults);
+  const [storedValues, setStoredValues] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -55,16 +62,31 @@ export function ConfigForm({
 
     getConfig()
       .then((config) => {
+        setStoredValues(config);
         setValues(deepMerge(defaults, config));
       })
       .catch((err) => {
         if (err?.code !== 'NOT_FOUND') {
           setMessage({ type: 'error', text: t('plugins.config.loadError') });
         }
+        setStoredValues({});
         setValues(defaults);
       })
       .finally(() => setLoadingData(false));
   }, [open, schema.namespace]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isUsingDefaultsOnly = useMemo(
+    () => !hasOwnDescendantValue(storedValues, []),
+    [storedValues],
+  );
+  const isExplicitValue = useCallback(
+    (path: string[]) => hasOwnValueAtPath(storedValues, path),
+    [storedValues],
+  );
+  const hasExplicitDescendant = useCallback(
+    (path: string[]) => hasOwnDescendantValue(storedValues, path),
+    [storedValues],
+  );
 
   const updateValue = useCallback((path: string[], value: unknown) => {
     setValues((prev) => {
@@ -112,6 +134,7 @@ export function ConfigForm({
     if (error) {
       setMessage({ type: 'error', text: t('plugins.config.saveError') });
     } else {
+      setStoredValues(values);
       setMessage({ type: 'success', text: t('plugins.config.saveSuccess') });
       if (invalidateQueryKeys) {
         for (const key of invalidateQueryKeys) {
@@ -137,6 +160,7 @@ export function ConfigForm({
     if (error) {
       setMessage({ type: 'error', text: t('plugins.config.deleteError') });
     } else {
+      setStoredValues({});
       setValues(defaults);
       setErrors({});
       setMessage({
@@ -176,21 +200,34 @@ export function ConfigForm({
             pluginId,
             namespace: schema.namespace,
             values,
+            storedValues,
             schema: jsonSchema,
+            isUsingDefaultsOnly,
+            hasExplicitValue: (path: string | string[]) =>
+              isExplicitValue(Array.isArray(path) ? path : [path]),
           }}
         />
+      )}
+
+      {isUsingDefaultsOnly && (
+        <div className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          {t('plugins.config.unsetNotice')}
+        </div>
       )}
 
       <div className="space-y-5">
         <SchemaFields
           schema={jsonSchema}
           values={values}
+          rootValues={values}
           path={[]}
           updateValue={updateValue}
           errors={errors}
           pluginId={pluginId}
           namespace={schema.namespace}
           scope={scope}
+          isExplicitValue={isExplicitValue}
+          hasExplicitDescendant={hasExplicitDescendant}
         />
       </div>
 

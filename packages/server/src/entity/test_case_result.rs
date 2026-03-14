@@ -14,6 +14,7 @@ pub struct Model {
     #[sea_orm(unique_key = "submission_test_case")]
     pub test_case_id: i32,
 
+    #[sea_orm(column_type = "Text")]
     pub verdict: Verdict,
     #[sea_orm(column_type = "Double")]
     pub score: f64,

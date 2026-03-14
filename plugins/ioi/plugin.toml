@@ -153,6 +153,7 @@ entry = "index.js"
 
 [web.components]
 ScoringModeSelector = "ScoringModeSelector"
+FeedbackLevelSelector = "FeedbackLevelSelector"
 SubtaskEditor = "SubtaskEditor"
 TokenConfigPanel = "TokenConfigPanel"
 IoiScoreboard = "IoiScoreboard"
@@ -177,6 +178,11 @@ component = "IoiConfigBanner"
 name = "config.field.ioi.contest.scoring_mode"
 position = "replace"
 component = "ScoringModeSelector"
+
+[[web.slots]]
+name = "config.field.ioi.contest.feedback_level"
+position = "replace"
+component = "FeedbackLevelSelector"
 
 [[web.slots]]
 name = "config.field.ioi.contest.tokens"

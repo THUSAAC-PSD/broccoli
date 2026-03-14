@@ -1,13 +1,27 @@
-import type { SubmissionResponse, TestCaseResultResponse } from '@broccoli/sdk';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { useSlotPermissions } from '@broccoli/web-sdk/slot';
+import type { Submission, TestCaseResult } from '@broccoli/web-sdk/submission';
 import Editor from '@monaco-editor/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  FileText,
+  Loader2,
+  MinusCircle,
+  XCircle,
+} from 'lucide-react';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 
+import { resolveFeedbackVisibility } from './feedback-visibility';
 import { useIoiApi } from './hooks/useIoiApi';
 import { useIsIoiContest } from './hooks/useIsIoiContest';
+import { canViewPrivilegedSubmissionFeedback } from './permissions';
 import type {
+  ContestInfoResponse,
   SubtaskInfo,
   SubtaskScoreEntry,
   SubtaskScoresResponse,
@@ -15,8 +29,8 @@ import type {
 } from './types';
 
 interface IoiSubmissionResultProps {
-  submission?: SubmissionResponse | null;
-  testCases?: TestCaseResultResponse[];
+  submission?: Submission | null;
+  testCases?: TestCaseResult[];
 }
 
 const MONO: React.CSSProperties = {
@@ -28,7 +42,7 @@ const MONO: React.CSSProperties = {
 const LANG_DISPLAY: Record<string, { name: string; color: string }> = {
   cpp: { name: 'C++', color: '#00599c' },
   c: { name: 'C', color: '#555555' },
-  python: { name: 'Python', color: '#3572a5' },
+  python3: { name: 'Python 3', color: '#3572a5' },
   java: { name: 'Java', color: '#b07219' },
   rust: { name: 'Rust', color: '#dea584' },
   go: { name: 'Go', color: '#00add8' },
@@ -52,7 +66,16 @@ const VERDICT_META: Record<string, { color: string; bg: string }> = {
   Skipped: { color: '#9ca3af', bg: 'rgba(156,163,175,0.08)' },
 };
 
-/** Inline SVG icons for each verdict */
+const VERDICT_ICONS = {
+  Accepted: CheckCircle2,
+  WrongAnswer: XCircle,
+  TimeLimitExceeded: Clock,
+  MemoryLimitExceeded: Clock,
+  RuntimeError: AlertCircle,
+  SystemError: AlertCircle,
+  Skipped: MinusCircle,
+} as const;
+
 function VerdictIcon({
   verdict,
   size = 14,
@@ -60,182 +83,12 @@ function VerdictIcon({
   verdict: string;
   size?: number;
 }) {
-  const s = `${size}`;
-  const sw = '1.8';
   const meta = VERDICT_META[verdict];
   const c = meta?.color ?? '#6b7280';
+  const Icon =
+    VERDICT_ICONS[verdict as keyof typeof VERDICT_ICONS] ?? AlertCircle;
 
-  switch (verdict) {
-    // Checkmark in circle
-    case 'Accepted':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
-          <path
-            d="M5 8.5l2 2 4-4.5"
-            stroke={c}
-            strokeWidth={sw}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
-    // X in circle
-    case 'WrongAnswer':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
-          <path
-            d="M5.5 5.5l5 5M10.5 5.5l-5 5"
-            stroke={c}
-            strokeWidth={sw}
-            strokeLinecap="round"
-          />
-        </svg>
-      );
-    // Clock
-    case 'TimeLimitExceeded':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
-          <path
-            d="M8 4.5v4l2.5 1.5"
-            stroke={c}
-            strokeWidth={sw}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
-    // Memory chip / stack bars
-    case 'MemoryLimitExceeded':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <rect
-            x="3"
-            y="3"
-            width="10"
-            height="10"
-            rx="1.5"
-            stroke={c}
-            strokeWidth="1.5"
-          />
-          <path
-            d="M6 6v4M8 7.5v2.5M10 5v5"
-            stroke={c}
-            strokeWidth={sw}
-            strokeLinecap="round"
-          />
-        </svg>
-      );
-    // Lightning bolt
-    case 'RuntimeError':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <path
-            d="M9 2L4 9h4l-1 5 5-7H8l1-5z"
-            stroke={c}
-            strokeWidth="1.3"
-            strokeLinejoin="round"
-            fill={`${c}22`}
-          />
-        </svg>
-      );
-    // Warning triangle
-    case 'SystemError':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <path
-            d="M8 2.5L14.5 13H1.5L8 2.5z"
-            stroke={c}
-            strokeWidth="1.3"
-            strokeLinejoin="round"
-          />
-          <path d="M8 7v3" stroke={c} strokeWidth={sw} strokeLinecap="round" />
-          <circle cx="8" cy="11.5" r="0.7" fill={c} />
-        </svg>
-      );
-    // Dash / skip
-    case 'Skipped':
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <circle
-            cx="8"
-            cy="8"
-            r="7"
-            stroke={c}
-            strokeWidth="1.5"
-            strokeDasharray="3 2"
-          />
-          <path d="M5 8h6" stroke={c} strokeWidth={sw} strokeLinecap="round" />
-        </svg>
-      );
-    // Unknown
-    default:
-      return (
-        <svg
-          width={s}
-          height={s}
-          viewBox="0 0 16 16"
-          fill="none"
-          style={{ flexShrink: 0 }}
-        >
-          <circle cx="8" cy="8" r="7" stroke={c} strokeWidth="1.5" />
-          <text
-            x="8"
-            y="11"
-            textAnchor="middle"
-            fill={c}
-            fontSize="9"
-            fontWeight="700"
-          >
-            ?
-          </text>
-        </svg>
-      );
-  }
+  return <Icon size={size} color={c} style={{ flexShrink: 0 }} />;
 }
 
 function scoreColor(score: number, maxScore: number): string {
@@ -255,55 +108,10 @@ function formatKb(kb: number): string {
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 }
 
-function ScoreRing({
-  score,
-  max,
-  size = 36,
-}: {
-  score: number;
-  max: number;
-  size?: number;
-}) {
-  const r = (size - 6) / 2;
-  const c = 2 * Math.PI * r;
-  const frac = max > 0 ? Math.min(score / max, 1) : 0;
-  const color = scoreColor(score, max);
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      style={{ flexShrink: 0 }}
-    >
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke="var(--border, rgba(0,0,0,0.08))"
-        strokeWidth="3"
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke={color}
-        strokeWidth="3"
-        strokeDasharray={`${frac * c} ${c}`}
-        strokeLinecap="round"
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{ transition: 'stroke-dasharray 0.5s ease' }}
-      />
-    </svg>
-  );
-}
-
 const MONACO_LANG: Record<string, string> = {
   cpp: 'cpp',
   c: 'c',
-  python: 'python',
+  python3: 'python',
   java: 'java',
   rust: 'rust',
   go: 'go',
@@ -358,20 +166,11 @@ function CodeViewer({
           style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
         >
           {/* File icon */}
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
+          <FileText
+            size={14}
+            color="#cdd6f4"
             style={{ flexShrink: 0, opacity: 0.5 }}
-          >
-            <path
-              d="M3 1h5l3 3v8a1 1 0 01-1 1H3a1 1 0 01-1-1V2a1 1 0 011-1z"
-              fill="none"
-              stroke="#cdd6f4"
-              strokeWidth="1.2"
-            />
-            <path d="M8 1v3h3" fill="none" stroke="#cdd6f4" strokeWidth="1.2" />
-          </svg>
+          />
           <span
             style={{
               ...MONO,
@@ -402,25 +201,15 @@ function CodeViewer({
             </span>
           )}
         </div>
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
+        <ChevronDown
+          size={16}
+          color="#6c7086"
           style={{
             flexShrink: 0,
             transition: 'transform 0.2s ease',
             transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
           }}
-        >
-          <path
-            d="M4 6l4 4 4-4"
-            fill="none"
-            stroke="#6c7086"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        />
       </button>
 
       {/* Collapsible body using grid-template-rows trick */}
@@ -488,31 +277,7 @@ function CompileOutput({ output }: { output: string }) {
           borderBottom: '1px solid #313244',
         }}
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          style={{ flexShrink: 0 }}
-        >
-          <circle
-            cx="7"
-            cy="7"
-            r="6"
-            fill="none"
-            stroke="#ef4444"
-            strokeWidth="1.2"
-          />
-          <line
-            x1="7"
-            y1="4"
-            x2="7"
-            y2="8"
-            stroke="#ef4444"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-          <circle cx="7" cy="10" r="0.8" fill="#ef4444" />
-        </svg>
+        <AlertCircle size={14} color="#ef4444" style={{ flexShrink: 0 }} />
         <span style={{ fontSize: 12, fontWeight: 600, color: '#f38ba8' }}>
           {t('ioi.submission.compilationError')}
         </span>
@@ -561,25 +326,7 @@ function RejectionBanner() {
         borderLeft: '3px solid #d97706',
       }}
     >
-      <svg width="18" height="18" viewBox="0 0 18 18" style={{ flexShrink: 0 }}>
-        <path
-          d="M9 2L16 15H2L9 2z"
-          fill="none"
-          stroke="#d97706"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <line
-          x1="9"
-          y1="7"
-          x2="9"
-          y2="11"
-          stroke="#d97706"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-        <circle cx="9" cy="13" r="0.7" fill="#d97706" />
-      </svg>
+      <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0 }} />
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>
           {t('ioi.submission.rejected.title')}
@@ -753,7 +500,7 @@ function TestCaseDetailPanel({
   );
 }
 
-function RunningTestCaseList({
+function TestCaseResultList({
   testCases,
 }: {
   testCases: TestCaseResultResponse[];
@@ -881,26 +628,16 @@ function RunningTestCaseList({
                 </span>
               )}
               {clickable && (
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 10 10"
+                <ChevronDown
+                  size={10}
+                  color={vm.color}
                   style={{
                     flexShrink: 0,
                     transition: 'transform 0.2s ease',
                     transform: isSelected ? 'rotate(180deg)' : 'rotate(0deg)',
                     opacity: 0.5,
                   }}
-                >
-                  <path
-                    d="M2 3.5l3 3 3-3"
-                    fill="none"
-                    stroke={vm.color}
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                />
               )}
             </div>
           );
@@ -912,6 +649,71 @@ function RunningTestCaseList({
           <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
         </div>
       )}
+    </div>
+  );
+}
+
+function TotalScoreSummary({
+  totalScore,
+  maxScore,
+  tokened,
+}: {
+  totalScore: number;
+  maxScore: number;
+  tokened?: boolean;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        padding: '16px 20px',
+        borderRadius: 8,
+        background: 'var(--muted, rgba(0,0,0,0.02))',
+        border: '1px solid var(--border, rgba(0,0,0,0.08))',
+      }}
+    >
+      <div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            color: 'var(--muted-foreground, #94a3b8)',
+            marginBottom: 2,
+          }}
+        >
+          {t('ioi.submission.totalScore')}
+          {tokened && <TokenedBadge />}
+        </div>
+        <div
+          style={{
+            ...MONO,
+            fontSize: 24,
+            fontWeight: 700,
+            color: scoreColor(totalScore, maxScore),
+          }}
+        >
+          {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
+          <span
+            style={{
+              fontWeight: 400,
+              fontSize: 16,
+              color: 'var(--muted-foreground, #94a3b8)',
+            }}
+          >
+            /{maxScore.toFixed(maxScore === Math.floor(maxScore) ? 0 : 2)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -978,7 +780,6 @@ function SubtaskCard({
         <div
           style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
         >
-          <ScoreRing score={score} max={maxScore} size={28} />
           <div style={{ minWidth: 0 }}>
             <div
               style={{
@@ -1160,10 +961,9 @@ function SubtaskCard({
                     </span>
                   )}
                   {clickable && (
-                    <svg
-                      width="10"
-                      height="10"
-                      viewBox="0 0 10 10"
+                    <ChevronDown
+                      size={10}
+                      color={vm.color}
                       style={{
                         flexShrink: 0,
                         transition: 'transform 0.2s ease',
@@ -1172,16 +972,7 @@ function SubtaskCard({
                           : 'rotate(0deg)',
                         opacity: 0.5,
                       }}
-                    >
-                      <path
-                        d="M2 3.5l3 3 3-3"
-                        fill="none"
-                        stroke={vm.color}
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    />
                   )}
                 </div>
               );
@@ -1301,15 +1092,7 @@ function SubmissionStatusBadge({ status }: { status: string }) {
       }}
     >
       {status === 'Running' && (
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            background: s.color,
-            animation: 'ioi-pulse 1s ease-in-out infinite',
-          }}
-        />
+        <Loader2 size={12} color={s.color} className="animate-spin" />
       )}
       {t(`ioi.submission.status.${status}`, status)}
     </div>
@@ -1335,6 +1118,10 @@ export function IoiSubmissionResult({
   const api = useIoiApi();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const slotPermissions = useSlotPermissions();
+  const hasPrivilegedSubmissionAccess = canViewPrivilegedSubmissionFeedback(
+    slotPermissions?.permissions,
+  );
 
   // Invalidate submission-status when a submission reaches terminal status.
   const prevStatusRef = useRef(submission?.status);
@@ -1364,10 +1151,45 @@ export function IoiSubmissionResult({
   });
   const taskConfig = taskConfigQuery.data;
 
+  const contestInfoQuery = useQuery<ContestInfoResponse>({
+    queryKey: ['ioi-contest-info', contestId],
+    enabled: !!contestId && isIoi,
+    queryFn: () => api.getContestInfo(contestId!),
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  });
+  const contestInfo = contestInfoQuery.data;
+
+  const { data: tokenStatus } = useQuery({
+    queryKey: ['ioi-token-status', contestId],
+    enabled:
+      !!contestId &&
+      isIoi &&
+      !!taskConfig &&
+      resolveFeedbackVisibility({
+        taskConfig,
+        contestInfo,
+        isTokened: false,
+        canViewPrivilegedSubmissionFeedback: hasPrivilegedSubmissionAccess,
+      }).needsTokenStatus,
+    queryFn: () => api.getTokenStatus(contestId!),
+    staleTime: 60000,
+  });
+
+  const isTokened =
+    tokenStatus?.tokened_submission_ids?.includes(submission?.id ?? -1) ??
+    false;
+  const visibility = taskConfig
+    ? resolveFeedbackVisibility({
+        taskConfig,
+        contestInfo,
+        isTokened,
+        canViewPrivilegedSubmissionFeedback: hasPrivilegedSubmissionAccess,
+      })
+    : null;
   const feedbackNeedsSubtasks =
-    taskConfig?.feedback_level != null &&
-    taskConfig.feedback_level !== 'none' &&
-    taskConfig.feedback_level !== 'total_only';
+    visibility?.effectiveFeedback === 'subtask_scores' ||
+    visibility?.effectiveFeedback === 'full';
   const subtaskScoresQuery = useQuery<SubtaskScoresResponse>({
     queryKey: ['ioi-subtask-scores', contestId, submission?.id],
     enabled: !!contestId && !!submission?.id && isIoi && feedbackNeedsSubtasks,
@@ -1375,16 +1197,6 @@ export function IoiSubmissionResult({
     retry: 2,
   });
   const subtaskScoresData = subtaskScoresQuery.data;
-
-  const needsTokenInfo =
-    taskConfig?.scoring_mode === 'best_tokened_or_last' ||
-    taskConfig?.feedback_level === 'tokened_full';
-  const { data: tokenStatus } = useQuery({
-    queryKey: ['ioi-token-status', contestId],
-    enabled: !!contestId && isIoi && !!needsTokenInfo,
-    queryFn: () => api.getTokenStatus(contestId!),
-    staleTime: 60000,
-  });
 
   if (guardLoading || !isIoi) return null;
   if (!submission) return null;
@@ -1485,33 +1297,19 @@ export function IoiSubmissionResult({
 
   if (!submission.result || !taskConfig) return codeViewer;
 
-  const isTokened =
-    needsTokenInfo &&
-    tokenStatus?.tokened_submission_ids?.includes(submission.id);
-
   const allTestCases = testCases ?? submission.result.test_case_results ?? [];
-  const feedbackLevel = taskConfig.feedback_level;
-
-  // Feedback: none. Show processing status but not scores/verdicts
-  // tokened_full when not tokened also behaves like "none"
-  const effectiveFeedback =
-    feedbackLevel === 'tokened_full'
-      ? isTokened
-        ? 'full'
-        : 'none'
-      : feedbackLevel;
+  const { effectiveFeedback } = visibility;
 
   if (
     submission.status === 'Running' &&
     allTestCases.length > 0 &&
-    effectiveFeedback !== 'none' &&
-    effectiveFeedback !== 'total_only'
+    effectiveFeedback === 'full'
   ) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {codeViewer}
         <SubmissionStatusBadge status={submission.status} />
-        <RunningTestCaseList testCases={allTestCases} />
+        <TestCaseResultList testCases={allTestCases} />
       </div>
     );
   }
@@ -1562,62 +1360,11 @@ export function IoiSubmissionResult({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {codeViewer}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: '16px 20px',
-            borderRadius: 8,
-            background: 'var(--muted, rgba(0,0,0,0.02))',
-            border: '1px solid var(--border, rgba(0,0,0,0.08))',
-          }}
-        >
-          <ScoreRing score={totalScore} max={configMaxScore} size={44} />
-          <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 10,
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                color: 'var(--muted-foreground, #94a3b8)',
-                marginBottom: 2,
-              }}
-            >
-              {t('ioi.submission.totalScore')}
-              {isTokened && <TokenedBadge />}
-            </div>
-            <div
-              style={{
-                ...MONO,
-                fontSize: 24,
-                fontWeight: 700,
-                color: scoreColor(totalScore, configMaxScore),
-              }}
-            >
-              {totalScore.toFixed(
-                totalScore === Math.floor(totalScore) ? 0 : 2,
-              )}
-              <span
-                style={{
-                  fontWeight: 400,
-                  fontSize: 16,
-                  color: 'var(--muted-foreground, #94a3b8)',
-                }}
-              >
-                /
-                {configMaxScore.toFixed(
-                  configMaxScore === Math.floor(configMaxScore) ? 0 : 2,
-                )}
-              </span>
-            </div>
-          </div>
-        </div>
+        <TotalScoreSummary
+          totalScore={totalScore}
+          maxScore={configMaxScore}
+          tokened={visibility.usesTokenMode && isTokened}
+        />
       </div>
     );
   }
@@ -1627,45 +1374,25 @@ export function IoiSubmissionResult({
 
   if (!subtaskScores || subtaskScores.length === 0) {
     const totalScore = submission.result.score ?? 0;
+
+    if (effectiveFeedback === 'full' && allTestCases.length > 0) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {codeViewer}
+          <TotalScoreSummary
+            totalScore={totalScore}
+            maxScore={configMaxScore}
+            tokened={visibility.usesTokenMode && isTokened}
+          />
+          <TestCaseResultList testCases={allTestCases} />
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {codeViewer}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: '16px 20px',
-            borderRadius: 8,
-            background: 'var(--muted, rgba(0,0,0,0.02))',
-            border: '1px solid var(--border, rgba(0,0,0,0.08))',
-          }}
-        >
-          <ScoreRing score={totalScore} max={configMaxScore} size={44} />
-          <div
-            style={{
-              ...MONO,
-              fontSize: 24,
-              fontWeight: 700,
-              color: scoreColor(totalScore, configMaxScore),
-            }}
-          >
-            {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
-            <span
-              style={{
-                fontWeight: 400,
-                fontSize: 16,
-                color: 'var(--muted-foreground, #94a3b8)',
-              }}
-            >
-              /
-              {configMaxScore.toFixed(
-                configMaxScore === Math.floor(configMaxScore) ? 0 : 2,
-              )}
-            </span>
-          </div>
-        </div>
+        <TotalScoreSummary totalScore={totalScore} maxScore={configMaxScore} />
       </div>
     );
   }
@@ -1733,7 +1460,6 @@ export function IoiSubmissionResult({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <ScoreRing score={totalScore} max={maxPossible} size={32} />
           <span
             style={{
               display: 'flex',
@@ -1747,7 +1473,7 @@ export function IoiSubmissionResult({
             }}
           >
             {t('ioi.submission.total')}
-            {isTokened && <TokenedBadge />}
+            {visibility.usesTokenMode && isTokened && <TokenedBadge />}
           </span>
         </div>
         <span

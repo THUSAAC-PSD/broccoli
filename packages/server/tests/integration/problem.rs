@@ -45,6 +45,7 @@ async fn insert_contest_association_for_problem(app: &TestApp, problem_id: i32) 
     let c = contest::ActiveModel {
         title: Set("Test Contest".into()),
         description: Set("A test contest".into()),
+        activate_time: Set(Some(now)),
         start_time: Set(now),
         end_time: Set(now + chrono::Duration::hours(3)),
         is_public: Set(false),
@@ -578,7 +579,7 @@ mod problem_deletion {
     }
 
     #[tokio::test]
-    async fn cannot_delete_a_problem_that_has_submissions() {
+    async fn can_soft_delete_a_problem_that_has_submissions() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin13", "password123", "admin")
@@ -589,8 +590,7 @@ mod problem_deletion {
 
         let res = app.delete_with_token(&routes::problem(id), &token).await;
 
-        assert_eq!(res.status, 409);
-        assert_eq!(res.body["code"], "CONFLICT");
+        assert_eq!(res.status, 204);
     }
 
     #[tokio::test]
@@ -607,6 +607,36 @@ mod problem_deletion {
 
         assert_eq!(res.status, 409);
         assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn soft_deleted_problem_cannot_create_new_test_case() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_softdel_problem", "password123", "admin")
+            .await;
+
+        let id = app.create_problem(&token, "Soft Deleted Problem").await;
+
+        let delete_res = app.delete_with_token(&routes::problem(id), &token).await;
+        assert_eq!(delete_res.status, 204);
+
+        let create_tc_res = app
+            .post_with_token(
+                &routes::test_cases(id),
+                &json!({
+                    "input": "1 2",
+                    "expected_output": "3",
+                    "score": 10,
+                    "is_sample": false,
+                    "label": "tc_soft_deleted"
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(create_tc_res.status, 404);
+        assert_eq!(create_tc_res.body["code"], "NOT_FOUND");
     }
 }
 
@@ -640,6 +670,33 @@ mod test_case_creation {
         assert_eq!(res.body["score"], 10);
         assert_eq!(res.body["is_sample"], true);
         assert_eq!(res.body["problem_id"], pid);
+    }
+
+    #[tokio::test]
+    async fn create_defaults_label_to_position_when_omitted() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_default_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Default Label Problem").await;
+
+        let res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "3\n1 2 3",
+                    "expected_output": "6",
+                    "score": 10,
+                    "is_sample": true
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["position"], 0);
+        assert_eq!(res.body["label"], "0");
     }
 
     #[tokio::test]
@@ -763,6 +820,48 @@ mod test_case_creation {
             pos2 > pos1,
             "Second test case should have a higher position"
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_label_within_problem() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_dup_create", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Duplicate Label Problem").await;
+
+        let first = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1",
+                    "expected_output": "1",
+                    "score": 10,
+                    "is_sample": false,
+                    "label": "dup_label"
+                }),
+                &token,
+            )
+            .await;
+        assert_eq!(first.status, 201);
+
+        let second = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "2",
+                    "expected_output": "2",
+                    "score": 10,
+                    "is_sample": false,
+                    "label": "dup_label"
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(second.status, 409);
+        assert_eq!(second.body["code"], "CONFLICT");
     }
 }
 
@@ -1029,6 +1128,42 @@ mod test_case_update {
     }
 
     #[tokio::test]
+    async fn null_label_in_patch_leaves_label_unchanged() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_reset_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Reset Label Problem").await;
+        let tc_id = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1",
+                    "expected_output": "1",
+                    "score": 10,
+                    "is_sample": false,
+                    "position": 7,
+                    "label": "custom_label"
+                }),
+                &token,
+            )
+            .await
+            .id();
+
+        let res = app
+            .patch_with_token(
+                &routes::test_case(pid, tc_id),
+                &json!({ "label": null }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["label"], "custom_label");
+    }
+
+    #[tokio::test]
     async fn cannot_update_a_nonexistent_test_case() {
         let app = TestApp::spawn().await;
         let token = app
@@ -1088,6 +1223,61 @@ mod test_case_update {
 
         assert_eq!(res.status, 200);
         assert!(res.body["description"].is_null());
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_label_on_update() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_dup_update", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Duplicate Update Problem").await;
+        let tc_a = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1",
+                    "expected_output": "1",
+                    "score": 5,
+                    "is_sample": false,
+                    "label": "tc_a"
+                }),
+                &token,
+            )
+            .await
+            .id();
+        let tc_b = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "2",
+                    "expected_output": "2",
+                    "score": 5,
+                    "is_sample": false,
+                    "label": "tc_b"
+                }),
+                &token,
+            )
+            .await
+            .id();
+
+        let res = app
+            .patch_with_token(
+                &routes::test_case(pid, tc_b),
+                &json!({ "label": " tc_a " }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+
+        let unchanged = app
+            .get_with_token(&routes::test_case(pid, tc_a), &token)
+            .await;
+        assert_eq!(unchanged.status, 200);
+        assert_eq!(unchanged.body["label"], "tc_a");
     }
 }
 
@@ -1375,6 +1565,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1397,10 +1589,10 @@ mod test_case_zip_upload {
         let pid = app.create_problem(&token, "Test Problem").await;
 
         let zip_data = build_zip(&[
-            ("sample/01.in", "sample input\n"),
-            ("sample/01.ans", "sample output\n"),
-            ("main/01.in", "main input\n"),
-            ("main/01.ans", "main output\n"),
+            ("sample/sample-01.in", "sample input\n"),
+            ("sample/sample-01.ans", "sample output\n"),
+            ("main/main-01.in", "main input\n"),
+            ("main/main-01.ans", "main output\n"),
         ]);
 
         let res = app
@@ -1408,6 +1600,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1441,6 +1635,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1450,28 +1646,34 @@ mod test_case_zip_upload {
     }
 
     #[tokio::test]
-    async fn can_upload_test_cases_with_dot_out_extension() {
+    async fn can_upload_test_cases_with_custom_wildcard_formats() {
         let app = TestApp::spawn().await;
         let token = app
-            .create_user_with_role("admin35", "password123", "admin")
+            .create_user_with_role("admin_wildcard", "password123", "admin")
             .await;
 
-        let pid = app.create_problem(&token, "Test Problem").await;
+        let pid = app.create_problem(&token, "Wildcard Problem").await;
 
-        // Use .out instead of .ans
-        let zip_data = build_zip(&[("01.in", "input1\n"), ("01.out", "output1\n")]);
+        let zip_data = build_zip(&[
+            ("input_01_data.txt", "10 20\n"),
+            ("answer_01_result.ans", "30\n"),
+        ]);
 
         let res = app
             .upload_with_token(
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                Some("input_*_data.txt"),
+                Some("answer_*_result.ans"),
                 &token,
             )
             .await;
 
         assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 1);
+        let tcs = res.body["test_cases"].as_array().unwrap();
+        assert_eq!(tcs[0]["label"], "01");
     }
 
     #[tokio::test]
@@ -1488,6 +1690,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(pid),
                 "not-a-zip.txt",
                 b"this is not a zip file".to_vec(),
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1510,6 +1714,8 @@ mod test_case_zip_upload {
                 &routes::test_cases_upload(99999),
                 "tests.zip",
                 zip_data,
+                Some("*.in"),
+                Some("*.ans"),
                 &token,
             )
             .await;
@@ -1518,7 +1724,7 @@ mod test_case_zip_upload {
     }
 
     #[tokio::test]
-    async fn upload_rejects_zip_with_both_ans_and_out_for_same_stem() {
+    async fn upload_rejects_missing_format_fields() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin50", "password123", "admin")
@@ -1526,24 +1732,86 @@ mod test_case_zip_upload {
 
         let pid = app.create_problem(&token, "Test Problem").await;
 
-        let zip_data = build_zip(&[
-            ("01.in", "input\n"),
-            ("01.ans", "answer\n"),
-            ("01.out", "output\n"),
-        ]);
+        let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
 
         let res = app
             .upload_with_token(
                 &routes::test_cases_upload(pid),
                 "tests.zip",
                 zip_data,
+                None,
+                None,
                 &token,
             )
             .await;
 
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
-        assert!(res.body["message"].as_str().unwrap().contains("Duplicate"));
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_conflicting_existing_label() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_upload_dup_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Upload Label Conflict").await;
+        let existing = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "seed",
+                    "expected_output": "seed",
+                    "score": 1,
+                    "is_sample": false,
+                    "label": "01"
+                }),
+                &token,
+            )
+            .await;
+        assert_eq!(existing.status, 201);
+
+        let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_empty_extracted_label() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_upload_empty_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Upload Empty Label").await;
+        let zip_data = build_zip(&[("input_.txt", "1\n"), ("output_.txt", "2\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("input_*.txt"),
+                Some("output_*.txt"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::entity::{plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
 use common::submission_dispatch::{
-    SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
+    BuildEvalOpsInput, SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
 };
 use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 /// Input for get_next_evaluate_result
@@ -32,6 +33,7 @@ struct EvaluateContext {
     plugin_manager: Arc<dyn PluginManager>,
     evaluator_registry: EvaluatorRegistry,
     evaluate_batches: EvaluateBatches,
+    evaluator_slots: Arc<Semaphore>,
     db: DatabaseConnection,
 }
 
@@ -42,6 +44,7 @@ pub fn create_evaluate_functions(
     plugin_manager: Arc<dyn PluginManager>,
     evaluator_registry: EvaluatorRegistry,
     evaluate_batches: EvaluateBatches,
+    evaluator_slots: Arc<Semaphore>,
     db: DatabaseConnection,
 ) -> Vec<Function> {
     let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext {
@@ -49,6 +52,7 @@ pub fn create_evaluate_functions(
         plugin_manager,
         evaluator_registry,
         evaluate_batches,
+        evaluator_slots,
         db,
     });
 
@@ -87,7 +91,14 @@ fn start_evaluate_batch_fn(
     let input: StartEvaluateBatchInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (caller_plugin_id, plugin_manager, evaluator_registry, evaluate_batches, db) = {
+    let (
+        caller_plugin_id,
+        plugin_manager,
+        evaluator_registry,
+        evaluate_batches,
+        evaluator_slots,
+        db,
+    ) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
@@ -97,26 +108,29 @@ fn start_evaluate_batch_fn(
             guard.plugin_manager.clone(),
             guard.evaluator_registry.clone(),
             guard.evaluate_batches.clone(),
+            guard.evaluator_slots.clone(),
             guard.db.clone(),
         )
     };
 
+    let problem_type = input.problem_type.clone();
     let evaluator = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let registry = evaluator_registry.read().await;
-            registry.get(&input.problem_type).cloned()
+            registry.get(&problem_type).cloned()
         })
     });
 
     let evaluator = evaluator.ok_or_else(|| {
         extism::Error::msg(format!(
             "No evaluator registered for problem type: {}",
-            input.problem_type
+            problem_type
         ))
     })?;
 
-    let mut input = input;
-    if !input.test_cases.is_empty() {
+    let resolved_inputs = if input.test_cases.is_empty() {
+        Vec::new()
+    } else {
         let tc_ids: Vec<i32> = input.test_cases.iter().map(|tc| tc.test_case_id).collect();
         let problem_id = input.test_cases[0].problem_id;
 
@@ -193,23 +207,36 @@ fn start_evaluate_batch_fn(
         let checker_config_value: Option<serde_json::Value> =
             checker_config_model.map(|pc| pc.config);
 
-        for tc in &mut input.test_cases {
-            let (test_input, expected_output) =
-                tc_data_map.get(&tc.test_case_id).ok_or_else(|| {
-                    extism::Error::msg(format!(
-                        "Test case {} not found in database",
-                        tc.test_case_id
-                    ))
-                })?;
-            tc.test_input = test_input.clone();
-            tc.expected_output = expected_output.clone();
-            tc.checker_format = checker_format.clone();
-            tc.checker_config = checker_config_value.clone();
-            tc.checker_source = parsed_checker_source.clone();
-        }
-    }
+        input
+            .test_cases
+            .into_iter()
+            .map(|tc| {
+                let (test_input, expected_output) =
+                    tc_data_map.get(&tc.test_case_id).ok_or_else(|| {
+                        extism::Error::msg(format!(
+                            "Test case {} not found in database",
+                            tc.test_case_id
+                        ))
+                    })?;
 
-    let test_case_count = input.test_cases.len();
+                Ok::<_, extism::Error>(BuildEvalOpsInput {
+                    problem_id: tc.problem_id,
+                    test_case_id: tc.test_case_id,
+                    solution_source: tc.solution_source,
+                    solution_language: tc.solution_language,
+                    time_limit_ms: tc.time_limit_ms,
+                    memory_limit_kb: tc.memory_limit_kb,
+                    test_input: test_input.clone(),
+                    expected_output: expected_output.clone(),
+                    checker_format: checker_format.clone(),
+                    checker_config: checker_config_value.clone(),
+                    checker_source: parsed_checker_source.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    let test_case_count = resolved_inputs.len();
     let batch_id = Uuid::new_v4().to_string();
 
     let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
@@ -221,28 +248,48 @@ fn start_evaluate_batch_fn(
             result_rx: batch_rx,
             pending_count: pending_count.clone(),
             created_at: Instant::now(),
+            cleanup_keys: Arc::new(Vec::new()),
         },
     );
 
     tracing::info!(
         caller = %caller_plugin_id,
         batch_id = %batch_id,
-        problem_type = %input.problem_type,
+        problem_type = %problem_type,
         test_case_count = test_case_count,
         evaluator_plugin = %evaluator.plugin_id,
         evaluator_fn = %evaluator.function_name,
         "Starting evaluate batch"
     );
 
-    for tc_input in input.test_cases {
+    for tc_input in resolved_inputs {
         let pm = plugin_manager.clone();
         let eval_plugin_id = evaluator.plugin_id.clone();
         let eval_fn_name = evaluator.function_name.clone();
+        let evaluator_slots = evaluator_slots.clone();
         let batch_tx = batch_tx.clone();
         let pending = pending_count.clone();
         let tc_id = tc_input.test_case_id;
 
         tokio::spawn(async move {
+            let _permit = match evaluator_slots.acquire_owned().await {
+                Ok(permit) => permit,
+                Err(_) => {
+                    let _ = batch_tx.send(TestCaseVerdict {
+                        test_case_id: tc_id,
+                        verdict: SdkVerdict::SystemError,
+                        score: 0.0,
+                        time_used_ms: None,
+                        memory_used_kb: None,
+                        message: Some("Evaluator dispatcher is shutting down".into()),
+                        stdout: None,
+                        stderr: None,
+                    });
+                    pending.fetch_sub(1, Ordering::SeqCst);
+                    return;
+                }
+            };
+
             let input_bytes = match serde_json::to_vec(&tc_input) {
                 Ok(b) => b,
                 Err(e) => {

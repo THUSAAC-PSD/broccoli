@@ -7,8 +7,8 @@
     "preinstall": "npx only-allow pnpm",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
-    "format": "NODE_OPTIONS=--experimental-strip-types pnpm prettier --write \"{.,packages/**}/*.{ts,tsx,css,scss,html,md}\"",
-    "format:check": "NODE_OPTIONS=--experimental-strip-types pnpm prettier --check \"{.,packages/**}/*.{ts,tsx,css,scss,html,md}\"",
+    "format": "pnpm prettier --write \"{.,packages/**}/*.{ts,tsx,css,scss,html,json,md}\"",
+    "format:check": "pnpm prettier --check \"{.,packages/**}/*.{ts,tsx,css,scss,html,json,md}\"",
     "lint": "pnpm eslint .",
     "test": "pnpm -r test",
     "prepare": "husky"
@@ -17,6 +17,11 @@
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.29.1+sha512.48dae233635a645768a3028d19545cacc1688639eeb1f3734e42d6d6b971afbf22aa1ac9af52a173d9c3a20c15857cfa400f19994d79a2f626fcc73fccda9bbc",
+  "pnpm": {
+    "overrides": {
+      "vite": "npm:rolldown-vite@7.1.14"
+    }
+  },
   "lint-staged": {
     "*.{ts,tsx}": [
       "eslint --fix",
@@ -24,6 +29,9 @@
     ],
     "*.{css,scss,html,md}": [
       "prettier --write"
+    ],
+    "*.rs": [
+      "rustfmt --edition 2024"
     ]
   },
   "devDependencies": {

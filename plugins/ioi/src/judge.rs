@@ -75,12 +75,7 @@ pub fn judge_with_context(
 
     let submission_score = round_score(subtask_scores.iter().sum());
 
-    let output = persist_results(
-        host,
-        ctx.submission_id,
-        &outcomes,
-        submission_score,
-    )?;
+    let output = persist_results(host, ctx.submission_id, &outcomes, submission_score)?;
 
     Ok(JudgeResult {
         output,
@@ -92,8 +87,8 @@ pub fn judge_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::prelude::MockHost;
     use crate::config::*;
+    use broccoli_server_sdk::prelude::MockHost;
 
     fn sample_input() -> OnSubmissionInput {
         OnSubmissionInput {
@@ -138,8 +133,22 @@ mod tests {
             .with_evaluate_result(TestCaseVerdict::accepted(2));
 
         let tcs = vec![
-            TestCaseRow { id: 1, score: 50.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-            TestCaseRow { id: 2, score: 50.0, is_sample: false, position: 1, description: None, label: Some("2".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 50.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 50.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+            },
         ];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
@@ -169,9 +178,30 @@ mod tests {
             .with_evaluate_result(TestCaseVerdict::wrong_answer(3));
 
         let tcs = vec![
-            TestCaseRow { id: 1, score: 30.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-            TestCaseRow { id: 2, score: 30.0, is_sample: false, position: 1, description: None, label: Some("2".into()) },
-            TestCaseRow { id: 3, score: 40.0, is_sample: false, position: 2, description: None, label: Some("3".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 30.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 30.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+            },
+            TestCaseRow {
+                id: 3,
+                score: 40.0,
+                is_sample: false,
+                position: 2,
+                description: None,
+                label: Some("3".into()),
+            },
         ];
 
         // Two subtasks: GroupMin for first 2 TCs, GroupMin for TC 3
@@ -207,9 +237,14 @@ mod tests {
             .with_test_case(1, 100.0)
             .with_evaluate_result(TestCaseVerdict::compile_error(1));
 
-        let tcs = vec![
-            TestCaseRow { id: 1, score: 100.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-        ];
+        let tcs = vec![TestCaseRow {
+            id: 1,
+            score: 100.0,
+            is_sample: false,
+            position: 0,
+            description: None,
+            label: Some("1".into()),
+        }];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
 
@@ -235,8 +270,22 @@ mod tests {
         // Only 1 result for 2 TCs → timeout
 
         let tcs = vec![
-            TestCaseRow { id: 1, score: 50.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-            TestCaseRow { id: 2, score: 50.0, is_sample: false, position: 1, description: None, label: Some("2".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 50.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 50.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+            },
         ];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
@@ -282,8 +331,22 @@ mod tests {
             });
 
         let tcs = vec![
-            TestCaseRow { id: 1, score: 50.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-            TestCaseRow { id: 2, score: 50.0, is_sample: false, position: 1, description: None, label: Some("2".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 50.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 50.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+            },
         ];
         let ctx = JudgeContext {
             subtask_defs: vec![SubtaskDef {
@@ -327,8 +390,22 @@ mod tests {
             });
 
         let tcs = vec![
-            TestCaseRow { id: 1, score: 50.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-            TestCaseRow { id: 2, score: 50.0, is_sample: false, position: 1, description: None, label: Some("2".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 50.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 50.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+            },
         ];
         let ctx = JudgeContext {
             subtask_defs: vec![SubtaskDef {
@@ -351,9 +428,14 @@ mod tests {
             .with_test_case(1, 100.0)
             .with_start_batch_error(SdkError::HostCall("worker down".into()));
 
-        let tcs = vec![
-            TestCaseRow { id: 1, score: 100.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-        ];
+        let tcs = vec![TestCaseRow {
+            id: 1,
+            score: 100.0,
+            is_sample: false,
+            position: 0,
+            description: None,
+            label: Some("1".into()),
+        }];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
 
@@ -385,8 +467,22 @@ mod tests {
             .with_evaluate_result(TestCaseVerdict::accepted(2));
 
         let tcs = vec![
-            TestCaseRow { id: 1, score: 30.0, is_sample: false, position: 0, description: None, label: Some("1".into()) },
-            TestCaseRow { id: 2, score: 70.0, is_sample: false, position: 1, description: None, label: Some("2".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 30.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 70.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+            },
         ];
         let ctx = JudgeContext {
             subtask_defs: vec![SubtaskDef {

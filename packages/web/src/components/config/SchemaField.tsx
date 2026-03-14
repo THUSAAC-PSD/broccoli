@@ -1,11 +1,7 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Slot } from '@broccoli/web-sdk/slot';
+import { Button, Input, Label, Switch } from '@broccoli/web-sdk/ui';
 import { Minus, Plus } from 'lucide-react';
-
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 
 import { FieldError } from './FieldError';
 import { NumericInput } from './NumericInput';
@@ -17,28 +13,36 @@ export function SchemaField({
   name,
   prop,
   value,
+  rootValues,
   path,
   updateValue,
   errors,
   pluginId,
   namespace,
   scope,
+  isExplicitValue,
+  hasExplicitDescendant,
 }: Readonly<{
   name: string;
   prop: JsonSchemaProperty;
   value: unknown;
+  rootValues: Record<string, unknown>;
   path: string[];
   updateValue: (path: string[], value: unknown) => void;
   errors: Record<string, string>;
   pluginId?: string;
   namespace?: string;
   scope?: ConfigScope;
+  isExplicitValue: (path: string[]) => boolean;
+  hasExplicitDescendant: (path: string[]) => boolean;
 }>) {
   const { t } = useTranslation();
   const fieldId = `cfg-${path.join('-')}`;
   const label = prop.title ?? name;
   const dotPath = path.join('.');
   const error = errors[dotPath];
+  const isFieldExplicit = isExplicitValue(path);
+  const hasFieldOverride = hasExplicitDescendant(path);
 
   const slotName =
     pluginId && namespace
@@ -56,8 +60,13 @@ export function SchemaField({
           value,
           schema: prop,
           onChange: (v: unknown) => updateValue(path, v),
+          formValues: rootValues,
+          setFieldValue: (fieldPath: string[], fieldValue: unknown) =>
+            updateValue(fieldPath, fieldValue),
           path,
           scope,
+          isExplicitValue: isFieldExplicit,
+          hasExplicitDescendant: hasFieldOverride,
         }}
       >
         {defaultField}
@@ -78,7 +87,10 @@ export function SchemaField({
       return (
         <div className="rounded-lg border bg-muted/30">
           <div className="px-4 py-3 border-b bg-muted/40 rounded-t-lg">
-            <h4 className="text-sm font-medium">{label}</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-medium">{label}</h4>
+              {!hasFieldOverride && <DefaultBadge />}
+            </div>
             {prop.description && (
               <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                 {prop.description}
@@ -89,12 +101,15 @@ export function SchemaField({
             <SchemaFields
               schema={{ type: 'object' as const, properties: prop.properties }}
               values={objValue}
+              rootValues={rootValues}
               path={path}
               updateValue={updateValue}
               errors={errors}
               pluginId={pluginId}
               namespace={namespace}
               scope={scope}
+              isExplicitValue={isExplicitValue}
+              hasExplicitDescendant={hasExplicitDescendant}
             />
           </div>
         </div>
@@ -106,12 +121,15 @@ export function SchemaField({
       return (
         <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
           <div className="space-y-0.5">
-            <Label
-              htmlFor={fieldId}
-              className="text-sm font-medium cursor-pointer"
-            >
-              {label}
-            </Label>
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor={fieldId}
+                className="text-sm font-medium cursor-pointer"
+              >
+                {label}
+              </Label>
+              {!isFieldExplicit && <DefaultBadge />}
+            </div>
             {prop.description && (
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {prop.description}
@@ -131,15 +149,18 @@ export function SchemaField({
     if (prop.type === 'string' && prop.enum) {
       return (
         <div className="flex flex-col gap-1.5">
-          <div>
-            <Label
-              htmlFor={fieldId}
-              className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
-            >
-              {label}
-            </Label>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor={fieldId}
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+              >
+                {label}
+              </Label>
+              {!isFieldExplicit && <DefaultBadge />}
+            </div>
             {prop.description && (
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground">
                 {prop.description}
               </p>
             )}
@@ -167,15 +188,18 @@ export function SchemaField({
     if (prop.type === 'number' || prop.type === 'integer') {
       return (
         <div className="flex flex-col gap-1.5">
-          <div>
-            <Label
-              htmlFor={fieldId}
-              className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
-            >
-              {label}
-            </Label>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor={fieldId}
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+              >
+                {label}
+              </Label>
+              {!isFieldExplicit && <DefaultBadge />}
+            </div>
             {prop.description && (
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground">
                 {prop.description}
               </p>
             )}
@@ -208,9 +232,12 @@ export function SchemaField({
 
       return (
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {label}
-          </Label>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {label}
+            </Label>
+            {!hasFieldOverride && <DefaultBadge />}
+          </div>
           {prop.description && (
             <p className="text-xs text-muted-foreground">{prop.description}</p>
           )}
@@ -223,12 +250,15 @@ export function SchemaField({
                     name={String(i)}
                     prop={prop.items!}
                     value={item}
+                    rootValues={rootValues}
                     path={[...path, String(i)]}
                     updateValue={updateValue}
                     errors={errors}
                     pluginId={pluginId}
                     namespace={namespace}
                     scope={scope}
+                    isExplicitValue={isExplicitValue}
+                    hasExplicitDescendant={hasExplicitDescendant}
                   />
                 </div>
                 <Button
@@ -268,17 +298,18 @@ export function SchemaField({
     // Default: string input
     return (
       <div className="flex flex-col gap-1.5">
-        <div>
-          <Label
-            htmlFor={fieldId}
-            className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
-          >
-            {label}
-          </Label>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor={fieldId}
+              className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              {label}
+            </Label>
+            {!isFieldExplicit && <DefaultBadge />}
+          </div>
           {prop.description && (
-            <p className="text-xs text-muted-foreground mt-1">
-              {prop.description}
-            </p>
+            <p className="text-xs text-muted-foreground">{prop.description}</p>
           )}
         </div>
         <div>
@@ -292,6 +323,14 @@ export function SchemaField({
           <FieldError message={error} />
         </div>
       </div>
+    );
+  }
+
+  function DefaultBadge() {
+    return (
+      <span className="inline-flex items-center rounded-full border border-dashed px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {t('plugins.config.defaultBadge')}
+      </span>
     );
   }
 }

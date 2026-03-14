@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::{fmt, str::FromStr};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Verdict {
     Accepted,
     WrongAnswer,
@@ -11,6 +11,7 @@ pub enum Verdict {
     SystemError,
     CompileError,
     Skipped,
+    Other(String),
 }
 
 impl Verdict {
@@ -25,13 +26,14 @@ impl Verdict {
             Self::RuntimeError => 4,
             Self::SystemError => 5,
             Self::CompileError => 6,
+            Self::Other(_) => 5,
         }
     }
 
     /// Maps this verdict to the DB-compatible string representation.
     ///
     /// `CompileError` -> `"SystemError"` in the DB.
-    pub fn to_db_str(&self) -> &'static str {
+    pub fn to_db_str(&self) -> &str {
         match self {
             Self::Accepted => "Accepted",
             Self::WrongAnswer => "WrongAnswer",
@@ -40,6 +42,7 @@ impl Verdict {
             Self::RuntimeError => "RuntimeError",
             Self::Skipped => "Skipped",
             Self::SystemError | Self::CompileError => "SystemError",
+            Self::Other(custom) => custom.as_str(),
         }
     }
 
@@ -52,9 +55,85 @@ impl Verdict {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseVerdictError {
+    invalid: String,
+}
+
+impl fmt::Display for ParseVerdictError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Invalid verdict '{}'", self.invalid)
+    }
+}
+
+impl std::error::Error for ParseVerdictError {}
+
 impl fmt::Display for Verdict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.to_db_str())
+        match self {
+            Self::CompileError => f.write_str("CompileError"),
+            other => f.write_str(other.to_db_str()),
+        }
+    }
+}
+
+impl FromStr for Verdict {
+    type Err = ParseVerdictError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(ParseVerdictError {
+                invalid: s.to_string(),
+            });
+        }
+
+        match s {
+            "Accepted" => Ok(Self::Accepted),
+            "WrongAnswer" => Ok(Self::WrongAnswer),
+            "TimeLimitExceeded" => Ok(Self::TimeLimitExceeded),
+            "MemoryLimitExceeded" => Ok(Self::MemoryLimitExceeded),
+            "RuntimeError" => Ok(Self::RuntimeError),
+            "SystemError" => Ok(Self::SystemError),
+            "CompileError" => Ok(Self::CompileError),
+            "Skipped" => Ok(Self::Skipped),
+            _ => {
+                if let Some(custom) = s
+                    .strip_prefix("Other(")
+                    .and_then(|value| value.strip_suffix(')'))
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    return Ok(Self::Other(custom.to_string()));
+                }
+
+                Ok(Self::Other(s.to_string()))
+            }
+        }
+    }
+}
+
+impl Serialize for Verdict {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match self {
+            Self::CompileError => "CompileError",
+            other => other.to_db_str(),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Verdict {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        match raw.as_str() {
+            "CompileError" => Ok(Self::CompileError),
+            _ => Ok(Self::from_str(raw.as_str()).unwrap_or(Self::Other(raw))),
+        }
     }
 }
 
@@ -71,6 +150,7 @@ mod tests {
         assert!(Verdict::RuntimeError.severity() < Verdict::SystemError.severity());
         assert!(Verdict::SystemError.severity() < Verdict::CompileError.severity());
         assert_eq!(Verdict::Skipped.severity(), 0);
+        assert_eq!(Verdict::Other("PluginStatus".into()).severity(), 5);
     }
 
     #[test]
@@ -78,6 +158,10 @@ mod tests {
         assert_eq!(Verdict::CompileError.to_db_str(), "SystemError");
         assert_eq!(Verdict::Skipped.to_db_str(), "Skipped");
         assert_eq!(Verdict::Accepted.to_db_str(), "Accepted");
+        assert_eq!(
+            Verdict::Other("PluginStatus".into()).to_db_str(),
+            "PluginStatus"
+        );
     }
 
     #[test]
@@ -105,6 +189,23 @@ mod tests {
             let v: Verdict = serde_json::from_str(&json).unwrap();
             assert_eq!(format!("{v:?}"), name);
         }
+    }
+
+    #[test]
+    fn deserialize_unknown_verdict_as_other() {
+        let verdict: Verdict = serde_json::from_str("\"PluginStatus\"").unwrap();
+        assert_eq!(verdict, Verdict::Other("PluginStatus".into()));
+    }
+
+    #[test]
+    fn parse_tagged_other_verdict() {
+        let verdict = Verdict::from_str("Other(PluginStatus)").unwrap();
+        assert_eq!(verdict, Verdict::Other("PluginStatus".into()));
+    }
+
+    #[test]
+    fn reject_empty_verdict() {
+        assert!(Verdict::from_str("   ").is_err());
     }
 
     #[test]

@@ -14,6 +14,8 @@ use serde::Deserialize;
 use crate::auth;
 use crate::dev_config::{self, FileKind, ResolvedDevConfig};
 
+use super::wasm::copy_wasm_artifact;
+
 /// Watches plugin source files and auto-rebuilds + uploads on changes.
 ///
 /// For plugins with a `[web]` section, the watch command spawns the frontend
@@ -80,23 +82,6 @@ struct WebSection {
     root: String,
     #[allow(dead_code)]
     entry: String,
-}
-
-/// Cargo.toml lib section for getting crate name.
-#[derive(Deserialize)]
-struct CargoToml {
-    package: Option<CargoPackage>,
-    lib: Option<CargoLib>,
-}
-
-#[derive(Deserialize)]
-struct CargoPackage {
-    name: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct CargoLib {
-    name: Option<String>,
 }
 
 /// What triggered the change and what action to take.
@@ -493,49 +478,6 @@ fn build_backend(plugin_dir: &Path, release: bool) -> anyhow::Result<()> {
     }
 
     println!("  {}  Backend build complete", style("✓").green());
-    Ok(())
-}
-
-fn copy_wasm_artifact(plugin_dir: &Path, server_entry: &str, release: bool) -> anyhow::Result<()> {
-    let profile = if release { "release" } else { "debug" };
-
-    let cargo_path = plugin_dir.join("Cargo.toml");
-    if !cargo_path.exists() {
-        return Ok(()); // No Cargo.toml, skip copy
-    }
-
-    let cargo_content = std::fs::read_to_string(&cargo_path)?;
-    let cargo_toml: CargoToml = toml::from_str(&cargo_content)?;
-
-    let crate_name = cargo_toml
-        .lib
-        .and_then(|l| l.name)
-        .or_else(|| cargo_toml.package.and_then(|p| p.name))
-        .unwrap_or_default()
-        .replace('-', "_");
-
-    if crate_name.is_empty() {
-        return Ok(());
-    }
-
-    let wasm_src = plugin_dir
-        .join("target")
-        .join("wasm32-wasip1")
-        .join(profile)
-        .join(format!("{}.wasm", crate_name));
-
-    let wasm_dest = plugin_dir.join(server_entry);
-
-    if wasm_src.exists() {
-        std::fs::copy(&wasm_src, &wasm_dest).with_context(|| {
-            format!(
-                "Failed to copy WASM artifact from {} to {}",
-                wasm_src.display(),
-                wasm_dest.display()
-            )
-        })?;
-    }
-
     Ok(())
 }
 

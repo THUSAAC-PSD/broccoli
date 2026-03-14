@@ -1,19 +1,19 @@
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { type FormEvent, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
-
-import { Button } from '@/components/ui/button';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
+  Button,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useAuth } from '@/contexts/auth-context';
+  Input,
+  Label,
+} from '@broccoli/web-sdk/ui';
+import { type FormEvent, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+
+import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export function DeviceAuthPage() {
   const { t } = useTranslation();

@@ -10,11 +10,14 @@ pub fn persist_results(
     outcomes: &[EvalOutcome],
     submission_score: f64,
 ) -> Result<OnSubmissionOutput, SdkError> {
-    let non_skipped: Vec<_> = outcomes.iter().filter(|o| !o.verdict.is_skipped()).collect();
+    let non_skipped: Vec<_> = outcomes
+        .iter()
+        .filter(|o| !o.verdict.is_skipped())
+        .collect();
 
     let verdict = non_skipped
         .iter()
-        .map(|o| o.verdict)
+        .map(|o| o.verdict.clone())
         .max_by_key(|v| v.severity())
         .unwrap_or(Verdict::Accepted);
 
@@ -27,7 +30,7 @@ pub fn persist_results(
     } else {
         SubmissionStatus::Judged
     };
-    let db_verdict = if is_ce { None } else { Some(verdict) };
+    let db_verdict = if is_ce { None } else { Some(verdict.clone()) };
 
     let compile_output = if is_ce {
         outcomes

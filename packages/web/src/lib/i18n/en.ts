@@ -6,12 +6,9 @@ export const en: Record<string, string> = {
   // Sidebar
   'sidebar.platform': 'Platform',
   'sidebar.account': 'Account',
-  'sidebar.homepage': 'Homepage',
   'sidebar.problems': 'Problems',
   'sidebar.contests': 'Contests',
-  'sidebar.tutorials': 'Tutorials',
-  'sidebar.profile': 'Profile',
-  'sidebar.settings': 'Settings',
+  'sidebar.selector': 'Contest Selector',
 
   // Navbar
   'nav.contestInfo': 'Contest Info',
@@ -54,7 +51,6 @@ export const en: Record<string, string> = {
   'error.desc.504': 'The server took too long to respond.',
   'error.title.default': 'Unknown Error',
   'error.desc.default': 'Something went wrong.',
-  'error.backToHome': 'Return to Home Page',
 
   // Overview
   'overview.title': 'Overview',
@@ -72,10 +68,24 @@ export const en: Record<string, string> = {
   'overview.contests': 'Contests',
   'overview.noContests': 'No contests found.',
 
+  // Submissions filters
+  'submissions.filters.allProblems': 'All Problems',
+  'submissions.filters.allLanguages': 'All Languages',
+  'submissions.filters.allStatuses': 'All Statuses',
+  'submissions.filters.search': 'Search',
+  'submissions.viewDetails': 'View Details',
+  'submissions.details': 'Details',
+
   // Homepage
+  'homepage.title': 'Broccoli Online Judge',
+  'homepage.welcome': 'Welcome to Broccoli',
+  'homepage.welcomeDesc':
+    'An online judge platform for competitive programming contests. Sign in to view your contests and start solving problems.',
   'homepage.selectContest': 'Select a Contest',
   'homepage.selectContestDesc':
-    'Select a contest to view its details and problems.',
+    'Choose a contest below to view problems and start competing.',
+  'homepage.noContests':
+    'There are no contests available for you at the moment. Please check back later or contact an administrator.',
 
   // Sidebar (contest-specific)
   'sidebar.contestshomepage': 'Contest Homepage',
@@ -95,25 +105,28 @@ export const en: Record<string, string> = {
   'problem.notFound': 'Problem not found.',
   'problem.loadError': 'Failed to load problem.',
   'problem.copy': 'Copy',
-  'problem.copied': 'Copied {{file}}',
+  'problem.copied': 'Copied {file}',
   'problem.copiedSimple': 'Copied',
-  'problem.downloadSampleFile': 'Download {{file}} ({{size}})',
+  'problem.downloadSampleFile': 'Download {file} ({size})',
   'problem.startCoding': 'Start Coding',
   'problem.backToDescription': 'Description',
+  'problem.edit': 'Edit',
 
   // Code editor
   'editor.title': 'Code',
   'editor.run': 'Run',
   'editor.submit': 'Submit',
+  'editor.upload': 'Upload files',
+  'editor.addFile': 'Add file',
   'editor.toggleFullscreen': 'Toggle fullscreen',
 
   // Submission result
   'result.title': 'Result',
   'result.submitPrompt': 'Submit your code to see results',
   'result.judging': 'Judging...',
-  'result.time': 'Time: {{value}}ms',
-  'result.memory': 'Memory: {{value}}MB',
-  'result.testCase': 'Test Case #{{id}}',
+  'result.time': 'Time: {value}ms',
+  'result.memory': 'Memory: {value}MB',
+  'result.testCase': 'Test Case #{id}',
   'result.noResults': 'No test results available',
   'result.accepted': 'Accepted',
   'result.wrongAnswer': 'Wrong Answer',
@@ -122,10 +135,16 @@ export const en: Record<string, string> = {
   'result.pending': 'Pending',
   'result.compiling': 'Compiling...',
   'result.running': 'Running...',
+  'result.compilingShort': 'Compiling',
+  'result.runningShort': 'Running',
+  'result.judged': 'Judged',
   'result.compilationError': 'Compilation Error',
   'result.systemError': 'System Error',
   'result.skipped': 'Skipped',
+  'result.systemMessage': 'System Message',
   'result.memoryLimit': 'Memory Limit',
+  'result.unknownStatus': 'Unknown Status',
+  'result.unknownVerdict': 'Unknown Verdict',
   'result.submitError': 'Failed to submit. Please try again.',
   'result.rejection.rateLimited': 'Too Many Requests',
   'result.rejection.failed': 'Submission Failed',
@@ -134,45 +153,52 @@ export const en: Record<string, string> = {
   'result.expectedOutput': 'Expected Output',
   'result.stdout': 'Your Output',
   'result.stderr': 'Stderr',
+  'result.checkerOutput': 'Checker Output',
+  'result.timeValue': '{value}ms',
+  'result.memoryValue': '{value}MB',
 
   // Problems
   'problems.title': 'Problems',
-  'problems.id': '#',
   'problems.titleColumn': 'Title',
   'problems.label': 'Label',
-  'problems.contest': 'Contest',
-  'problems.due': 'Due',
-  'problems.dueInDays': 'in {{count}} days',
-  'problems.dueInHours': 'in {{count}} hours',
-  'problems.dueInMinutes': 'in {{count}} min',
-  'problems.dueEnded': 'Ended',
   'problems.searchPlaceholder': 'Search problems...',
   'problems.empty': 'No problems found.',
   'problems.contestProblems': 'Contest Problems',
 
   // Contests
   'contests.title': 'Contests',
-  'contests.titleColumn': 'Contest',
   'contests.status': 'Status',
   'contests.startTime': 'Start',
   'contests.endTime': 'End',
   'contests.searchPlaceholder': 'Search contests...',
-  'contests.empty': 'No contests found.',
   'contests.upcoming': 'Upcoming',
   'contests.running': 'Running',
   'contests.ended': 'Ended',
-  'contests.description': 'Description',
-  'contests.noDescription': 'No description provided.',
   'contests.problems': 'Problems',
+  'contests.enrollTitle': 'Enrollment',
+  'contests.enrollDescription':
+    'You have not enrolled in this contest yet. Enroll now to participate.',
+  'contests.registeredDescription':
+    'You are registered for this contest. You can cancel your registration if needed.',
+  'contests.enrollAction': 'Enroll in Contest',
+  'contests.enrolling': 'Enrolling...',
+  'contests.unregisterAction': 'Cancel Registration',
+  'contests.unregistering': 'Canceling...',
+  'contests.unregisterConfirmTitle': 'Cancel Registration',
+  'contests.unregisterConfirmDescription':
+    'Are you sure you want to cancel your registration for this contest? You can re-register later if the contest is still open.',
+  'contests.unregisterConfirm': 'Yes, Cancel Registration',
   'contests.notFound': 'Contest not found.',
-  'contests.loadError': 'Failed to load contest details.',
+  'contests.loadError': 'Failed to load contest data.',
   'contests.loadProblemsError': 'Failed to load contest problems.',
-  'contests.inDays': 'in {{count}} days',
-  'contests.inHours': 'in {{count}} hours',
-  'contests.inMinutes': 'in {{count}} min',
-  'contests.daysAgo': '{{count}} days ago',
-  'contests.hoursAgo': '{{count}} hours ago',
-  'contests.minutesAgo': '{{count}} min ago',
+  'contests.problemsAvailableAfterStart':
+    'Problems will be available after the contest starts.',
+  'contests.inDays': 'in {count} days',
+  'contests.inHours': 'in {count} hours',
+  'contests.inMinutes': 'in {count} min',
+  'contests.daysAgo': '{count} days ago',
+  'contests.hoursAgo': '{count} hours ago',
+  'contests.minutesAgo': '{count} min ago',
 
   // Contest countdown
   'countdown.startsIn': 'Starts In',
@@ -183,7 +209,9 @@ export const en: Record<string, string> = {
   'countdown.hours': 'Hours',
   'countdown.minutes': 'Min',
   'countdown.seconds': 'Sec',
-  'countdown.elapsed': 'Elapsed',
+
+  // Contest Q&A
+  'contest.qa.empty': 'No questions yet.',
 
   // Ranking
   'ranking.title': 'Ranking',
@@ -226,6 +254,8 @@ export const en: Record<string, string> = {
   'auth.device.codeNotFound': 'Code not found or expired.',
   'auth.device.codeAlreadyUsed': 'This code has already been authorized.',
   'auth.device.error': 'An error occurred. Please try again.',
+  'auth.loginToAsk': 'Please sign in to ask a question.',
+  'auth.loginToViewSubmissions': 'Please sign in to view submissions.',
 
   // Sidebar (additional)
   'sidebar.guest': 'Guest',
@@ -234,40 +264,45 @@ export const en: Record<string, string> = {
   'sidebar.admin': 'Admin',
 
   // Admin
-  'admin.title': 'Administration',
-  'admin.contests': 'Contests',
-  'admin.problems': 'Problems',
-  'admin.subtitle': 'Manage contests, problems, and platform settings.',
   'admin.createContest': 'Create Contest',
   'admin.createContestDesc':
     'Set up a new programming contest with custom rules and timing.',
   'admin.createProblem': 'Create Problem',
   'admin.createProblemDesc': 'Add a new problem to the problem bank.',
-  'admin.createContestSuccess': 'Contest created successfully.',
-  'admin.createProblemSuccess': 'Problem created successfully.',
   'admin.createError': 'Failed to create. Please check your input.',
-  'admin.creating': 'Creating...',
   'admin.unauthorized': 'You do not have permission to access this page.',
   'admin.noContests': 'No contests yet. Create one to get started.',
   'admin.noProblems': 'No problems yet. Create one to get started.',
-  'admin.new': 'New',
   'admin.edit': 'Edit',
+  'admin.save': 'Save',
   'admin.delete': 'Delete',
   'admin.deleteConfirm':
     'Are you sure you want to delete this item? This action cannot be undone.',
-  'admin.deleteSuccess': 'Deleted successfully.',
   'admin.editContest': 'Edit Contest',
   'admin.editProblem': 'Edit Problem',
-  'admin.editSuccess': 'Updated successfully.',
   'admin.editError': 'Failed to update. Please check your input.',
   'admin.actions': 'Actions',
   'admin.saving': 'Saving...',
   'admin.contestProblems': 'Contest Problems',
-  'admin.contestProblemsDesc': 'Manage problems associated with this contest.',
   'admin.bulkParticipants': 'Bulk Add Participants',
-  'admin.bulkParticipantsAction': 'Bulk Add Participants',
-  'admin.bulkParticipantsDesc':
-    'Import a JSON user list, preview actions, then confirm enrollment.',
+  'admin.bulkParticipantsAction': 'Manage Participants',
+
+  // Participants management
+  'admin.participants.title': 'Manage Participants',
+  'admin.participants.description': 'Manage participants for {contest}.',
+  'admin.participants.tabEnrolled': 'Enrolled',
+  'admin.participants.tabAdd': 'Add',
+  'admin.participants.tabBulk': 'Bulk Import',
+  'admin.participants.searchEnrolled': 'Search enrolled participants...',
+  'admin.participants.searchUsers': 'Search users to add...',
+  'admin.participants.totalCount': '{count} participants',
+  'admin.participants.unenrolledCount': '{count} available',
+  'admin.participants.empty': 'No participants enrolled yet.',
+  'admin.participants.noSearchResults': 'No matching results.',
+  'admin.participants.allEnrolled': 'All users are already enrolled.',
+  'admin.participants.registeredAt': 'Registered',
+  'admin.participants.add': 'Add',
+  'admin.participants.removeConfirm': 'Remove {username} from this contest?',
   'admin.bulkParticipantsJsonLabel': 'JSON File or JSON Content',
   'admin.bulkParticipantsJsonPlaceholder':
     '["alice", "bob", { "username": "charlie", "password": "custom_pass123" }]',
@@ -300,17 +335,17 @@ export const en: Record<string, string> = {
   'admin.bulkParticipantsError':
     'Bulk enrollment failed. Please check the data and try again.',
   'admin.addProblem': 'Add Problem',
-  'admin.field.problemId': 'Problem ID',
   'admin.field.label': 'Label',
   'admin.field.password': 'Password',
   'admin.field.role': 'Role',
-  'admin.noContestProblems': 'No problems in this contest yet.',
   'admin.addProblemError': 'Failed to add problem. Check the ID and label.',
   'admin.adding': 'Adding...',
   'admin.availableProblems': 'Available Problems',
   'admin.field.title': 'Title',
   'admin.field.description': 'Description',
   'admin.field.content': 'Content (Markdown)',
+  'admin.field.activateTime': 'Activate Time',
+  'admin.field.deactivateTime': 'Deactivate Time',
   'admin.field.startTime': 'Start Time',
   'admin.field.endTime': 'End Time',
   'admin.field.isPublic': 'Public',
@@ -319,13 +354,19 @@ export const en: Record<string, string> = {
   'admin.field.showParticipantsList': 'Show Participants List',
   'admin.field.timeLimit': 'Time Limit',
   'admin.field.memoryLimit': 'Memory Limit',
-
   'admin.field.problemType': 'Problem Type',
   'admin.field.checkerFormat': 'Checker Format',
   'admin.field.contestType': 'Contest Type',
   'admin.field.contestTypeNone': 'None (default)',
+  'admin.field.submissionFormat': 'Submission Format',
+  'admin.field.showTestDetails': 'Show Test Details',
   'admin.field.options': 'Options',
   'admin.field.createdAt': 'Created',
+  'admin.submissionFormat.language': 'Select language',
+  'admin.submissionFormat.addLanguage': 'Add Language',
+  'admin.submissionFormat.filenamePlaceholder': 'e.g. solution.cpp',
+  'admin.submissionFormat.addFile': 'Add File',
+  'admin.submissionFormat.empty': 'No language configured yet.',
   'admin.loading': 'Loading...',
 
   // Test Cases (admin)
@@ -345,15 +386,67 @@ export const en: Record<string, string> = {
   'admin.testCases.field.label': 'Label',
   'admin.testCases.field.description': 'Description',
   'admin.testCases.field.isSample': 'Sample Test Case',
+  'admin.testCases.bulkUpload.button': 'Bulk Upload',
+  'admin.testCases.bulkUpload.title': 'Bulk Upload Test Cases',
+  'admin.testCases.bulkUpload.description':
+    'Upload a ZIP file and match test case files using the input and output formats you provide. Files under sample/ folder will be marked as samples.',
+  'admin.testCases.bulkUpload.zipFile': 'ZIP File',
+  'admin.testCases.bulkUpload.selectFile': 'Select ZIP File',
+  'admin.testCases.bulkUpload.fileSize': 'File size: {size} MB',
+  'admin.testCases.bulkUpload.inputFormat': 'Input Format',
+  'admin.testCases.bulkUpload.outputFormat': 'Output Format',
+  'admin.testCases.bulkUpload.formatHint':
+    'Pattern with exactly one * (e.g., "*.in", "test*.txt")',
+  'admin.testCases.bulkUpload.upload': 'Upload',
+  'admin.testCases.bulkUpload.uploading': 'Uploading...',
+  'admin.testCases.bulkUpload.uploadSuccess':
+    'Test cases uploaded successfully.',
+  'admin.testCases.bulkUpload.uploadError': 'Failed to upload test cases.',
+  'admin.testCases.bulkUpload.noFile': 'Please select a ZIP file.',
+  'admin.testCases.bulkUpload.invalidFileType': 'Please select a ZIP file.',
+  'admin.testCases.bulkUpload.invalidInputFormat':
+    'Input format must contain exactly one *',
+  'admin.testCases.bulkUpload.inputFormatRequired': 'Input format is required.',
+  'admin.testCases.bulkUpload.invalidOutputFormat':
+    'Output format must contain exactly one *',
+  'admin.testCases.bulkUpload.outputFormatRequired':
+    'Output format is required.',
+
+  // Toast notifications
+  'toast.contest.created': 'Contest created successfully.',
+  'toast.contest.updated': 'Contest updated successfully.',
+  'toast.contest.deleted': 'Contest deleted successfully.',
+  'toast.contest.deleteError': 'Failed to delete contest.',
+  'toast.contest.enrolled': 'Enrolled in contest successfully.',
+  'toast.contest.enrollError': 'Failed to enroll in contest.',
+  'toast.contest.unregistered': 'Registration canceled successfully.',
+  'toast.contest.unregisterError': 'Failed to cancel registration.',
+  'toast.problem.created': 'Problem created successfully.',
+  'toast.problem.updated': 'Problem updated successfully.',
+  'toast.problem.deleted': 'Problem deleted successfully.',
+  'toast.problem.deleteError': 'Failed to delete problem.',
+  'toast.problem.added': 'Problem added to contest.',
+  'toast.problem.addError': 'Failed to add problem to contest.',
+  'toast.problem.removed': 'Problem removed from contest.',
+  'toast.problem.removeError': 'Failed to remove problem from contest.',
+  'toast.testCase.created': 'Test case created successfully.',
+  'toast.testCase.updated': 'Test case updated successfully.',
+  'toast.testCase.deleted': 'Test case deleted successfully.',
+  'toast.testCase.deleteError': 'Failed to delete test case.',
+  'toast.participant.added': 'Participant added successfully.',
+  'toast.participant.addError': 'Failed to add participant.',
+  'toast.participant.removed': 'Participant removed successfully.',
+  'toast.participant.removeError': 'Failed to remove participant.',
+  'toast.participant.bulkSuccess': 'Bulk enrollment completed successfully.',
+  'toast.participant.bulkError': 'Bulk enrollment failed.',
+  'toast.submission.submitted': 'Code submitted successfully.',
+  'toast.submission.error': 'Failed to submit code. Please try again.',
 
   // Plugins management
   'plugins.title': 'Plugins',
   'plugins.subtitle': 'Manage and configure installed plugins',
   'plugins.loadError': 'Failed to load plugins',
   'plugins.empty': 'No plugins discovered',
-  'plugins.status.loaded': 'Loaded',
-  'plugins.status.failed': 'Failed',
-  'plugins.status.discovered': 'Discovered',
   'plugins.enable': 'Enable plugin',
   'plugins.disable': 'Disable plugin',
   'plugins.component.server': 'Server',
@@ -362,7 +455,7 @@ export const en: Record<string, string> = {
   'plugins.configure': 'Configure',
   'plugins.reload': 'Reload',
   'plugins.reloadAll': 'Reload All',
-  'plugins.config.title': 'Configure {{name}}',
+  'plugins.config.title': 'Configure {name}',
   'plugins.config.description': 'Manage configuration for this plugin.',
   'plugins.config.save': 'Save',
   'plugins.config.saving': 'Saving…',
@@ -377,14 +470,24 @@ export const en: Record<string, string> = {
   'plugins.config.deleteSuccess': 'Configuration reset to defaults.',
   'plugins.config.deleteError': 'Failed to delete configuration.',
   'plugins.config.enabled': 'Plugin enabled',
+  'plugins.config.defaultBadge': 'Default',
+  'plugins.config.unsetNotice':
+    'This configuration is currently unset. The values below are schema defaults until you save an override.',
   'sidebar.plugins': 'Plugins',
 
   // Resource config
   'admin.configure': 'Configure',
-  'config.title': 'Configuration: {{name}}',
+  'config.title': 'Configuration: {name}',
   'config.description': 'Plugin configuration for this resource.',
   'config.noSchemas': 'No plugin configuration available for this resource.',
 
   // Language switcher
   'locale.switch': 'Language',
+  // Amazing button plugin
+  'plugin.amazingButton.label': 'Amazing Button',
+  'plugin.amazingButton.alert': 'Amazing!',
+  'plugin.amazingButton.pageTitle': 'Amazing Page!',
+
+  // Common
+  'common.cancel': 'Cancel',
 };

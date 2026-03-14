@@ -1,3 +1,6 @@
+import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useCallback, useMemo } from 'react';
+
 import type {
   ContestInfoResponse,
   ScoreboardResponse,
@@ -8,11 +11,7 @@ import type {
   UseTokenResponse,
 } from '../types';
 
-// Derive backend origin from where this module was loaded (the backend server),
-// so API calls go to the correct host even when the page origin differs (Vite dev).
-const BACKEND_ORIGIN = new URL(import.meta.url).origin;
-const PLUGIN_BASE = `${BACKEND_ORIGIN}/api/v1/p/ioi/api/plugins/ioi`;
-const AUTH_TOKEN_KEY = 'broccoli_token';
+const PLUGIN_BASE = '/api/v1/p/ioi/api/plugins/ioi';
 
 export class ApiError extends Error {
   status: number;
@@ -26,63 +25,63 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...authHeaders(), ...init?.headers },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(
-      body.error || body.message || `Request failed: ${res.status}`,
-      res.status,
-      body.code,
-    );
-  }
-  return res.json();
-}
-
 export function useIoiApi() {
-  return {
-    getContestInfo: (contestId: number) =>
-      fetchJson<ContestInfoResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/info`,
-      ),
+  const apiFetch = useApiFetch();
 
-    getScoreboard: (contestId: number) =>
-      fetchJson<ScoreboardResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/scoreboard`,
-      ),
+  const fetchJson = useCallback(
+    async <T>(path: string, init?: RequestInit): Promise<T> => {
+      const res = await apiFetch(path, init);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new ApiError(
+          body.error || body.message || `Request failed: ${res.status}`,
+          res.status,
+          body.code,
+        );
+      }
+      return res.json();
+    },
+    [apiFetch],
+  );
 
-    getTaskConfig: (contestId: number, problemId: number) =>
-      fetchJson<TaskConfigResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/config`,
-      ),
+  return useMemo(
+    () => ({
+      getContestInfo: (contestId: number) =>
+        fetchJson<ContestInfoResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/info`,
+        ),
 
-    getTokenStatus: (contestId: number) =>
-      fetchJson<TokenStatusResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/token-status`,
-      ),
+      getScoreboard: (contestId: number) =>
+        fetchJson<ScoreboardResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/scoreboard`,
+        ),
 
-    useToken: (contestId: number, submissionId: number) =>
-      fetchJson<UseTokenResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/submissions/${submissionId}/token`,
-        { method: 'POST' },
-      ),
+      getTaskConfig: (contestId: number, problemId: number) =>
+        fetchJson<TaskConfigResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/config`,
+        ),
 
-    getSubmissionSubtaskScores: (contestId: number, submissionId: number) =>
-      fetchJson<SubtaskScoresResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/submissions/${submissionId}/subtask-scores`,
-      ),
+      getTokenStatus: (contestId: number) =>
+        fetchJson<TokenStatusResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/token-status`,
+        ),
 
-    getSubmissionStatus: (contestId: number, problemId: number) =>
-      fetchJson<SubmissionStatusResponse>(
-        `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/submission-status`,
-      ),
-  };
+      useToken: (contestId: number, submissionId: number) =>
+        fetchJson<UseTokenResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/submissions/${submissionId}/token`,
+          { method: 'POST' },
+        ),
+
+      getSubmissionSubtaskScores: (contestId: number, submissionId: number) =>
+        fetchJson<SubtaskScoresResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/submissions/${submissionId}/subtask-scores`,
+        ),
+
+      getSubmissionStatus: (contestId: number, problemId: number) =>
+        fetchJson<SubmissionStatusResponse>(
+          `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/submission-status`,
+        ),
+    }),
+    [fetchJson],
+  );
 }

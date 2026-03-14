@@ -1,5 +1,10 @@
-import { ProblemDetailPage } from '@/pages/ProblemDetailPage';
+import { useParams } from 'react-router';
 
-export default function ContestProblem() {
-  return <ProblemDetailPage />;
+import ProblemView from '@/features/problem/components/ProblemView';
+
+export default function ContestProblemDetailPage() {
+  const { problemId, contestId } = useParams();
+  return (
+    <ProblemView problemId={Number(problemId)} contestId={Number(contestId)} />
+  );
 }

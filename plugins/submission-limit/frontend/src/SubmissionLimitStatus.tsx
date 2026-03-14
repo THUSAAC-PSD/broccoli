@@ -1,7 +1,8 @@
 /**
  * Shows submission count / limit on the problem detail sidebar.
  */
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useEffect, useState } from 'react';
 
 interface Props {
@@ -17,13 +18,7 @@ interface LimitStatus {
   unlimited: boolean;
 }
 
-const BACKEND_ORIGIN = new URL(import.meta.url).origin;
-const AUTH_TOKEN_KEY = 'broccoli_token';
-
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const PLUGIN_BASE = '/api/v1/p/submission-limit/api/plugins/submission-limit';
 
 const MONO: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
@@ -36,6 +31,7 @@ export function SubmissionLimitStatus({
   contestId,
   problemId,
 }: Props) {
+  const apiFetch = useApiFetch();
   const { t } = useTranslation();
   const [status, setStatus] = useState<LimitStatus | null>(null);
 
@@ -48,9 +44,8 @@ export function SubmissionLimitStatus({
 
     async function load() {
       try {
-        const res = await fetch(
-          `${BACKEND_ORIGIN}/api/plugins/submission-limit/contests/${contestId}/problems/${problemId}/status`,
-          { headers: authHeaders() },
+        const res = await apiFetch(
+          `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/status`,
         );
         if (!res.ok || cancelled) return;
         const data = await res.json();
@@ -64,7 +59,7 @@ export function SubmissionLimitStatus({
     return () => {
       cancelled = true;
     };
-  }, [contestId, problemId, submissionId]);
+  }, [apiFetch, contestId, problemId, submissionId]);
 
   if (!contestId || !problemId || !status) return null;
 

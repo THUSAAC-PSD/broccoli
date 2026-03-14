@@ -30,7 +30,7 @@ pub fn evaluate_all(
         problem_type: req.problem_type.clone(),
         test_cases: test_cases
             .iter()
-            .map(|tc| BuildEvalOpsInput {
+            .map(|tc| StartEvaluateCaseInput {
                 problem_id: req.problem_id,
                 test_case_id: tc.id,
                 solution_source: req
@@ -44,12 +44,6 @@ pub fn evaluate_all(
                 solution_language: req.language.clone(),
                 time_limit_ms: req.time_limit_ms,
                 memory_limit_kb: req.memory_limit_kb,
-                // Server will fill these
-                test_input: String::new(),
-                expected_output: String::new(),
-                checker_format: None,
-                checker_config: None,
-                checker_source: None,
             })
             .collect(),
     };
@@ -180,7 +174,7 @@ fn insert_tc_result(
     host.insert_test_case_results(&[TestCaseResultRow {
         submission_id,
         test_case_id: outcome.test_case_id,
-        verdict: outcome.verdict,
+        verdict: outcome.verdict.clone(),
         score: round_score(outcome.raw_score * tc_max),
         time_used: outcome.time_used,
         memory_used: outcome.memory_used,

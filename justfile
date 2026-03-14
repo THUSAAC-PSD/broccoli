@@ -36,7 +36,7 @@ build-js:
 
 # Build frontend SDK only
 build-sdk:
-    pnpm --filter @broccoli/sdk build
+    pnpm --filter @broccoli/web-sdk build
 
 # Dev server for frontend
 dev-web:

@@ -6,19 +6,21 @@ use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use sea_orm::prelude::Expr;
-use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
+use sea_orm::sea_query::{Func, LikeExpr};
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{blob_ref, contest_problem, problem, submission, test_case, test_case_result};
+use crate::entity::{contest, contest_problem, problem, test_case, test_case_result};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
+use crate::models::plugin_config::config_key;
 use crate::models::problem::*;
 use crate::state::AppState;
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{is_sample_directory, split_dir_filename};
+use crate::utils::soft_delete::SoftDeletable;
 
 #[utoipa::path(
     post,
@@ -50,6 +52,7 @@ pub async fn create_problem(
         &state.registries.checker_format_registry,
     )
     .await?;
+    validate_submission_format(payload.submission_format.as_ref(), &state.config.languages)?;
     validate_contest_type(
         &payload.default_contest_type,
         &state.registries.contest_type_registry,
@@ -57,6 +60,9 @@ pub async fn create_problem(
     .await?;
 
     let now = chrono::Utc::now();
+    let submission_format_json = payload
+        .submission_format
+        .map(|sf| serde_json::to_value(sf).unwrap_or(serde_json::Value::Null));
     let new_problem = problem::ActiveModel {
         title: Set(payload.title.trim().to_string()),
         content: Set(payload.content),
@@ -65,7 +71,8 @@ pub async fn create_problem(
         problem_type: Set(payload.problem_type),
         checker_format: Set(payload.checker_format),
         default_contest_type: Set(payload.default_contest_type),
-
+        show_test_details: Set(payload.show_test_details.unwrap_or(false)),
+        submission_format: Set(submission_format_json),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -102,7 +109,7 @@ pub async fn list_problems(
     let page = Ord::max(query.page.unwrap_or(1), 1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
 
-    let mut select = problem::Entity::find();
+    let mut select = problem::Entity::find_active();
 
     if let Some(ref search) = query.search {
         let term = escape_like(search.trim());
@@ -149,6 +156,7 @@ pub async fn list_problems(
         .column(problem::Column::ProblemType)
         .column(problem::Column::CheckerFormat)
         .column(problem::Column::DefaultContestType)
+        .column(problem::Column::ShowTestDetails)
         .column(problem::Column::CreatedAt)
         .column(problem::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -229,6 +237,10 @@ pub async fn update_problem(
     if let Some(ref cf) = payload.checker_format {
         validate_checker_format(cf, &state.registries.checker_format_registry).await?;
     }
+    match payload.submission_format {
+        Some(Some(ref sf)) => validate_submission_format(Some(sf), &state.config.languages)?,
+        Some(None) | None => {}
+    }
     if let Some(ref ct) = payload.default_contest_type {
         validate_contest_type(ct, &state.registries.contest_type_registry).await?;
     }
@@ -265,6 +277,20 @@ pub async fn update_problem(
     if let Some(default_contest_type) = payload.default_contest_type {
         active.default_contest_type = Set(default_contest_type);
     }
+    if let Some(show_test_details) = payload.show_test_details {
+        active.show_test_details = Set(show_test_details);
+    }
+    match payload.submission_format {
+        Some(Some(sf)) => {
+            active.submission_format = Set(Some(
+                serde_json::to_value(sf).unwrap_or(serde_json::Value::Null),
+            ));
+        }
+        Some(None) => {
+            active.submission_format = Set(None);
+        }
+        None => {}
+    }
     active.updated_at = Set(chrono::Utc::now());
 
     let model = active.update(&txn).await?;
@@ -280,15 +306,15 @@ pub async fn update_problem(
     path = "/{id}",
     tag = "Problems",
     operation_id = "deleteProblem",
-    summary = "Delete a problem by ID",
-    description = "Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.",
+    summary = "Soft-delete a problem by ID",
+    description = "Marks a problem as deleted without removing historical data. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem is currently part of a contest.",
     params(("id" = i32, Path, description = "Problem ID")),
     responses(
         (status = 204, description = "Problem deleted"),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 409, description = "Cannot delete: has submissions or contest associations (CONFLICT)", body = ErrorBody),
+        (status = 409, description = "Cannot delete: part of a contest (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -302,61 +328,39 @@ pub async fn delete_problem(
 
     let txn = state.db.begin().await?;
 
-    let _problem = find_problem_for_update(&txn, id).await?;
+    let problem = find_problem_for_update(&txn, id).await?;
 
-    let sub_count = submission::Entity::find()
-        .filter(submission::Column::ProblemId.eq(id))
-        .count(&txn)
-        .await?;
-    if sub_count > 0 {
-        return Err(AppError::Conflict(
-            "Cannot delete problem with existing submissions".into(),
-        ));
-    }
-
-    let contest_count = contest_problem::Entity::find()
+    let contest_ids_with_problem: Vec<i32> = contest_problem::Entity::find()
         .filter(contest_problem::Column::ProblemId.eq(id))
-        .count(&txn)
+        .select_only()
+        .column(contest_problem::Column::ContestId)
+        .into_tuple()
+        .all(&txn)
         .await?;
-    if contest_count > 0 {
-        return Err(AppError::Conflict(
-            "Cannot delete problem associated with a contest".into(),
-        ));
+
+    if !contest_ids_with_problem.is_empty() {
+        let active_contest_count = contest::Entity::find_active()
+            .filter(contest::Column::Id.is_in(contest_ids_with_problem))
+            .count(&txn)
+            .await?;
+        if active_contest_count > 0 {
+            return Err(AppError::Conflict(
+                "Cannot delete problem associated with a contest".into(),
+            ));
+        }
     }
 
-    blob_ref::Entity::delete_many()
-        .filter(blob_ref::Column::OwnerType.eq("problem"))
-        .filter(blob_ref::Column::OwnerId.eq(id.to_string()))
-        .exec(&txn)
-        .await?;
+    let mut active: problem::ActiveModel = problem.into();
+    active.deleted_at = Set(Some(chrono::Utc::now()));
+    active.update(&txn).await?;
 
-    test_case_result::Entity::delete_many()
-        .filter(
-            test_case_result::Column::TestCaseId.in_subquery(
-                SeaQuery::select()
-                    .column(test_case::Column::Id)
-                    .from(test_case::Entity)
-                    .and_where(test_case::Column::ProblemId.eq(id))
-                    .to_owned(),
-            ),
-        )
-        .exec(&txn)
-        .await?;
-
-    test_case::Entity::delete_many()
-        .filter(test_case::Column::ProblemId.eq(id))
-        .exec(&txn)
-        .await?;
-
-    delete_config_by_scope(&txn, "problem", &id.to_string()).await?;
+    delete_config_by_scope(&txn, "problem", &config_key::problem(id)).await?;
     delete_config_by_scope_like(
         &txn,
         "contest_problem",
-        &crate::models::plugin_config::config_key::contest_problem_by_problem_like(id),
+        &config_key::contest_problem_by_problem_like(id),
     )
     .await?;
-
-    problem::Entity::delete_by_id(id).exec(&txn).await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -377,6 +381,7 @@ pub async fn delete_problem(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in problem (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -388,17 +393,23 @@ pub async fn create_test_case(
     AppJson(payload): AppJson<CreateTestCaseRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
-    validate_create_test_case(&payload)?;
 
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
+    validate_create_test_case(&payload)?;
 
     let position = match payload.position {
         Some(p) => p,
         None => next_test_case_position(&txn, problem_id).await?,
     };
 
-    let label = payload.label.trim().to_string();
+    let label = payload
+        .label
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
+        .unwrap_or_else(|| position.to_string());
+    ensure_test_case_label_available(&txn, problem_id, &label, None).await?;
     let new_tc = test_case::ActiveModel {
         input: Set(payload.input),
         expected_output: Set(payload.expected_output),
@@ -537,6 +548,7 @@ pub async fn get_test_case(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Test case not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in problem (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -575,6 +587,8 @@ pub async fn update_test_case(
         active.position = Set(position);
     }
     if let Some(label) = payload.label {
+        let label = label.trim().to_string();
+        ensure_test_case_label_available(&txn, problem_id, &label, Some(tc_id)).await?;
         active.label = Set(label);
     }
     match payload.description {
@@ -643,15 +657,16 @@ pub async fn delete_test_case(
     tag = "Test Cases",
     operation_id = "uploadTestCases",
     summary = "Upload test cases from a ZIP file",
-    description = "Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
+    description = "Bulk-creates test cases from a ZIP archive using caller-supplied filename patterns. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
     params(("id" = i32, Path, description = "Problem ID")),
-    request_body(content_type = "multipart/form-data", description = "ZIP file containing test cases (.in/.ans or .in/.out pairs)"),
+    request_body(content_type = "multipart/form-data", description = "Multipart form data with `file` (ZIP), `input_format` (for example `*.in`), and `output_format` (for example `*.out`)."),
     responses(
         (status = 201, description = "Test cases uploaded", body = UploadTestCasesResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in problem (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -665,44 +680,80 @@ pub async fn upload_test_cases(
     auth_user.require_permission("problem:edit")?;
 
     let mut zip_bytes: Option<Vec<u8>> = None;
+    let mut input_format: Option<String> = None;
+    let mut output_format: Option<String> = None;
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::Validation(format!("Multipart error: {e}")))?
     {
-        if field.name() == Some("file") {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::Validation(format!("Failed to read file: {e}")))?;
-            zip_bytes = Some(data.to_vec());
-            break;
+        match field.name() {
+            Some("file") => {
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Validation(format!("Failed to read file: {e}")))?;
+                zip_bytes = Some(data.to_vec());
+            }
+            Some("input_format") => {
+                input_format = Some(field.text().await.map_err(|e| {
+                    AppError::Validation(format!("Failed to read input_format: {e}"))
+                })?);
+            }
+            Some("output_format") => {
+                output_format = Some(field.text().await.map_err(|e| {
+                    AppError::Validation(format!("Failed to read output_format: {e}"))
+                })?);
+            }
+            _ => {}
         }
     }
 
     let zip_bytes = zip_bytes.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
+    let input_format =
+        input_format.ok_or_else(|| AppError::Validation("Missing 'input_format' field".into()))?;
+    let output_format = output_format
+        .ok_or_else(|| AppError::Validation("Missing 'output_format' field".into()))?;
 
-    let entries = parse_zip_test_cases(&zip_bytes)?;
+    if input_format.matches('*').count() != 1 || output_format.matches('*').count() != 1 {
+        return Err(AppError::Validation(
+            "Formats must contain exactly one '*' wildcard".into(),
+        ));
+    }
+
+    let entries = parse_zip_test_cases(&zip_bytes, &input_format, &output_format)?;
     if entries.is_empty() {
         return Err(AppError::Validation(
-            "ZIP contains no valid .in/.ans pairs".into(),
+            "ZIP contains no valid input/output file pairs matching the specified formats".into(),
         ));
     }
 
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
 
+    let existing_labels: std::collections::HashSet<String> = test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(problem_id))
+        .select_only()
+        .column(test_case::Column::Label)
+        .into_tuple::<String>()
+        .all(&txn)
+        .await?
+        .into_iter()
+        .collect();
+
     let mut start_pos = next_test_case_position(&txn, problem_id).await?;
     let now = chrono::Utc::now();
     let mut created = Vec::with_capacity(entries.len());
 
     for entry in entries {
+        let label = entry.label.trim().to_string();
+        validate_test_case_label_for_upload(&label, &existing_labels, &created)?;
         let new_tc = test_case::ActiveModel {
             input: Set(entry.input),
             expected_output: Set(entry.expected_output),
             score: Set(0),
-            label: Set(entry.stem.clone()),
-            description: Set(Some(entry.stem)),
+            label: Set(label),
+            description: Set(None),
             is_sample: Set(entry.is_sample),
             position: Set(start_pos),
             problem_id: Set(problem_id),
@@ -896,7 +947,7 @@ pub fn upload_body_limit() -> DefaultBodyLimit {
 }
 
 async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Model, AppError> {
-    problem::Entity::find_by_id(id)
+    problem::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))
@@ -927,7 +978,7 @@ async fn find_problem_for_update(
     id: i32,
 ) -> Result<problem::Model, AppError> {
     use sea_orm::sea_query::LockType;
-    problem::Entity::find_by_id(id)
+    problem::Entity::find_active_by_id(id)
         .lock(LockType::Update)
         .one(txn)
         .await?
@@ -969,6 +1020,45 @@ async fn next_test_case_position<C: ConnectionTrait>(
         .ok_or_else(|| AppError::Validation("Position overflow".into()))
 }
 
+async fn ensure_test_case_label_available<C: ConnectionTrait>(
+    db: &C,
+    problem_id: i32,
+    label: &str,
+    exclude_id: Option<i32>,
+) -> Result<(), AppError> {
+    let mut query = test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(problem_id))
+        .filter(test_case::Column::Label.eq(label));
+
+    if let Some(exclude_id) = exclude_id {
+        query = query.filter(test_case::Column::Id.ne(exclude_id));
+    }
+
+    if query.one(db).await?.is_some() {
+        return Err(AppError::Conflict(format!(
+            "Test case label '{label}' already exists in problem {problem_id}"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_test_case_label_for_upload(
+    label: &str,
+    existing_labels: &std::collections::HashSet<String>,
+    created: &[test_case::Model],
+) -> Result<(), AppError> {
+    validate_label(label)?;
+
+    if existing_labels.contains(label) || created.iter().any(|tc| tc.label == label) {
+        return Err(AppError::Conflict(format!(
+            "Test case label '{label}' already exists in this problem"
+        )));
+    }
+
+    Ok(())
+}
+
 fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
     let input_preview = truncate_preview(&m.input);
     let output_preview = truncate_preview(&m.expected_output);
@@ -988,11 +1078,11 @@ fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
 
 /// Parsed test case from a ZIP archive.
 struct ZipTestEntry {
-    stem: String,
+    label: String,
     input: String,
     expected_output: String,
     is_sample: bool,
-    /// Sort key: (directory priority, stem)
+    /// Sort key: (directory priority, label)
     sort_key: (u8, String),
 }
 
@@ -1002,7 +1092,24 @@ const MAX_DECOMPRESSED_FILE_SIZE: u64 = 128 * 1024 * 1024;
 /// Maximum total decompressed size across all files in a ZIP archive (2048 MB).
 const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = 2048 * 1024 * 1024;
 
-fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
+fn extract_label<'a>(filename: &'a str, format: &str) -> Option<&'a str> {
+    let (prefix, suffix) = format.split_once('*')?;
+
+    if filename.starts_with(prefix)
+        && filename.ends_with(suffix)
+        && filename.len() >= prefix.len() + suffix.len()
+    {
+        Some(&filename[prefix.len()..filename.len() - suffix.len()])
+    } else {
+        None
+    }
+}
+
+fn parse_zip_test_cases(
+    data: &[u8],
+    input_format: &str,
+    output_format: &str,
+) -> Result<Vec<ZipTestEntry>, AppError> {
     let cursor = std::io::Cursor::new(data);
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|e| AppError::Validation(format!("Invalid ZIP archive: {e}")))?;
@@ -1034,21 +1141,12 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
         }
 
         let is_sample = is_sample_directory(dir);
+        let label_as_input = extract_label(filename, input_format);
+        let label_as_output = extract_label(filename, output_format);
 
-        let (stem, ext) = match filename.rsplit_once('.') {
-            Some((s, e)) => (s, e),
-            None => continue,
-        };
-
-        if stem.is_empty() {
+        if label_as_input.is_none() && label_as_output.is_none() {
             continue;
         }
-
-        let key = if dir.is_empty() {
-            stem.to_string()
-        } else {
-            format!("{dir}/{stem}")
-        };
 
         let mut buf = Vec::new();
         file.take(MAX_DECOMPRESSED_FILE_SIZE + 1)
@@ -1071,24 +1169,25 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
         let content = String::from_utf8(buf)
             .map_err(|_| AppError::Validation(format!("File '{name}' is not valid UTF-8")))?;
 
-        match ext {
-            "in" => {
-                if in_files.contains_key(&key) {
-                    return Err(AppError::Validation(format!(
-                        "Duplicate input file for test case '{key}'"
-                    )));
-                }
-                in_files.insert(key, (content, is_sample));
+        if let Some(label) = label_as_input {
+            let key = label.to_string();
+            if in_files.contains_key(&key) {
+                return Err(AppError::Validation(format!(
+                    "Duplicate input file for test case label '{key}'"
+                )));
             }
-            "ans" | "out" => {
-                if ans_files.contains_key(&key) {
-                    return Err(AppError::Validation(format!(
-                        "Duplicate output file for test case '{key}' (both .ans and .out?)"
-                    )));
-                }
-                ans_files.insert(key, content);
+            in_files.insert(key, (content, is_sample));
+            continue;
+        }
+
+        if let Some(label) = label_as_output {
+            let key = label.to_string();
+            if ans_files.contains_key(&key) {
+                return Err(AppError::Validation(format!(
+                    "Duplicate output file for test case label '{key}'"
+                )));
             }
-            _ => {}
+            ans_files.insert(key, content);
         }
     }
 
@@ -1097,11 +1196,10 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
 
     for (key, (input, is_sample)) in in_files {
         if let Some(output) = ans_files.remove(&key) {
-            let stem = key.rsplit('/').next().unwrap_or(&key).to_string();
             let sort_priority = if is_sample { 0u8 } else { 1u8 };
-            let sort_key = (sort_priority, key);
+            let sort_key = (sort_priority, key.clone());
             entries.push(ZipTestEntry {
-                stem,
+                label: key,
                 input,
                 expected_output: output,
                 is_sample,
@@ -1118,13 +1216,13 @@ fn parse_zip_test_cases(data: &[u8]) -> Result<Vec<ZipTestEntry>, AppError> {
         let mut parts = Vec::new();
         if !unmatched_in.is_empty() {
             parts.push(format!(
-                ".in files without matching .ans: {}",
+                "Input files without matching output: {}",
                 unmatched_in.join(", ")
             ));
         }
         if !unmatched_ans.is_empty() {
             parts.push(format!(
-                ".ans files without matching .in: {}",
+                "Output files without matching input: {}",
                 unmatched_ans.join(", ")
             ));
         }

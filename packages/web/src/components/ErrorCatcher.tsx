@@ -1,4 +1,5 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Button } from '@broccoli/web-sdk/ui';
 import {
   Activity,
   AlertTriangle,
@@ -15,8 +16,6 @@ import {
   Timer,
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
-
-import { Button } from '@/components/ui/button';
 
 interface ErrorPageProps {
   code: number | string;

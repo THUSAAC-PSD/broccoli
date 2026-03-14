@@ -13,11 +13,13 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::contest::*;
+use crate::models::plugin_config::config_key;
 use crate::models::shared::{Pagination, escape_like};
 use crate::state::AppState;
 use crate::utils::contest::{
     check_contest_access, find_contest, find_contest_problem, require_contest_started,
 };
+use crate::utils::soft_delete::SoftDeletable;
 
 #[utoipa::path(
     post,
@@ -48,8 +50,10 @@ pub async fn create_contest(
     let new_contest = contest::ActiveModel {
         title: Set(payload.title.trim().to_string()),
         description: Set(payload.description),
+        activate_time: Set(payload.activate_time.unwrap_or(None)),
         start_time: Set(payload.start_time),
         end_time: Set(payload.end_time),
+        deactivate_time: Set(payload.deactivate_time.unwrap_or(None)),
         is_public: Set(payload.is_public),
         submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
         show_compile_output: Set(payload.show_compile_output.unwrap_or(true)),
@@ -71,7 +75,7 @@ pub async fn create_contest(
     tag = "Contests",
     operation_id = "listContests",
     summary = "List contests with pagination and search",
-    description = "Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.",
+    description = "Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see active public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `activate_time`, `start_time`, or `title`.",
     params(ContestListQuery),
     responses(
         (status = 200, description = "List of contests", body = ContestListResponse),
@@ -88,22 +92,37 @@ pub async fn list_contests(
     let page = Ord::max(query.page.unwrap_or(1), 1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
 
-    let mut select = contest::Entity::find();
+    let mut select = contest::Entity::find_active();
 
     if !auth_user.has_permission("contest:manage") {
-        select = select.filter(
-            Condition::any()
-                .add(contest::Column::IsPublic.eq(true))
-                .add(
-                    contest::Column::Id.in_subquery(
-                        SeaQuery::select()
-                            .column(contest_user::Column::ContestId)
-                            .from(contest_user::Entity)
-                            .and_where(contest_user::Column::UserId.eq(auth_user.user_id))
-                            .to_owned(),
+        let now = chrono::Utc::now();
+        select = select
+            .filter(
+                Condition::all()
+                    .add(
+                        contest::Column::ActivateTime
+                            .is_not_null()
+                            .and(contest::Column::ActivateTime.lte(now)),
+                    )
+                    .add(
+                        contest::Column::DeactivateTime
+                            .is_null()
+                            .or(contest::Column::DeactivateTime.gt(now)),
                     ),
-                ),
-        );
+            )
+            .filter(
+                Condition::any()
+                    .add(contest::Column::IsPublic.eq(true))
+                    .add(
+                        contest::Column::Id.in_subquery(
+                            SeaQuery::select()
+                                .column(contest_user::Column::ContestId)
+                                .from(contest_user::Entity)
+                                .and_where(contest_user::Column::UserId.eq(auth_user.user_id))
+                                .to_owned(),
+                        ),
+                    ),
+            );
     }
 
     if let Some(ref search) = query.search {
@@ -125,11 +144,13 @@ pub async fn list_contests(
     let sort_column = match sort_by {
         "created_at" => contest::Column::CreatedAt,
         "updated_at" => contest::Column::UpdatedAt,
+        "activate_time" => contest::Column::ActivateTime,
         "start_time" => contest::Column::StartTime,
         "title" => contest::Column::Title,
         _ => {
             return Err(AppError::Validation(
-                "sort_by must be one of: created_at, updated_at, start_time, title".into(),
+                "sort_by must be one of: created_at, updated_at, activate_time, start_time, title"
+                    .into(),
             ));
         }
     };
@@ -140,15 +161,17 @@ pub async fn list_contests(
         .num_items()
         .await?;
 
-    select = select.order_by(sort_column, sort_order);
+    select = select.order_by_with_nulls(sort_column, sort_order, sea_query::NullOrdering::Last);
     let total_pages = total.div_ceil(per_page);
 
     let data = select
         .select_only()
         .column(contest::Column::Id)
         .column(contest::Column::Title)
+        .column(contest::Column::ActivateTime)
         .column(contest::Column::StartTime)
         .column(contest::Column::EndTime)
+        .column(contest::Column::DeactivateTime)
         .column(contest::Column::IsPublic)
         .column(contest::Column::SubmissionsVisible)
         .column(contest::Column::ShowCompileOutput)
@@ -178,7 +201,7 @@ pub async fn list_contests(
     tag = "Contests",
     operation_id = "getContest",
     summary = "Get a contest by ID",
-    description = "Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.",
+    description = "Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view active public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 200, description = "Contest details", body = ContestResponse),
@@ -199,12 +222,48 @@ pub async fn get_contest(
 }
 
 #[utoipa::path(
+    get,
+    path = "/{id}/me",
+    tag = "Contests",
+    operation_id = "getContestMyInfo",
+    summary = "Get current user's contest context",
+    description = "Returns contest-related information for the authenticated user in the specified contest. Uses the same contest visibility rules as getContest.",
+    params(("id" = i32, Path, description = "Contest ID")),
+    responses(
+        (status = 200, description = "Current user's contest context", body = ContestUserContextResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user), fields(id))]
+pub async fn get_contest_my_info(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<ContestUserContextResponse>, AppError> {
+    let model = find_contest(&state.db, id).await?;
+    check_contest_access(&state.db, &auth_user, &model).await?;
+
+    let registration = contest_user::Entity::find_by_id((id, auth_user.user_id))
+        .one(&state.db)
+        .await?;
+
+    Ok(Json(ContestUserContextResponse {
+        contest_id: id,
+        user_id: auth_user.user_id,
+        is_registered: registration.is_some(),
+        registered_at: registration.map(|m| m.registered_at),
+    }))
+}
+
+#[utoipa::path(
     patch,
     path = "/{id}",
     tag = "Contests",
     operation_id = "updateContest",
     summary = "Update an existing contest",
-    description = "Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.",
+    description = "Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures activate_time <= start_time < end_time <= deactivate_time (if deactivate_time is set) even when fields are updated independently. Returns 404 if the contest does not exist.",
     params(("id" = i32, Path, description = "Contest ID")),
     request_body = UpdateContestRequest,
     responses(
@@ -235,13 +294,12 @@ pub async fn update_contest(
     let existing = find_contest_for_update(&txn, id).await?;
 
     // Cross-field time validation against existing values
-    let effective_start = payload.start_time.unwrap_or(existing.start_time);
-    let effective_end = payload.end_time.unwrap_or(existing.end_time);
-    if effective_end <= effective_start {
-        return Err(AppError::Validation(
-            "end_time must be after start_time".into(),
-        ));
-    }
+    validate_contest_timeline(
+        payload.activate_time.unwrap_or(existing.activate_time),
+        payload.start_time.unwrap_or(existing.start_time),
+        payload.end_time.unwrap_or(existing.end_time),
+        payload.deactivate_time.unwrap_or(existing.deactivate_time),
+    )?;
 
     let mut active: contest::ActiveModel = existing.into();
 
@@ -251,11 +309,17 @@ pub async fn update_contest(
     if let Some(description) = payload.description {
         active.description = Set(description);
     }
+    if let Some(activate_time) = payload.activate_time {
+        active.activate_time = Set(activate_time);
+    }
     if let Some(start_time) = payload.start_time {
         active.start_time = Set(start_time);
     }
     if let Some(end_time) = payload.end_time {
         active.end_time = Set(end_time);
+    }
+    if let Some(deactivate_time) = payload.deactivate_time {
+        active.deactivate_time = Set(deactivate_time);
     }
     if let Some(is_public) = payload.is_public {
         active.is_public = Set(is_public);
@@ -285,8 +349,8 @@ pub async fn update_contest(
     path = "/{id}",
     tag = "Contests",
     operation_id = "deleteContest",
-    summary = "Delete a contest by ID",
-    description = "Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.",
+    summary = "Soft-delete a contest by ID",
+    description = "Marks a contest as deleted without removing historical submissions or participant records. Requires `contest:delete` permission.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 204, description = "Contest deleted"),
@@ -305,29 +369,19 @@ pub async fn delete_contest(
     auth_user.require_permission("contest:delete")?;
 
     let txn = state.db.begin().await?;
-    let _contest = find_contest_for_update(&txn, id).await?;
+    let contest = find_contest_for_update(&txn, id).await?;
 
-    // TODO: check for contest-scoped submissions before deleting.
+    let mut active: contest::ActiveModel = contest.into();
+    active.deleted_at = Set(Some(chrono::Utc::now()));
+    active.update(&txn).await?;
 
-    contest_problem::Entity::delete_many()
-        .filter(contest_problem::Column::ContestId.eq(id))
-        .exec(&txn)
-        .await?;
-    contest_user::Entity::delete_many()
-        .filter(contest_user::Column::ContestId.eq(id))
-        .exec(&txn)
-        .await?;
-
-    // Clean up plugin config for this contest and its contest_problem entries
-    delete_config_by_scope(&txn, "contest", &id.to_string()).await?;
+    delete_config_by_scope(&txn, "contest", &config_key::contest(id)).await?;
     delete_config_by_scope_like(
         &txn,
         "contest_problem",
-        &crate::models::plugin_config::config_key::contest_problem_by_contest_like(id),
+        &config_key::contest_problem_by_contest_like(id),
     )
     .await?;
-
-    contest::Entity::delete_by_id(id).exec(&txn).await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -365,7 +419,7 @@ pub async fn add_contest_problem(
     let txn = state.db.begin().await?;
     let _contest = find_contest_for_update(&txn, contest_id).await?;
 
-    let problem_model = problem::Entity::find_by_id(payload.problem_id)
+    let problem_model = problem::Entity::find_active_by_id(payload.problem_id)
         .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
@@ -425,6 +479,7 @@ pub async fn add_contest_problem(
     responses(
         (status = 200, description = "List of contest problems", body = Vec<ContestProblemResponse>),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 404, description = "Contest not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
@@ -677,7 +732,7 @@ pub async fn add_participant(
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
 
-    let target_user = user::Entity::find_by_id(payload.user_id)
+    let target_user = user::Entity::find_active_by_id(payload.user_id)
         .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
@@ -698,6 +753,7 @@ pub async fn add_participant(
                     contest_id: model.contest_id,
                     user_id: model.user_id,
                     username: target_user.username,
+                    is_deleted: target_user.deleted_at.is_some(),
                     registered_at: model.registered_at,
                 }),
             ))
@@ -750,7 +806,8 @@ pub async fn list_participants(
         .map(|(cu, usr)| ContestParticipantResponse {
             contest_id: cu.contest_id,
             user_id: cu.user_id,
-            username: usr.map(|u| u.username).unwrap_or_default(),
+            username: usr.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+            is_deleted: usr.as_ref().is_some_and(|u| u.deleted_at.is_some()),
             registered_at: cu.registered_at,
         })
         .collect();
@@ -805,7 +862,7 @@ pub async fn remove_participant(
     tag = "Contests",
     operation_id = "registerForContest",
     summary = "Self-register for a public contest",
-    description = "Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.",
+    description = "Registers the authenticated user for an active public contest. Inactive or non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.",
     params(("id" = i32, Path, description = "Contest ID")),
     responses(
         (status = 201, description = "Registered for contest"),
@@ -826,7 +883,10 @@ pub async fn register_for_contest(
     let txn = state.db.begin().await?;
     let contest_model = find_contest_for_update(&txn, contest_id).await?;
 
-    if !contest_model.is_public {
+    if contest_model.activate_time.is_none_or(|at| at > now)
+        || contest_model.deactivate_time.is_some_and(|dt| dt <= now)
+        || !contest_model.is_public
+    {
         return Err(AppError::NotFound("Contest not found".into())); // Prevent enumeration
     }
 
@@ -1048,13 +1108,17 @@ pub async fn bulk_add_participants(
                 users_to_enroll.push((m.id, username));
             }
             Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                let existing = user::Entity::find()
+                // The partial unique index (WHERE deleted_at IS NULL) guarantees that a
+                // constraint violation here always means an *active* user exists with this
+                // username.  Soft-deleted accounts are excluded from the index and never
+                // cause a conflict.
+                let existing = user::Entity::find_active()
                     .filter(user::Column::Username.eq(&username))
                     .one(&txn)
                     .await?
                     .ok_or_else(|| {
                         AppError::Internal(format!(
-                            "User '{username}' caused UniqueConstraintViolation but not found"
+                            "User '{username}' caused UniqueConstraintViolation but no active user found"
                         ))
                     })?;
                 users_to_enroll.push((existing.id, username));
@@ -1070,7 +1134,7 @@ pub async fn bulk_add_participants(
             .map(|u| u.trim().to_string())
             .collect();
 
-        let found_users: Vec<user::Model> = user::Entity::find()
+        let found_users: Vec<user::Model> = user::Entity::find_active()
             .filter(user::Column::Username.is_in(trimmed_usernames.clone()))
             .all(&txn)
             .await?;
@@ -1170,7 +1234,7 @@ async fn find_contest_for_update(
     id: i32,
 ) -> Result<contest::Model, AppError> {
     use sea_orm::sea_query::LockType;
-    contest::Entity::find_by_id(id)
+    contest::Entity::find_active_by_id(id)
         .lock(LockType::Update)
         .one(txn)
         .await?

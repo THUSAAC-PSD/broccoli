@@ -31,7 +31,9 @@ fn auth_routes() -> OpenApiRouter<AppState> {
 }
 
 fn user_routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(handlers::user::list_users))
+    OpenApiRouter::new()
+        .routes(routes!(handlers::user::list_users))
+        .routes(routes!(handlers::user::delete_user))
 }
 
 fn admin_routes() -> OpenApiRouter<AppState> {
@@ -64,7 +66,6 @@ fn plugin_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::plugin::list_registries))
         .routes(routes!(handlers::plugin::list_active_plugins))
-        .routes(routes!(handlers::plugin::call_plugin_func))
 }
 
 fn proxy_routes() -> OpenApiRouter<AppState> {
@@ -162,6 +163,7 @@ fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
             handlers::contest::update_contest,
             handlers::contest::delete_contest,
         ))
+        .routes(routes!(handlers::contest::get_contest_my_info))
         .nest(
             "/{id}/problems",
             contest_problem_routes(submission_max_size),

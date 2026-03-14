@@ -25,3 +25,9 @@ handler = "sql_counter"
 path = "/reflect/{id}"
 method = "GET"
 handler = "reflect"
+
+[[server.routes]]
+path = "/protected/{id}"
+method = "GET"
+handler = "reflect"
+permission = "submission:view_all"

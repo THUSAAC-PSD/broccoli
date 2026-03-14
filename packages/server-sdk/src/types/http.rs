@@ -2,6 +2,15 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginHttpAuth {
+    pub user_id: i32,
+    pub username: String,
+    pub role: String,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
 /// Data passed to the Wasm plugin when a route is triggered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginHttpRequest {
@@ -17,7 +26,19 @@ pub struct PluginHttpRequest {
     #[serde(default)]
     pub body: Option<serde_json::Value>,
     #[serde(default)]
-    pub user_id: Option<i32>,
+    pub auth: Option<PluginHttpAuth>,
+}
+
+impl PluginHttpRequest {
+    pub fn user_id(&self) -> Option<i32> {
+        self.auth.as_ref().map(|auth| auth.user_id)
+    }
+
+    pub fn has_permission(&self, permission: &str) -> bool {
+        self.auth
+            .as_ref()
+            .is_some_and(|auth| auth.permissions.iter().any(|p| p == permission))
+    }
 }
 
 /// Response returned by the Wasm plugin after processing a route.

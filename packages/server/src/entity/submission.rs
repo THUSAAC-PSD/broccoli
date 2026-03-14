@@ -34,6 +34,7 @@ pub struct Model {
     pub contest_type: String,
 
     pub status: SubmissionStatus,
+    #[sea_orm(column_type = "Text", nullable)]
     pub verdict: Option<Verdict>,
 
     #[sea_orm(column_type = "Text", nullable)]

@@ -1,24 +1,49 @@
 use std::collections::HashMap;
 
+use axum::http::header::AUTHORIZATION;
 use axum::{
     body::Body,
     extract::{Path, Query, State},
     http::{HeaderMap, Method, Response},
     response::IntoResponse,
 };
-use plugin_core::http::{PluginHttpRequest, PluginHttpResponse};
+use plugin_core::http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
 use plugin_core::traits::PluginManagerExt;
 use tracing::{info, instrument, warn};
 
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::state::AppState;
+use crate::utils::jwt;
+
+fn resolve_optional_auth_user(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<AuthUser>, AppError> {
+    let auth_header = match headers.get(AUTHORIZATION) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    let auth_header = auth_header.to_str().map_err(|_| AppError::TokenInvalid)?;
+    let token = auth_header
+        .strip_prefix("Bearer ")
+        .ok_or(AppError::TokenInvalid)?;
+    let claims =
+        jwt::verify(token, &state.config.auth.jwt_secret).map_err(|_| AppError::TokenInvalid)?;
+
+    Ok(Some(AuthUser {
+        user_id: claims.uid,
+        username: claims.sub,
+        role: claims.role,
+        permissions: claims.permissions,
+    }))
+}
 
 async fn handle_plugin_request_impl(
     state: AppState,
     plugin_id: String,
     sub_path: String,
-    auth_user: Option<AuthUser>,
     method: Method,
     headers: HeaderMap,
     query: HashMap<String, String>,
@@ -35,6 +60,8 @@ async fn handle_plugin_request_impl(
         "Received request for plugin '{}', path '{}'",
         plugin_id, normalized_path
     );
+
+    let auth_user = resolve_optional_auth_user(&state, &headers)?;
 
     let (handler_name, required_permission, params) = {
         let registry = state
@@ -75,14 +102,15 @@ async fn handle_plugin_request_impl(
 
     // Authorization check
     if let Some(ref permission) = required_permission {
-        auth_user
-            .as_ref()
-            .ok_or_else(|| {
-                warn!("Unauthorized access attempt to protected plugin route");
-                // FIXME: TokenInvalid is also possible
+        let user = auth_user.as_ref().ok_or_else(|| {
+            warn!("Unauthorized access attempt to protected plugin route");
+            if headers.contains_key("Authorization") {
+                AppError::TokenInvalid
+            } else {
                 AppError::TokenMissing
-            })?
-            .require_permission(permission)?;
+            }
+        })?;
+        user.require_permission(permission)?;
     }
 
     // Construct request payload for Wasm
@@ -96,7 +124,12 @@ async fn handle_plugin_request_impl(
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
             .collect(),
         body: serde_json::from_str(&body).ok(),
-        user_id: auth_user.map(|u| u.user_id),
+        auth: auth_user.map(|user| PluginHttpAuth {
+            user_id: user.user_id,
+            username: user.username,
+            role: user.role,
+            permissions: user.permissions,
+        }),
     };
 
     info!("Forwarding request to plugin handler: {}", handler_name);
@@ -119,7 +152,9 @@ async fn handle_plugin_request_impl(
             AppError::Internal(format!("Failed to serialize plugin response body: {}", e))
         })?;
 
-    Ok(builder.body(Body::from(resp_body)).unwrap())
+    builder
+        .body(Body::from(resp_body))
+        .map_err(|e| AppError::Internal(format!("Failed to build plugin response: {}", e)))
 }
 
 /// Generate a per-method proxy handler with its own utoipa operation_id.
@@ -147,17 +182,16 @@ macro_rules! proxy_handler {
             ),
             security(("jwt" = []))
         )]
-        #[instrument(skip(state, auth_user, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
+        #[instrument(skip(state, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
         pub async fn $fn_name(
             State(state): State<AppState>,
             Path((plugin_id, sub_path)): Path<(String, String)>,
-            auth_user: Option<AuthUser>,
             method: Method,
             headers: HeaderMap,
             Query(query): Query<HashMap<String, String>>,
             body: String,
         ) -> Result<impl IntoResponse, AppError> {
-            handle_plugin_request_impl(state, plugin_id, sub_path, auth_user, method, headers, query, body).await
+            handle_plugin_request_impl(state, plugin_id, sub_path, method, headers, query, body).await
         }
     };
 
@@ -183,17 +217,16 @@ macro_rules! proxy_handler {
             ),
             security(("jwt" = []))
         )]
-        #[instrument(skip(state, auth_user, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
+        #[instrument(skip(state, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
         pub async fn $fn_name(
             State(state): State<AppState>,
             Path((plugin_id, sub_path)): Path<(String, String)>,
-            auth_user: Option<AuthUser>,
             method: Method,
             headers: HeaderMap,
             Query(query): Query<HashMap<String, String>>,
             body: String,
         ) -> Result<impl IntoResponse, AppError> {
-            handle_plugin_request_impl(state, plugin_id, sub_path, auth_user, method, headers, query, body).await
+            handle_plugin_request_impl(state, plugin_id, sub_path, method, headers, query, body).await
         }
     };
 }

@@ -17,6 +17,7 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tokio::sync::{Mutex, OnceCell, RwLock};
 
+use common::language::LanguageDefinition;
 use common::storage::BlobStore;
 use common::storage::database::DatabaseBlobStore;
 use server::config::{
@@ -51,6 +52,80 @@ extern "C" fn cleanup_container() {
             .args(["rm", "-f", "-v", id])
             .output();
     }
+}
+
+fn test_languages() -> HashMap<String, LanguageDefinition> {
+    HashMap::from([
+        (
+            "cpp".to_string(),
+            LanguageDefinition {
+                compile_cmd: Some(vec![
+                    "g++".to_string(),
+                    "{source}".to_string(),
+                    "-O2".to_string(),
+                    "-std=c++17".to_string(),
+                    "-o".to_string(),
+                    "{binary}".to_string(),
+                ]),
+                run_cmd: vec!["./{binary}".to_string()],
+                source_filename: "solution.cpp".to_string(),
+                binary_name: "solution".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+        (
+            "c".to_string(),
+            LanguageDefinition {
+                compile_cmd: Some(vec![
+                    "gcc".to_string(),
+                    "{source}".to_string(),
+                    "-O2".to_string(),
+                    "-std=c11".to_string(),
+                    "-o".to_string(),
+                    "{binary}".to_string(),
+                ]),
+                run_cmd: vec!["./{binary}".to_string()],
+                source_filename: "solution.c".to_string(),
+                binary_name: "solution".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+        (
+            "java".to_string(),
+            LanguageDefinition {
+                compile_cmd: Some(vec!["javac".to_string(), "{source}".to_string()]),
+                run_cmd: vec!["java".to_string(), "{basename}".to_string()],
+                source_filename: "{basename}.java".to_string(),
+                binary_name: "{basename}.class".to_string(),
+                version_cmd: None,
+                basename_fallback: "Main".to_string(),
+            },
+        ),
+        (
+            "python3".to_string(),
+            LanguageDefinition {
+                compile_cmd: None,
+                run_cmd: vec!["python3".to_string(), "{source}".to_string()],
+                source_filename: "solution.py".to_string(),
+                binary_name: "solution.py".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+        (
+            "javascript".to_string(),
+            LanguageDefinition {
+                compile_cmd: None,
+                run_cmd: vec!["node".to_string(), "{source}".to_string()],
+                source_filename: "solution.js".to_string(),
+                binary_name: "solution.js".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+    ])
 }
 
 /// Start (or reuse) the shared PostgreSQL container, create and initialize a
@@ -205,6 +280,10 @@ pub mod routes {
 
     pub fn contest_register(id: i32) -> String {
         format!("/api/v1/contests/{id}/register")
+    }
+
+    pub fn contest_my_info(id: i32) -> String {
+        format!("/api/v1/contests/{id}/me")
     }
 
     pub fn test_cases_reorder(problem_id: i32) -> String {
@@ -417,7 +496,7 @@ impl TestApp {
                 enabled: false,
                 ..Default::default()
             },
-            languages: HashMap::new(),
+            languages: test_languages(),
             batch_max_age_secs: 600,
         };
 
@@ -502,7 +581,13 @@ impl TestApp {
 
         Self {
             addr,
-            client: Client::new(),
+            // Integration tests talk to a local ephemeral axum server.
+            // Disable proxy resolution to avoid corporate/system proxies
+            // turning localhost calls into spurious 502 responses.
+            client: Client::builder()
+                .no_proxy()
+                .build()
+                .expect("Failed to build reqwest client"),
             db,
             server_handle: Some(server_handle),
         }
@@ -621,13 +706,21 @@ impl TestApp {
         path: &str,
         file_name: &str,
         file_bytes: Vec<u8>,
+        input_format: Option<&str>,
+        output_format: Option<&str>,
         token: &str,
     ) -> TestResponse {
         let part = reqwest::multipart::Part::bytes(file_bytes)
             .file_name(file_name.to_string())
             .mime_str("application/zip")
             .expect("Failed to set MIME type");
-        let form = reqwest::multipart::Form::new().part("file", part);
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+        if let Some(input_format) = input_format {
+            form = form.text("input_format", input_format.to_string());
+        }
+        if let Some(output_format) = output_format {
+            form = form.text("output_format", output_format.to_string());
+        }
 
         let res = self
             .client
@@ -690,7 +783,6 @@ impl TestApp {
                     "expected_output": "15",
                     "score": 10,
                     "is_sample": true,
-                    "label": format!("tc_{}", problem_id),
                 }),
                 token,
             )
@@ -713,6 +805,7 @@ impl TestApp {
                 &serde_json::json!({
                     "title": title,
                     "description": "Contest description",
+                    "activate_time": "2020-01-01T00:00:00Z",
                     "start_time": "2020-01-01T00:00:00Z",
                     "end_time": "2099-01-02T00:00:00Z",
                     "is_public": is_public,
@@ -733,11 +826,19 @@ impl TestApp {
         language: &str,
         code: &str,
     ) -> i32 {
+        let filename = match language {
+            "cpp" => "main.cpp",
+            "c" => "main.c",
+            "java" => "Main.java",
+            "python3" => "solution.py",
+            "javascript" => "solution.js",
+            _ => "main.txt",
+        };
         let res = self
             .post_with_token(
                 &routes::problem_submissions(problem_id),
                 &serde_json::json!({
-                    "files": [{"filename": "main.cpp", "content": code}],
+                    "files": [{"filename": filename, "content": code}],
                     "language": language,
                 }),
                 token,

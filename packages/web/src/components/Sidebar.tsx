@@ -1,29 +1,12 @@
-import type { ContestProblemResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { Slot } from '@broccoli/sdk/react';
-import { useQuery } from '@tanstack/react-query';
-import {
-  BarChart3,
-  ChevronUp,
-  Code2,
-  Home,
-  LogOut,
-  MessageCircle,
-  Presentation,
-  Puzzle,
-  Trophy,
-  User,
-} from 'lucide-react';
-import { Link, useLocation } from 'react-router';
-
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Slot } from '@broccoli/web-sdk/slot';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   Sidebar as SidebarUI,
   SidebarContent,
   SidebarFooter,
@@ -35,19 +18,74 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-} from '@/components/ui/sidebar';
-import { useAuth } from '@/contexts/auth-context';
-import { useContest } from '@/contexts/contest-context';
+} from '@broccoli/web-sdk/ui';
+import { useQuery } from '@tanstack/react-query';
+import {
+  BarChart3,
+  ChevronUp,
+  Code2,
+  Home,
+  LayoutGrid,
+  LogOut,
+  MessageCircle,
+  Presentation,
+  Puzzle,
+  Trophy,
+  User,
+} from 'lucide-react';
+import { Link, useLocation } from 'react-router';
 
-const defaultMenuItems = [
-  { titleKey: 'sidebar.homepage', icon: Home, url: '/' },
+import { useAuth } from '@/features/auth/hooks/use-auth';
+import { useContest } from '@/features/contest/contexts/contest-context';
+
+import { LocaleSelector } from './LocaleSelector';
+import { ThemeToggle } from './ThemeSwitcher';
+
+interface MenuItem {
+  titleKey: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  url: string;
+  requiredPermissions?: string[];
+}
+
+const allMenuItems: MenuItem[] = [
+  {
+    titleKey: 'sidebar.admin',
+    icon: Home,
+    url: '/admin',
+    requiredPermissions: [
+      'user:manage',
+      'problem:create',
+      'contest:manage',
+      'plugin:manage',
+    ],
+  },
+  {
+    titleKey: 'sidebar.problems',
+    icon: Code2,
+    url: '/problems',
+    requiredPermissions: ['problem:create', 'problem:edit', 'problem:delete'],
+  },
+  {
+    titleKey: 'sidebar.contests',
+    icon: Trophy,
+    url: '/contests',
+    requiredPermissions: ['contest:manage'],
+  },
+  {
+    titleKey: 'sidebar.plugins',
+    icon: Puzzle,
+    url: '/plugins',
+    requiredPermissions: ['plugin:manage'],
+  },
 ];
 
-const adminMenuItems = [
-  { titleKey: 'sidebar.problems', icon: Code2, url: '/problems' },
-  { titleKey: 'sidebar.contests', icon: Trophy, url: '/contests' },
-  { titleKey: 'sidebar.plugins', icon: Puzzle, url: '/plugins' },
-];
+const getMenuItems = (permissions: string[]): MenuItem[] => {
+  return allMenuItems.filter((item) => {
+    if (!item.requiredPermissions) return true;
+    return item.requiredPermissions.some((perm) => permissions.includes(perm));
+  });
+};
 
 function ContestProblemsGroup() {
   const { t } = useTranslation();
@@ -84,11 +122,11 @@ function ContestProblemsGroup() {
         params: { path: { id: contestId! } },
       });
       if (error) throw error;
-      return data as ContestProblemResponse[];
+      return data;
     },
   });
 
-  if (!contestId || problems.length === 0) return <></>;
+  if (!contestId) return <></>;
 
   return (
     <SidebarGroup>
@@ -171,6 +209,82 @@ function ContestProblemsGroup() {
   );
 }
 
+function PlatformGroup() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+  const apiClient = useApiClient();
+  const menuItems = getMenuItems(user?.permissions || []);
+
+  const { data: contests } = useQuery({
+    queryKey: ['dashboard-contests'],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/contests', {
+        params: {
+          query: {
+            page: 1,
+            per_page: 100,
+            sort_by: 'start_time',
+            sort_order: 'desc',
+          },
+        },
+      });
+      if (error) throw error;
+      return data.data;
+    },
+  });
+
+  const multipleContests = contests ? contests.length > 1 : false;
+  const havePermissions = user
+    ? USER_PERMISSIONS.some((perm) => user.permissions.includes(perm))
+    : false;
+
+  return (
+    <SidebarGroup>
+      {(multipleContests || havePermissions) && (
+        <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
+      )}
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {multipleContests && !havePermissions && (
+            <SidebarMenuItem key="sidebar.selector">
+              <SidebarMenuButton asChild isActive={pathname === '/'}>
+                <Link to="/">
+                  <LayoutGrid
+                    className={
+                      pathname === '/' ? 'text-sidebar-primary' : undefined
+                    }
+                  />
+                  <span>{t('sidebar.selector')}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          {menuItems.map((item) => {
+            const title = t(item.titleKey);
+            const active = isActivePath(pathname, item.url);
+            return (
+              <SidebarMenuItem key={item.titleKey}>
+                <SidebarMenuButton asChild isActive={active} tooltip={title}>
+                  <Link to={item.url}>
+                    <item.icon
+                      className={active ? 'text-sidebar-primary' : undefined}
+                    />
+                    <span>{title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+          <Slot name="sidebar.platform.menu" as="div" />
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 function isActivePath(pathname: string, url: string) {
   if (url === '/') return pathname === '/';
   return pathname.startsWith(url);
@@ -179,8 +293,6 @@ function isActivePath(pathname: string, url: string) {
 export function Sidebar() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const { pathname } = useLocation();
-  const permissions = user?.permissions || [];
 
   return (
     <SidebarUI collapsible="icon">
@@ -188,7 +300,7 @@ export function Sidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="#">
+              <Link to="/">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <Code2 className="size-4" />
                 </div>
@@ -196,7 +308,7 @@ export function Sidebar() {
                   <span className="font-semibold">{t('app.name')}</span>
                   <span className="text-xs">{t('app.tagline')}</span>
                 </div>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <Slot name="sidebar.header" as="div" />
@@ -205,61 +317,7 @@ export function Sidebar() {
 
       <SidebarContent>
         <Slot name="sidebar.content.before" as="div" />
-
-        <SidebarGroup>
-          <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {defaultMenuItems.map((item) => {
-                const title = t(item.titleKey);
-                const active = isActivePath(pathname, item.url);
-                return (
-                  <SidebarMenuItem key={item.titleKey}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={active}
-                      tooltip={title}
-                    >
-                      <Link to={item.url}>
-                        <item.icon
-                          className={
-                            active ? 'text-sidebar-primary' : undefined
-                          }
-                        />
-                        <span>{title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-              {(permissions.includes('problem:create') ||
-                permissions.includes('problem:edit')) &&
-                adminMenuItems.map((item) => {
-                  const title = t(item.titleKey);
-                  const active = isActivePath(pathname, item.url);
-                  return (
-                    <SidebarMenuItem key={item.titleKey}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={title}
-                      >
-                        <Link to={item.url}>
-                          <item.icon
-                            className={
-                              active ? 'text-sidebar-primary' : undefined
-                            }
-                          />
-                          <span>{title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              <Slot name="sidebar.platform.menu" as="div" />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <PlatformGroup />
 
         <ContestProblemsGroup />
 
@@ -271,6 +329,8 @@ export function Sidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <Slot name="sidebar.footer" as="div" />
+          <LocaleSelector />
+          <ThemeToggle />
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -295,7 +355,7 @@ export function Sidebar() {
                   </Link>
                 ) : (
                   <DropdownMenuItem asChild>
-                    <a href="/login">{t('nav.signIn')}</a>
+                    <Link to="/login">{t('nav.signIn')}</Link>
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

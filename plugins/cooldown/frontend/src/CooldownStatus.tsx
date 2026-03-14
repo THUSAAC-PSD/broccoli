@@ -1,7 +1,8 @@
 /**
  * Shows cooldown timer status on the problem detail sidebar.
  */
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Props {
@@ -16,13 +17,7 @@ interface CooldownStatusData {
   can_submit: boolean;
 }
 
-const BACKEND_ORIGIN = new URL(import.meta.url).origin;
-const AUTH_TOKEN_KEY = 'broccoli_token';
-
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const PLUGIN_BASE = '/api/v1/p/cooldown/api/plugins/cooldown';
 
 const MONO: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
@@ -31,6 +26,7 @@ const MONO: React.CSSProperties = {
 };
 
 export function CooldownStatus({ submission, contestId, problemId }: Props) {
+  const apiFetch = useApiFetch();
   const { t } = useTranslation();
   const [data, setData] = useState<CooldownStatusData | null>(null);
   const [remaining, setRemaining] = useState<number>(0);
@@ -41,9 +37,8 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
   const fetchStatus = useCallback(async () => {
     if (!contestId || !problemId) return;
     try {
-      const res = await fetch(
-        `${BACKEND_ORIGIN}/api/plugins/cooldown/contests/${contestId}/problems/${problemId}/status`,
-        { headers: authHeaders() },
+      const res = await apiFetch(
+        `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/status`,
       );
       if (!res.ok) return;
       const d: CooldownStatusData = await res.json();
@@ -62,7 +57,7 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
     } catch {
       // silent
     }
-  }, [contestId, problemId]);
+  }, [apiFetch, contestId, problemId]);
 
   // Fetch on mount and when submission changes
   useEffect(() => {
@@ -99,7 +94,7 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [remaining > 0]);
+  }, [fetchStatus, remaining > 0]);
 
   if (!contestId || !problemId || !data) return null;
 

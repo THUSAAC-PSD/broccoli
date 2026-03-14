@@ -1,10 +1,11 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useIoiApi } from './hooks/useIoiApi';
 import { useIsIoiContest } from './hooks/useIsIoiContest';
+import type { TokenStatusResponse } from './types';
 
 interface TokenPanelProps {
   submission?: {
@@ -20,6 +21,10 @@ const SCORE_FONT: React.CSSProperties = {
   fontFamily:
     'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
 };
+
+const PRIMARY_ACTION_BG = '#2563eb';
+const PRIMARY_ACTION_BORDER = '#1d4ed8';
+const PRIMARY_ACTION_TEXT = '#ffffff';
 
 function formatCountdown(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
@@ -51,8 +56,22 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
   const { data: tokenStatus } = useQuery({
     queryKey: ['ioi-token-status', cId],
     enabled: !!cId && showTokens === true,
-    queryFn: () => api.getTokenStatus(cId!),
+    queryFn: async (): Promise<TokenStatusResponse | null> => {
+      try {
+        return await api.getTokenStatus(cId!);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          'status' in error &&
+          (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          return null;
+        }
+        throw error;
+      }
+    },
     refetchInterval: 60000,
+    retry: false,
   });
 
   const countdownTargetMs = useMemo(() => {
@@ -260,9 +279,9 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
                     flex: 1,
                     padding: '6px 12px',
                     borderRadius: 5,
-                    border: '1px solid var(--primary, #3b82f6)',
-                    background: 'var(--primary, #3b82f6)',
-                    color: '#fff',
+                    border: `1px solid ${PRIMARY_ACTION_BORDER}`,
+                    background: PRIMARY_ACTION_BG,
+                    color: PRIMARY_ACTION_TEXT,
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: isUsing ? 'not-allowed' : 'pointer',
@@ -298,9 +317,9 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
                 width: '100%',
                 padding: '8px 16px',
                 borderRadius: 6,
-                border: '1px solid var(--primary, #3b82f6)',
-                background: 'var(--primary, #3b82f6)',
-                color: '#fff',
+                border: `1px solid ${PRIMARY_ACTION_BORDER}`,
+                background: PRIMARY_ACTION_BG,
+                color: PRIMARY_ACTION_TEXT,
                 fontSize: 13,
                 fontWeight: 600,
                 cursor: 'pointer',

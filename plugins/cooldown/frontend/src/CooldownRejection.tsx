@@ -1,7 +1,7 @@
 /**
  * Cooldown rejection wrapper for the `submission-result.rejection` slot.
  */
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   type ReactNode,
   useCallback,

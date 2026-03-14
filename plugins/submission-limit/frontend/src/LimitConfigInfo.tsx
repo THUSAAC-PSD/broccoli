@@ -1,7 +1,8 @@
 /**
  * Displays config inheritance info above the config form fields.
  */
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useEffect, useState } from 'react';
 
 type ConfigScope =
@@ -19,6 +20,7 @@ interface Props {
   pluginId?: string;
   namespace?: string;
   schema?: JsonSchema;
+  hasExplicitValue?: (path: string | string[]) => boolean;
 }
 
 interface ParentValues {
@@ -47,30 +49,14 @@ function resolveEffective(
   return null;
 }
 
-const BACKEND_ORIGIN = new URL(import.meta.url).origin;
-const AUTH_TOKEN_KEY = 'broccoli_token';
-
-function authHeaders(): HeadersInit {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function fetchConfig(
-  path: string,
-): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await fetch(`${BACKEND_ORIGIN}/api/v1${path}`, {
-      headers: authHeaders(),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return (data?.config ?? null) as Record<string, unknown> | null;
-  } catch {
-    return null;
-  }
-}
-
-export function LimitConfigInfo({ scope, pluginId, namespace, schema }: Props) {
+export function LimitConfigInfo({
+  scope,
+  pluginId,
+  namespace,
+  schema,
+  hasExplicitValue,
+}: Props) {
+  const apiFetch = useApiFetch();
   const { t } = useTranslation();
   const [parentValues, setParentValues] = useState<ParentValues | null>(null);
 
@@ -82,6 +68,18 @@ export function LimitConfigInfo({ scope, pluginId, namespace, schema }: Props) {
 
     let cancelled = false;
     const s = scope as { contestId: number; problemId: number };
+    const fetchConfig = async (
+      path: string,
+    ): Promise<Record<string, unknown> | null> => {
+      try {
+        const res = await apiFetch(`/api/v1${path}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (data?.config ?? null) as Record<string, unknown> | null;
+      } catch {
+        return null;
+      }
+    };
     Promise.all([
       fetchConfig(`/contests/${s.contestId}/config/${pluginId}/${namespace}`),
       fetchConfig(`/problems/${s.problemId}/config/${pluginId}/${namespace}`),
@@ -96,7 +94,7 @@ export function LimitConfigInfo({ scope, pluginId, namespace, schema }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [scope, pluginId, namespace, isContestProblem]);
+  }, [apiFetch, scope, pluginId, namespace, isContestProblem]);
 
   const schemaDefault = schema?.properties?.max_submissions?.default;
   const defaultLabel =
@@ -121,6 +119,7 @@ export function LimitConfigInfo({ scope, pluginId, namespace, schema }: Props) {
 
   // Contest-problem scope
   const effective = parentValues ? resolveEffective(parentValues, t) : null;
+  const hasLocalOverride = hasExplicitValue?.('max_submissions') ?? false;
 
   // Rows: Contest then Problem (explicit priority order)
   const rows: { label: string; value: number | null }[] = parentValues
@@ -141,7 +140,7 @@ export function LimitConfigInfo({ scope, pluginId, namespace, schema }: Props) {
       }}
     >
       <p style={{ margin: 0 }}>
-        {effective ? (
+        {!hasLocalOverride && effective ? (
           <>
             {t('limit.inheritInfo', {
               value: formatLimit(effective.value, t),
@@ -181,13 +180,18 @@ export function LimitConfigInfo({ scope, pluginId, namespace, schema }: Props) {
                     : t('limit.notSet')}
                 </span>
               )}
-              {effective && row.label === effective.source && (
-                <span
-                  style={{ fontSize: '11px', color: 'var(--primary, #2563eb)' }}
-                >
-                  ← {t('limit.active')}
-                </span>
-              )}
+              {!hasLocalOverride &&
+                effective &&
+                row.label === effective.source && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--primary, #2563eb)',
+                    }}
+                  >
+                    ← {t('limit.active')}
+                  </span>
+                )}
             </div>
           ))}
         </div>

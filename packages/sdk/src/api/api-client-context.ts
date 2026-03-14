@@ -1,12 +1,15 @@
-import type { Client } from 'openapi-fetch';
 import { createContext } from 'react';
 
-import type { paths } from '@/api/schema';
+import type { ApiClient } from '@/api/types';
 
-export type ApiClient = Client<paths>;
+export type ApiFetch = (
+  input: string | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export interface ApiClientContextValue {
   apiClient: ApiClient;
+  apiFetch: ApiFetch;
 }
 
 export const ApiClientContext = createContext<ApiClientContextValue | null>(

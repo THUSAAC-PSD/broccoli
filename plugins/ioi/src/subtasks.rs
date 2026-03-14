@@ -56,7 +56,9 @@ pub fn score_all_subtasks(
     defs: &[SubtaskDef],
     tc_scores: &HashMap<String, f64>,
 ) -> Vec<SubtaskResult> {
-    defs.iter().map(|def| score_subtask(def, tc_scores)).collect()
+    defs.iter()
+        .map(|def| score_subtask(def, tc_scores))
+        .collect()
 }
 
 /// Build a single default subtask containing all test cases with Sum scoring.
@@ -184,8 +186,22 @@ mod tests {
     #[test]
     fn build_default_subtasks_creates_single_sum_group() {
         let test_cases = vec![
-            TestCaseRow { id: 1, score: 30.0, is_sample: false, position: 0, description: None, label: Some("tc_1".into()) },
-            TestCaseRow { id: 2, score: 70.0, is_sample: false, position: 1, description: None, label: Some("tc_2".into()) },
+            TestCaseRow {
+                id: 1,
+                score: 30.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("tc_1".into()),
+            },
+            TestCaseRow {
+                id: 2,
+                score: 70.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("tc_2".into()),
+            },
         ];
         let defs = build_default_subtasks(&test_cases);
         assert_eq!(defs.len(), 1);
@@ -197,8 +213,22 @@ mod tests {
     #[test]
     fn build_default_subtasks_fallback_to_id() {
         let test_cases = vec![
-            TestCaseRow { id: 1, score: 50.0, is_sample: false, position: 0, description: None, label: None },
-            TestCaseRow { id: 2, score: 50.0, is_sample: false, position: 1, description: None, label: None },
+            TestCaseRow {
+                id: 1,
+                score: 50.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: None,
+            },
+            TestCaseRow {
+                id: 2,
+                score: 50.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: None,
+            },
         ];
         let defs = build_default_subtasks(&test_cases);
         assert_eq!(defs[0].test_cases, vec!["1", "2"]);

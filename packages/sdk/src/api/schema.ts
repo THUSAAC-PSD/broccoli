@@ -309,7 +309,7 @@ export interface paths {
         };
         /**
          * List contests with pagination and search
-         * @description Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `start_time`, or `title`.
+         * @description Returns a paginated list of contests with optional search and sorting. Users with `contest:manage` see all contests; others only see active public contests and those they are enrolled in. Supports sorting by `created_at`, `updated_at`, `activate_time`, `start_time`, or `title`.
          */
         get: operations["listContests"];
         put?: never;
@@ -333,21 +333,21 @@ export interface paths {
         };
         /**
          * Get a contest by ID
-         * @description Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.
+         * @description Returns the full details of a contest. Users with `contest:manage` can view any contest; others can view active public contests or those they are enrolled in. Returns 404 (not 403) for inaccessible contests to prevent enumeration.
          */
         get: operations["getContest"];
         put?: never;
         post?: never;
         /**
-         * Delete a contest by ID
-         * @description Permanently deletes a contest and cascade-deletes its problem associations and participant records. Requires `contest:delete` permission.
+         * Soft-delete a contest by ID
+         * @description Marks a contest as deleted without removing historical submissions or participant records. Requires `contest:delete` permission.
          */
         delete: operations["deleteContest"];
         options?: never;
         head?: never;
         /**
          * Update an existing contest
-         * @description Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures end_time stays after start_time even when updating one of the two.
+         * @description Partially updates a contest using PATCH semantics. Requires `contest:manage` permission. An empty payload returns the current resource unchanged. Cross-field validation ensures activate_time <= start_time < end_time <= deactivate_time (if deactivate_time is set) even when fields are updated independently. Returns 404 if the contest does not exist.
          */
         patch: operations["updateContest"];
         trace?: never;
@@ -383,6 +383,26 @@ export interface paths {
         post?: never;
         /** Delete config for a namespace on a contest */
         delete: operations["deleteContestConfig"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{id}/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get current user's contest context
+         * @description Returns contest-related information for the authenticated user in the specified contest. Uses the same contest visibility rules as getContest.
+         */
+        get: operations["getContestMyInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -607,7 +627,7 @@ export interface paths {
         put?: never;
         /**
          * Self-register for a public contest
-         * @description Registers the authenticated user for a public contest. Non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.
+         * @description Registers the authenticated user for an active public contest. Inactive or non-public contests return 404 to prevent enumeration. Blocked after the contest ends. Returns 409 if already registered.
          */
         post: operations["registerForContest"];
         /**
@@ -892,26 +912,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/plugins/{id}/call/{func}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Call a function on a loaded plugin
-         * @description Invokes a named function on a previously loaded plugin. The plugin must be loaded first via the load endpoint. Returns 404 if the plugin is not loaded.
-         */
-        post: operations["callPluginFunction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/problems": {
         parameters: {
             query?: never;
@@ -951,8 +951,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a problem by ID
-         * @description Permanently deletes a problem and cascade-deletes all its test cases and results. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem has submissions or is part of a contest.
+         * Soft-delete a problem by ID
+         * @description Marks a problem as deleted without removing historical data. Requires `problem:delete` permission. Returns 409 CONFLICT if the problem is currently part of a contest.
          */
         delete: operations["deleteProblem"];
         options?: never;
@@ -1143,7 +1143,7 @@ export interface paths {
         put?: never;
         /**
          * Upload test cases from a ZIP file
-         * @description Bulk-creates test cases from a ZIP archive containing `.in`/`.ans` (or `.out`) file pairs. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
+         * @description Bulk-creates test cases from a ZIP archive using caller-supplied filename patterns. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
          */
         post: operations["uploadTestCases"];
         delete?: never;
@@ -1275,6 +1275,28 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete a user by ID
+         * @description Marks the user as deleted. The record is retained for historical data but the user can no longer log in and will not appear in listings. Requires `user:manage` permission.
+         *
+         *     Deletion is blocked if the user is registered in a running or recently-ended contest. Registrations in future (not-yet-started) contests are automatically cancelled before deletion.
+         */
+        delete: operations["deleteUser"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1529,7 +1551,10 @@ export interface components {
              */
             user_id?: number | null;
             /**
-             * @description Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+             * @description Filter by verdict string.
+             *     Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
+             *     Custom verdicts may use the raw custom label (e.g. PartiallyAccepted).
+             *     `Other(<custom>)` is also accepted.
              * @example WrongAnswer
              */
             verdict?: string | null;
@@ -1613,6 +1638,11 @@ export interface components {
         /** @description Contest summary for list views (description omitted). */
         ContestListItem: {
             /**
+             * Format: date-time
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time?: string | null;
+            /**
              * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
              * @example ioi
              */
@@ -1622,6 +1652,11 @@ export interface components {
              * @example 2025-09-25T10:00:00Z
              */
             created_at: string;
+            /**
+             * Format: date-time
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /**
              * Format: date-time
              * @example 2025-10-01T17:00:00Z
@@ -1675,6 +1710,11 @@ export interface components {
              */
             contest_id: number;
             /**
+             * @description True when the user account has been soft-deleted. Front-ends should
+             *     display such users as "[Deleted User]" or similar in historical views.
+             */
+            is_deleted: boolean;
+            /**
              * Format: date-time
              * @example 2025-09-30T12:00:00Z
              */
@@ -1712,6 +1752,11 @@ export interface components {
         /** @description Full contest details. */
         ContestResponse: {
             /**
+             * Format: date-time
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time?: string | null;
+            /**
              * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
              * @example ioi
              */
@@ -1721,6 +1766,11 @@ export interface components {
              * @example 2025-09-25T10:00:00Z
              */
             created_at: string;
+            /**
+             * Format: date-time
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /** @example Welcome to this week's contest. */
             description: string;
             /**
@@ -1763,13 +1813,47 @@ export interface components {
              */
             updated_at: string;
         };
+        /** @description Current authenticated user's context in a contest. */
+        ContestUserContextResponse: {
+            /**
+             * Format: int32
+             * @example 1
+             */
+            contest_id: number;
+            /** @example false */
+            is_registered: boolean;
+            /**
+             * Format: date-time
+             * @example 2025-09-30T12:00:00Z
+             */
+            registered_at?: string | null;
+            /**
+             * Format: int32
+             * @example 7
+             */
+            user_id: number;
+        };
         /** @description Request body for creating a contest. */
         CreateContestRequest: {
+            /**
+             * Format: date-time
+             * @description Time when the contest becomes visible and registration opens (must be before start_time,
+             *     default: never).
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time?: string | null;
             /**
              * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
              * @example ioi
              */
             contest_type?: string | null;
+            /**
+             * Format: date-time
+             * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
+             *     never).
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /**
              * @description Contest description (non-empty, max 1 MB).
              * @example Welcome to this week's programming contest.
@@ -1842,6 +1926,28 @@ export interface components {
              */
             problem_type?: string;
             /**
+             * @description Whether contestants see full input/output for all test cases.
+             *     If omitted, defaults to false.
+             * @example false
+             */
+            show_test_details?: boolean | null;
+            /**
+             * @description Expected submission file names per language.
+             *     Keys are language ids (e.g. "cpp", "java", "python3"), values are arrays of filenames.
+             *     Null or omitted means use client-side defaults.
+             * @example {
+             *       "cpp": [
+             *         "solution.cpp"
+             *       ],
+             *       "java": [
+             *         "Main.java"
+             *       ]
+             *     }
+             */
+            submission_format?: {
+                [key: string]: string[];
+            } | null;
+            /**
              * Format: int32
              * @description Execution time limit in milliseconds (1-30000).
              * @example 1000
@@ -1864,7 +1970,7 @@ export interface components {
             /** @description Source files. At least one file required. */
             files: components["schemas"]["SubmissionFileDto"][];
             /**
-             * @description Programming language (e.g., "cpp", "java", "python").
+             * @description Programming language (e.g., "cpp", "java", "python3").
              * @example cpp
              */
             language: string;
@@ -1894,7 +2000,8 @@ export interface components {
              */
             is_sample: boolean;
             /**
-             * @description Short identifier label (max 64 chars, alphanumeric + underscore/hyphen). Auto-generated from position if omitted.
+             * @description Optional short identifier (unique within problem, max 64 chars).
+             *     Defaults to the test-case position when omitted.
              * @example sample_01
              */
             label?: string | null;
@@ -2107,15 +2214,15 @@ export interface components {
              */
             code: string;
             /**
+             * @description Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
+             *     Only present for `PluginRejection` errors.
+             */
+            details?: unknown;
+            /**
              * @description Human-readable error description.
              * @example Title must be 1-256 characters
              */
             message: string;
-            /**
-             * @description Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
-             *     Only present for `PluginRejection` errors.
-             */
-            details?: Record<string, unknown> | null;
         };
         /** @description Judge result for a submission. */
         JudgeResultResponse: {
@@ -2148,7 +2255,28 @@ export interface components {
              * @example 50
              */
             time_used?: number | null;
-            verdict?: null | components["schemas"]["Verdict"];
+            /**
+             * @description Execution verdict (null if compilation failed or system error).
+             * @example Accepted
+             */
+            verdict?: string | null;
+        };
+        LanguageRegistryItem: {
+            /**
+             * @description Default source filename derived from the language config.
+             * @example solution.cpp
+             */
+            default_filename: string;
+            /**
+             * @description Language identifier used in submission payloads.
+             * @example cpp
+             */
+            id: string;
+            /**
+             * @description Human-friendly display name.
+             * @example C++
+             */
+            name: string;
         };
         /** @description Request body for user login. */
         LoginRequest: {
@@ -2369,6 +2497,11 @@ export interface components {
              */
             problem_type: string;
             /**
+             * @description Whether contestants see full input/output for all test cases.
+             * @example false
+             */
+            show_test_details: boolean;
+            /**
              * Format: int32
              * @example 1000
              */
@@ -2424,6 +2557,26 @@ export interface components {
             problem_type: string;
             /** @description Sample test case metadata (is_sample = true). */
             samples: components["schemas"]["SampleTestCaseMeta"][];
+            /**
+             * @description Whether contestants see full input/output for all test cases.
+             * @example false
+             */
+            show_test_details: boolean;
+            /**
+             * @description Expected submission file names per language.
+             *     Null means use client-side defaults.
+             * @example {
+             *       "cpp": [
+             *         "solution.cpp"
+             *       ],
+             *       "java": [
+             *         "Main.java"
+             *       ]
+             *     }
+             */
+            submission_format?: {
+                [key: string]: string[];
+            } | null;
             /**
              * Format: int32
              * @example 1000
@@ -2482,6 +2635,8 @@ export interface components {
              *     ]
              */
             contest_types: string[];
+            /** @description Configured submission languages from the server config. */
+            languages: components["schemas"]["LanguageRegistryItem"][];
             /**
              * @description Available problem types (e.g. "standard", "interactive").
              * @example [
@@ -2621,7 +2776,11 @@ export interface components {
             user_id: number;
             /** @example alice */
             username: string;
-            verdict?: null | components["schemas"]["Verdict"];
+            /**
+             * @description Execution verdict if judged, null otherwise.
+             * @example Accepted
+             */
+            verdict?: string | null;
         };
         /** @description Paginated list of submissions. */
         SubmissionListResponse: {
@@ -2699,10 +2858,10 @@ export interface components {
             /** @example true */
             is_sample: boolean;
             /**
-             * @description Short identifier label for this test case.
+             * @description Short identifier (unique within problem).
              * @example sample_01
              */
-            label?: string | null;
+            label: string;
             /** @example 0 1 */
             output_preview: string;
             /**
@@ -2746,10 +2905,10 @@ export interface components {
             /** @example true */
             is_sample: boolean;
             /**
-             * @description Short identifier label for this test case.
+             * @description Short identifier (unique within problem).
              * @example sample_01
              */
-            label?: string | null;
+            label: string;
             /**
              * Format: int32
              * @example 0
@@ -2805,7 +2964,8 @@ export interface components {
              * @example 5
              */
             time_used?: number | null;
-            verdict: components["schemas"]["Verdict"];
+            /** @example Accepted */
+            verdict: string;
         };
         /**
          * @example {
@@ -2833,10 +2993,24 @@ export interface components {
         /** @description PATCH body for updating a contest. Only provided fields are modified. */
         UpdateContestRequest: {
             /**
+             * Format: date-time
+             * @description Time when the contest becomes visible and registration opens (must be before start_time,
+             *     default: never).
+             * @example 2025-09-30T12:00:00Z
+             */
+            activate_time?: string | null;
+            /**
              * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
              * @example icpc
              */
             contest_type?: string | null;
+            /**
+             * Format: date-time
+             * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
+             *     never).
+             * @example 2025-10-02T12:00:00Z
+             */
+            deactivate_time?: string | null;
             /**
              * @description Contest description (non-empty, max 1 MB).
              * @example Updated description...
@@ -2909,6 +3083,26 @@ export interface components {
              */
             problem_type?: string | null;
             /**
+             * @description Whether contestants see full input/output for all test cases.
+             * @example true
+             */
+            show_test_details?: boolean | null;
+            /**
+             * @description Expected submission file names per language.
+             *     Set to a value to update, set to null to clear, or omit to leave unchanged.
+             * @example {
+             *       "cpp": [
+             *         "solution.cpp"
+             *       ],
+             *       "java": [
+             *         "Main.java"
+             *       ]
+             *     }
+             */
+            submission_format?: {
+                [key: string]: string[];
+            } | null;
+            /**
              * Format: int32
              * @description Execution time limit in milliseconds (1-30000).
              * @example 2000
@@ -2945,7 +3139,7 @@ export interface components {
              */
             is_sample?: boolean | null;
             /**
-             * @description Set to a string to update label, set to `null` to clear, or omit to leave unchanged.
+             * @description Display label for this test case (e.g. "sample_01"). Must be unique within the problem.
              * @example sample_01
              */
             label?: string | null;
@@ -3005,11 +3199,6 @@ export interface components {
             /** @example alice */
             username: string;
         };
-        /**
-         * @description Execution verdict for a test case or submission.
-         * @enum {string}
-         */
-        Verdict: "Accepted" | "WrongAnswer" | "TimeLimitExceeded" | "MemoryLimitExceeded" | "RuntimeError" | "SystemError" | "Skipped";
         WebRouteConfig: {
             /**
              * @description Component to render for this route, which must match a key in the
@@ -3034,6 +3223,11 @@ export interface components {
             component: string;
             /** @description Name of the slot to render into, e.g., "sidebar.footer". */
             name: string;
+            /**
+             * @description Permission required to render this slot entry, e.g., "problem:create".
+             *     If not specified, the slot is visible to everyone.
+             */
+            permission?: string | null;
             /** @description Positioning strategy for the component in the slot. */
             position: components["schemas"]["WebSlotPosition"];
             /**
@@ -3874,7 +4068,7 @@ export interface operations {
                 /** @example weekly */
                 search?: string;
                 /**
-                 * @description Sort field: `created_at` (default), `updated_at`, `start_time`, or `title`.
+                 * @description Sort field: `created_at` (default), `updated_at`, `activate_time`, `start_time`, or `title`.
                  * @example start_time
                  */
                 sort_by?: string;
@@ -4327,6 +4521,47 @@ export interface operations {
             };
         };
     };
+    getContestMyInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Contest ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current user's contest context */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestUserContextResponse"];
+                };
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Contest not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     listParticipants: {
         parameters: {
             query?: never;
@@ -4572,6 +4807,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContestProblemResponse"][];
+                };
+            };
+            /** @description Validation error (VALIDATION_ERROR) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
@@ -6361,62 +6605,6 @@ export interface operations {
             };
         };
     };
-    callPluginFunction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Plugin ID */
-                id: string;
-                /** @description Function name to call */
-                func: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": unknown;
-            };
-        };
-        responses: {
-            /** @description Plugin function result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Plugin not ready (PLUGIN_NOT_READY) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Plugin not found (NOT_FOUND) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     listProblems: {
         parameters: {
             query?: {
@@ -6610,7 +6798,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Cannot delete: has submissions or contest associations (CONFLICT) */
+            /** @description Cannot delete: part of a contest (CONFLICT) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7284,6 +7472,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description Duplicate label in problem (CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     bulkDeleteTestCases: {
@@ -7429,7 +7626,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description ZIP file containing test cases (.in/.ans or .in/.out pairs) */
+        /** @description Multipart form data with `file` (ZIP), `input_format` (for example `*.in`), and `output_format` (for example `*.out`). */
         requestBody?: {
             content: {
                 "multipart/form-data": unknown;
@@ -7474,6 +7671,15 @@ export interface operations {
             };
             /** @description Problem not found (NOT_FOUND) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Duplicate label in problem (CONFLICT) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7650,6 +7856,15 @@ export interface operations {
             };
             /** @description Test case not found (NOT_FOUND) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Duplicate label in problem (CONFLICT) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7909,6 +8124,63 @@ export interface operations {
             };
             /** @description Forbidden (PERMISSION_DENIED) */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden (PERMISSION_DENIED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description User not found (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description User is in an active or under-judgement contest (CONFLICT) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

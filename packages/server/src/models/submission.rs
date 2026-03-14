@@ -42,7 +42,7 @@ impl From<SubmissionFile> for SubmissionFileDto {
 pub struct CreateSubmissionRequest {
     /// Source files. At least one file required.
     pub files: Vec<SubmissionFileDto>,
-    /// Programming language (e.g., "cpp", "java", "python").
+    /// Programming language (e.g., "cpp", "java", "python3").
     #[schema(example = "cpp")]
     pub language: String,
     /// Optional contest type override for standalone submissions (e.g., "standard", "icpc").
@@ -116,6 +116,7 @@ pub struct SubmissionListItem {
     pub language: String,
     pub status: SubmissionStatus,
     /// Execution verdict if judged, null otherwise.
+    #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
     #[schema(example = 1)]
     pub user_id: i32,
@@ -154,6 +155,7 @@ pub struct SubmissionListResponse {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
     /// Execution verdict (null if compilation failed or system error).
+    #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
     /// Total score across all test cases.
     #[schema(example = 100.0)]
@@ -179,6 +181,7 @@ pub struct JudgeResultResponse {
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
+    #[schema(value_type = String, example = "Accepted")]
     pub verdict: Verdict,
     #[schema(example = 10.0)]
     pub score: f64,
@@ -293,7 +296,10 @@ pub struct BulkRejudgeRequest {
     /// Filter by language.
     #[schema(example = "cpp")]
     pub language: Option<String>,
-    /// Filter by verdict (PascalCase: Accepted, WrongAnswer, TimeLimitExceeded, MemoryLimitExceeded, RuntimeError, SystemError).
+    /// Filter by verdict string.
+    /// Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
+    /// Custom verdicts may use the raw custom label (e.g. PartiallyAccepted).
+    /// `Other(<custom>)` is also accepted.
     #[schema(example = "WrongAnswer")]
     pub verdict: Option<String>,
     /// Filter by user ID.

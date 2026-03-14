@@ -1,5 +1,5 @@
-import { ProblemDetailPage } from '@/pages/ProblemDetailPage';
+import { Outlet } from 'react-router';
 
-export default function Problem() {
-  return <ProblemDetailPage />;
+export default function ProblemDetailPage() {
+  return <Outlet />;
 }

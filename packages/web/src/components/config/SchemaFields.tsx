@@ -4,21 +4,27 @@ import type { ConfigScope, JsonSchema } from './types';
 export function SchemaFields({
   schema,
   values,
+  rootValues,
   path,
   updateValue,
   errors,
   pluginId,
   namespace,
   scope,
+  isExplicitValue,
+  hasExplicitDescendant,
 }: Readonly<{
   schema: JsonSchema;
   values: Record<string, unknown>;
+  rootValues: Record<string, unknown>;
   path: string[];
   updateValue: (path: string[], value: unknown) => void;
   errors: Record<string, string>;
   pluginId?: string;
   namespace?: string;
   scope?: ConfigScope;
+  isExplicitValue: (path: string[]) => boolean;
+  hasExplicitDescendant: (path: string[]) => boolean;
 }>) {
   if (!schema.properties) return null;
 
@@ -42,12 +48,15 @@ export function SchemaFields({
               name={key}
               prop={prop}
               value={values[key]}
+              rootValues={rootValues}
               path={[...path, key]}
               updateValue={updateValue}
               errors={errors}
               pluginId={pluginId}
               namespace={namespace}
               scope={scope}
+              isExplicitValue={isExplicitValue}
+              hasExplicitDescendant={hasExplicitDescendant}
             />
           ))}
         </div>
@@ -60,12 +69,15 @@ export function SchemaFields({
           name={key}
           prop={prop}
           value={values[key]}
+          rootValues={rootValues}
           path={[...path, key]}
           updateValue={updateValue}
           errors={errors}
           pluginId={pluginId}
           namespace={namespace}
           scope={scope}
+          isExplicitValue={isExplicitValue}
+          hasExplicitDescendant={hasExplicitDescendant}
         />
       ))}
     </div>

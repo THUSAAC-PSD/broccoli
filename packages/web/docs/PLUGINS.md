@@ -40,7 +40,7 @@ export function MyComponent() {
 
 ```typescript
 // src/plugins/my-plugin/index.ts
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 import { MyComponent } from './components/MyComponent';
 
 export const manifest: PluginManifest = {
@@ -300,7 +300,7 @@ function PluginManager() {
 Toggle plugins without unloading:
 
 ```tsx
-import { usePluginRegistry } from '@broccoli/sdk/react';
+import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
 
 function PluginToggle({ pluginName }) {
   const { enablePlugin, disablePlugin, isPluginEnabled } = usePluginRegistry();
@@ -502,7 +502,7 @@ Adds theme toggle to sidebar.
 
 ```typescript
 // src/plugins/theme-plugin/index.ts
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 import { ThemeToggle } from './components/ThemeToggle';
 
 export const manifest: PluginManifest = {
@@ -549,7 +549,7 @@ Adds notification bell to navbar.
 
 ```typescript
 // src/plugins/notification-plugin/index.ts
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 import { NotificationButton } from './components/NotificationButton';
 
 export const manifest: PluginManifest = {
@@ -596,7 +596,7 @@ Wraps app for event tracking.
 
 ```typescript
 // src/plugins/analytics-plugin/index.ts
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
 import { AnalyticsTracker } from './components/AnalyticsTracker';
 
 export const manifest: PluginManifest = {

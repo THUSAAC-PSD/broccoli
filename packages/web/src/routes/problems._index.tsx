@@ -1,5 +1,5 @@
-import { ProblemsPage } from '@/pages/ProblemsPage';
+import { AdminProblemListView } from '@/features/admin/components/AdminProblemListView';
 
-export default function ProblemsIndex() {
-  return <ProblemsPage />;
+export default function ProblemListPage() {
+  return <AdminProblemListView />;
 }

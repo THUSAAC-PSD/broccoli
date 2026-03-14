@@ -3,13 +3,20 @@
  * Shows different fields based on the selected token mode, with a visual
  * token budget indicator.
  */
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type React from 'react';
+
+import {
+  getConfiguredTokenMode,
+  normalizeFeedbackLevelForTokenMode,
+} from './config-rules';
 
 interface TokenConfigPanelProps {
   value: unknown;
   schema: { title?: string; description?: string };
   onChange: (value: unknown) => void;
+  formValues?: unknown;
+  setFieldValue?: (path: string[], value: unknown) => void;
 }
 
 interface TokenValue {
@@ -71,6 +78,8 @@ export function TokenConfigPanel({
   value,
   schema,
   onChange,
+  formValues,
+  setFieldValue,
 }: TokenConfigPanelProps) {
   const { t } = useTranslation();
   const val: TokenValue = (
@@ -81,7 +90,29 @@ export function TokenConfigPanel({
   const max = val.max ?? 5;
 
   const update = (patch: Partial<TokenValue>) => {
-    onChange({ ...val, ...patch });
+    const nextValue = { ...val, ...patch };
+    onChange(nextValue);
+
+    const nextTokenMode = getConfiguredTokenMode({
+      ...formValues,
+      tokens: nextValue,
+    });
+    const currentFeedbackLevel =
+      formValues && typeof formValues === 'object'
+        ? (formValues as Record<string, unknown>).feedback_level
+        : undefined;
+    const normalizedFeedbackLevel = normalizeFeedbackLevelForTokenMode(
+      currentFeedbackLevel,
+      nextTokenMode,
+    );
+
+    if (
+      setFieldValue &&
+      normalizedFeedbackLevel !== undefined &&
+      normalizedFeedbackLevel !== currentFeedbackLevel
+    ) {
+      setFieldValue(['feedback_level'], normalizedFeedbackLevel);
+    }
   };
 
   const isActive = mode !== 'none';
@@ -124,18 +155,22 @@ export function TokenConfigPanel({
         {isActive && (
           <div
             style={{
-              fontSize: '10px',
-              fontWeight: 500,
-              padding: '2px 8px',
-              borderRadius: '10px',
-              background:
-                'color-mix(in srgb, var(--primary, #4f46e5) 10%, transparent)',
-              color: 'var(--primary, #4f46e5)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexWrap: 'wrap',
             }}
           >
-            {mode === 'fixed_budget'
-              ? t('ioi.tokenConfig.tokensSummary', { count: initial })
-              : t('ioi.tokenConfig.tokensRange', { min: initial, max })}
+            <StatPill
+              label={t('ioi.tokenConfig.initial')}
+              value={String(initial)}
+            />
+            {mode === 'regenerating' && (
+              <StatPill
+                label={t('ioi.tokenConfig.maximum')}
+                value={String(max)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -293,26 +328,6 @@ export function TokenConfigPanel({
               justifyContent: 'center',
             }}
           >
-            {Array.from({ length: Math.min(max, 15) }).map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background:
-                    i < initial
-                      ? 'var(--primary, #4f46e5)'
-                      : 'color-mix(in srgb, var(--primary, #4f46e5) 20%, transparent)',
-                  border:
-                    i >= initial
-                      ? '1px dashed color-mix(in srgb, var(--primary, #4f46e5) 40%, transparent)'
-                      : 'none',
-                  transition: 'all 0.15s',
-                  transitionDelay: `${i * 30}ms`,
-                }}
-              />
-            ))}
             <span
               style={{
                 fontSize: '10px',
@@ -377,6 +392,31 @@ export function TokenConfigPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StatPill({
+  label,
+  value,
+}: Readonly<{ label: string; value: string }>) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '10px',
+        fontWeight: 500,
+        padding: '2px 8px',
+        borderRadius: '10px',
+        background:
+          'color-mix(in srgb, var(--primary, #4f46e5) 10%, transparent)',
+        color: 'var(--primary, #4f46e5)',
+      }}
+    >
+      <span style={{ opacity: 0.7 }}>{label}</span>
+      <span>{value}</span>
     </div>
   );
 }

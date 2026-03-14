@@ -1,22 +1,27 @@
-import type { ConfigSchemaResponse, PluginDetailResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
-import { useTranslation } from '@broccoli/sdk/i18n';
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
-
+import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+  Label,
+  Switch,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@broccoli/web-sdk/ui';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConfigForm } from './ConfigForm';
 import type { ConfigScope } from './types';
+
+type ConfigSchemaResponse = PluginDetail['config_schemas'][number];
+type PluginDetailResponse = PluginDetail;
 
 export interface ResourceConfigDialogProps {
   scope: ConfigScope;

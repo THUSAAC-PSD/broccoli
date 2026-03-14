@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { Plugin, ResolvedConfig } from 'vite';
 
@@ -20,6 +21,23 @@ import type { Plugin, ResolvedConfig } from 'vite';
  * dynamically loaded module (including cross-origin plugin bundles).
  */
 
+export const SDK_SHARED_DEPS = [
+  '@broccoli/web-sdk',
+  '@broccoli/web-sdk/api',
+  '@broccoli/web-sdk/auth',
+  '@broccoli/web-sdk/contest',
+  '@broccoli/web-sdk/hooks',
+  '@broccoli/web-sdk/i18n',
+  '@broccoli/web-sdk/plugin',
+  '@broccoli/web-sdk/problem',
+  '@broccoli/web-sdk/sidebar',
+  '@broccoli/web-sdk/slot',
+  '@broccoli/web-sdk/submission',
+  '@broccoli/web-sdk/theme',
+  '@broccoli/web-sdk/ui',
+  '@broccoli/web-sdk/utils',
+] as const;
+
 export const SHARED_DEPS = [
   'react',
   'react/jsx-runtime',
@@ -28,13 +46,19 @@ export const SHARED_DEPS = [
   'react-dom/client',
   'react-router',
   '@tanstack/react-query',
-  '@broccoli/sdk',
-  '@broccoli/sdk/react',
-  '@broccoli/sdk/api',
-  '@broccoli/sdk/i18n',
+  ...SDK_SHARED_DEPS,
   'lucide-react',
   '@monaco-editor/react',
 ] as const;
+
+const DEFAULT_EXPORT_DEPS = new Set<(typeof SHARED_DEPS)[number]>([
+  'react',
+  'react/jsx-runtime',
+  'react/jsx-dev-runtime',
+  'react-dom',
+  'react-dom/client',
+  '@monaco-editor/react',
+]);
 
 const VIRTUAL_MAP_ID = 'virtual:shared-deps-map';
 const RESOLVED_MAP_ID = '\0' + VIRTUAL_MAP_ID;
@@ -61,10 +85,13 @@ const MANIFEST_FILENAME = 'shared-deps-map.json';
  */
 const DEV_SHIM_PREFIX = '/@shared-deps/';
 
-/** Reverse lookup: flattened id -> original dep name (avoids lossy `_` → `/` reversal) */
+/** Reverse lookup from flattened ids back to original dep names. */
 const FLAT_TO_DEP = new Map(SHARED_DEPS.map((dep) => [flattenId(dep), dep]));
 
 const IDENT_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+const SDK_DIST_ROOT = fileURLToPath(
+  new URL('../../sdk/dist/', import.meta.url),
+);
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -83,6 +110,30 @@ function getNamedExports(dep: string): string[] {
 /** Mirrors Vite's dep pre-bundling filename convention: `/` → `_` */
 function flattenId(dep: string): string {
   return dep.replace(/\//g, '_');
+}
+
+function isSdkDep(dep: string): dep is (typeof SDK_SHARED_DEPS)[number] {
+  return dep === '@broccoli/web-sdk' || dep.startsWith('@broccoli/web-sdk/');
+}
+
+function resolveSdkEntry(dep: (typeof SDK_SHARED_DEPS)[number]): string {
+  try {
+    return fileURLToPath(import.meta.resolve(dep));
+  } catch {
+    if (dep === '@broccoli/web-sdk') {
+      return resolve(SDK_DIST_ROOT, 'index.js');
+    }
+
+    return resolve(
+      SDK_DIST_ROOT,
+      dep.slice('@broccoli/web-sdk/'.length),
+      'index.js',
+    );
+  }
+}
+
+function toFsModuleUrl(absPath: string): string {
+  return `/@fs/${absPath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
 }
 
 /**
@@ -104,34 +155,39 @@ function readBrowserHash(cacheDir: string): string {
  * Generate a dev-mode ESM shim that re-exports a pre-bundled dependency.
  *
  * Vite pre-bundles CJS deps (React) as `export default module.exports` with
- * no named exports. ESM deps (@tanstack/react-query) keep their real named
+ * no named exports. ESM deps like `@tanstack/react-query` keep their real named
  * exports but have no default. We handle both via namespace import:
  *
  * ```
- *   import * as __ns  -> { default: cjsExports } for CJS
- *                     -> { useQuery, ... }       for ESM
+ *   import * as __ns gives `{ default: cjsExports }` for CJS
+ *   and `{ useQuery, ... }` for ESM.
  * ```
  *
  * Then `__ns.default ?? __ns` gives the right object to extract names from.
  *
  * The `?v={browserHash}` query is critical, because without it, the browser would
- * load a separate module instance (URL mismatch -> duplicate React -> broken
+ * load a separate module instance (URL mismatch leads to duplicate React and broken
  * hooks).
  */
 function generateDevShim(dep: string, browserHash: string): string {
   const named = getNamedExports(dep);
   const hashSuffix = browserHash ? `?v=${browserHash}` : '';
-  const prebundledPath = `/node_modules/.vite/deps/${flattenId(dep)}.js${hashSuffix}`;
+  const importSource = isSdkDep(dep)
+    ? toFsModuleUrl(resolveSdkEntry(dep))
+    : `/node_modules/.vite/deps/${flattenId(dep)}.js${hashSuffix}`;
 
-  const lines = [
-    `import * as __ns from '${prebundledPath}';`,
-    `const __mod = __ns.default ?? __ns;`,
-    `export * from '${prebundledPath}';`,
-    `export default __mod;`,
-  ];
-  for (const name of named) {
-    lines.push(`export const ${name} = __mod.${name};`);
+  const lines = [`import * as __ns from '${importSource}';`];
+
+  if (DEFAULT_EXPORT_DEPS.has(dep as (typeof SHARED_DEPS)[number])) {
+    lines.push(`const __mod = __ns.default;`);
+    lines.push(`export default __mod;`);
+    for (const name of named) {
+      lines.push(`export const ${name} = __mod.${name};`);
+    }
+  } else {
+    lines.push(`export * from '${importSource}';`);
   }
+
   return lines.join('\n');
 }
 
@@ -241,8 +297,12 @@ export function sharedDepsPlugin(): Plugin {
     },
 
     resolveId(id) {
+      if (isDev && isSdkDep(id)) {
+        return `${DEV_SHIM_PREFIX}${flattenId(id)}.js`;
+      }
       if (id === VIRTUAL_MAP_ID) return RESOLVED_MAP_ID;
       if (id.startsWith(SHIM_PREFIX)) return '\0' + id;
+      return null;
     },
 
     load(id) {
@@ -263,12 +323,20 @@ export function sharedDepsPlugin(): Plugin {
 
       if (id.startsWith(RESOLVED_SHIM_PREFIX)) {
         const dep = id.slice(RESOLVED_SHIM_PREFIX.length);
-        return [
+        if (!DEFAULT_EXPORT_DEPS.has(dep as (typeof SHARED_DEPS)[number])) {
+          return `export * from '${dep}';`;
+        }
+
+        const named = getNamedExports(dep);
+        const lines = [
           `import * as __ns from '${dep}';`,
-          `const __mod = __ns.default ?? __ns;`,
-          `export * from '${dep}';`,
+          `const __mod = __ns.default;`,
           `export default __mod;`,
-        ].join('\n');
+        ];
+        for (const name of named) {
+          lines.push(`export const ${name} = __mod.${name};`);
+        }
+        return lines.join('\n');
       }
     },
 

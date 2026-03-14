@@ -81,7 +81,6 @@ pub struct ContestConfig {
     pub tokens: TokenConfig,
 }
 
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SubtaskDef {
     #[serde(default)]

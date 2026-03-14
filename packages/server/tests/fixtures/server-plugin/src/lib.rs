@@ -9,6 +9,13 @@ struct PluginHttpRequest {
     pub params: HashMap<String, String>,
     pub query: HashMap<String, String>,
     pub body: Option<serde_json::Value>,
+    #[serde(default)]
+    pub auth: Option<PluginHttpAuth>,
+}
+
+#[derive(Deserialize)]
+struct PluginHttpAuth {
+    pub user_id: i32,
 }
 
 #[derive(Serialize)]
@@ -93,7 +100,8 @@ pub fn reflect(input: String) -> FnResult<String> {
         body: Some(serde_json::json!({
             "method": req.method,
             "params": req.params,
-            "query": req.query
+            "query": req.query,
+            "auth_user_id": req.auth.map(|auth| auth.user_id),
         })),
     })?)
 }

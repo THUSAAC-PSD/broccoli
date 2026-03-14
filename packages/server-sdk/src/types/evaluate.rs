@@ -3,7 +3,18 @@ use serde::{Deserialize, Serialize};
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
-/// Input to evaluator plugin handler's build_ops handler.
+/// Contest/plugin-facing input for starting evaluation of one test case.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartEvaluateCaseInput {
+    pub problem_id: i32,
+    pub test_case_id: i32,
+    pub solution_source: Vec<SourceFile>,
+    pub solution_language: String,
+    pub time_limit_ms: i32,
+    pub memory_limit_kb: i32,
+}
+
+/// Server-enriched input forwarded to the evaluator plugin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildEvalOpsInput {
     pub problem_id: i32,
@@ -34,7 +45,7 @@ pub struct BuildEvalOpsInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartEvaluateBatchInput {
     pub problem_type: String,
-    pub test_cases: Vec<BuildEvalOpsInput>,
+    pub test_cases: Vec<StartEvaluateCaseInput>,
 }
 
 /// Verdict for a single test case, returned by evaluator's evaluate function.

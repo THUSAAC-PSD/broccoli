@@ -22,6 +22,8 @@ pub struct BatchState<T> {
     pub pending_count: Arc<std::sync::atomic::AtomicUsize>,
     /// When this batch was created
     pub created_at: Instant,
+    /// Related waiter/task IDs that should be cleaned up when the batch is cancelled or reaped.
+    pub cleanup_keys: Arc<Vec<String>>,
 }
 
 /// contest_type -> handler registry
@@ -43,18 +45,24 @@ pub type EvaluateBatches = Arc<DashMap<String, BatchState<TestCaseVerdict>>>;
 ///
 /// This prevents unbounded memory growth when a plugin crashes after
 /// starting a batch but before cancelling it.
-pub fn spawn_batch_reaper<T: Send + 'static>(
+pub fn spawn_batch_reaper<T: Send + 'static, F>(
     label: &'static str,
     batches: Arc<DashMap<String, BatchState<T>>>,
     max_age: Duration,
-) {
+    cleanup: F,
+) where
+    F: Fn(&BatchState<T>) + Send + Sync + 'static,
+{
+    let cleanup = Arc::new(cleanup);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             let mut reaped = 0u32;
+            let cleanup = cleanup.clone();
             batches.retain(|_batch_id, state| {
                 if state.created_at.elapsed() > max_age {
+                    cleanup(state);
                     reaped += 1;
                     false // remove
                 } else {

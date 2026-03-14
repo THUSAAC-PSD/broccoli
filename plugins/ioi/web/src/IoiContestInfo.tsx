@@ -1,4 +1,4 @@
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useParams } from 'react-router';
 
 import { useIsIoiContest } from './hooks/useIsIoiContest';

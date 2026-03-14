@@ -1,5 +1,6 @@
 use broccoli_server_sdk::types::BuildEvalOpsInput;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Language configuration resolved by the host.
 /// Mirrors `broccoli_server_sdk::host::language::ResolvedLanguage`
@@ -153,28 +154,49 @@ pub fn build_operation(
     lang: &ResolvedLanguage,
     config: &SandboxConfig,
 ) -> Result<String, String> {
-    let source = req
+    let primary_source = req
         .solution_source
-        .first()
+        .iter()
+        .find(|source| source.filename == lang.source_filename)
+        .or_else(|| req.solution_source.first())
         .ok_or("No source file provided")?;
 
-    // Environment: source file + test input
-    let env = Environment {
-        id: "sandbox".to_string(),
-        files_in: vec![
-            (
-                lang.source_filename.clone(),
+    let mut files_in = Vec::new();
+    let mut compile_inputs = Vec::new();
+    let mut seen_filenames = HashSet::new();
+
+    for source in &req.solution_source {
+        if seen_filenames.insert(source.filename.clone()) {
+            compile_inputs.push(source.filename.clone());
+            files_in.push((
+                source.filename.clone(),
                 SessionFile::Content {
                     content: source.content.clone(),
                 },
-            ),
-            (
-                "input.txt".to_string(),
-                SessionFile::Content {
-                    content: req.test_input.clone(),
-                },
-            ),
-        ],
+            ));
+        }
+    }
+
+    if seen_filenames.insert(lang.source_filename.clone()) {
+        compile_inputs.push(lang.source_filename.clone());
+        files_in.push((
+            lang.source_filename.clone(),
+            SessionFile::Content {
+                content: primary_source.content.clone(),
+            },
+        ));
+    }
+
+    files_in.push((
+        "input.txt".to_string(),
+        SessionFile::Content {
+            content: req.test_input.clone(),
+        },
+    ));
+
+    let env = Environment {
+        id: "sandbox".to_string(),
+        files_in,
     };
 
     let time_limit_ms = u32::try_from(req.time_limit_ms)
@@ -214,7 +236,7 @@ pub fn build_operation(
             collect: vec![lang.binary_name.clone(), "compile_stderr.txt".to_string()],
             depends_on: vec![],
             cache: Some(StepCacheConfig {
-                key_inputs: vec![lang.source_filename.clone()],
+                key_inputs: compile_inputs.clone(),
                 outputs: vec![lang.binary_name.clone()],
             }),
         };
@@ -389,6 +411,37 @@ mod tests {
     }
 
     #[test]
+    fn multi_file_submissions_keep_all_files_in_the_environment() {
+        let mut req = make_req();
+        req.solution_source.push(SourceFile {
+            filename: "helper.hpp".to_string(),
+            content: "// helper".to_string(),
+        });
+
+        let json = build_operation(&req, &compiled_lang(), &default_config()).unwrap();
+        let ops = parse_ops(&json);
+        let env = &ops[0].environments[0];
+
+        assert!(env.files_in.iter().any(|(name, _)| name == "main.cpp"));
+        assert!(env.files_in.iter().any(|(name, _)| name == "helper.hpp"));
+        assert!(env.files_in.iter().any(|(name, _)| name == "solution.cpp"));
+
+        let compile = &ops[0].tasks[0];
+        let cache = compile
+            .cache
+            .as_ref()
+            .expect("compile step missing cache config");
+        assert_eq!(
+            cache.key_inputs,
+            vec![
+                "main.cpp".to_string(),
+                "helper.hpp".to_string(),
+                "solution.cpp".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn compile_step_has_cache_config() {
         let json = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
         let ops = parse_ops(&json);
@@ -398,7 +451,10 @@ mod tests {
             .cache
             .as_ref()
             .expect("compile step missing cache config");
-        assert_eq!(cache.key_inputs, vec!["solution.cpp"]);
+        assert_eq!(
+            cache.key_inputs,
+            vec!["main.cpp".to_string(), "solution.cpp".to_string()]
+        );
         assert_eq!(cache.outputs, vec!["solution"]);
     }
 

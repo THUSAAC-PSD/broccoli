@@ -1,8 +1,8 @@
 /**
  * Visual subtask definition editor for IOI-style contest problems.
  */
-import type { TestCaseListItem } from '@broccoli/sdk';
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { TestCaseSummary } from '@broccoli/web-sdk/problem';
 import type React from 'react';
 import {
   useCallback,
@@ -86,7 +86,7 @@ interface EditorStatusMessage {
 }
 
 /** Canonical string label for a test case: prefer label, fall back to stringified id. */
-function tcLabel(tc: TestCaseListItem): string {
+function tcLabel(tc: TestCaseSummary): string {
   return tc.label || String(tc.id);
 }
 

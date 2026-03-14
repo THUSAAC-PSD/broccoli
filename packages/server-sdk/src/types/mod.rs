@@ -9,9 +9,11 @@ mod submission;
 mod verdict;
 
 pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
-pub use evaluate::{BuildEvalOpsInput, StartEvaluateBatchInput, TestCaseVerdict};
+pub use evaluate::{
+    BuildEvalOpsInput, StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseVerdict,
+};
 pub use hook_events::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent, HookEvent};
-pub use http::{PluginHttpRequest, PluginHttpResponse};
+pub use http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
 pub use operation::{OperationResult, SandboxResult, TaskExecutionResult};
 pub use persistence::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow};
 pub use query::{ProblemCheckerInfo, TestCaseData, TestCaseRow};

@@ -1,5 +1,9 @@
-import { LoginPage } from '@/pages/LoginPage';
+import LoginForm from '@/features/auth/components/LoginForm';
 
-export default function Login() {
-  return <LoginPage />;
+export default function LoginPage() {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <LoginForm />
+    </div>
+  );
 }

@@ -82,9 +82,10 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
             wall_timeout,
             time_limit,
         );
+        let verdict = tc_result.verdict.clone();
         let tc_judge = TestCaseJudgeResult {
             test_case_id: tc.id,
-            verdict: tc_result.verdict,
+            verdict: verdict.clone(),
             score: tc_result.score,
             time_used: Some(tc_result.time_ms),
             memory_used: Some(tc_result.memory_kb),
@@ -101,8 +102,8 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
         }
         total_score += tc_result.score;
 
-        if tc_result.verdict.severity() > worst_verdict.severity() {
-            worst_verdict = tc_result.verdict;
+        if verdict.severity() > worst_verdict.severity() {
+            worst_verdict = verdict;
         }
 
         test_results.push(tc_judge);

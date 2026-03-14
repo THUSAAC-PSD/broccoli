@@ -138,8 +138,23 @@ async fn main() -> anyhow::Result<()> {
     let evaluate_batches = Arc::new(DashMap::new());
 
     let batch_max_age = Duration::from_secs(app_config.batch_max_age_secs);
-    registry::spawn_batch_reaper("operation", operation_batches.clone(), batch_max_age);
-    registry::spawn_batch_reaper("evaluate", evaluate_batches.clone(), batch_max_age);
+    let operation_waiters_for_reaper = operation_waiters.clone();
+    registry::spawn_batch_reaper(
+        "operation",
+        operation_batches.clone(),
+        batch_max_age,
+        move |batch| {
+            for key in batch.cleanup_keys.iter() {
+                operation_waiters_for_reaper.remove(key);
+            }
+        },
+    );
+    registry::spawn_batch_reaper(
+        "evaluate",
+        evaluate_batches.clone(),
+        batch_max_age,
+        |_batch| {},
+    );
 
     if let Some(ref mq_arc) = mq {
         let op_consumer_mq = Arc::clone(mq_arc);

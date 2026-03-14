@@ -1,8 +1,11 @@
 use chrono::{DateTime, Utc};
+use common::language::LanguageDefinition;
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::error::AppError;
+use crate::utils::filename::validate_flat_filename;
 
 pub use super::shared::{Pagination, escape_like};
 use super::shared::{
@@ -37,6 +40,15 @@ pub struct CreateProblemRequest {
     #[serde(default = "default_contest_type")]
     #[schema(example = "standard")]
     pub default_contest_type: String,
+    /// Whether contestants see full input/output for all test cases.
+    /// If omitted, defaults to false.
+    #[schema(example = false)]
+    pub show_test_details: Option<bool>,
+    /// Expected submission file names per language.
+    /// Keys are language ids (e.g. "cpp", "java", "python3"), values are arrays of filenames.
+    /// Null or omitted means use client-side defaults.
+    #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
+    pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
 /// PATCH body for updating a problem. Only provided fields are modified.
@@ -63,6 +75,14 @@ pub struct UpdateProblemRequest {
     /// Default contest type for standalone submissions.
     #[schema(example = "standard")]
     pub default_contest_type: Option<String>,
+    /// Whether contestants see full input/output for all test cases.
+    #[schema(example = true)]
+    pub show_test_details: Option<bool>,
+    /// Expected submission file names per language.
+    /// Set to a value to update, set to null to clear, or omit to leave unchanged.
+    #[serde(default, deserialize_with = "double_option")]
+    #[schema(value_type = Option<std::collections::HashMap<String, Vec<String>>>, example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
+    pub submission_format: Option<Option<std::collections::HashMap<String, Vec<String>>>>,
 }
 
 /// Full problem details.
@@ -89,6 +109,13 @@ pub struct ProblemResponse {
     /// Default contest type for standalone submissions.
     #[schema(example = "standard")]
     pub default_contest_type: String,
+    /// Whether contestants see full input/output for all test cases.
+    #[schema(example = false)]
+    pub show_test_details: bool,
+    /// Expected submission file names per language.
+    /// Null means use client-side defaults.
+    #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
+    pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
     /// Sample test case metadata (is_sample = true).
     pub samples: Vec<SampleTestCaseMeta>,
     #[schema(example = "2025-09-01T08:00:00Z")]
@@ -130,6 +157,9 @@ pub struct ProblemListItem {
     /// Default contest type for standalone submissions.
     #[schema(example = "standard")]
     pub default_contest_type: String,
+    /// Whether contestants see full input/output for all test cases.
+    #[schema(example = false)]
+    pub show_test_details: bool,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
@@ -182,9 +212,10 @@ pub struct CreateTestCaseRequest {
     /// Optional human-readable description (max 256 chars).
     #[schema(example = "Basic case")]
     pub description: Option<String>,
-    /// Short identifier (unique within problem, max 64 chars).
-    #[schema(example = "sample_01")]
-    pub label: String,
+    /// Optional short identifier (unique within problem, max 64 chars).
+    /// Defaults to the test-case position when omitted.
+    #[schema(value_type = Option<String>, example = "sample_01")]
+    pub label: Option<String>,
 }
 
 /// PATCH body for updating a test case. Only provided fields are modified.
@@ -209,7 +240,7 @@ pub struct UpdateTestCaseRequest {
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<String>, example = "Updated edge case")]
     pub description: Option<Option<String>>,
-    /// Short identifier (unique within problem, max 64 chars).
+    /// Display label for this test case (e.g. "sample_01"). Must be unique within the problem.
     #[schema(example = "sample_01")]
     pub label: Option<String>,
 }
@@ -285,6 +316,9 @@ pub struct UploadTestCasesResponse {
 
 impl From<crate::entity::problem::Model> for ProblemResponse {
     fn from(m: crate::entity::problem::Model) -> Self {
+        let submission_format: Option<std::collections::HashMap<String, Vec<String>>> = m
+            .submission_format
+            .and_then(|v| serde_json::from_value(v).ok());
         Self {
             id: m.id,
             title: m.title,
@@ -295,6 +329,8 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             checker_source: m.checker_source,
             checker_format: m.checker_format,
             default_contest_type: m.default_contest_type,
+            show_test_details: m.show_test_details,
+            submission_format,
             samples: vec![],
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -439,6 +475,54 @@ pub fn validate_update_problem(req: &UpdateProblemRequest) -> Result<(), AppErro
     Ok(())
 }
 
+pub fn validate_submission_format(
+    submission_format: Option<&HashMap<String, Vec<String>>>,
+    valid_languages: &HashMap<String, LanguageDefinition>,
+) -> Result<(), AppError> {
+    let Some(submission_format) = submission_format else {
+        return Ok(());
+    };
+
+    if submission_format.is_empty() {
+        return Ok(());
+    }
+
+    for (language_id, filenames) in submission_format {
+        let trimmed_language_id = language_id.trim();
+        if trimmed_language_id.is_empty() {
+            return Err(AppError::Validation(
+                "submission_format language ids must be non-empty".into(),
+            ));
+        }
+        if !valid_languages.is_empty() && !valid_languages.contains_key(trimmed_language_id) {
+            return Err(AppError::Validation(format!(
+                "submission_format contains unsupported language '{}'",
+                trimmed_language_id
+            )));
+        }
+        if filenames.is_empty() {
+            return Err(AppError::Validation(format!(
+                "submission_format for '{}' must include at least one filename",
+                trimmed_language_id
+            )));
+        }
+
+        let mut seen = HashSet::with_capacity(filenames.len());
+        for filename in filenames {
+            let normalized = validate_flat_filename(filename)
+                .map_err(|e| AppError::Validation(e.message().into()))?;
+            if !seen.insert(normalized.to_string()) {
+                return Err(AppError::Validation(format!(
+                    "submission_format for '{}' contains duplicate filename '{}'",
+                    trimmed_language_id, normalized
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppError> {
     if !(0..=10_000).contains(&req.score) {
         return Err(AppError::Validation("Score must be 0-10000".into()));
@@ -451,11 +535,13 @@ pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppE
             "Description must be at most 256 characters".into(),
         ));
     }
-    validate_label(&req.label)?;
+    if let Some(ref label) = req.label {
+        validate_label(label)?;
+    }
     Ok(())
 }
 
-fn validate_label(label: &str) -> Result<(), AppError> {
+pub(crate) fn validate_label(label: &str) -> Result<(), AppError> {
     let trimmed = label.trim();
     if trimmed.is_empty() {
         return Err(AppError::Validation("Label must be non-empty".into()));

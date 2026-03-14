@@ -1,4 +1,5 @@
 use std::cmp;
+use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -6,6 +7,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::{Duration, Utc};
 use common::judge_job::{JudgeFile, JudgeJob, TestCaseData};
+use common::language::{LanguageDefinition, resolve_language};
 use common::worker::Task;
 use common::{SubmissionStatus, Verdict};
 use sea_orm::sea_query::LockType;
@@ -14,7 +16,7 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::entity::submission::SubmissionFile;
 use crate::entity::{
-    contest, contest_problem, contest_user, problem, submission, test_case, test_case_result, user,
+    contest, contest_problem, problem, submission, test_case, test_case_result, user,
 };
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -23,6 +25,10 @@ use crate::hooks::{self, HookOutcome};
 use crate::models::shared::Pagination;
 use crate::models::submission::*;
 use crate::state::AppState;
+use crate::utils::contest::{
+    is_contest_participant, require_contest_participant, require_contest_running,
+};
+use crate::utils::soft_delete::SoftDeletable;
 use broccoli_server_sdk::types::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent};
 
 /// Check rate limit for a user.
@@ -94,6 +100,58 @@ async fn dispatch_before_submission_hooks(
             details,
         }),
     }
+}
+
+fn validate_submission_contract(
+    payload: &CreateSubmissionRequest,
+    problem: &problem::Model,
+    languages: &HashMap<String, LanguageDefinition>,
+) -> Result<(), AppError> {
+    let language = payload.language.trim();
+    let submitted_filename = payload
+        .files
+        .first()
+        .map(|file| file.filename.as_str())
+        .unwrap_or_default();
+
+    resolve_language(language, submitted_filename, languages).map_err(AppError::Validation)?;
+
+    let submission_format: Option<HashMap<String, Vec<String>>> = problem
+        .submission_format
+        .clone()
+        .and_then(|value| serde_json::from_value(value).ok());
+
+    let Some(submission_format) = submission_format else {
+        return Ok(());
+    };
+
+    if submission_format.is_empty() {
+        return Ok(());
+    }
+
+    let mut expected = submission_format.get(language).cloned().ok_or_else(|| {
+        AppError::Validation(format!(
+            "Language '{}' is not allowed for this problem",
+            language
+        ))
+    })?;
+    let mut actual = payload
+        .files
+        .iter()
+        .map(|file| file.filename.trim().to_string())
+        .collect::<Vec<_>>();
+    expected.sort();
+    actual.sort();
+
+    if actual != expected {
+        return Err(AppError::Validation(format!(
+            "Files for language '{}' must exactly match: {}",
+            language,
+            expected.join(", ")
+        )));
+    }
+
+    Ok(())
 }
 
 /// Fire `after_submission` hooks in the background. Non-blocking.
@@ -178,9 +236,9 @@ async fn fire_after_judging_hooks(
     );
 }
 
-/// Find a problem by ID or return 404.
+/// Find a problem by ID or return 404. Soft-deleted problems are treated as not found.
 async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Model, AppError> {
-    problem::Entity::find_by_id(id)
+    problem::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))
@@ -197,27 +255,12 @@ async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
-/// Find a contest by ID or return 404.
+/// Find a contest by ID or return 404. Soft-deleted contests are treated as not found.
 async fn find_contest<C: ConnectionTrait>(db: &C, id: i32) -> Result<contest::Model, AppError> {
-    contest::Entity::find_by_id(id)
+    contest::Entity::find_active_by_id(id)
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Contest not found".into()))
-}
-
-/// Check if a user is a participant of a contest.
-async fn is_contest_participant<C: ConnectionTrait>(
-    db: &C,
-    contest_id: i32,
-    user_id: i32,
-) -> Result<bool, AppError> {
-    let exists = contest_user::Entity::find()
-        .filter(contest_user::Column::ContestId.eq(contest_id))
-        .filter(contest_user::Column::UserId.eq(user_id))
-        .one(db)
-        .await?
-        .is_some();
-    Ok(exists)
 }
 
 /// Check if a problem belongs to a contest.
@@ -809,8 +852,7 @@ pub async fn create_submission(
     let txn = state.db.begin().await?;
 
     let problem = find_problem(&txn, problem_id).await?;
-
-    // TODO: Validate language against config
+    validate_submission_contract(&payload, &problem, &state.config.languages)?;
 
     let contest_type = match payload.contest_type {
         Some(ref ct) => {
@@ -1127,27 +1169,17 @@ pub async fn create_contest_submission(
 
     let contest_model = find_contest(&txn, contest_id).await?;
 
-    let _ = find_problem(&txn, problem_id).await?;
+    let problem = find_problem(&txn, problem_id).await?;
     if !is_problem_in_contest(&txn, contest_id, problem_id).await? {
         return Err(AppError::NotFound(
             "Problem not found in this contest".into(),
         ));
     }
 
-    let can_manage = auth_user.has_permission("contest:manage");
-    let is_participant = is_contest_participant(&txn, contest_id, auth_user.user_id).await?;
-
-    if !can_manage && !is_participant {
-        return Err(AppError::NotFound("Contest not found".into())); // Prevent enumeration
-    }
-
     let now = Utc::now();
-    if now < contest_model.start_time {
-        return Err(AppError::Validation("Contest has not started yet".into()));
-    }
-    if now > contest_model.end_time {
-        return Err(AppError::Validation("Contest has ended".into()));
-    }
+    require_contest_running(&auth_user, &contest_model, now)?;
+    require_contest_participant(&state.db, &auth_user, &contest_model).await?;
+    validate_submission_contract(&payload, &problem, &state.config.languages)?;
 
     let enabled_plugins =
         hooks::fetch_resource_enablements(problem_id, Some(contest_id), &state.db).await?;
@@ -1416,7 +1448,7 @@ pub async fn bulk_rejudge_submissions(
             )
             .col_expr(
                 submission::Column::Score,
-                sea_orm::sea_query::Expr::value(Option::<i32>::None),
+                sea_orm::sea_query::Expr::value(Option::<f64>::None),
             )
             .col_expr(
                 submission::Column::TimeUsed,

@@ -1,6 +1,8 @@
-import type { PluginDetailResponse } from '@broccoli/sdk';
-import { useApiClient } from '@broccoli/sdk/api';
+import { useApiClient } from '@broccoli/web-sdk/api';
+import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { useQuery } from '@tanstack/react-query';
+
+type PluginDetailResponse = PluginDetail;
 
 /**
  * Returns whether any loaded plugin has config schemas for the given scope.

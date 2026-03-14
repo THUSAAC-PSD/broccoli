@@ -1,9 +1,38 @@
 import { useQuery } from '@tanstack/react-query';
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import { useApiClient } from '@/api';
 import { I18nContext } from '@/i18n/i18n-context';
-import type { TranslationMap } from '@/index';
+import type { TranslationMap } from '@/i18n/types';
+
+const PLACEHOLDER_PATTERN =
+  /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}|\{\s*([a-zA-Z0-9_]+)\s*\}/g;
+
+function interpolateTranslation(
+  value: string,
+  params?: Record<string, string | number>,
+) {
+  if (!params) {
+    return value;
+  }
+
+  return value.replaceAll(
+    PLACEHOLDER_PATTERN,
+    (match, doubleKey, singleKey) => {
+      const key = doubleKey || singleKey;
+      if (!Object.hasOwn(params, key)) {
+        return match;
+      }
+      return String(params[key]);
+    },
+  );
+}
 
 interface I18nProviderProps {
   children: ReactNode;
@@ -20,16 +49,20 @@ export function I18nProvider({
 }: I18nProviderProps) {
   const apiClient = useApiClient();
 
-  const [locale, setLocaleState] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(localeKey);
-      // Prevent "undefined" string from being stored
-      if (stored && stored !== 'undefined') {
-        return stored;
+  const [locale, setLocaleState] = useState(defaultLocale);
+
+  useEffect(() => {
+    setLocaleState(() => {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(localeKey);
+        // Prevent "undefined" string from being stored
+        if (stored && stored !== 'undefined') {
+          return stored;
+        }
       }
-    }
-    return defaultLocale;
-  });
+      return defaultLocale;
+    });
+  }, [defaultLocale, localeKey]);
 
   const setLocale = useCallback(
     (newLocale: string) => {
@@ -59,7 +92,6 @@ export function I18nProvider({
       const { data } = await apiClient.GET('/i18n/translations/{locale}', {
         params: { path: { locale } },
       });
-      console.log('Fetched plugin translations for locale', locale);
       return data ?? {};
     },
     // Keep previous translations while loading new ones to prevent UI flickering
@@ -68,13 +100,8 @@ export function I18nProvider({
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
-      let value = pluginTranslations[key] ?? coreI18n[locale]?.[key] ?? key;
-      if (params) {
-        for (const [param, replacement] of Object.entries(params)) {
-          value = value.replace(`{{${param}}}`, String(replacement));
-        }
-      }
-      return value;
+      const value = pluginTranslations[key] ?? coreI18n[locale]?.[key] ?? key;
+      return interpolateTranslation(value, params);
     },
     [locale, pluginTranslations, coreI18n],
   );

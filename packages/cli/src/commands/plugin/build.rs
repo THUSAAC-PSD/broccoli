@@ -8,6 +8,8 @@ use serde::Deserialize;
 
 use crate::dev_config;
 
+use super::wasm::copy_wasm_artifact;
+
 /// Builds a plugin's backend (Rust/WASM) and/or frontend components.
 ///
 /// The frontend directory and build command can be customized via
@@ -41,7 +43,6 @@ struct MinimalManifest {
 
 #[derive(Deserialize)]
 struct ServerSection {
-    #[allow(dead_code)]
     entry: String,
 }
 
@@ -76,7 +77,7 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
     let mut built_anything = false;
 
     // Build backend (Rust/WASM)
-    if manifest.server.is_some() {
+    if let Some(server) = manifest.server.as_ref() {
         println!(
             "{}  Building backend for {}...",
             style("→").blue().bold(),
@@ -97,6 +98,8 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
         if !status.success() {
             bail!("Backend build failed");
         }
+
+        copy_wasm_artifact(&plugin_dir, &server.entry, args.release)?;
 
         println!("{}  Backend build complete", style("✓").green().bold());
         built_anything = true;

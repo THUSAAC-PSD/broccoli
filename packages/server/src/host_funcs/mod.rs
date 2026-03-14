@@ -19,6 +19,7 @@ use plugin_core::host::HostFunctionRegistry;
 use plugin_core::traits::PluginManager;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 #[allow(clippy::too_many_arguments)]
 pub fn init_host_functions(
@@ -106,6 +107,11 @@ pub fn init_host_functions(
     let eval_reg = evaluator_registry.clone();
     let pm = plugin_manager.clone();
     let eval_batches = evaluate_batches;
+    let evaluator_parallelism = std::thread::available_parallelism()
+        .map(|parallelism| parallelism.get())
+        .unwrap_or(1)
+        .max(1);
+    let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
     let db_for_eval = db.clone();
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(
@@ -113,6 +119,7 @@ pub fn init_host_functions(
             pm.clone(),
             eval_reg.clone(),
             eval_batches.clone(),
+            evaluator_slots.clone(),
             db_for_eval.clone(),
         )
     });

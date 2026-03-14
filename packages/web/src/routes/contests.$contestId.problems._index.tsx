@@ -1,8 +1,8 @@
 import { useParams } from 'react-router';
 
-import { ProblemsPage } from '@/pages/ProblemsPage';
+import { AdminProblemListView } from '@/features/admin/components/AdminProblemListView';
 
-export default function ContestProblemsIndex() {
+export default function ContestProblemListPage() {
   const { contestId } = useParams();
-  return <ProblemsPage contestId={Number(contestId)} />;
+  return <AdminProblemListView contestId={Number(contestId)} />;
 }

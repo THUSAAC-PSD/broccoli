@@ -1,11 +1,11 @@
-# @broccoli/sdk
+# @broccoli/web-sdk
 
 Core SDK for the Broccoli plugin system with slot architecture.
 
 ## Installation
 
 ```bash
-pnpm add @broccoli/sdk
+pnpm add @broccoli/web-sdk
 ```
 
 ## Usage
@@ -13,11 +13,11 @@ pnpm add @broccoli/sdk
 ### Setting up the Provider
 
 ```tsx
-import { PluginRegistryProvider } from '@broccoli/sdk/react';
+import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
 
 function App() {
   return (
-    <PluginRegistryProvider>
+    <PluginRegistryProvider backendUrl="http://127.0.0.1:3000">
       <YourApp />
     </PluginRegistryProvider>
   );
@@ -27,7 +27,7 @@ function App() {
 ### Creating Slots
 
 ```tsx
-import { Slot } from '@broccoli/sdk/react';
+import { Slot } from '@broccoli/web-sdk/slot';
 
 function Header() {
   return (
@@ -41,33 +41,48 @@ function Header() {
 ### Registering Plugins
 
 ```tsx
-import { usePluginRegistry } from '@broccoli/sdk/react';
-import type { PluginManifest, ComponentBundle } from '@broccoli/sdk';
+import {
+  PluginRegistryProvider,
+  type ComponentBundle,
+  type PluginModule,
+} from '@broccoli/web-sdk/plugin';
 
-const manifest: PluginManifest = {
-  name: 'my-plugin',
-  version: '1.0.0',
-  slots: [
-    {
-      name: 'slots.header',
-      position: 'after',
-      component: 'components/MyButton',
-    },
-  ],
-};
+function MyButton() {
+  return null;
+}
 
 const components: ComponentBundle = {
   'components/MyButton': MyButton,
 };
 
-function Setup() {
-  const { registerPlugin } = usePluginRegistry();
+const plugin: PluginModule = {
+  manifest: {
+    id: 'my-plugin',
+    name: 'my-plugin',
+    version: '1.0.0',
+    components: {
+      'components/MyButton': 'MyButton',
+    },
+    slots: [
+      {
+        name: 'slots.header',
+        position: 'after',
+        component: 'components/MyButton',
+      },
+    ],
+  },
+  MyButton,
+};
 
-  useEffect(() => {
-    registerPlugin(manifest, components);
-  }, [registerPlugin]);
-
-  return null;
+function App() {
+  return (
+    <PluginRegistryProvider
+      backendUrl="http://127.0.0.1:3000"
+      pluginModules={[plugin]}
+    >
+      <YourApp />
+    </PluginRegistryProvider>
+  );
 }
 ```
 
@@ -75,9 +90,10 @@ function Setup() {
 
 ### Types
 
-- `PluginManifest`: Plugin configuration
+- `ActivePluginManifest`: Plugin manifest shape
 - `SlotConfig`: Slot configuration
 - `ComponentBundle`: Component registry
+- `PluginModule`: Runtime plugin module
 
 ### Components
 

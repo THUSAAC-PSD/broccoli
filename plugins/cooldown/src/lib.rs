@@ -1,7 +1,7 @@
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm_entries {
     use broccoli_server_sdk::prelude::*;
-    use extism_pdk::{plugin_fn, FnResult};
+    use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
 
     use host::config::ConfigResult;
@@ -41,22 +41,34 @@ mod wasm_entries {
 
     /// Resolve effective cooldown by cascading: contest_problem > contest > problem > default.
     /// Returns 0 for "disabled" (no cooldown enforced).
-    fn resolve_cooldown(contest_id: Option<i32>, problem_id: i32) -> Result<ResolvedCooldown, SdkError> {
+    fn resolve_cooldown(
+        contest_id: Option<i32>,
+        problem_id: i32,
+    ) -> Result<ResolvedCooldown, SdkError> {
         if let Some(cid) = contest_id {
             let r = host::config::get_contest_problem_config(cid, problem_id, "cooldown")?;
             if let Some(secs) = try_extract(&r) {
-                return Ok(ResolvedCooldown { cooldown_seconds: secs, source: ConfigSource::ContestProblem });
+                return Ok(ResolvedCooldown {
+                    cooldown_seconds: secs,
+                    source: ConfigSource::ContestProblem,
+                });
             }
 
             let r = host::config::get_contest_config(cid, "cooldown")?;
             if let Some(secs) = try_extract(&r) {
-                return Ok(ResolvedCooldown { cooldown_seconds: secs, source: ConfigSource::Contest });
+                return Ok(ResolvedCooldown {
+                    cooldown_seconds: secs,
+                    source: ConfigSource::Contest,
+                });
             }
         }
 
         let r = host::config::get_problem_config(problem_id, "cooldown")?;
         if let Some(secs) = try_extract(&r) {
-            return Ok(ResolvedCooldown { cooldown_seconds: secs, source: ConfigSource::Problem });
+            return Ok(ResolvedCooldown {
+                cooldown_seconds: secs,
+                source: ConfigSource::Problem,
+            });
         }
 
         let fallback: CooldownConfig = serde_json::from_value(r.config).unwrap_or_default();
@@ -78,13 +90,20 @@ mod wasm_entries {
         let resolved = match resolve_cooldown(event.contest_id, event.problem_id) {
             Ok(r) => r,
             Err(e) => {
-                let _ = host::logger::log_info(format!("[cooldown] Failed to resolve config: {e}, using default (disabled)"));
-                ResolvedCooldown { cooldown_seconds: 0, source: ConfigSource::Default }
+                let _ = host::logger::log_info(format!(
+                    "[cooldown] Failed to resolve config: {e}, using default (disabled)"
+                ));
+                ResolvedCooldown {
+                    cooldown_seconds: 0,
+                    source: ConfigSource::Default,
+                }
             }
         };
 
         if resolved.cooldown_seconds == 0 {
-            return Ok(serde_json::to_string(&serde_json::json!({"action": "pass"}))?);
+            return Ok(serde_json::to_string(
+                &serde_json::json!({"action": "pass"}),
+            )?);
         }
 
         let contest_filter = match event.contest_id {
@@ -105,7 +124,9 @@ mod wasm_entries {
 
         // First submission, so no cooldown
         if seconds_since_last.is_none() {
-            return Ok(serde_json::to_string(&serde_json::json!({"action": "pass"}))?);
+            return Ok(serde_json::to_string(
+                &serde_json::json!({"action": "pass"}),
+            )?);
         }
 
         let elapsed = seconds_since_last.unwrap();
@@ -124,7 +145,9 @@ mod wasm_entries {
             return Ok(serde_json::to_string(&resp)?);
         }
 
-        Ok(serde_json::to_string(&serde_json::json!({"action": "pass"}))?)
+        Ok(serde_json::to_string(
+            &serde_json::json!({"action": "pass"}),
+        )?)
     }
 
     #[derive(Serialize)]
@@ -151,10 +174,10 @@ mod wasm_entries {
     }
 
     fn handle_cooldown_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
-        let user_id = match req.user_id {
+        let user_id = match req.user_id() {
             Some(id) => id,
             None => {
                 return Ok(PluginHttpResponse {
@@ -177,6 +200,41 @@ mod wasm_entries {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
+        #[derive(Deserialize)]
+        struct ContestAccess {
+            is_active: bool,
+            is_participant: bool,
+            has_problem: bool,
+        }
+        let access_rows: Vec<ContestAccess> = host::db::db_query(&format!(
+            "SELECT \
+                ((activate_time IS NULL OR activate_time <= NOW()) AND \
+                 (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
+                EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {contest_id} AND user_id = {user_id}) AS is_participant, \
+                EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {contest_id} AND problem_id = {problem_id}) AS has_problem \
+             FROM contest WHERE id = {contest_id}"
+        ))?;
+        let access = match access_rows.first() {
+            Some(access) => access,
+            None => {
+                return Ok(PluginHttpResponse {
+                    status: 404,
+                    headers: None,
+                    body: Some(serde_json::json!({ "error": "Contest not found" })),
+                });
+            }
+        };
+        if !access.has_problem
+            || (!req.has_permission("contest:manage")
+                && (!access.is_active || !access.is_participant))
+        {
+            return Ok(PluginHttpResponse {
+                status: 404,
+                headers: None,
+                body: Some(serde_json::json!({ "error": "Contest not found" })),
+            });
+        }
+
         let resolved = resolve_cooldown(Some(contest_id), problem_id)?;
 
         let rows: Vec<SecondsSinceLast> = host::db::db_query(&format!(
@@ -186,9 +244,7 @@ mod wasm_entries {
             user_id, problem_id, contest_id
         ))?;
 
-        let seconds_since_last = rows
-            .first()
-            .and_then(|r| r.seconds_since_last);
+        let seconds_since_last = rows.first().and_then(|r| r.seconds_since_last);
 
         let can_submit = if resolved.cooldown_seconds == 0 {
             true

@@ -1,5 +1,6 @@
 pub mod build;
 pub mod new;
+mod wasm;
 pub mod watch;
 
 use clap::{Args, Subcommand};

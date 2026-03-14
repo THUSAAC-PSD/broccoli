@@ -38,6 +38,46 @@ export function deepMerge(
   return result;
 }
 
+export function hasOwnValueAtPath(
+  values: Record<string, unknown>,
+  path: string[],
+): boolean {
+  if (path.length === 0) return Object.keys(values).length > 0;
+
+  let current: unknown = values;
+  for (const segment of path) {
+    if (current === null || typeof current !== 'object') return false;
+    if (!Object.hasOwn(current, segment)) return false;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return true;
+}
+
+export function hasOwnDescendantValue(
+  values: Record<string, unknown>,
+  path: string[],
+): boolean {
+  if (path.length === 0) return hasAnyOwnValue(values);
+
+  let current: unknown = values;
+  for (const segment of path) {
+    if (current === null || typeof current !== 'object') return false;
+    if (!Object.hasOwn(current, segment)) return false;
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return hasAnyOwnValue(current);
+}
+
+function hasAnyOwnValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === null || typeof value !== 'object') return value !== undefined;
+
+  const entries = Object.entries(value);
+  if (entries.length === 0) return false;
+  return entries.some(([, nested]) => hasAnyOwnValue(nested));
+}
+
 export function validateField(
   value: unknown,
   prop: JsonSchemaProperty,

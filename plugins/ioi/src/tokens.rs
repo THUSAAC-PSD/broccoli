@@ -35,8 +35,7 @@ pub fn next_regen_elapsed_min(config: &TokenConfig, elapsed_minutes: u64) -> Opt
         TokenMode::Regenerating => {
             let regen_interval = config.regen_interval_min.max(1) as u64;
             let regenerated = elapsed_minutes / regen_interval;
-            let current_total =
-                (config.initial as u64 + regenerated).min(config.max as u64);
+            let current_total = (config.initial as u64 + regenerated).min(config.max as u64);
             if current_total >= config.max as u64 {
                 None
             } else {
@@ -70,7 +69,10 @@ mod tests {
 
     #[test]
     fn none_unlimited() {
-        let config = TokenConfig { mode: TokenMode::None, ..Default::default() };
+        let config = TokenConfig {
+            mode: TokenMode::None,
+            ..Default::default()
+        };
         let state = TokenState::default();
         assert_eq!(available_tokens(&config, &state, 0), u32::MAX);
     }
@@ -78,14 +80,20 @@ mod tests {
     #[test]
     fn fixed_initial() {
         let config = fixed_config(5);
-        let state = TokenState { used: 2, ..Default::default() };
+        let state = TokenState {
+            used: 2,
+            ..Default::default()
+        };
         assert_eq!(available_tokens(&config, &state, 0), 3);
     }
 
     #[test]
     fn fixed_exhausted() {
         let config = fixed_config(3);
-        let state = TokenState { used: 3, ..Default::default() };
+        let state = TokenState {
+            used: 3,
+            ..Default::default()
+        };
         assert_eq!(available_tokens(&config, &state, 0), 0);
     }
 
@@ -115,14 +123,20 @@ mod tests {
     #[test]
     fn regen_with_used() {
         let config = regen_config(2, 10, 30);
-        let state = TokenState { used: 3, ..Default::default() };
+        let state = TokenState {
+            used: 3,
+            ..Default::default()
+        };
         // After 60 min: min(2 + 2, 10) - 3 = 1
         assert_eq!(available_tokens(&config, &state, 60), 1);
     }
 
     #[test]
     fn next_regen_none_mode() {
-        let config = TokenConfig { mode: TokenMode::None, ..Default::default() };
+        let config = TokenConfig {
+            mode: TokenMode::None,
+            ..Default::default()
+        };
         assert_eq!(next_regen_elapsed_min(&config, 0), None);
     }
 

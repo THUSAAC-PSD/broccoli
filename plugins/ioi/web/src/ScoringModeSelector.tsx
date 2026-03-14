@@ -2,7 +2,7 @@
  * Replaces the `scoring_mode` dropdown with a visual timeline selector.
  * Three IOI scoring eras, rendered as a horizontal timeline with selectable cards.
  */
-import { useTranslation } from '@broccoli/sdk/i18n';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 
 interface ScoringModeSelectorProps {
   value: unknown;

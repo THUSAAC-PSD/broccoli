@@ -115,6 +115,12 @@ fn start_operation_batch_fn(
 
     let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
     let pending_count = Arc::new(AtomicUsize::new(operations.len()));
+    let cleanup_keys = Arc::new(
+        operations
+            .iter()
+            .map(|_| Uuid::new_v4().to_string())
+            .collect::<Vec<_>>(),
+    );
 
     batches.insert(
         batch_id.clone(),
@@ -122,6 +128,7 @@ fn start_operation_batch_fn(
             result_rx: batch_rx,
             pending_count: pending_count.clone(),
             created_at: Instant::now(),
+            cleanup_keys: cleanup_keys.clone(),
         },
     );
 
@@ -132,8 +139,7 @@ fn start_operation_batch_fn(
         "Starting operation batch"
     );
 
-    for op in operations {
-        let correlation_id = Uuid::new_v4().to_string();
+    for (correlation_id, op) in cleanup_keys.iter().cloned().zip(operations.into_iter()) {
         let (op_tx, op_rx) = tokio::sync::oneshot::channel();
 
         waiters.insert(correlation_id.clone(), op_tx);
@@ -267,15 +273,23 @@ fn cancel_operation_batch_fn(
     let input: CancelBatchInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (plugin_id, batches) = {
+    let (plugin_id, batches, waiters) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (guard.plugin_id.clone(), guard.batches.clone())
+        (
+            guard.plugin_id.clone(),
+            guard.batches.clone(),
+            guard.waiters.clone(),
+        )
     };
 
-    batches.remove(&input.batch_id);
+    if let Some((_, batch)) = batches.remove(&input.batch_id) {
+        for key in batch.cleanup_keys.iter() {
+            waiters.remove(key);
+        }
+    }
 
     tracing::info!(
         plugin_id = %plugin_id,

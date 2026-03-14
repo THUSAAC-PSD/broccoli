@@ -1,4 +1,5 @@
 // Admin config components
+export { FeedbackLevelSelector } from './FeedbackLevelSelector';
 export { IoiConfigBanner } from './IoiConfigBanner';
 export { ScoringModeSelector } from './ScoringModeSelector';
 export { SubtaskEditor } from './SubtaskEditor';

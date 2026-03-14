@@ -36,7 +36,7 @@ pub struct JudgeJob {
     pub problem_id: i32,
     /// Source files to judge
     pub files: Vec<JudgeFile>,
-    /// Programming language (e.g., "cpp", "java", "python")
+    /// Programming language (e.g., "cpp", "java", "python3")
     pub language: String,
     /// Time limit in milliseconds
     pub time_limit: i32,

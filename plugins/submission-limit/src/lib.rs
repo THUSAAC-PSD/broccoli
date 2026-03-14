@@ -1,7 +1,7 @@
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm_entries {
     use broccoli_server_sdk::prelude::*;
-    use extism_pdk::{plugin_fn, FnResult};
+    use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
 
     use host::config::ConfigResult;
@@ -42,22 +42,34 @@ mod wasm_entries {
     /// Returns 0 for "unlimited" (no limit enforced).
     ///
     /// When `contest_id` is `None` (non-contest submission), only problem and default scopes apply.
-    fn resolve_max_submissions(contest_id: Option<i32>, problem_id: i32) -> Result<ResolvedLimit, SdkError> {
+    fn resolve_max_submissions(
+        contest_id: Option<i32>,
+        problem_id: i32,
+    ) -> Result<ResolvedLimit, SdkError> {
         if let Some(cid) = contest_id {
             let r = host::config::get_contest_problem_config(cid, problem_id, "limits")?;
             if let Some(max) = try_extract(&r) {
-                return Ok(ResolvedLimit { max_submissions: max, source: ConfigSource::ContestProblem });
+                return Ok(ResolvedLimit {
+                    max_submissions: max,
+                    source: ConfigSource::ContestProblem,
+                });
             }
 
             let r = host::config::get_contest_config(cid, "limits")?;
             if let Some(max) = try_extract(&r) {
-                return Ok(ResolvedLimit { max_submissions: max, source: ConfigSource::Contest });
+                return Ok(ResolvedLimit {
+                    max_submissions: max,
+                    source: ConfigSource::Contest,
+                });
             }
         }
 
         let r = host::config::get_problem_config(problem_id, "limits")?;
         if let Some(max) = try_extract(&r) {
-            return Ok(ResolvedLimit { max_submissions: max, source: ConfigSource::Problem });
+            return Ok(ResolvedLimit {
+                max_submissions: max,
+                source: ConfigSource::Problem,
+            });
         }
 
         // Manifest defaults (from plugin.toml [config.limits.properties.max_submissions] default)
@@ -67,7 +79,6 @@ mod wasm_entries {
             source: ConfigSource::Default,
         })
     }
-
 
     #[derive(Deserialize)]
     struct SubmissionCount {
@@ -82,14 +93,21 @@ mod wasm_entries {
         let resolved = match resolve_max_submissions(event.contest_id, event.problem_id) {
             Ok(r) => r,
             Err(e) => {
-                let _ = host::logger::log_info(format!("[submission-limit] Failed to resolve config: {e}, using default (unlimited)"));
-                ResolvedLimit { max_submissions: 0, source: ConfigSource::Default }
+                let _ = host::logger::log_info(format!(
+                    "[submission-limit] Failed to resolve config: {e}, using default (unlimited)"
+                ));
+                ResolvedLimit {
+                    max_submissions: 0,
+                    source: ConfigSource::Default,
+                }
             }
         };
 
         // 0 means unlimited
         if resolved.max_submissions == 0 {
-            return Ok(serde_json::to_string(&serde_json::json!({"action": "pass"}))?);
+            return Ok(serde_json::to_string(
+                &serde_json::json!({"action": "pass"}),
+            )?);
         }
 
         // Query submission count for this user/problem, scoped to contest if present.
@@ -121,7 +139,9 @@ mod wasm_entries {
             return Ok(serde_json::to_string(&resp)?);
         }
 
-        Ok(serde_json::to_string(&serde_json::json!({"action": "pass"}))?)
+        Ok(serde_json::to_string(
+            &serde_json::json!({"action": "pass"}),
+        )?)
     }
 
     // API: GET /api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status
@@ -150,10 +170,10 @@ mod wasm_entries {
     }
 
     fn handle_limit_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
-        let user_id = match req.user_id {
+        let user_id = match req.user_id() {
             Some(id) => id,
             None => {
                 return Ok(PluginHttpResponse {
@@ -175,6 +195,41 @@ mod wasm_entries {
             .get("problem_id")
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
+
+        #[derive(Deserialize)]
+        struct ContestAccess {
+            is_active: bool,
+            is_participant: bool,
+            has_problem: bool,
+        }
+        let access_rows: Vec<ContestAccess> = host::db::db_query(&format!(
+            "SELECT \
+                ((activate_time IS NULL OR activate_time <= NOW()) AND \
+                 (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
+                EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {contest_id} AND user_id = {user_id}) AS is_participant, \
+                EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {contest_id} AND problem_id = {problem_id}) AS has_problem \
+             FROM contest WHERE id = {contest_id}"
+        ))?;
+        let access = match access_rows.first() {
+            Some(access) => access,
+            None => {
+                return Ok(PluginHttpResponse {
+                    status: 404,
+                    headers: None,
+                    body: Some(serde_json::json!({ "error": "Contest not found" })),
+                });
+            }
+        };
+        if !access.has_problem
+            || (!req.has_permission("contest:manage")
+                && (!access.is_active || !access.is_participant))
+        {
+            return Ok(PluginHttpResponse {
+                status: 404,
+                headers: None,
+                body: Some(serde_json::json!({ "error": "Contest not found" })),
+            });
+        }
 
         let resolved = resolve_max_submissions(Some(contest_id), problem_id)?;
         let unlimited = resolved.max_submissions == 0;

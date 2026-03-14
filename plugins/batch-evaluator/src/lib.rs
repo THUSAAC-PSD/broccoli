@@ -1,12 +1,12 @@
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 use broccoli_server_sdk::prelude::*;
 
-#[cfg(feature = "wasm")]
-use extism_pdk::{plugin_fn, FnResult};
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+use extism_pdk::{FnResult, plugin_fn};
 
 pub mod batch;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 fn load_sandbox_config() -> batch::SandboxConfig {
     match host::config::get_global_config("sandbox") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
@@ -14,7 +14,7 @@ fn load_sandbox_config() -> batch::SandboxConfig {
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     host::registry::register_evaluator("batch", "evaluate_batch")?;
@@ -22,7 +22,7 @@ pub fn init() -> FnResult<String> {
     Ok("ok".to_string())
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 #[plugin_fn]
 pub fn evaluate_batch(input: String) -> FnResult<String> {
     let req: BuildEvalOpsInput = serde_json::from_str(&input)?;
@@ -30,13 +30,17 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
 
     let sandbox_config = load_sandbox_config();
 
-    let filename = req
-        .solution_source
-        .first()
-        .map(|f| f.filename.as_str())
-        .unwrap_or("solution");
-    let host_lang = host::language::get_language_config(&req.solution_language, filename)
+    let default_lang = host::language::get_language_config(&req.solution_language, "")
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let primary_source = req
+        .solution_source
+        .iter()
+        .find(|file| file.filename == default_lang.source_filename)
+        .or_else(|| req.solution_source.first())
+        .ok_or_else(|| extism_pdk::Error::msg("No source file provided"))?;
+    let host_lang =
+        host::language::get_language_config(&req.solution_language, &primary_source.filename)
+            .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
     let lang = batch::ResolvedLanguage {
         compile_cmd: host_lang.compile_cmd,
         run_cmd: host_lang.run_cmd,

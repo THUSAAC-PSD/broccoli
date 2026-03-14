@@ -6,17 +6,19 @@ pub mod scoring;
 pub mod subtasks;
 pub mod tokens;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm_entries {
     use std::collections::HashMap;
 
     use broccoli_server_sdk::prelude::*;
-    use extism_pdk::{plugin_fn, FnResult};
+    use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
 
     use crate::config::{ContestConfig, ScoringMode, TaskConfig, round_score};
     use crate::judge::{JudgeContext, judge_with_context};
-    use crate::scoring::{score_best_tokened_or_last, score_max_submission, score_sum_best_subtask};
+    use crate::scoring::{
+        score_best_tokened_or_last, score_max_submission, score_sum_best_subtask,
+    };
     use crate::subtasks::{build_default_subtasks, score_all_subtasks};
     use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
 
@@ -55,6 +57,100 @@ mod wasm_entries {
         #[allow(dead_code)]
         id: i32,
         score: f64,
+    }
+
+    #[derive(Deserialize)]
+    struct ContestRouteInfo {
+        contest_type: Option<String>,
+        is_public: bool,
+        is_active: bool,
+        phase: String,
+    }
+
+    fn plugin_error(status: u16, message: impl Into<String>) -> PluginHttpResponse {
+        PluginHttpResponse {
+            status,
+            headers: None,
+            body: Some(serde_json::json!({ "error": message.into() })),
+        }
+    }
+
+    fn load_contest_route_info(contest_id: i32) -> Result<ContestRouteInfo, SdkError> {
+        let rows: Vec<ContestRouteInfo> = host::db::db_query(&format!(
+            "SELECT contest_type, is_public, \
+                ((activate_time IS NULL OR activate_time <= NOW()) AND \
+                 (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
+                CASE \
+                    WHEN NOW() < start_time THEN 'before' \
+                    WHEN NOW() > end_time THEN 'after' \
+                    ELSE 'during' \
+                END AS phase \
+             FROM contest WHERE id = {contest_id}"
+        ))?;
+        rows.into_iter()
+            .next()
+            .ok_or_else(|| SdkError::Other("Contest not found".into()))
+    }
+
+    fn contest_has_problem(contest_id: i32, problem_id: i32) -> Result<bool, SdkError> {
+        #[derive(Deserialize)]
+        struct ExistsRow {
+            exists: bool,
+        }
+
+        let rows: Vec<ExistsRow> = host::db::db_query(&format!(
+            "SELECT EXISTS( \
+                SELECT 1 FROM contest_problem \
+                WHERE contest_id = {contest_id} AND problem_id = {problem_id} \
+             ) AS exists"
+        ))?;
+        Ok(rows.first().is_some_and(|row| row.exists))
+    }
+
+    fn user_is_participant(contest_id: i32, user_id: i32) -> Result<bool, SdkError> {
+        #[derive(Deserialize)]
+        struct ExistsRow {
+            exists: bool,
+        }
+
+        let rows: Vec<ExistsRow> = host::db::db_query(&format!(
+            "SELECT EXISTS( \
+                SELECT 1 FROM contest_user \
+                WHERE contest_id = {contest_id} AND user_id = {user_id} \
+             ) AS exists"
+        ))?;
+        Ok(rows.first().is_some_and(|row| row.exists))
+    }
+
+    fn can_view_contest(
+        req: &PluginHttpRequest,
+        contest_id: i32,
+        contest: &ContestRouteInfo,
+    ) -> Result<bool, SdkError> {
+        if req.has_permission("contest:manage") {
+            return Ok(true);
+        }
+        if !contest.is_active {
+            return Ok(false);
+        }
+        if contest.is_public {
+            return Ok(true);
+        }
+        match req.user_id() {
+            Some(user_id) => user_is_participant(contest_id, user_id),
+            None => Ok(false),
+        }
+    }
+
+    fn can_view_privileged_submission_feedback(req: &PluginHttpRequest) -> bool {
+        req.has_permission("contest:manage") || req.has_permission("submission:view_all")
+    }
+
+    fn should_include_in_contest_aggregations(
+        contest_id: i32,
+        user_id: i32,
+    ) -> Result<bool, SdkError> {
+        user_is_participant(contest_id, user_id)
     }
 
     #[plugin_fn]
@@ -100,12 +196,14 @@ mod wasm_entries {
         req: &OnSubmissionInput,
         contest_id: i32,
     ) -> Result<OnSubmissionOutput, SdkError> {
-        let contest_config: ContestConfig = serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
-            .unwrap_or_default();
-
-        let task_config: TaskConfig =
-            serde_json::from_value(host::config::get_contest_problem_config(contest_id, req.problem_id, "task")?.config)
+        let contest_config: ContestConfig =
+            serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
                 .unwrap_or_default();
+
+        let task_config: TaskConfig = serde_json::from_value(
+            host::config::get_contest_problem_config(contest_id, req.problem_id, "task")?.config,
+        )
+        .unwrap_or_default();
 
         let test_cases = host_impl.query_test_cases(req.problem_id)?;
 
@@ -142,10 +240,7 @@ mod wasm_entries {
                 })
                 .collect();
             let key = format!("subtask_scores:{}:{}", req.submission_id, req.problem_id);
-            host::storage::store_set(
-                &key,
-                &serde_json::to_string(&subtask_data)?,
-            )?;
+            host::storage::store_set(&key, &serde_json::to_string(&subtask_data)?)?;
         }
 
         if let Some(sub_score) = result.submission_score {
@@ -172,6 +267,10 @@ mod wasm_entries {
         submission_score: f64,
         ctx: &JudgeContext,
     ) -> Result<(), SdkError> {
+        if !should_include_in_contest_aggregations(contest_id, user_id)? {
+            return Ok(());
+        }
+
         let task_score = match config.scoring_mode {
             ScoringMode::MaxSubmission => {
                 let rows: Vec<MaxScore> = host::db::db_query(&format!(
@@ -234,7 +333,10 @@ mod wasm_entries {
              FROM test_case WHERE problem_id = {}",
             problem_id
         ))?;
-        let max_map: HashMap<i32, f64> = tc_maxes.iter().map(|t| (t.test_case_id, t.max_score)).collect();
+        let max_map: HashMap<i32, f64> = tc_maxes
+            .iter()
+            .map(|t| (t.test_case_id, t.max_score))
+            .collect();
 
         let id_to_label: HashMap<i32, String> = ctx
             .test_cases
@@ -245,7 +347,11 @@ mod wasm_entries {
         let mut by_submission: HashMap<i32, HashMap<String, f64>> = HashMap::new();
         for row in &tc_results {
             let tc_max = max_map.get(&row.test_case_id).copied().unwrap_or(0.0);
-            let raw_score = if tc_max > 0.0 { row.score / tc_max } else { 0.0 };
+            let raw_score = if tc_max > 0.0 {
+                row.score / tc_max
+            } else {
+                0.0
+            };
             let label = id_to_label
                 .get(&row.test_case_id)
                 .cloned()
@@ -273,14 +379,10 @@ mod wasm_entries {
         }
     }
 
-    fn save_token_state(
-        contest_id: i32,
-        user_id: i32,
-        state: &TokenState,
-    ) -> Result<(), SdkError> {
+    fn save_token_state(contest_id: i32, user_id: i32, state: &TokenState) -> Result<(), SdkError> {
         let key = format!("tokens:{contest_id}:{user_id}");
-        let json = serde_json::to_string(state)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let json =
+            serde_json::to_string(state).map_err(|e| SdkError::Serialization(e.to_string()))?;
         host::storage::store_set(&key, &json)
     }
 
@@ -298,17 +400,13 @@ mod wasm_entries {
     }
 
     fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
-        let user_id = match req.user_id {
+        let user_id = match req.user_id() {
             Some(id) => id,
             None => {
-                return Ok(PluginHttpResponse {
-                    status: 401,
-                    headers: None,
-                    body: Some(serde_json::json!({ "error": "Authentication required" })),
-                });
+                return Ok(plugin_error(401, "Authentication required"));
             }
         };
 
@@ -348,7 +446,9 @@ mod wasm_entries {
             return Ok(PluginHttpResponse {
                 status: 400,
                 headers: None,
-                body: Some(serde_json::json!({ "error": "Submission does not belong to this contest" })),
+                body: Some(
+                    serde_json::json!({ "error": "Submission does not belong to this contest" }),
+                ),
             });
         }
         let problem_id = sub_info.problem_id;
@@ -361,7 +461,9 @@ mod wasm_entries {
             return Ok(PluginHttpResponse {
                 status: 400,
                 headers: None,
-                body: Some(serde_json::json!({ "error": "Tokens are not enabled for this contest's scoring mode" })),
+                body: Some(
+                    serde_json::json!({ "error": "Tokens are not enabled for this contest's scoring mode" }),
+                ),
             });
         }
 
@@ -422,8 +524,10 @@ mod wasm_entries {
 
         let task_score = score_best_tokened_or_last(tokened_best, last_score);
 
-        let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-        host::storage::store_set(&key, &round_score(task_score).to_string())?;
+        if should_include_in_contest_aggregations(contest_id, user_id)? {
+            let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
+            host::storage::store_set(&key, &round_score(task_score).to_string())?;
+        }
 
         let remaining = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
 
@@ -451,8 +555,8 @@ mod wasm_entries {
     }
 
     fn handle_contest_info(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
         let contest_id: i32 = req
             .params
@@ -460,25 +564,18 @@ mod wasm_entries {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| SdkError::Other("Missing contest_id".into()))?;
 
-        #[derive(Deserialize)]
-        struct ContestType {
-            contest_type: Option<String>,
+        let contest = match load_contest_route_info(contest_id) {
+            Ok(contest) => contest,
+            Err(_) => return Ok(plugin_error(404, "Contest not found")),
+        };
+        if contest.contest_type.as_deref() != Some("ioi") {
+            return Ok(plugin_error(404, "Not an IOI contest"));
         }
-        let ct_rows: Vec<ContestType> = host::db::db_query(&format!(
-            "SELECT contest_type FROM contest WHERE id = {}",
-            contest_id
-        ))?;
-        let is_ioi = ct_rows
-            .first()
-            .and_then(|r| r.contest_type.as_deref())
-            .map(|t| t == "ioi")
-            .unwrap_or(false);
-        if !is_ioi {
-            return Ok(PluginHttpResponse {
-                status: 404,
-                headers: None,
-                body: Some(serde_json::json!({ "error": "Not an IOI contest" })),
-            });
+        if contest.phase != "after" && req.user_id().is_none() {
+            return Ok(plugin_error(401, "Authentication required during contest"));
+        }
+        if !can_view_contest(&req, contest_id, &contest)? {
+            return Ok(plugin_error(404, "Contest not found"));
         }
 
         let contest_config: ContestConfig =
@@ -510,8 +607,8 @@ mod wasm_entries {
     }
 
     fn handle_task_config(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
         let contest_id: i32 = req
             .params
@@ -525,34 +622,31 @@ mod wasm_entries {
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
-        // Require auth during active contest (before/during), allow public access after
-        #[derive(Deserialize)]
-        struct Phase { phase: String }
-        let phase_rows: Vec<Phase> = host::db::db_query(&format!(
-            "SELECT CASE \
-                WHEN NOW() < start_time THEN 'before' \
-                WHEN NOW() > end_time THEN 'after' \
-                ELSE 'during' \
-             END AS phase \
-             FROM contest WHERE id = {}",
-            contest_id
-        ))?;
-        let phase = phase_rows.first().map(|r| r.phase.as_str()).unwrap_or("during");
-        if phase != "after" && req.user_id.is_none() {
-            return Ok(PluginHttpResponse {
-                status: 401,
-                headers: None,
-                body: Some(serde_json::json!({ "error": "Authentication required during contest" })),
-            });
+        let contest = match load_contest_route_info(contest_id) {
+            Ok(contest) => contest,
+            Err(_) => return Ok(plugin_error(404, "Contest not found")),
+        };
+        if contest.contest_type.as_deref() != Some("ioi") {
+            return Ok(plugin_error(404, "Not an IOI contest"));
+        }
+        if !contest_has_problem(contest_id, problem_id)? {
+            return Ok(plugin_error(404, "Contest problem not found"));
+        }
+        if contest.phase != "after" && req.user_id().is_none() {
+            return Ok(plugin_error(401, "Authentication required during contest"));
+        }
+        if !can_view_contest(&req, contest_id, &contest)? {
+            return Ok(plugin_error(404, "Contest not found"));
         }
 
         let contest_config: ContestConfig =
             serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
                 .unwrap_or_default();
 
-        let task_config: TaskConfig =
-            serde_json::from_value(host::config::get_contest_problem_config(contest_id, problem_id, "task")?.config)
-                .unwrap_or_default();
+        let task_config: TaskConfig = serde_json::from_value(
+            host::config::get_contest_problem_config(contest_id, problem_id, "task")?.config,
+        )
+        .unwrap_or_default();
 
         let host_impl = WasmHost;
         let test_cases_list = host_impl.query_test_cases(problem_id)?;
@@ -603,7 +697,7 @@ mod wasm_entries {
             FeedbackLevel::TokenedFull => {
                 // Authenticated users get full config (needed to render tokened submissions).
                 // Unauthenticated users get subtask-level only (no test case labels).
-                if req.user_id.is_some() {
+                if req.user_id().is_some() {
                     Some(
                         effective_subtasks
                             .iter()
@@ -638,20 +732,19 @@ mod wasm_entries {
         let needs_label_map = match contest_config.feedback_level {
             FeedbackLevel::Full => true,
             // TokenedFull: only authenticated users need label_map (to render tokened submissions)
-            FeedbackLevel::TokenedFull => req.user_id.is_some(),
+            FeedbackLevel::TokenedFull => req.user_id().is_some(),
             _ => false,
         };
-        let label_map: Option<HashMap<String, i32>> =
-            if needs_label_map {
-                Some(
-                    test_cases_list
-                        .iter()
-                        .map(|tc| (resolve_tc_label(tc), tc.id))
-                        .collect(),
-                )
-            } else {
-                None
-            };
+        let label_map: Option<HashMap<String, i32>> = if needs_label_map {
+            Some(
+                test_cases_list
+                    .iter()
+                    .map(|tc| (resolve_tc_label(tc), tc.id))
+                    .collect(),
+            )
+        } else {
+            None
+        };
 
         let mut body = serde_json::json!({
             "scoring_mode": contest_config.scoring_mode,
@@ -686,17 +779,13 @@ mod wasm_entries {
     }
 
     fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
-        let user_id = match req.user_id {
+        let user_id = match req.user_id() {
             Some(id) => id,
             None => {
-                return Ok(PluginHttpResponse {
-                    status: 401,
-                    headers: None,
-                    body: Some(serde_json::json!({ "error": "Authentication required" })),
-                });
+                return Ok(plugin_error(401, "Authentication required"));
             }
         };
 
@@ -755,17 +844,13 @@ mod wasm_entries {
     }
 
     fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
-        let user_id = match req.user_id {
+        let user_id = match req.user_id() {
             Some(id) => id,
             None => {
-                return Ok(PluginHttpResponse {
-                    status: 401,
-                    headers: None,
-                    body: Some(serde_json::json!({ "error": "Authentication required" })),
-                });
+                return Ok(plugin_error(401, "Authentication required"));
             }
         };
 
@@ -840,8 +925,8 @@ mod wasm_entries {
     }
 
     fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
         let contest_id: i32 = req
             .params
@@ -877,12 +962,15 @@ mod wasm_entries {
             }
         };
 
-        if (phase == "before" || phase == "during") && req.user_id.is_none() {
-            return Ok(PluginHttpResponse {
-                status: 401,
-                headers: None,
-                body: Some(serde_json::json!({ "error": "Authentication required during contest" })),
-            });
+        if (phase == "before" || phase == "during") && req.user_id().is_none() {
+            return Ok(plugin_error(401, "Authentication required during contest"));
+        }
+        let contest = match load_contest_route_info(contest_id) {
+            Ok(contest) => contest,
+            Err(_) => return Ok(plugin_error(404, "Contest not found")),
+        };
+        if !can_view_contest(&req, contest_id, &contest)? {
+            return Ok(plugin_error(404, "Contest not found"));
         }
 
         #[derive(Deserialize)]
@@ -897,9 +985,10 @@ mod wasm_entries {
 
         let mut max_scores: HashMap<i32, f64> = HashMap::new();
         for &pid in &problem_ids {
-            let task_config: TaskConfig =
-                serde_json::from_value(host::config::get_contest_problem_config(contest_id, pid, "task")?.config)
-                    .unwrap_or_default();
+            let task_config: TaskConfig = serde_json::from_value(
+                host::config::get_contest_problem_config(contest_id, pid, "task")?.config,
+            )
+            .unwrap_or_default();
 
             let max: f64 = if task_config.subtasks.is_empty() {
                 let tc_rows: Vec<TcMaxScore> = host::db::db_query(&format!(
@@ -920,10 +1009,11 @@ mod wasm_entries {
             username: String,
         }
         let participants: Vec<Participant> = host::db::db_query(&format!(
-            "SELECT DISTINCT s.user_id, u.username \
-             FROM submission s \
-             JOIN \"user\" u ON u.id = s.user_id \
-             WHERE s.contest_id = {}",
+            "SELECT cu.user_id, u.username \
+             FROM contest_user cu \
+             JOIN \"user\" u ON u.id = cu.user_id \
+             WHERE cu.contest_id = {} \
+             ORDER BY cu.registered_at ASC",
             contest_id
         ))?;
 
@@ -948,7 +1038,7 @@ mod wasm_entries {
 
         for participant in &participants {
             if (phase == "before" || phase == "during")
-                && req.user_id != Some(participant.user_id)
+                && req.user_id() != Some(participant.user_id)
             {
                 continue;
             }
@@ -972,7 +1062,9 @@ mod wasm_entries {
             let problems = match contest_config.feedback_level {
                 FeedbackLevel::None | FeedbackLevel::TotalOnly => None,
                 // TokenedFull gates per-submission details, not aggregate scoreboard scores
-                FeedbackLevel::SubtaskScores | FeedbackLevel::Full | FeedbackLevel::TokenedFull => Some(prob_scores),
+                FeedbackLevel::SubtaskScores | FeedbackLevel::Full | FeedbackLevel::TokenedFull => {
+                    Some(prob_scores)
+                }
             };
 
             entries.push(RankEntry {
@@ -993,9 +1085,7 @@ mod wasm_entries {
         });
 
         for i in 0..entries.len() {
-            if i > 0
-                && (entries[i].total_score - entries[i - 1].total_score).abs() < 1e-9
-            {
+            if i > 0 && (entries[i].total_score - entries[i - 1].total_score).abs() < 1e-9 {
                 entries[i].rank = entries[i - 1].rank;
             } else {
                 entries[i].rank = i + 1;
@@ -1028,11 +1118,9 @@ mod wasm_entries {
         Ok(serde_json::to_string(&resp)?)
     }
 
-    fn handle_submission_subtask_scores(
-        input: &str,
-    ) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest = serde_json::from_str(input)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+    fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, SdkError> {
+        let req: PluginHttpRequest =
+            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
         let contest_id: i32 = req
             .params
@@ -1082,14 +1170,19 @@ mod wasm_entries {
             .ok_or_else(|| SdkError::Other("Submission not found".into()))?;
         let problem_id = sub_info.problem_id;
 
+        let can_view_all_submissions = can_view_privileged_submission_feedback(&req);
+
         if phase != "after" {
-            match req.user_id {
+            match req.user_id() {
                 Some(uid) if uid == sub_info.user_id => {} // owner — allowed
+                Some(_) if can_view_all_submissions => {}
                 Some(_) => {
                     return Ok(PluginHttpResponse {
                         status: 403,
                         headers: None,
-                        body: Some(serde_json::json!({ "error": "Cannot view another user's subtask scores" })),
+                        body: Some(
+                            serde_json::json!({ "error": "Cannot view another user's subtask scores" }),
+                        ),
                     });
                 }
                 None => {
@@ -1127,8 +1220,21 @@ mod wasm_entries {
                         body: Some(serde_json::json!({ "subtasks": subtasks })),
                     });
                 }
+                if can_view_all_submissions {
+                    let subtasks: serde_json::Value = match stored {
+                        Some(json) => {
+                            serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
+                        }
+                        None => serde_json::Value::Null,
+                    };
+                    return Ok(PluginHttpResponse {
+                        status: 200,
+                        headers: None,
+                        body: Some(serde_json::json!({ "subtasks": subtasks })),
+                    });
+                }
                 // During contest: check if this submission is tokened by the requesting user
-                let user_id = match req.user_id {
+                let user_id = match req.user_id() {
                     Some(id) => id,
                     None => {
                         return Ok(PluginHttpResponse {
@@ -1164,9 +1270,7 @@ mod wasm_entries {
             }
             FeedbackLevel::SubtaskScores | FeedbackLevel::Full => {
                 let subtasks: serde_json::Value = match stored {
-                    Some(json) => {
-                        serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
-                    }
+                    Some(json) => serde_json::from_str(&json).unwrap_or(serde_json::Value::Null),
                     None => serde_json::Value::Null,
                 };
                 Ok(PluginHttpResponse {
