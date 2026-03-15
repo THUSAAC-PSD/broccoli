@@ -157,6 +157,16 @@ export const en: Record<string, string> = {
   'result.timeValue': '{value}ms',
   'result.memoryValue': '{value}MB',
 
+  // Submission Detail
+  'submissionDetail.sourceCode': 'Source Code',
+  'submissionDetail.notFound': 'Submission not found',
+  'submissionDetail.backToList': 'Back to submissions',
+  'submissionDetail.score': 'Score',
+  'submissionDetail.submittedAt': 'Submitted {value}',
+  'submissionDetail.problem': 'Problem',
+  'submissionDetail.user': 'User',
+  'submissionDetail.language': 'Language',
+
   // Problems
   'problems.title': 'Problems',
   'problems.titleColumn': 'Title',
