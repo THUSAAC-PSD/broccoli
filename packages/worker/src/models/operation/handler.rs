@@ -4,6 +4,7 @@ use super::sandbox::{ExecutionResult, RunOptions, SandboxManager, SandboxOptions
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, instrument, warn};
@@ -378,8 +379,9 @@ impl OperationHandler {
 
                 let pipe_path = pipes_dir.join(name);
 
-                if let Ok(meta) = tokio::fs::metadata(&pipe_path).await {
-                    if !meta.file_type().is_fifo() {
+                if let Ok(_meta) = tokio::fs::metadata(&pipe_path).await {
+                    #[cfg(unix)]
+                    if !_meta.file_type().is_fifo() {
                         return Err(anyhow!(
                             "Pipe target exists but is not a FIFO: {}",
                             pipe_path.display()
