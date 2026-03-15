@@ -1,4 +1,4 @@
-use plugin_core::manifest::{ComponentMap, WebRouteConfig, WebSlotConfig};
+use plugin_core::manifest::{ComponentMap, ServerRouteConfig, WebRouteConfig, WebSlotConfig};
 use plugin_core::registry::{PluginInfo, PluginStatus};
 use serde::Serialize;
 
@@ -78,7 +78,7 @@ pub struct ActivePluginResponse {
     pub css: Vec<String>,
 }
 
-/// Detailed information about a plugin.
+/// Detailed information about a plugin (used in list endpoint).
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct PluginDetailResponse {
     /// Unique identifier for the plugin.
@@ -125,6 +125,73 @@ pub struct ConfigSchemaResponse {
     pub scopes: Vec<String>,
     /// JSON Schema generated from the plugin's TOML schema definition.
     pub json_schema: serde_json::Value,
+}
+
+/// Full detailed information about a plugin including manifest data.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct PluginFullDetailResponse {
+    /// Unique identifier for the plugin.
+    #[schema(example = "plugin-123")]
+    pub id: String,
+    /// Plugin status.
+    #[schema(example = "Loaded")]
+    pub status: PluginStatusResponse,
+
+    /// Plugin name.
+    #[schema(example = "An Awesome Plugin")]
+    pub name: String,
+    /// Plugin version.
+    #[schema(example = "1.0.0")]
+    pub version: String,
+    /// Plugin description.
+    #[schema(example = "This plugin does awesome things!")]
+    pub description: Option<String>,
+
+    /// Indicates if the plugin has a server component.
+    #[schema(example = true)]
+    pub has_server: bool,
+    /// Indicates if the plugin has a worker component.
+    #[schema(example = false)]
+    pub has_worker: bool,
+    /// Indicates if the plugin has a web (frontend) component.
+    #[schema(example = true)]
+    pub has_web: bool,
+
+    /// Server component details (if present).
+    pub server: Option<ServerDetailResponse>,
+    /// Worker component details (if present).
+    pub worker: Option<WorkerDetailResponse>,
+    /// Web component details (if present).
+    pub web: Option<WebDetailResponse>,
+    /// Available translation locales.
+    pub translations: Vec<String>,
+}
+
+/// Server component details.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ServerDetailResponse {
+    /// Permissions requested by the server component.
+    pub permissions: Vec<String>,
+    /// HTTP routes exposed by the server component.
+    pub routes: Vec<ServerRouteConfig>,
+}
+
+/// Worker component details.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct WorkerDetailResponse {
+    /// Permissions requested by the worker component.
+    pub permissions: Vec<String>,
+}
+
+/// Web (frontend) component details.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct WebDetailResponse {
+    /// Components exposed by the plugin.
+    pub components: ComponentMap,
+    /// Slots for UI extension.
+    pub slots: Vec<WebSlotConfig>,
+    /// Routes for client-side navigation.
+    pub routes: Vec<WebRouteConfig>,
 }
 
 /// Plugin status for API responses, abstracting away error details.
@@ -250,6 +317,46 @@ impl From<PluginInfo> for PluginDetailResponse {
             has_worker,
             has_web,
             config_schemas,
+        }
+    }
+}
+
+impl From<PluginInfo> for PluginFullDetailResponse {
+    fn from(info: PluginInfo) -> Self {
+        let has_server = info.manifest.has_server();
+        let has_worker = info.manifest.has_worker();
+        let has_web = info.manifest.has_web();
+
+        let server = info.manifest.server.as_ref().map(|s| ServerDetailResponse {
+            permissions: s.permissions.clone(),
+            routes: s.routes.clone(),
+        });
+
+        let worker = info.manifest.worker.as_ref().map(|w| WorkerDetailResponse {
+            permissions: w.permissions.clone(),
+        });
+
+        let web = info.manifest.web.as_ref().map(|w| WebDetailResponse {
+            components: w.components.clone(),
+            slots: w.slots.clone(),
+            routes: w.routes.clone(),
+        });
+
+        let translations: Vec<String> = info.manifest.translations.keys().cloned().collect();
+
+        Self {
+            id: info.id,
+            status: info.status.into(),
+            name: info.manifest.name,
+            version: info.manifest.version,
+            description: info.manifest.description,
+            has_server,
+            has_worker,
+            has_web,
+            server,
+            worker,
+            web,
+            translations,
         }
     }
 }

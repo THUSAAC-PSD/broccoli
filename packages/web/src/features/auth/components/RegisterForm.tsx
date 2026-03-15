@@ -31,6 +31,20 @@ export default function RegisterForm() {
     e.preventDefault();
     setError('');
 
+    if (
+      !username.trim() ||
+      username.length > 32 ||
+      !/^[A-Za-z0-9_]+$/.test(username)
+    ) {
+      setError(t('validation.usernameFormat'));
+      return;
+    }
+
+    if (password.length < 8 || password.length > 128) {
+      setError(t('validation.passwordLength'));
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError(t('auth.passwordMismatch'));
       return;

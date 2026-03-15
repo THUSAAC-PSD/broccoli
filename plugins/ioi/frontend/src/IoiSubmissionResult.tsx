@@ -207,7 +207,7 @@ function computeProvisionalSubtaskScore(
     default:
       return Number(
         (
-          (normalized.reduce((sum, value) => sum + (value ?? 0), 0) /
+          (normalized.reduce<number>((sum, value) => sum + (value ?? 0), 0) /
             labels.length) *
           subtask.max_score
         ).toFixed(2),

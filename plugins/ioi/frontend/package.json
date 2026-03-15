@@ -16,13 +16,18 @@
     "dev": "tsup src/index.tsx src/styles.css --format esm --external react --external react-dom --external react-router --external @tanstack/react-query --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/problem --external @broccoli/web-sdk/slot --external @broccoli/web-sdk/submission --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --external lucide-react --external @monaco-editor/react --watch --sourcemap"
   },
   "dependencies": {
-    "@broccoli/web-sdk": "file:../../../packages/sdk"
+    "@broccoli/web-sdk": "file:../../../packages/web-sdk"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@tanstack/react-query": "^5.0.0",
     "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.6",
+    "lucide-react": "^0.500.0",
+    "react-router": "^7.0.0",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",

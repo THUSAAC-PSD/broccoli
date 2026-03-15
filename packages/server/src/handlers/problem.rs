@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::io::Read;
 
 use axum::Json;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum_typed_multipart::BaseMultipart;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::{Func, LikeExpr};
 use sea_orm::*;
@@ -474,8 +475,8 @@ pub async fn list_test_cases(
         .select_only()
         .column(test_case::Column::Id)
         .column(test_case::Column::Score)
-        .column(test_case::Column::Description)
         .column(test_case::Column::Label)
+        .column(test_case::Column::Description)
         .column(test_case::Column::IsSample)
         .column(test_case::Column::Position)
         .column_as(
@@ -669,9 +670,9 @@ pub async fn delete_test_case(
     tag = "Test Cases",
     operation_id = "uploadTestCases",
     summary = "Upload test cases from a ZIP file",
-    description = "Bulk-creates test cases from a ZIP archive using caller-supplied filename patterns. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
+    description = "Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
     params(("id" = i32, Path, description = "Problem ID")),
-    request_body(content_type = "multipart/form-data", description = "Multipart form data with `file` (ZIP), `input_format` (for example `*.in`), and `output_format` (for example `*.out`)."),
+    request_body(content_type = "multipart/form-data", content = UploadTestCasesRequest),
     responses(
         (status = 201, description = "Test cases uploaded", body = UploadTestCasesResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
@@ -682,58 +683,23 @@ pub async fn delete_test_case(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user, multipart), fields(problem_id))]
+#[instrument(skip(state, auth_user, data), fields(problem_id))]
 pub async fn upload_test_cases(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(problem_id): Path<i32>,
-    mut multipart: Multipart,
+    BaseMultipart { data, .. }: BaseMultipart<UploadTestCasesRequest, AppError>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    let mut zip_bytes: Option<Vec<u8>> = None;
-    let mut input_format: Option<String> = None;
-    let mut output_format: Option<String> = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::Validation(format!("Multipart error: {e}")))?
-    {
-        match field.name() {
-            Some("file") => {
-                let data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| AppError::Validation(format!("Failed to read file: {e}")))?;
-                zip_bytes = Some(data.to_vec());
-            }
-            Some("input_format") => {
-                input_format = Some(field.text().await.map_err(|e| {
-                    AppError::Validation(format!("Failed to read input_format: {e}"))
-                })?);
-            }
-            Some("output_format") => {
-                output_format = Some(field.text().await.map_err(|e| {
-                    AppError::Validation(format!("Failed to read output_format: {e}"))
-                })?);
-            }
-            _ => {}
-        }
-    }
-
-    let zip_bytes = zip_bytes.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
-    let input_format =
-        input_format.ok_or_else(|| AppError::Validation("Missing 'input_format' field".into()))?;
-    let output_format = output_format
-        .ok_or_else(|| AppError::Validation("Missing 'output_format' field".into()))?;
-
-    if input_format.matches('*').count() != 1 || output_format.matches('*').count() != 1 {
+    // Ensure there is exactly one wildcard
+    if data.input_format.matches('*').count() != 1 || data.output_format.matches('*').count() != 1 {
         return Err(AppError::Validation(
             "Formats must contain exactly one '*' wildcard".into(),
         ));
     }
 
-    let entries = parse_zip_test_cases(&zip_bytes, &input_format, &output_format)?;
+    let entries = parse_zip_test_cases(&data.file, &data.input_format, &data.output_format)?;
     if entries.is_empty() {
         return Err(AppError::Validation(
             "ZIP contains no valid input/output file pairs matching the specified formats".into(),
@@ -743,28 +709,67 @@ pub async fn upload_test_cases(
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
 
-    let existing_labels: std::collections::HashSet<String> = test_case::Entity::find()
-        .filter(test_case::Column::ProblemId.eq(problem_id))
-        .select_only()
-        .column(test_case::Column::Label)
-        .into_tuple::<String>()
-        .all(&txn)
-        .await?
-        .into_iter()
-        .collect();
+    let is_replace = matches!(data.strategy, UploadTestCasesMergeStrategy::Replace);
+    if is_replace {
+        test_case::Entity::delete_many()
+            .filter(test_case::Column::ProblemId.eq(problem_id))
+            .exec(&txn)
+            .await?;
+    }
 
-    let mut start_pos = next_test_case_position(&txn, problem_id).await?;
+    let mut start_pos = if is_replace {
+        0
+    } else {
+        next_test_case_position(&txn, problem_id).await?
+    };
+
+    let mut existing_cases: std::collections::HashMap<String, test_case::Model> =
+        test_case::Entity::find()
+            .filter(test_case::Column::ProblemId.eq(problem_id))
+            .all(&txn)
+            .await?
+            .into_iter()
+            .map(|m| (m.label.clone(), m))
+            .collect();
+
+    let mut affected = Vec::with_capacity(entries.len());
+    let mut created_count = 0;
+    let mut updated_count = 0;
+
     let now = chrono::Utc::now();
-    let mut created = Vec::with_capacity(entries.len());
 
     for entry in entries {
-        let label = entry.label.trim().to_string();
-        validate_test_case_label_for_upload(&label, &existing_labels, &created)?;
+        if let Some(existing) = existing_cases.remove(&entry.label) {
+            match data.strategy {
+                UploadTestCasesMergeStrategy::Abort => {
+                    return Err(AppError::Conflict(format!(
+                        "Test case with label '{}' already exists",
+                        entry.label
+                    )));
+                }
+                UploadTestCasesMergeStrategy::Skip => continue,
+                UploadTestCasesMergeStrategy::Overwrite => {
+                    let mut active: test_case::ActiveModel = existing.into();
+                    active.input = Set(entry.input);
+                    active.expected_output = Set(entry.expected_output);
+                    active.label = Set(entry.label);
+                    active.is_sample = Set(entry.is_sample);
+                    let model = active.update(&txn).await?;
+                    affected.push(model);
+                    updated_count += 1;
+                    continue;
+                }
+                UploadTestCasesMergeStrategy::Replace => {
+                    unreachable!();
+                }
+            }
+        }
+
         let new_tc = test_case::ActiveModel {
             input: Set(entry.input),
             expected_output: Set(entry.expected_output),
             score: Set(0),
-            label: Set(label),
+            label: Set(entry.label),
             description: Set(None),
             is_sample: Set(entry.is_sample),
             position: Set(start_pos),
@@ -773,7 +778,8 @@ pub async fn upload_test_cases(
             ..Default::default()
         };
         let model = new_tc.insert(&txn).await?;
-        created.push(model);
+        affected.push(model);
+        created_count += 1;
         start_pos = start_pos
             .checked_add(1)
             .ok_or_else(|| AppError::Validation("Position overflow".into()))?;
@@ -781,12 +787,13 @@ pub async fn upload_test_cases(
 
     txn.commit().await?;
 
-    let test_cases: Vec<TestCaseListItem> = created.into_iter().map(tc_to_list_item).collect();
+    let test_cases: Vec<TestCaseListItem> = affected.into_iter().map(tc_to_list_item).collect();
 
     Ok((
         StatusCode::CREATED,
         Json(UploadTestCasesResponse {
-            created: test_cases.len(),
+            created: created_count,
+            updated: updated_count,
             test_cases,
         }),
     ))
@@ -1055,22 +1062,6 @@ async fn ensure_test_case_label_available<C: ConnectionTrait>(
     Ok(())
 }
 
-fn validate_test_case_label_for_upload(
-    label: &str,
-    existing_labels: &std::collections::HashSet<String>,
-    created: &[test_case::Model],
-) -> Result<(), AppError> {
-    validate_label(label)?;
-
-    if existing_labels.contains(label) || created.iter().any(|tc| tc.label == label) {
-        return Err(AppError::Conflict(format!(
-            "Test case label '{label}' already exists in this problem"
-        )));
-    }
-
-    Ok(())
-}
-
 fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
     let input_preview = truncate_preview(&m.input);
     let output_preview = truncate_preview(&m.expected_output);
@@ -1093,6 +1084,7 @@ struct ZipTestEntry {
     label: String,
     input: String,
     expected_output: String,
+    // TODO: description: Option<String>,
     is_sample: bool,
     /// Sort key: (directory priority, label)
     sort_key: (u8, String),
@@ -1104,6 +1096,8 @@ const MAX_DECOMPRESSED_FILE_SIZE: u64 = 128 * 1024 * 1024;
 /// Maximum total decompressed size across all files in a ZIP archive (2048 MB).
 const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = 2048 * 1024 * 1024;
 
+/// Extracts the label from a filename given a format pattern like "prefix*suffix".
+/// Returns None if the filename doesn't match the pattern.
 fn extract_label<'a>(filename: &'a str, format: &str) -> Option<&'a str> {
     let (prefix, suffix) = format.split_once('*')?;
 

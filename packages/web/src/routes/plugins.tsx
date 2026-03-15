@@ -12,11 +12,13 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Loader2, Puzzle, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
 
 import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { PluginCard } from '@/features/plugin/components/PluginCard';
+import { PluginDetailDialog } from '@/features/plugin/components/PluginDetailDialog';
 
 export default function PluginsPage() {
   const { t } = useTranslation();
@@ -29,6 +31,7 @@ export default function PluginsPage() {
     () => new Set(),
   );
   const [isReloadingAll, setIsReloadingAll] = useState(false);
+  const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
   const { unloadPlugin, reloadPlugin, reloadAllPlugins } = usePluginRegistry();
 
   const {
@@ -56,7 +59,13 @@ export default function PluginsPage() {
           params: { path: { id: plugin.id } },
         });
 
-        if (!error) {
+        if (error) {
+          const msg =
+            error && typeof error === 'object' && 'message' in error
+              ? (error as { message?: string }).message
+              : undefined;
+          toast.error(msg || t('validation.pluginToggleError'));
+        } else {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
           queryClient.invalidateQueries({ queryKey: ['i18n'] });
 
@@ -74,7 +83,7 @@ export default function PluginsPage() {
         });
       }
     },
-    [apiClient, queryClient, unloadPlugin],
+    [apiClient, queryClient, unloadPlugin, t],
   );
 
   const handleReload = useCallback(
@@ -187,10 +196,18 @@ export default function PluginsPage() {
               reloading={reloadingIds.has(plugin.id)}
               onToggle={handleToggle}
               onReload={handleReload}
+              onClick={(p) => setDetailPluginId(p.id)}
             />
           ))}
         </div>
       )}
+      <PluginDetailDialog
+        pluginId={detailPluginId}
+        open={!!detailPluginId}
+        onOpenChange={(open) => {
+          if (!open) setDetailPluginId(null);
+        }}
+      />
     </PageLayout>
   );
 }

@@ -191,7 +191,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => 3,
             Self::RuntimeError => 4,
             Self::SystemError => 5,
-            Self::Other(_) => 5,
+            Self::Other(_) => 255,
         }
     }
 }
@@ -247,8 +247,8 @@ impl FromStr for Verdict {
             _ => {
                 if let Some(custom) = s
                     .strip_prefix("Other(")
-                    .and_then(|value| value.strip_suffix(')'))
-                    .filter(|value| !value.trim().is_empty())
+                    .and_then(|v| v.strip_suffix(')'))
+                    .filter(|v| !v.trim().is_empty())
                 {
                     return Ok(Self::Other(custom.to_string()));
                 }

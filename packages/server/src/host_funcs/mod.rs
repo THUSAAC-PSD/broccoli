@@ -76,7 +76,7 @@ pub fn init_host_functions(
     hr.register("sql", move |plugin_id| {
         Function::new(
             "db_execute",
-            [ValType::I64],
+            [ValType::I64, ValType::I64],
             [ValType::I64],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             sql::db_execute,
@@ -87,10 +87,21 @@ pub fn init_host_functions(
     hr.register("sql", move |plugin_id| {
         Function::new(
             "db_query",
-            [ValType::I64],
+            [ValType::I64, ValType::I64],
             [ValType::I64],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             sql::db_query,
+        )
+    });
+
+    let db_clone = db.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_transaction",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            sql::db_transaction,
         )
     });
 

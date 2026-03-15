@@ -1,5 +1,6 @@
 pub mod attachment;
 pub mod auth;
+pub mod clarification;
 pub mod config_upload;
 pub mod contest;
 pub mod dlq;

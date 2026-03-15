@@ -3,7 +3,9 @@ use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
+#[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
@@ -100,9 +102,17 @@ impl MockSandboxManager {
     }
 
     fn is_fifo(path: &PathBuf) -> bool {
-        std::fs::metadata(path)
-            .map(|m| m.file_type().is_fifo())
-            .unwrap_or(false)
+        #[cfg(unix)]
+        {
+            std::fs::metadata(path)
+                .map(|m| m.file_type().is_fifo())
+                .unwrap_or(false)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            false
+        }
     }
 
     fn resolve_inside_path(base: &Path, inside: &Path) -> Result<PathBuf, SandboxError> {
@@ -183,6 +193,7 @@ impl MockSandboxManager {
 
                 Self::remove_existing_target(&inside_path).await?;
 
+                #[cfg(unix)]
                 match std::os::unix::fs::symlink(outside_path, &inside_path) {
                     Ok(()) => {}
                     Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -208,6 +219,14 @@ impl MockSandboxManager {
                         )));
                     }
                 }
+                #[cfg(not(unix))]
+                std::os::windows::fs::symlink_dir(outside_path, &inside_path).map_err(|err| {
+                    SandboxError::Initialization(format!(
+                        "failed to create mock directory mapping {} -> {}: {err}",
+                        inside_path.display(),
+                        outside_path.display()
+                    ))
+                })?;
             }
             None => {
                 fs::create_dir_all(&inside_path).await.map_err(|err| {
@@ -465,11 +484,14 @@ impl SandboxManager for MockSandboxManager {
         };
 
         let exit_code = if timed_out { None } else { exit_status.code() };
+        #[cfg(unix)]
         let signal = if timed_out {
             None
         } else {
             exit_status.signal()
         };
+        #[cfg(not(unix))]
+        let signal: Option<i32> = None;
         let success = !timed_out && exit_status.success();
 
         if timed_out {

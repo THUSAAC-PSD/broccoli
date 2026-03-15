@@ -15,7 +15,9 @@ use tracing::instrument;
 use crate::entity::plugin as plugin_entity;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
-use crate::models::plugin::{PluginDetailResponse, ReloadAllResponse, ReloadFailure};
+use crate::models::plugin::{
+    PluginDetailResponse, PluginFullDetailResponse, ReloadAllResponse, ReloadFailure,
+};
 use crate::state::AppState;
 use crate::utils::plugin::{activate_plugin, purge_plugin_registrations};
 
@@ -60,7 +62,7 @@ pub async fn list_all_plugins(
     description = "Returns detailed information about a specific plugin, including its manifest and current status. Requires `plugin:manage` permission.",
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
-        (status = 200, description = "Plugin details retrieved successfully", body = PluginDetailResponse),
+        (status = 200, description = "Plugin details retrieved successfully", body = PluginFullDetailResponse),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
@@ -72,7 +74,7 @@ pub async fn get_plugin_details(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<PluginDetailResponse>, AppError> {
+) -> Result<Json<PluginFullDetailResponse>, AppError> {
     auth_user.require_permission("plugin:manage")?;
 
     let plugin = state
@@ -83,7 +85,7 @@ pub async fn get_plugin_details(
         .find(|p| p.id == id)
         .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' not found", id)))?;
 
-    Ok(Json(PluginDetailResponse::from(plugin)))
+    Ok(Json(PluginFullDetailResponse::from(plugin)))
 }
 
 #[utoipa::path(

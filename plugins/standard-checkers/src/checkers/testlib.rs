@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use crate::util::truncate;
 
-#[cfg(feature = "wasm")]
+#[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::host;
 
 // submission_files (language: cpp17): ("Shape.cpp", "Shape.h")   additional_files: ("cpp17" -> [(language: "cpp17" source: "main.cpp"), (language: "make" source: "Makefile")])
@@ -60,7 +60,7 @@ impl Default for TestlibConfig {
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(target_arch = "wasm32")]
 fn load_testlib_config() -> TestlibConfig {
     match host::config::get_global_config("testlib") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
@@ -114,7 +114,7 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
 }
 
 /// Dispatch testlib checker.
-#[cfg(feature = "wasm")]
+#[cfg(target_arch = "wasm32")]
 pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
     let test_input = req.test_input.as_str();
     let expected_output = req.expected_output.as_str();

@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use axum_typed_multipart::TypedMultipartError;
 use common::storage::StorageError;
 use plugin_core::error::{AssetError, PluginError};
 use sea_orm::DbErr;
@@ -30,6 +31,7 @@ pub struct ErrorBody {
 #[derive(Debug)]
 pub enum AppError {
     Validation(String),
+    PayloadTooLarge(String),
     TokenMissing,
     TokenInvalid,
     InvalidCredentials,
@@ -65,6 +67,10 @@ impl AppError {
 
         match self {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, simple("VALIDATION_ERROR", msg)),
+            AppError::PayloadTooLarge(msg) => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                simple("PAYLOAD_TOO_LARGE", msg),
+            ),
             AppError::TokenMissing => (
                 StatusCode::UNAUTHORIZED,
                 simple("TOKEN_MISSING", "Authentication required".into()),
@@ -199,6 +205,25 @@ impl From<AssetError> for AppError {
             AssetError::NoWebConfig => AppError::NotFound("Plugin does not have web assets".into()),
             AssetError::PathTraversal => AppError::PermissionDenied,
             AssetError::Io(_) | AssetError::Internal(_) => AppError::Internal(err.to_string()),
+        }
+    }
+}
+
+impl From<TypedMultipartError> for AppError {
+    fn from(err: TypedMultipartError) -> Self {
+        match err {
+            TypedMultipartError::MissingField { .. }
+            | TypedMultipartError::WrongFieldType { .. }
+            | TypedMultipartError::DuplicateField { .. }
+            | TypedMultipartError::UnknownField { .. }
+            | TypedMultipartError::InvalidEnumValue { .. }
+            | TypedMultipartError::NamelessField => AppError::Validation(err.to_string()),
+            TypedMultipartError::FieldTooLarge { .. } => AppError::PayloadTooLarge(err.to_string()),
+            TypedMultipartError::InvalidRequest { .. }
+            | TypedMultipartError::InvalidRequestBody { .. } => {
+                AppError::Validation(err.to_string())
+            }
+            _ => AppError::Internal(err.to_string()),
         }
     }
 }

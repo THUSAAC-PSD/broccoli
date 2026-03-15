@@ -23,7 +23,8 @@ function getStatusLabel(status: SubmissionStatus, t: (key: string) => string) {
 }
 
 function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
-  switch (verdict) {
+  const verdictText = verdictToString(verdict);
+  switch (verdictText) {
     case 'Accepted':
       return t('result.accepted');
     case 'WrongAnswer':
@@ -39,12 +40,13 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
     case 'Skipped':
       return t('result.skipped');
     default:
-      return verdict;
+      return verdictText;
   }
 }
 
 function getVerdictVariant(verdict: Verdict): BadgeVariant {
-  switch (verdict) {
+  const verdictText = verdictToString(verdict);
+  switch (verdictText) {
     case 'Accepted':
       return 'accepted';
     case 'WrongAnswer':
@@ -87,4 +89,17 @@ export function getVerdictBadge(
     label: getVerdictLabel(verdict, t),
     variant: getVerdictVariant(verdict),
   };
+}
+
+export function verdictToString(verdict: Verdict): string;
+export function verdictToString(
+  verdict: Verdict | null | undefined,
+): string | null;
+export function verdictToString(
+  verdict: Verdict | null | undefined,
+): string | null {
+  if (!verdict) return null;
+  // Verdict is always serialized as a plain string by the server
+  // (including Other variants like custom plugin verdicts).
+  return String(verdict);
 }

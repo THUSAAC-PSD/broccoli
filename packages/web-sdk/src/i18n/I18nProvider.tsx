@@ -100,7 +100,11 @@ export function I18nProvider({
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
-      const value = pluginTranslations[key] ?? coreI18n[locale]?.[key] ?? key;
+      const value =
+        pluginTranslations[key] ??
+        coreI18n[locale]?.[key] ??
+        coreI18n['en']?.[key] ??
+        key;
       return interpolateTranslation(value, params);
     },
     [locale, pluginTranslations, coreI18n],

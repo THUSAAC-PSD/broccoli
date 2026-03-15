@@ -326,6 +326,7 @@ export const en: Record<string, string> = {
   'admin.bulkParticipantsDuplicate': 'Duplicate usernames found in JSON.',
   'admin.bulkParticipantsInvalidUsername':
     'Invalid username format. Use letters, digits, and underscores (1-32 chars).',
+  'admin.bulkParticipantsInvalidPassword': 'Password must be 8-128 characters.',
   'admin.bulkParticipantsExistingWithPassword':
     'Existing users must not include password in preview input.',
   'admin.bulkParticipantsExistingWithPasswordList':
@@ -407,6 +408,13 @@ export const en: Record<string, string> = {
   'admin.testCases.bulkUpload.outputFormat': 'Output Format',
   'admin.testCases.bulkUpload.formatHint':
     'Pattern with exactly one * (e.g., "*.in", "test*.txt")',
+  'admin.testCases.bulkUpload.strategy': 'Strategy',
+  'admin.testCases.bulkUpload.strategy.abort': 'Abort on first error',
+  'admin.testCases.bulkUpload.strategy.skip': 'Skip existing test cases',
+  'admin.testCases.bulkUpload.strategy.overwrite':
+    'Overwrite existing test cases',
+  'admin.testCases.bulkUpload.strategy.replace':
+    'Replace all test cases (delete then upload)',
   'admin.testCases.bulkUpload.upload': 'Upload',
   'admin.testCases.bulkUpload.uploading': 'Uploading...',
   'admin.testCases.bulkUpload.uploadSuccess':
@@ -484,6 +492,30 @@ export const en: Record<string, string> = {
   'plugins.config.unsetNotice':
     'This configuration is currently unset. The values below are schema defaults until you save an override.',
   'sidebar.plugins': 'Plugins',
+  'plugins.detail.title': 'Plugin Details',
+  'plugins.detail.server': 'Server',
+  'plugins.detail.web': 'Web',
+  'plugins.detail.worker': 'Worker',
+  'plugins.detail.translations': 'Translations',
+  'plugins.detail.permissions': 'Permissions',
+  'plugins.detail.routes': 'Routes',
+  'plugins.detail.slots': 'Slots',
+  'plugins.detail.components': 'Components',
+  'plugins.detail.method': 'Method',
+  'plugins.detail.path': 'Path',
+  'plugins.detail.handler': 'Handler',
+  'plugins.detail.permission': 'Permission',
+  'plugins.detail.slotName': 'Slot',
+  'plugins.detail.position': 'Position',
+  'plugins.detail.component': 'Component',
+  'plugins.detail.priority': 'Priority',
+  'plugins.detail.export': 'Export',
+  'plugins.detail.noTranslations': 'No translations defined.',
+  'plugins.detail.noRoutes': 'No routes defined.',
+  'plugins.detail.noSlots': 'No slots defined.',
+  'plugins.detail.noComponents': 'No components defined.',
+  'plugins.detail.meta': 'Meta',
+  'plugins.detail.loadError': 'Failed to load plugin details.',
 
   // Resource config
   'admin.configure': 'Configure',
@@ -497,6 +529,26 @@ export const en: Record<string, string> = {
   'plugin.amazingButton.label': 'Amazing Button',
   'plugin.amazingButton.alert': 'Amazing!',
   'plugin.amazingButton.pageTitle': 'Amazing Page!',
+
+  // Validation
+  'validation.titleRequired': 'Title is required.',
+  'validation.contentRequired': 'Content is required.',
+  'validation.startEndTimeRequired': 'Start time and end time are required.',
+  'validation.startBeforeEnd': 'Start time must be before end time.',
+  'validation.activateBeforeStart':
+    'Activate time must be before or equal to start time.',
+  'validation.deactivateAfterEnd':
+    'Deactivate time must be after or equal to end time.',
+  'validation.usernameFormat':
+    'Username must be 1-32 characters (letters, digits, underscores only).',
+  'validation.passwordLength': 'Password must be 8-128 characters.',
+  'validation.pluginToggleError': 'Failed to toggle plugin.',
+
+  // Clarification
+  'clarification.submitSuccess': 'Submitted successfully.',
+  'clarification.submitError': 'Failed to submit.',
+  'clarification.replySuccess': 'Reply sent.',
+  'clarification.replyError': 'Failed to send reply.',
 
   // Common
   'common.cancel': 'Cancel',

@@ -146,7 +146,7 @@ pub struct HookDeclaration {
     pub mode: HookMode,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct ServerRouteConfig {
     /// The HTTP method for the route, e.g., "GET", "POST", etc.
     pub method: String,

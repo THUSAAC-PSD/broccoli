@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SwitchField } from '@/features/admin/components/SwitchField';
+import { extractErrorMessage } from '@/lib/extract-error';
 
 interface TestCaseFormDialogProps {
   problemId: number;
@@ -39,12 +40,12 @@ export function TestCaseFormDialog({
   const queryClient = useQueryClient();
   const isEdit = !!testCaseId;
 
+  const [label, setLabel] = useState('');
   const [input, setInput] = useState('');
   const [expectedOutput, setExpectedOutput] = useState('');
   const [score, setScore] = useState(0);
   const [isSample, setIsSample] = useState(false);
   const [description, setDescription] = useState('');
-  const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
 
@@ -59,20 +60,20 @@ export function TestCaseFormDialog({
         .then(({ data, error }) => {
           setLoadingData(false);
           if (error || !data) return;
+          setLabel(data.label ?? '');
           setInput(data.input);
           setExpectedOutput(data.expected_output);
           setScore(data.score);
           setIsSample(data.is_sample);
           setDescription(data.description ?? '');
-          setLabel(data.label ?? '');
         });
     } else {
+      setLabel('');
       setInput('');
       setExpectedOutput('');
       setScore(0);
       setIsSample(false);
       setDescription('');
-      setLabel('');
     }
   }, [apiClient, open, testCaseId, problemId]);
 
@@ -110,8 +111,10 @@ export function TestCaseFormDialog({
     setLoading(false);
     if (result.error) {
       toast.error(
-        result.error.message ||
-          (isEdit ? t('admin.editError') : t('admin.createError')),
+        extractErrorMessage(
+          result.error,
+          isEdit ? t('admin.editError') : t('admin.createError'),
+        ),
       );
     } else {
       toast.success(
@@ -178,7 +181,7 @@ export function TestCaseFormDialog({
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
                   maxLength={64}
-                  required
+                  required={!isEdit}
                   placeholder="sample_01"
                   className="font-mono"
                 />

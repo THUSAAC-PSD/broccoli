@@ -328,6 +328,11 @@ pub fn validate_bulk_rejudge(req: &BulkRejudgeRequest) -> Result<(), AppError> {
     }
 
     if let Some(ref verdict) = req.verdict {
+        let verdict = verdict.trim();
+        if verdict.is_empty() {
+            return Err(AppError::Validation("verdict cannot be empty".into()));
+        }
+
         verdict
             .parse::<Verdict>()
             .map_err(|e| AppError::Validation(e.to_string()))?;

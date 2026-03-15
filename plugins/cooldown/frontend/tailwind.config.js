@@ -1,4 +1,4 @@
-import { broccoliPreset } from '@broccoli/web-sdk/tailwind';
+import { broccoliPreset } from '@broccoli/web-sdk/tailwind-preset';
 
 export default {
   presets: [broccoliPreset],

@@ -1,40 +1,8 @@
-/**
- * Shared Tailwind CSS preset for Broccoli plugins.
- *
- * Plugins that generate their own Tailwind CSS should use this preset
- * in their `tailwind.config.js` to stay consistent with the host app's
- * design system:
- *
- * ```js
- * // tailwind.config.js
- * import { broccoliPreset } from '@broccoli/web-sdk/tailwind';
- * export default {
- *   presets: [broccoliPreset],
- *   content: ['./src/**\/*.{js,ts,jsx,tsx}'],
- * };
- * ```
- *
- * Plugin CSS must be wrapped in `@layer plugin` to avoid overriding
- * host utility classes. In your `src/styles.css`:
- *
- * ```css
- * @layer plugin {
- *   @tailwind utilities;
- * }
- * ```
- *
- * The `@layer plugin` ensures that plugin utilities always have lower
- * cascade priority than the host's unlayered Tailwind utilities. Without
- * this, dynamically loaded plugin CSS can override responsive variants
- * like `md:block` due to source order.
- *
- * The preset defines semantic color tokens that reference CSS custom
- * properties set by the host app's theme. This means plugin CSS works
- * in both light and dark modes without any extra configuration.
- */
+import type { Config } from 'tailwindcss';
+import tailwindAnimate from 'tailwindcss-animate';
 
 export const broccoliPreset = {
-  darkMode: ['class'] as const,
+  darkMode: ['class'],
   theme: {
     extend: {
       borderRadius: {
@@ -76,6 +44,16 @@ export const broccoliPreset = {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar-background))',
+          foreground: 'hsl(var(--sidebar-foreground))',
+          primary: 'hsl(var(--sidebar-primary))',
+          'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
+          accent: 'hsl(var(--sidebar-accent))',
+          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+          border: 'hsl(var(--sidebar-border))',
+          ring: 'hsl(var(--sidebar-ring))',
+        },
         chart: {
           1: 'hsl(var(--chart-1))',
           2: 'hsl(var(--chart-2))',
@@ -86,4 +64,5 @@ export const broccoliPreset = {
       },
     },
   },
-};
+  plugins: [tailwindAnimate],
+} satisfies Partial<Config>;

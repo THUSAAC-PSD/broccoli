@@ -4,7 +4,7 @@ mod plugin {
     use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
 
-    use host::config::ConfigResult;
+    use broccoli_server_sdk::types::ConfigResult;
 
     #[derive(Debug, Default, Deserialize)]
     struct CooldownConfig {

@@ -1,5 +1,6 @@
 use common::worker::Task;
 use serial_test::serial;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -441,6 +442,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
 
     let shared_dir = unique_shared_dir();
     std::fs::create_dir_all(&shared_dir).unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&shared_dir, std::fs::Permissions::from_mode(0o777)).unwrap();
 
     let shared_rule = DirectoryRule {

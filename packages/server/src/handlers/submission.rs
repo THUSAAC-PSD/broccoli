@@ -1427,6 +1427,11 @@ pub async fn bulk_rejudge_submissions(
         base = base.filter(submission::Column::Language.eq(lang.trim()));
     }
     if let Some(ref verdict_str) = payload.verdict {
+        let verdict_str = verdict_str.trim();
+        if verdict_str.is_empty() {
+            return Err(AppError::Validation("verdict cannot be empty".into()));
+        }
+
         let verdict: Verdict =
             verdict_str
                 .parse()

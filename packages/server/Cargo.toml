@@ -47,6 +47,7 @@ matchit.workspace = true
 flate2.workspace = true
 tar.workspace = true
 hex.workspace = true
+axum_typed_multipart.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true

@@ -709,6 +709,7 @@ impl TestApp {
         file_bytes: Vec<u8>,
         input_format: Option<&str>,
         output_format: Option<&str>,
+        strategy: Option<&str>,
         token: &str,
     ) -> TestResponse {
         let part = reqwest::multipart::Part::bytes(file_bytes)
@@ -721,6 +722,9 @@ impl TestApp {
         }
         if let Some(output_format) = output_format {
             form = form.text("output_format", output_format.to_string());
+        }
+        if let Some(s) = strategy {
+            form = form.text("strategy", s.to_string());
         }
 
         let res = self

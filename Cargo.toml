@@ -21,6 +21,7 @@ anyhow = "1.0.100"
 argon2 = "0.5.3"
 async-trait = "0.1.89"
 axum = "0.8.8"
+axum_typed_multipart = "0.16.5"
 broccoli_queue = { version = "0.4.6", features = ["redis"] }
 chrono = { version = "0.4.43", features = ["serde"] }
 common = { path = "packages/common" }
@@ -50,7 +51,9 @@ utoipa = { version = "5", features = ["chrono"] }
 utoipa-axum = "0.2"
 utoipa-scalar = { version = "0.3", features = ["axum"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
-rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
+rust-s3 = { version = "0.37", default-features = false, features = [
+  "tokio-rustls-tls",
+] }
 tokio-util = { version = "0.7", features = ["io"] }
 zip = { version = "7", default-features = false, features = ["deflate"] }
 broccoli-server-sdk = { path = "packages/server-sdk" }

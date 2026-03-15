@@ -194,10 +194,20 @@ fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         .nest("/{id}/participants", contest_participant_routes())
         .nest("/{id}/submissions", contest_submission_routes())
         .nest("/{id}/config", contest_config_routes())
+        .nest("/{id}/clarifications", clarification_routes())
         .routes(routes!(
             handlers::contest::register_for_contest,
             handlers::contest::unregister_from_contest,
         ))
+}
+
+fn clarification_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(
+            handlers::clarification::list_clarifications,
+            handlers::clarification::create_clarification,
+        ))
+        .routes(routes!(handlers::clarification::reply_clarification))
 }
 
 fn contest_submission_routes() -> OpenApiRouter<AppState> {

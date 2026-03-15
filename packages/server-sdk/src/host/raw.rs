@@ -6,8 +6,9 @@ extern "ExtismHost" {
     pub fn register_contest_type(input: String);
     pub fn register_evaluator(input: String);
     pub fn register_checker_format(input: String);
-    pub fn db_query(sql: String) -> String;
-    pub fn db_execute(sql: String) -> u64;
+    pub fn db_query(sql: String, args: String) -> String;
+    pub fn db_execute(sql: String, args: String) -> String;
+    pub fn db_transaction(queries_json: String) -> String;
     pub fn start_evaluate_batch(input: String) -> String;
     pub fn get_next_evaluate_result(input: String) -> String;
     pub fn cancel_evaluate_batch(input: String);

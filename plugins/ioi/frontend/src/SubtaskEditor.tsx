@@ -104,7 +104,7 @@ const SCORING_METHODS = [
   },
 ] as const;
 
-const SCORING_METHOD_KEYS = new Set(
+const SCORING_METHOD_KEYS: Set<string> = new Set(
   SCORING_METHODS.map((method) => method.key),
 );
 
@@ -114,7 +114,7 @@ function getMethodInfo(key: string) {
 
 function defaultSubtask(
   index: number,
-  t: (key: string, params?: Record<string, unknown>) => string,
+  t: (key: string, params?: Record<string, string | number>) => string,
 ): SubtaskValue {
   return {
     name: t('ioi.subtask.defaultName', { index: index + 1 }),
@@ -859,7 +859,7 @@ function UnifiedSearch({
                 )}
               >
                 {t('ioi.subtask.addCount', {
-                  count: item.count,
+                  count: item.count ?? 0,
                   mode: isPositionMode
                     ? t('ioi.subtask.positions').toLowerCase()
                     : 'matches',

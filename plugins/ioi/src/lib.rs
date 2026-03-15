@@ -248,7 +248,6 @@ pub fn handle_ioi_submission(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[cfg(target_arch = "wasm32")]
 fn run_judge(
     host_impl: &WasmHost,
     req: &OnSubmissionInput,

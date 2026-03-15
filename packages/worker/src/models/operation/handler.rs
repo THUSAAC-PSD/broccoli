@@ -7,6 +7,7 @@ use super::task_cache::{TaskCacheStore, compute_cache_key};
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -757,8 +758,9 @@ impl OperationHandler {
 
                 let pipe_path = pipes_dir.join(name);
 
-                if let Ok(meta) = tokio::fs::metadata(&pipe_path).await {
-                    if !meta.file_type().is_fifo() {
+                if let Ok(_meta) = tokio::fs::metadata(&pipe_path).await {
+                    #[cfg(unix)]
+                    if !_meta.file_type().is_fifo() {
                         return Err(anyhow!(
                             "Pipe target exists but is not a FIFO: {}",
                             pipe_path.display()

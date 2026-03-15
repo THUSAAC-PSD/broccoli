@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { Submission } from '@broccoli/web-sdk/submission';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -81,6 +82,7 @@ export function useSubmission({
   problemId,
   contestId,
 }: UseSubmissionOptions): UseSubmissionReturn {
+  const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const [submission, setSubmission] = useState<Submission | null>(null);
@@ -166,16 +168,24 @@ export function useSubmission({
             queryKey: ['contest-submission-languages', contestId],
           });
         }
-        toast.success('Code submitted successfully.');
+        toast.success(t('toast.submission.submitted'));
         startPolling(data.id);
       } catch (err) {
         console.error('Submission failed:', err);
         setError(parseSubmissionError(err));
-        toast.error('Failed to submit code. Please try again.');
+        toast.error(t('toast.submission.error'));
         setIsSubmitting(false);
       }
     },
-    [apiClient, contestId, problemId, queryClient, startPolling, stopPolling],
+    [
+      apiClient,
+      contestId,
+      problemId,
+      queryClient,
+      startPolling,
+      stopPolling,
+      t,
+    ],
   );
 
   const reset = useCallback(() => {

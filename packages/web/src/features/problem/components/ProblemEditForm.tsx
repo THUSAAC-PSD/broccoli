@@ -13,6 +13,7 @@ import {
 } from '@/features/admin/components/ProblemForm';
 import { TestCaseBulkUploadDialog } from '@/features/admin/components/TestCaseBulkUploadDialog';
 import { TestCaseFormDialog } from '@/features/admin/components/TestCaseFormDialog';
+import { extractErrorMessage } from '@/lib/extract-error';
 
 interface ProblemEditFormProps {
   problemId: number;
@@ -109,7 +110,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       },
     );
     if (error) {
-      toast.error(t('toast.testCase.deleteError'));
+      toast.error(extractErrorMessage(error, t('toast.testCase.deleteError')));
     } else {
       toast.success(t('toast.testCase.deleted'));
       queryClient.invalidateQueries({ queryKey: testCasesQueryKey });
@@ -118,6 +119,16 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!formData.title.trim()) {
+      toast.error(t('validation.titleRequired'));
+      return;
+    }
+    if (!formData.content.trim()) {
+      toast.error(t('validation.contentRequired'));
+      return;
+    }
+
     setLoading(true);
 
     const body = {
@@ -142,7 +153,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
 
     setLoading(false);
     if (result.error) {
-      toast.error(t('admin.editError'));
+      toast.error(extractErrorMessage(result.error, t('admin.editError')));
     } else {
       toast.success(t('toast.problem.updated'));
       queryClient.invalidateQueries({ queryKey: ['problem', problemIdNum] });

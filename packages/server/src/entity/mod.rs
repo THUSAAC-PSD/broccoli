@@ -1,4 +1,5 @@
 pub mod blob_ref;
+pub mod clarification;
 pub mod contest;
 pub mod contest_problem;
 pub mod contest_user;

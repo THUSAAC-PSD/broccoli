@@ -16,7 +16,7 @@
     "dev": "tsup src/index.tsx src/styles.css --format esm --dts --external react --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --watch"
   },
   "dependencies": {
-    "@broccoli/web-sdk": "file:../../../packages/sdk"
+    "@broccoli/web-sdk": "file:../../../packages/web-sdk"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
