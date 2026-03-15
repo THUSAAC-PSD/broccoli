@@ -1,9 +1,5 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type {
-  Submission,
-  TestCaseResult,
-  Verdict,
-} from '@broccoli/web-sdk/submission';
+import type { Submission, TestCaseResult } from '@broccoli/web-sdk/submission';
 import {
   Badge,
   Card,
@@ -12,6 +8,8 @@ import {
   CardTitle,
 } from '@broccoli/web-sdk/ui';
 import { AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
+
+import { verdictToString } from '@/features/submission/utils/verdict';
 
 type VerdictKey =
   | 'accepted'
@@ -73,7 +71,7 @@ const VERDICT_CONFIG: Record<
   },
 };
 
-const VERDICT_MAP: Partial<Record<Verdict, VerdictKey>> = {
+const VERDICT_MAP: Record<string, VerdictKey> = {
   Accepted: 'accepted',
   WrongAnswer: 'wrong_answer',
   TimeLimitExceeded: 'time_limit',
@@ -245,9 +243,8 @@ function TestCaseRow({
   index: number;
 }) {
   const { t } = useTranslation();
-  const verdictKey = testCase.verdict
-    ? (VERDICT_MAP[testCase.verdict] ?? 'other')
-    : 'pending';
+  const verdict = verdictToString(testCase.verdict);
+  const verdictKey = verdict ? (VERDICT_MAP[verdict] ?? 'other') : 'pending';
   const config = VERDICT_CONFIG[verdictKey];
   const Icon = config.icon;
 
@@ -343,7 +340,7 @@ function getVerdictLabel(
   if (submission.status === 'SystemError') {
     return t('result.systemError');
   }
-  const verdict = submission.result?.verdict;
+  const verdict = verdictToString(submission.result?.verdict);
   if (!verdict) return null;
   switch (verdict) {
     case 'Accepted':
@@ -368,7 +365,7 @@ function getVerdictBadgeVariant(
 ): 'default' | 'destructive' | 'secondary' {
   if (submission.status === 'CompilationError') return 'secondary';
   if (submission.status === 'SystemError') return 'secondary';
-  const verdict = submission.result?.verdict;
+  const verdict = verdictToString(submission.result?.verdict);
   if (verdict === 'Accepted') return 'default';
   if (
     verdict === 'WrongAnswer' ||

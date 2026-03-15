@@ -23,7 +23,8 @@ function getStatusLabel(status: SubmissionStatus, t: (key: string) => string) {
 }
 
 function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
-  switch (verdict) {
+  const verdictText = verdictToString(verdict);
+  switch (verdictText) {
     case 'Accepted':
       return t('result.accepted');
     case 'WrongAnswer':
@@ -35,12 +36,13 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
     case 'RuntimeError':
       return t('result.runtimeError');
     default:
-      return verdict;
+      return verdictText;
   }
 }
 
 function getVerdictVariant(verdict: Verdict): BadgeVariant {
-  switch (verdict) {
+  const verdictText = verdictToString(verdict);
+  switch (verdictText) {
     case 'Accepted':
       return 'accepted';
     case 'WrongAnswer':
@@ -80,4 +82,15 @@ export function getVerdictBadge(
     label: getVerdictLabel(verdict, t),
     variant: getVerdictVariant(verdict),
   };
+}
+
+export function verdictToString(verdict: Verdict): string;
+export function verdictToString(
+  verdict: Verdict | null | undefined,
+): string | null;
+export function verdictToString(
+  verdict: Verdict | null | undefined,
+): string | null {
+  if (!verdict) return null;
+  return typeof verdict === 'string' ? verdict : verdict.Other;
 }
