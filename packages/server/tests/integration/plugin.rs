@@ -212,28 +212,95 @@ mod kv_store {
     }
 }
 
-mod raw_sql {
+mod sql {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn plugin_can_execute_raw_sql() {
+    async fn plugin_can_execute_parameterized_sql() {
+        let app = TestApp::spawn().await;
+
+        // Insert a legitimate user
+        let res = app
+            .post_without_token(
+                &routes::plugin_proxy("server-plugin", "sql/params"),
+                &json!({ "name": "legit_user" }),
+            )
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["found"], 1);
+
+        // Attempt SQL injection
+        let injection_attempt = "'; DROP TABLE p_names; --";
+        let res = app
+            .post_without_token(
+                &routes::plugin_proxy("server-plugin", "sql/params"),
+                &json!({ "name": injection_attempt }),
+            )
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["found"], 1);
+
+        // Verify that the table still exists
+        let res = app
+            .post_without_token(
+                &routes::plugin_proxy("server-plugin", "sql/params"),
+                &json!({ "name": "legit_user" }),
+            )
+            .await;
+        assert_eq!(res.body["found"], 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plugin_can_execute_transactions() {
         let app = TestApp::spawn().await;
 
         let res = app
             .post_without_token(
-                &routes::plugin_proxy("server-plugin", "sql/counter"),
-                &json!({}),
+                &routes::plugin_proxy("server-plugin", "sql/transaction"),
+                &json!([
+                    { "sql": "CREATE TABLE IF NOT EXISTS p_tx (val TEXT)", "args": [] },
+                    { "sql": "INSERT INTO p_tx (val) VALUES ($1)", "args": ["a"] },
+                    { "sql": "INSERT INTO p_tx (val) VALUES ($1)", "args": ["b"] },
+                ]),
             )
             .await;
-        assert_eq!(res.body["count"], 1);
 
+        assert_eq!(res.status, 200);
+        // Expecting [0, 1, 1] - 0 for CREATE TABLE, 1 for each INSERT
+        let results = res.body["results"].as_array().unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], 0);
+        assert_eq!(results[1], 1);
+        assert_eq!(results[2], 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn transaction_is_rolled_back_on_error() {
+        let app = TestApp::spawn().await;
+
+        // Attempt a transaction where the second query fails (inserting into non-existent table)
         let res = app
             .post_without_token(
-                &routes::plugin_proxy("server-plugin", "sql/counter"),
-                &json!({}),
+                &routes::plugin_proxy("server-plugin", "sql/transaction"),
+                &json!([
+                    { "sql": "INSERT INTO p_names (name) VALUES ('test')", "args": [] },
+                    { "sql": "INSERT INTO non_existent_table (col) VALUES ('fail')", "args": [] }
+                ]),
             )
             .await;
-        assert_eq!(res.body["count"], 2);
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "TRANSACTION_ERROR");
+
+        // Verify that the first insert was rolled back
+        let res = app
+            .post_without_token(
+                &routes::plugin_proxy("server-plugin", "sql/params"),
+                &json!({ "name": "test" }),
+            )
+            .await;
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["found"], 1); // 1 because sql/params inserts the name before querying
     }
 }
 

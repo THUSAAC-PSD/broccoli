@@ -7,6 +7,11 @@ entry = "server_plugin.wasm"
 permissions = ["storage", "sql"]
 
 [[server.routes]]
+path = "/reflect/{id}"
+method = "GET"
+handler = "reflect"
+
+[[server.routes]]
 path = "/kv/{key}"
 method = "POST"
 handler = "kv_write"
@@ -17,11 +22,11 @@ method = "GET"
 handler = "kv_read"
 
 [[server.routes]]
-path = "/sql/counter"
+path = "/sql/params"
 method = "POST"
-handler = "sql_counter"
+handler = "sql_parameterized"
 
 [[server.routes]]
-path = "/reflect/{id}"
-method = "GET"
-handler = "reflect"
+path = "/sql/transaction"
+method = "POST"
+handler = "sql_transaction"
