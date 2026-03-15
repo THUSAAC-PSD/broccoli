@@ -1,5 +1,6 @@
-use crate::entity::{plugin_config, problem, test_case};
+use crate::entity::{blob_ref, plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
+use common::storage::{BlobStore, ContentHash};
 use common::submission_dispatch::{
     BuildEvalOpsInput, SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
 };
@@ -35,6 +36,7 @@ struct EvaluateContext {
     evaluate_batches: EvaluateBatches,
     evaluator_slots: Arc<Semaphore>,
     db: DatabaseConnection,
+    blob_store: Arc<dyn BlobStore>,
 }
 
 type EvaluateUserData = EvaluateContext;
@@ -46,6 +48,7 @@ pub fn create_evaluate_functions(
     evaluate_batches: EvaluateBatches,
     evaluator_slots: Arc<Semaphore>,
     db: DatabaseConnection,
+    blob_store: Arc<dyn BlobStore>,
 ) -> Vec<Function> {
     let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext {
         plugin_id,
@@ -54,6 +57,7 @@ pub fn create_evaluate_functions(
         evaluate_batches,
         evaluator_slots,
         db,
+        blob_store,
     });
 
     vec![
@@ -98,6 +102,7 @@ fn start_evaluate_batch_fn(
         evaluate_batches,
         evaluator_slots,
         db,
+        blob_store,
     ) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
@@ -110,6 +115,7 @@ fn start_evaluate_batch_fn(
             guard.evaluate_batches.clone(),
             guard.evaluator_slots.clone(),
             guard.db.clone(),
+            guard.blob_store.clone(),
         )
     };
 
@@ -144,7 +150,18 @@ fn start_evaluate_batch_fn(
             ));
         }
 
-        let (tc_data_map, problem_model, checker_config_model) =
+        let solution_language = &input.test_cases[0].solution_language;
+        if input
+            .test_cases
+            .iter()
+            .any(|tc| tc.solution_language != *solution_language)
+        {
+            return Err(extism::Error::msg(
+                "All test cases in a batch must use the same solution_language",
+            ));
+        }
+
+        let (tc_data_map, problem_model, checker_config_model, additional_source_files) =
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
                     // Get test case input + expected_output
@@ -169,11 +186,12 @@ fn start_evaluate_batch_fn(
                             extism::Error::msg(format!("Failed to query problem: {}", e))
                         })?;
 
-                    // Get checker config
+                    // Get checker config (namespaced under the calling plugin's ID)
+                    let checker_ns = format!("{}:checker", caller_plugin_id);
                     let checker_config = plugin_config::Entity::find_by_id((
                         "problem".to_string(),
                         problem_id.to_string(),
-                        "checker".to_string(),
+                        checker_ns,
                     ))
                     .one(&db)
                     .await
@@ -181,7 +199,62 @@ fn start_evaluate_batch_fn(
                         extism::Error::msg(format!("Failed to query checker config: {}", e))
                     })?;
 
-                    Ok::<_, extism::Error>((tc_data, problem_model, checker_config))
+                    let lang_prefix = format!(
+                        "additional_files/{}/",
+                        crate::models::shared::escape_like(solution_language)
+                    );
+
+                    let blob_refs = blob_ref::Entity::find()
+                        .filter(blob_ref::Column::OwnerType.eq("problem"))
+                        .filter(blob_ref::Column::OwnerId.eq(problem_id.to_string()))
+                        .filter(
+                            blob_ref::Column::Path.like(
+                                sea_orm::sea_query::LikeExpr::new(format!("{lang_prefix}%"))
+                                    .escape('\\'),
+                            ),
+                        )
+                        .all(&db)
+                        .await
+                        .map_err(|e| {
+                            extism::Error::msg(format!("Failed to query additional_files: {}", e))
+                        })?;
+
+                    let mut additional_source_files: Vec<SourceFile> = Vec::new();
+                    for r in blob_refs {
+                        let hash = ContentHash::from_hex(&r.content_hash).map_err(|e| {
+                            extism::Error::msg(format!(
+                                "Invalid content hash for additional_file '{}': {}",
+                                r.path, e
+                            ))
+                        })?;
+                        let content_bytes = blob_store.get(&hash).await.map_err(|e| {
+                            extism::Error::msg(format!(
+                                "Failed to read additional_file blob {}: {}",
+                                r.content_hash, e
+                            ))
+                        })?;
+                        let content = String::from_utf8(content_bytes).map_err(|e| {
+                            extism::Error::msg(format!(
+                                "additional_file '{}' is not valid UTF-8: {}",
+                                r.path, e
+                            ))
+                        })?;
+                        // Preserve path structure after the language prefix.
+                        // e.g. "additional_files/cpp/include/grader.h" → "include/grader.h"
+                        let filename = r
+                            .path
+                            .strip_prefix(&lang_prefix)
+                            .unwrap_or(&r.filename)
+                            .to_string();
+                        additional_source_files.push(SourceFile { filename, content });
+                    }
+
+                    Ok::<_, extism::Error>((
+                        tc_data,
+                        problem_model,
+                        checker_config,
+                        additional_source_files,
+                    ))
                 })
             })?;
 
@@ -219,10 +292,17 @@ fn start_evaluate_batch_fn(
                         ))
                     })?;
 
+                // Judge-supplied additional_files go FIRST so they take
+                // precedence over user-submitted files with the same name.
+                // Evaluators keep the first occurrence of each filename, so
+                // this prevents contestants from shadowing judge stubs.
+                let mut merged_source = additional_source_files.clone();
+                merged_source.extend(tc.solution_source);
+
                 Ok::<_, extism::Error>(BuildEvalOpsInput {
                     problem_id: tc.problem_id,
                     test_case_id: tc.test_case_id,
-                    solution_source: tc.solution_source,
+                    solution_source: merged_source,
                     solution_language: tc.solution_language,
                     time_limit_ms: tc.time_limit_ms,
                     memory_limit_kb: tc.memory_limit_kb,

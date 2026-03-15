@@ -18,10 +18,9 @@ use testcontainers_modules::postgres::Postgres;
 use tokio::sync::{Mutex, OnceCell, RwLock};
 
 use common::language::LanguageDefinition;
-use common::storage::BlobStore;
-use common::storage::database::DatabaseBlobStore;
+use common::storage::config::create_blob_store;
 use server::config::{
-    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig, StorageConfig,
+    AppConfig, AuthConfig, BlobStoreConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig,
     SubmissionConfig,
 };
 use server::entity::user;
@@ -468,8 +467,9 @@ impl TestApp {
             .await
             .expect("Failed to connect to test database");
 
-        let blob_store: Arc<dyn BlobStore> =
-            Arc::new(DatabaseBlobStore::new(db.clone(), 128 * 1024 * 1024));
+        let blob_store = create_blob_store(&BlobStoreConfig::default(), db.clone())
+            .await
+            .expect("Failed to initialize blob store");
 
         let app_config = AppConfig {
             server: ServerConfig {
@@ -491,7 +491,7 @@ impl TestApp {
                 ..Default::default()
             },
             submission: SubmissionConfig::default(),
-            storage: StorageConfig::default(),
+            storage: BlobStoreConfig::default(),
             mq: MqAppConfig {
                 enabled: false,
                 ..Default::default()
@@ -518,6 +518,7 @@ impl TestApp {
             checker_format_registry.clone(),
             evaluate_batches.clone(),
             app_config.clone(),
+            blob_store.clone(),
         )
         .expect("Failed to initialize plugin manager");
 

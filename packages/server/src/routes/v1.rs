@@ -14,6 +14,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/plugins", plugin_routes())
         .nest("/p", proxy_routes())
         .nest("/i18n", i18n_routes())
+        .nest("/config/upload", config_upload_routes())
         .nest("/problems", problem_routes(submission_max_size))
         .nest("/contests", contest_routes(submission_max_size))
         .nest("/submissions", submission_routes())
@@ -62,6 +63,12 @@ fn plugin_global_config_routes() -> OpenApiRouter<AppState> {
         ))
 }
 
+fn config_upload_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::config_upload::upload_config_blob))
+        .layer(handlers::config_upload::config_upload_body_limit())
+}
+
 fn plugin_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::plugin::list_registries))
@@ -100,6 +107,7 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         ))
         .nest("/{id}/test-cases", test_case_routes())
         .nest("/{id}/attachments", attachment_routes())
+        .nest("/{id}/additional-files", additional_file_routes())
         .nest("/{id}/config", problem_config_routes())
         .nest(
             "/{id}/submissions",
@@ -148,6 +156,21 @@ fn attachment_routes() -> OpenApiRouter<AppState> {
     let upload = OpenApiRouter::new()
         .routes(routes!(handlers::attachment::upload_attachment))
         .layer(handlers::attachment::attachment_upload_body_limit());
+
+    read_delete.merge(upload)
+}
+
+fn additional_file_routes() -> OpenApiRouter<AppState> {
+    let read_delete = OpenApiRouter::new()
+        .routes(routes!(handlers::additional_file::list_additional_files))
+        .routes(routes!(
+            handlers::additional_file::download_additional_file,
+            handlers::additional_file::delete_additional_file,
+        ));
+
+    let upload = OpenApiRouter::new()
+        .routes(routes!(handlers::additional_file::upload_additional_file))
+        .layer(handlers::additional_file::additional_file_upload_body_limit());
 
     read_delete.merge(upload)
 }

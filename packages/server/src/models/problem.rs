@@ -28,17 +28,19 @@ pub struct CreateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Problem type for evaluator dispatch, e.g. "standard" or "interactive".
-    #[serde(default = "default_problem_type")]
-    #[schema(example = "standard")]
+    /// Problem type for evaluator dispatch, e.g. "batch" or "interactive".
+    /// If omitted, defaults to the first registered evaluator type.
+    #[serde(default)]
+    #[schema(example = "batch")]
     pub problem_type: String,
     /// Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
     #[serde(default = "default_checker_format")]
     #[schema(example = "exact")]
     pub checker_format: String,
-    /// Default contest type for standalone submissions, e.g. "standard", "icpc", "ioi".
-    #[serde(default = "default_contest_type")]
-    #[schema(example = "standard")]
+    /// Default contest type for standalone submissions, e.g. "ioi", "icpc".
+    /// If omitted, defaults to the first registered contest type.
+    #[serde(default)]
+    #[schema(example = "ioi")]
     pub default_contest_type: String,
     /// Whether contestants see full input/output for all test cases.
     /// If omitted, defaults to false.
@@ -66,14 +68,14 @@ pub struct UpdateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 524288)]
     pub memory_limit: Option<i32>,
-    /// Problem type for evaluator dispatch: "standard" or "interactive".
-    #[schema(example = "standard")]
+    /// Problem type for evaluator dispatch: "batch" or "interactive".
+    #[schema(example = "batch")]
     pub problem_type: Option<String>,
     /// Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
     #[schema(example = "ignore_case")]
     pub checker_format: Option<String>,
     /// Default contest type for standalone submissions.
-    #[schema(example = "standard")]
+    #[schema(example = "ioi")]
     pub default_contest_type: Option<String>,
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = true)]
@@ -99,7 +101,7 @@ pub struct ProblemResponse {
     #[schema(example = 262144)]
     pub memory_limit: i32,
     /// Problem type for evaluator dispatch.
-    #[schema(example = "standard")]
+    #[schema(example = "batch")]
     pub problem_type: String,
     /// Custom checker source files (read-only, uploaded via separate endpoint).
     pub checker_source: Option<serde_json::Value>,
@@ -107,7 +109,7 @@ pub struct ProblemResponse {
     #[schema(example = "exact")]
     pub checker_format: String,
     /// Default contest type for standalone submissions.
-    #[schema(example = "standard")]
+    #[schema(example = "ioi")]
     pub default_contest_type: String,
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
@@ -149,13 +151,13 @@ pub struct ProblemListItem {
     #[schema(example = 262144)]
     pub memory_limit: i32,
     /// Problem type for evaluator dispatch.
-    #[schema(example = "standard")]
+    #[schema(example = "batch")]
     pub problem_type: String,
     /// Checker format for output comparison.
     #[schema(example = "exact")]
     pub checker_format: String,
     /// Default contest type for standalone submissions.
-    #[schema(example = "standard")]
+    #[schema(example = "ioi")]
     pub default_contest_type: String,
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
@@ -364,19 +366,23 @@ pub fn truncate_preview(s: &str) -> String {
     }
 }
 
-fn default_problem_type() -> String {
-    "standard".into()
-}
-
 fn default_checker_format() -> String {
     "exact".into()
 }
 
-fn default_contest_type() -> String {
-    "standard".into()
+use crate::registry::{CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry};
+
+/// Returns the first registered key from a registry, or an empty string if none.
+pub async fn first_registered_evaluator(registry: &EvaluatorRegistry) -> String {
+    let reg = registry.read().await;
+    reg.keys().min().cloned().unwrap_or_default()
 }
 
-use crate::registry::{CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry};
+/// Returns the first registered key from a registry, or an empty string if none.
+pub async fn first_registered_contest_type(registry: &ContestTypeRegistry) -> String {
+    let reg = registry.read().await;
+    reg.keys().min().cloned().unwrap_or_default()
+}
 
 /// Validates checker_format against the registry of registered checker format handlers.
 pub async fn validate_checker_format(

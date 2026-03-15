@@ -784,8 +784,8 @@ mod contest_submissions {
             )
             .await;
 
-        assert_eq!(res.status, 400);
-        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
     }
 
     #[tokio::test]

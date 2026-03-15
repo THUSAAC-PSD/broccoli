@@ -18,8 +18,8 @@ pub struct LanguageRegistryItem {
 /// Available registry values for problem types, checker formats, and contest types.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct RegistriesResponse {
-    /// Available problem types (e.g. "standard", "interactive").
-    #[schema(example = json!(["standard", "interactive"]))]
+    /// Available problem types (e.g. "batch", "interactive").
+    #[schema(example = json!(["batch", "interactive"]))]
     pub problem_types: Vec<String>,
 
     /// Available checker formats (e.g. "exact", "tokens").

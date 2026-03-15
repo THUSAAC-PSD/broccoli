@@ -4,6 +4,7 @@ use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
 
 pub use common::config::MqAppConfig;
+pub use common::storage::config::BlobStoreConfig;
 
 /// Database configuration.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -15,63 +16,6 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: "postgres://postgres:password@localhost:5432/broccoli".into(),
-        }
-    }
-}
-
-/// TOML-friendly object storage configuration.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ObjectStorageConfigToml {
-    pub bucket: String,
-    #[serde(default = "default_os_region")]
-    pub region: String,
-    pub endpoint: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    #[serde(default)]
-    pub path_style: bool,
-    pub temp_dir: Option<String>,
-}
-
-fn default_os_region() -> String {
-    "us-east-1".into()
-}
-
-/// Blob storage configuration.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct StorageConfig {
-    /// Storage backend: "filesystem", "database", or "object_storage"
-    #[serde(default = "default_storage_backend")]
-    pub backend: String,
-    /// Base directory for blob storage data.
-    #[serde(default = "default_storage_data_dir")]
-    pub data_dir: String,
-    /// Maximum size per blob in bytes. Default: 128MB.
-    #[serde(default = "default_storage_max_blob_size")]
-    pub max_blob_size: u64,
-    /// Object storage configuration (required when backend = "object_storage").
-    pub object_storage: Option<ObjectStorageConfigToml>,
-}
-
-fn default_storage_backend() -> String {
-    "database".into()
-}
-
-fn default_storage_data_dir() -> String {
-    "./data".into()
-}
-
-fn default_storage_max_blob_size() -> u64 {
-    128 * 1024 * 1024 // 128MB
-}
-
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self {
-            backend: default_storage_backend(),
-            data_dir: default_storage_data_dir(),
-            max_blob_size: default_storage_max_blob_size(),
-            object_storage: None,
         }
     }
 }
@@ -122,7 +66,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub submission: SubmissionConfig,
     #[serde(default)]
-    pub storage: StorageConfig,
+    pub storage: BlobStoreConfig,
     #[serde(default)]
     pub mq: MqAppConfig,
     #[serde(default)]

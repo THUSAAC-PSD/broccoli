@@ -3,6 +3,7 @@ import { Slot } from '@broccoli/web-sdk/slot';
 import { Button, Input, Label, Switch } from '@broccoli/web-sdk/ui';
 import { Minus, Plus } from 'lucide-react';
 
+import { BlobRefField } from './BlobRefField';
 import { FieldError } from './FieldError';
 import { NumericInput } from './NumericInput';
 import { SchemaFields } from './SchemaFields';
@@ -77,6 +78,19 @@ export function SchemaField({
   return defaultField;
 
   function renderField() {
+    // Blob ref -> file upload widget
+    if (prop.type === 'object' && prop.format === 'blob-ref') {
+      return (
+        <BlobRefField
+          label={label}
+          description={prop.description}
+          value={value as { filename: string; hash: string } | undefined}
+          onChange={(v) => updateValue(path, v)}
+          isExplicit={isFieldExplicit}
+        />
+      );
+    }
+
     // Object -> card-like grouped section
     if (prop.type === 'object' && prop.properties) {
       const objValue =

@@ -46,7 +46,19 @@ pub async fn create_problem(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:create")?;
     validate_create_problem(&payload)?;
-    validate_problem_type(&payload.problem_type, &state.registries.evaluator_registry).await?;
+
+    let problem_type = if payload.problem_type.is_empty() {
+        first_registered_evaluator(&state.registries.evaluator_registry).await
+    } else {
+        payload.problem_type
+    };
+    let default_contest_type = if payload.default_contest_type.is_empty() {
+        first_registered_contest_type(&state.registries.contest_type_registry).await
+    } else {
+        payload.default_contest_type
+    };
+
+    validate_problem_type(&problem_type, &state.registries.evaluator_registry).await?;
     validate_checker_format(
         &payload.checker_format,
         &state.registries.checker_format_registry,
@@ -54,7 +66,7 @@ pub async fn create_problem(
     .await?;
     validate_submission_format(payload.submission_format.as_ref(), &state.config.languages)?;
     validate_contest_type(
-        &payload.default_contest_type,
+        &default_contest_type,
         &state.registries.contest_type_registry,
     )
     .await?;
@@ -68,9 +80,9 @@ pub async fn create_problem(
         content: Set(payload.content),
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
-        problem_type: Set(payload.problem_type),
+        problem_type: Set(problem_type),
         checker_format: Set(payload.checker_format),
-        default_contest_type: Set(payload.default_contest_type),
+        default_contest_type: Set(default_contest_type),
         show_test_details: Set(payload.show_test_details.unwrap_or(false)),
         submission_format: Set(submission_format_json),
         created_at: Set(now),

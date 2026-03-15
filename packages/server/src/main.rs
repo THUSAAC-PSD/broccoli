@@ -5,13 +5,9 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
-use common::storage::BlobStore;
-use common::storage::database::DatabaseBlobStore;
-use common::storage::filesystem::FilesystemBlobStore;
-use common::storage::object_storage::{ObjectStorageBlobStore, ObjectStorageConfig};
+use common::storage::config::create_blob_store;
 use dashmap::DashMap;
 use mq::{MqConfig as MqConnConfig, init_mq};
-use std::path::PathBuf;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info, warn};
@@ -87,44 +83,9 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
-    let blob_store: Arc<dyn BlobStore> = match app_config.storage.backend.as_str() {
-        "filesystem" => {
-            let blob_path = PathBuf::from(&app_config.storage.data_dir).join("blobs");
-            Arc::new(
-                FilesystemBlobStore::new(blob_path, app_config.storage.max_blob_size)
-                    .await
-                    .context("Failed to initialize filesystem blob storage")?,
-            )
-        }
-        "object_storage" => {
-            let os_toml = app_config
-                .storage
-                .object_storage
-                .as_ref()
-                .context("storage.backend is 'object_storage' but [storage.object_storage] section is missing")?;
-            Arc::new(
-                ObjectStorageBlobStore::new(ObjectStorageConfig {
-                    bucket: os_toml.bucket.clone(),
-                    region: os_toml.region.clone(),
-                    endpoint: os_toml.endpoint.clone(),
-                    access_key: os_toml.access_key.clone(),
-                    secret_key: os_toml.secret_key.clone(),
-                    path_style: os_toml.path_style,
-                    max_size: app_config.storage.max_blob_size,
-                    temp_dir: os_toml
-                        .temp_dir
-                        .as_ref()
-                        .filter(|s| !s.is_empty())
-                        .map(PathBuf::from),
-                })
-                .context("Failed to initialize object storage")?,
-            )
-        }
-        "database" | _ => Arc::new(DatabaseBlobStore::new(
-            db.clone(),
-            app_config.storage.max_blob_size,
-        )),
-    };
+    let blob_store = create_blob_store(&app_config.storage, db.clone())
+        .await
+        .context("Failed to initialize blob storage")?;
     info!(
         "Blob storage initialized (backend: {})",
         app_config.storage.backend
@@ -177,6 +138,7 @@ async fn main() -> anyhow::Result<()> {
         checker_format_registry.clone(),
         evaluate_batches.clone(),
         app_config.clone(),
+        blob_store.clone(),
     )
     .context("Failed to initialize plugin manager")?;
 

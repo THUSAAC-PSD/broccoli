@@ -1,17 +1,18 @@
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::header;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use tracing::instrument;
 
 use crate::error::AppError;
 use crate::state::AppState;
 
-#[instrument(skip(state))]
+#[instrument(skip(state, headers))]
 pub async fn serve_plugin_asset(
     State(state): State<AppState>,
     Path((plugin_id, file_path)): Path<(String, String)>,
-) -> Result<impl IntoResponse, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let safe_path = state
         .plugins
         .resolve_plugin_asset(&plugin_id, &file_path)
@@ -31,6 +32,13 @@ pub async fn serve_plugin_asset(
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let etag = format!("W/\"{:x}-{:x}\"", content.len(), mtime);
+
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH)
+        && let Ok(val) = if_none_match.to_str()
+        && (val == etag || val == "*")
+    {
+        return Ok(StatusCode::NOT_MODIFIED.into_response());
+    }
 
     Response::builder()
         .header(header::CONTENT_TYPE, mime.as_ref())

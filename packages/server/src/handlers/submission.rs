@@ -323,7 +323,7 @@ async fn enqueue_judge_job(
                 id: tc.id,
                 input: tc.input,
                 expected_output: tc.expected_output,
-                score: tc.score,
+                score: tc.score as f64,
             })
             .collect(),
         Err(e) => {
@@ -383,35 +383,9 @@ async fn enqueue_judge_job(
 async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
     use common::submission_dispatch::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
 
-    let contest_type = if let Some(contest_id) = submission.contest_id {
-        match contest::Entity::find_by_id(contest_id).one(&state.db).await {
-            Ok(Some(c)) => c.contest_type,
-            Ok(None) => {
-                error!(contest_id, "Contest not found for submission");
-                let _ = crate::consumers::mark_submission_system_error(
-                    &state.db,
-                    submission.id,
-                    "CONTEST_NOT_FOUND",
-                    &format!("Contest {} not found", contest_id),
-                )
-                .await;
-                return;
-            }
-            Err(e) => {
-                error!(error = %e, "DB error fetching contest");
-                let _ = crate::consumers::mark_submission_system_error(
-                    &state.db,
-                    submission.id,
-                    "DATABASE_ERROR",
-                    &format!("Failed to fetch contest: {}", e),
-                )
-                .await;
-                return;
-            }
-        }
-    } else {
-        Some(submission.contest_type.clone())
-    };
+    // Use the persisted contest_type — it was resolved at submission creation time
+    // from either the contest entity or the problem's default_contest_type.
+    let contest_type = Some(submission.contest_type.clone());
 
     let handler = {
         let registry = state.registries.contest_type_registry.read().await;
@@ -731,14 +705,11 @@ async fn build_submission_response(
     let show_results = sub.status.is_terminal() || is_running;
 
     let result_response = if show_results {
-        // Query 1: test case results (lightweight — no I/O columns from test_case).
         let results = test_case_result::Entity::find()
             .filter(test_case_result::Column::SubmissionId.eq(sub.id))
             .all(db)
             .await?;
 
-        // Query 2: test case metadata for ordering and sample detection.
-        // Excludes input/expected_output (the heavy columns).
         let tc_ids: Vec<i32> = results.iter().map(|r| r.test_case_id).collect();
         let tc_meta: HashMap<i32, TestCaseMeta> = if tc_ids.is_empty() {
             HashMap::new()
@@ -769,8 +740,7 @@ async fn build_submission_response(
             .collect();
         results_with_pos.sort_by_key(|(_, pos)| *pos);
 
-        // Query 3 (conditional): fetch I/O only for test cases that need it.
-        let io_ids: Vec<i32> = if has_view_all {
+        let io_ids: Vec<i32> = if has_view_all || problem_model.show_test_details {
             tc_ids
         } else {
             tc_meta
@@ -802,7 +772,7 @@ async fn build_submission_response(
                 let is_sample = tc_meta
                     .get(&result.test_case_id)
                     .is_some_and(|m| m.is_sample);
-                let show_io = has_view_all || is_sample;
+                let show_io = has_view_all || problem_model.show_test_details || is_sample;
                 let io = if show_io {
                     io_data.get(&result.test_case_id)
                 } else {
@@ -1265,6 +1235,13 @@ pub async fn create_contest_submission(
     dispatch_before_submission_hooks(&state, &hook_event, Some(&enabled_plugins)).await?;
 
     let language = payload.language.trim().to_string();
+    let contest_type = match &contest_model.contest_type {
+        Some(ct) => ct.clone(),
+        None => {
+            let reg = state.registries.contest_type_registry.read().await;
+            reg.keys().min().cloned().unwrap_or_default()
+        }
+    };
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language.clone()),
@@ -1272,10 +1249,7 @@ pub async fn create_contest_submission(
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(Some(contest_id)),
-        contest_type: Set(contest_model
-            .contest_type
-            .clone()
-            .unwrap_or_else(|| "standard".to_string())),
+        contest_type: Set(contest_type),
         created_at: Set(now),
         ..Default::default()
     };
@@ -1485,7 +1459,7 @@ pub async fn bulk_rejudge_submissions(
     }
 
     const BATCH_SIZE: usize = 500;
-    let mut all_enqueue_data: Vec<(submission::Model, Vec<JudgeFile>)> = Vec::new();
+    let mut all_enqueue_data: Vec<submission::Model> = Vec::new();
 
     for batch_ids in all_ids.chunks(BATCH_SIZE) {
         let txn = state.db.begin().await?;
@@ -1539,14 +1513,7 @@ pub async fn bulk_rejudge_submissions(
             .await?;
 
         for sub in batch_submissions {
-            let files: Vec<JudgeFile> = files_from_json(&sub.files)
-                .into_iter()
-                .map(|f| JudgeFile {
-                    filename: f.filename,
-                    content: f.content,
-                })
-                .collect();
-            all_enqueue_data.push((sub, files));
+            all_enqueue_data.push(sub);
         }
 
         txn.commit().await?;
@@ -1554,7 +1521,7 @@ pub async fn bulk_rejudge_submissions(
 
     let queued = all_enqueue_data.len();
 
-    for (sub, _files) in all_enqueue_data {
+    for sub in all_enqueue_data {
         let state_clone = state.clone();
         tokio::spawn(async move {
             dispatch_to_plugin(state_clone, sub).await;

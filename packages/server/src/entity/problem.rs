@@ -16,8 +16,8 @@ pub struct Model {
     pub time_limit: i32,   // in milliseconds
     pub memory_limit: i32, // in kilobytes
 
-    /// Problem type for evaluator dispatch (e.g., "standard", "interactive").
-    #[sea_orm(default_value = "standard")]
+    /// Problem type for evaluator dispatch (e.g., "batch", "interactive").
+    #[sea_orm(default_value = "batch")]
     pub problem_type: String,
 
     /// Source files for custom checker (if any)
@@ -29,8 +29,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text", default_value = "exact")]
     pub checker_format: String,
 
-    /// Default contest type for standalone submissions (e.g., "standard", "icpc", "ioi").
-    #[sea_orm(default_value = "standard")]
+    /// Default contest type for standalone submissions (e.g., "ioi", "icpc").
+    #[sea_orm(default_value = "ioi")]
     pub default_contest_type: String,
 
     /// Whether contestants see full input/output for all test cases.

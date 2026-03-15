@@ -15,27 +15,47 @@ use crate::extractors::auth::AuthUser;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
 use crate::utils::blob::{build_blob_response, stream_field_to_store};
-use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
-pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
+pub fn additional_file_upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(128 * 1024 * 1024) // 128 MB
+}
+
+/// Validate that a language code is safe for use in a path segment.
+fn validate_language_code(lang: &str) -> Result<(), AppError> {
+    if lang.is_empty() {
+        return Err(AppError::Validation("Language code cannot be empty".into()));
+    }
+    if !lang
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(AppError::Validation(format!(
+            "Language code contains invalid characters: '{lang}'"
+        )));
+    }
+    Ok(())
 }
 
 #[utoipa::path(
     post,
     path = "/",
-    tag = "Problem Attachments",
-    operation_id = "uploadAttachment",
-    summary = "Upload an attachment to a problem",
-    description = "Uploads a file as a problem attachment. The `file` multipart field is required. \
-        An optional `path` field sets the virtual path (defaults to the filename). \
-        Re-uploading to the same path silently replaces the previous attachment.",
+    tag = "Additional Files",
+    operation_id = "uploadAdditionalFile",
+    summary = "Upload a judge-private additional file",
+    description = "Uploads a file that will be compiled alongside contestant submissions for the \
+        specified language. The `file` multipart field is required, and the `language` field \
+        specifies which language submissions receive this file. An optional `path` field sets \
+        the virtual subpath (e.g. `include/grader.h`); defaults to the upload filename. \
+        Re-uploading the same language+path replaces the previous version.",
     params(("id" = i32, Path, description = "Problem ID")),
-    request_body(content_type = "multipart/form-data", description = "File upload with optional path"),
+    request_body(
+        content_type = "multipart/form-data",
+        description = "File upload with language code"
+    ),
     responses(
-        (status = 201, description = "Attachment created", body = AttachmentResponse),
+        (status = 201, description = "Additional file created", body = AttachmentResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
@@ -44,7 +64,7 @@ pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
     security(("jwt" = [])),
 )]
 #[instrument(skip(state, auth_user, multipart), fields(problem_id))]
-pub async fn upload_attachment(
+pub async fn upload_additional_file(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(problem_id): Path<i32>,
@@ -56,8 +76,10 @@ pub async fn upload_attachment(
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
+
     let mut file_result: Option<(ContentHash, i64)> = None;
     let mut file_name: Option<String> = None;
+    let mut language: Option<String> = None;
     let mut virtual_path: Option<String> = None;
 
     while let Some(field) = multipart
@@ -77,6 +99,13 @@ pub async fn upload_attachment(
                     .await?,
                 );
             }
+            Some("language") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Validation(format!("Failed to read language: {e}")))?;
+                language = Some(text);
+            }
             Some("path") => {
                 let text = field
                     .text()
@@ -84,7 +113,7 @@ pub async fn upload_attachment(
                     .map_err(|e| AppError::Validation(format!("Failed to read path: {e}")))?;
                 virtual_path = Some(text);
             }
-            _ => {} // Ignore unknown fields.
+            _ => {}
         }
     }
 
@@ -97,19 +126,16 @@ pub async fn upload_attachment(
         .map_err(|e| AppError::Validation(e.message().into()))?
         .to_string();
 
-    let path = match virtual_path {
+    let lang = language.ok_or_else(|| AppError::Validation("Missing 'language' field".into()))?;
+    validate_language_code(&lang)?;
+
+    let subpath = match virtual_path {
         Some(p) if !p.trim().is_empty() => {
             validate_virtual_path(&p).map_err(|e| AppError::Validation(e.into()))?
         }
-        _ => validate_virtual_path(&filename).map_err(|e| AppError::Validation(e.into()))?,
+        _ => filename.clone(),
     };
-
-    // additional_files/ is a reserved namespace for judge-private source files
-    if path.starts_with("additional_files/") {
-        return Err(AppError::Validation(
-            "Cannot upload to reserved path prefix 'additional_files/'".into(),
-        ));
-    }
+    let path = format!("additional_files/{lang}/{subpath}");
 
     let content_type = mime_guess::from_path(&filename)
         .first()
@@ -134,7 +160,7 @@ pub async fn upload_attachment(
         path: Set(path.clone()),
         content_hash: Set(hash.to_hex()),
         filename: Set(filename.clone()),
-        content_type: Set(content_type.clone()),
+        content_type: Set(content_type),
         size: Set(size),
         created_at: Set(now),
     };
@@ -177,59 +203,78 @@ pub async fn upload_attachment(
 #[utoipa::path(
     get,
     path = "/",
-    tag = "Problem Attachments",
-    operation_id = "listAttachments",
-    summary = "List attachments for a problem",
-    description = "Returns all attachments for a problem. Admin/setter access via permission; \
-        contestants access if the problem is in a contest they can see (public or enrolled).",
+    tag = "Additional Files",
+    operation_id = "listAdditionalFiles",
+    summary = "List judge-private additional files for a problem",
+    description = "Returns all additional files (stubs, graders) for a problem, \
+        across all languages. Requires problem:edit permission.",
     params(("id" = i32, Path, description = "Problem ID")),
     responses(
-        (status = 200, description = "Attachment list", body = AttachmentListResponse),
+        (status = 200, description = "Additional file list", body = AttachmentListResponse),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 404, description = "Problem not found or not accessible (NOT_FOUND)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
 #[instrument(skip(state, auth_user), fields(problem_id))]
-pub async fn list_attachments(
+pub async fn list_additional_files(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(problem_id): Path<i32>,
 ) -> Result<Json<AttachmentListResponse>, AppError> {
-    require_problem_read_access(&state.db, &auth_user, problem_id).await?;
+    auth_user.require_permission("problem:edit")?;
 
-    Ok(Json(list_problem_attachments(&state.db, problem_id).await?))
+    problem::Entity::find_active_by_id(problem_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
+
+    let refs = blob_ref::Entity::find()
+        .filter(blob_ref::Column::OwnerType.eq("problem"))
+        .filter(blob_ref::Column::OwnerId.eq(problem_id.to_string()))
+        .filter(
+            blob_ref::Column::Path
+                .like(sea_orm::sea_query::LikeExpr::new("additional_files/%").escape('\\')),
+        )
+        .order_by_asc(blob_ref::Column::Path)
+        .all(&state.db)
+        .await?;
+
+    let total = refs.len() as u64;
+    let attachments = refs.into_iter().map(AttachmentResponse::from).collect();
+
+    Ok(Json(AttachmentListResponse { attachments, total }))
 }
 
 #[utoipa::path(
     get,
     path = "/{ref_id}",
-    tag = "Problem Attachments",
-    operation_id = "downloadAttachment",
-    summary = "Download an attachment",
-    description = "Streams the attachment content. Supports ETag-based caching via If-None-Match. \
-        Admin/setter access via permission; contestants access if the problem is in a contest \
-        they can see (public or enrolled).",
+    tag = "Additional Files",
+    operation_id = "downloadAdditionalFile",
+    summary = "Download a judge-private additional file",
+    description = "Streams the additional file content. Requires problem:edit permission.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
         ("ref_id" = String, Path, description = "Attachment reference ID (UUID)"),
     ),
     responses(
-        (status = 200, description = "Attachment content"),
+        (status = 200, description = "File content"),
         (status = 304, description = "Not Modified (ETag match)"),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 404, description = "Attachment not found or not accessible (NOT_FOUND)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
 #[instrument(skip(state, auth_user, headers), fields(problem_id, ref_id))]
-pub async fn download_attachment(
+pub async fn download_additional_file(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path((problem_id, ref_id)): Path<(i32, String)>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    require_problem_read_access(&state.db, &auth_user, problem_id).await?;
+    auth_user.require_permission("problem:edit")?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid attachment ID".into()))?;
@@ -237,15 +282,13 @@ pub async fn download_attachment(
     let blob_ref_model = blob_ref::Entity::find_by_id(ref_uuid)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("Additional file not found".into()))?;
 
-    if blob_ref_model.owner_type != "problem" || blob_ref_model.owner_id != problem_id.to_string() {
-        return Err(AppError::NotFound("Attachment not found".into()));
-    }
-
-    // additional_files are judge-private; block public download
-    if blob_ref_model.path.starts_with("additional_files/") {
-        return Err(AppError::NotFound("Attachment not found".into()));
+    if blob_ref_model.owner_type != "problem"
+        || blob_ref_model.owner_id != problem_id.to_string()
+        || !blob_ref_model.path.starts_with("additional_files/")
+    {
+        return Err(AppError::NotFound("Additional file not found".into()));
     }
 
     build_blob_response(&blob_ref_model, &headers, &*state.blob_store).await
@@ -254,24 +297,24 @@ pub async fn download_attachment(
 #[utoipa::path(
     delete,
     path = "/{ref_id}",
-    tag = "Problem Attachments",
-    operation_id = "deleteAttachment",
-    summary = "Delete an attachment reference",
-    description = "Removes the attachment reference. The underlying blob is preserved for GC.",
+    tag = "Additional Files",
+    operation_id = "deleteAdditionalFile",
+    summary = "Delete a judge-private additional file",
+    description = "Removes the additional file reference. Requires problem:edit permission.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
         ("ref_id" = String, Path, description = "Attachment reference ID (UUID)"),
     ),
     responses(
-        (status = 204, description = "Attachment deleted"),
+        (status = 204, description = "Additional file deleted"),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 404, description = "Attachment not found (NOT_FOUND)", body = ErrorBody),
+        (status = 404, description = "Not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, ref_id))]
-pub async fn delete_attachment(
+pub async fn delete_additional_file(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path((problem_id, ref_id)): Path<(i32, String)>,
@@ -284,15 +327,13 @@ pub async fn delete_attachment(
     let blob_ref_model = blob_ref::Entity::find_by_id(ref_uuid)
         .one(&state.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("Additional file not found".into()))?;
 
-    if blob_ref_model.owner_type != "problem" || blob_ref_model.owner_id != problem_id.to_string() {
-        return Err(AppError::NotFound("Attachment not found".into()));
-    }
-
-    // additional_files are judge-private; block deletion via public API
-    if blob_ref_model.path.starts_with("additional_files/") {
-        return Err(AppError::NotFound("Attachment not found".into()));
+    if blob_ref_model.owner_type != "problem"
+        || blob_ref_model.owner_id != problem_id.to_string()
+        || !blob_ref_model.path.starts_with("additional_files/")
+    {
+        return Err(AppError::NotFound("Additional file not found".into()));
     }
 
     blob_ref::Entity::delete_by_id(ref_uuid)
@@ -300,25 +341,4 @@ pub async fn delete_attachment(
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Query all blob_refs for a problem, ordered by creation time.
-async fn list_problem_attachments<C: sea_orm::ConnectionTrait>(
-    db: &C,
-    problem_id: i32,
-) -> Result<AttachmentListResponse, AppError> {
-    let refs = blob_ref::Entity::find()
-        .filter(blob_ref::Column::OwnerType.eq("problem"))
-        .filter(blob_ref::Column::OwnerId.eq(problem_id.to_string()))
-        // Exclude additional_files — they are judge-private source files
-        // merged into submissions server-side, not public attachments.
-        .filter(blob_ref::Column::Path.not_like("additional_files/%"))
-        .order_by_asc(blob_ref::Column::CreatedAt)
-        .all(db)
-        .await?;
-
-    let total = refs.len() as u64;
-    let attachments = refs.into_iter().map(AttachmentResponse::from).collect();
-
-    Ok(AttachmentListResponse { attachments, total })
 }

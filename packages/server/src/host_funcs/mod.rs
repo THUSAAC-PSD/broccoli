@@ -13,6 +13,7 @@ use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     OperationBatches, OperationWaiters,
 };
+use common::storage::BlobStore;
 use extism::{Function, UserData, ValType};
 use mq::MqQueue;
 use plugin_core::host::HostFunctionRegistry;
@@ -33,6 +34,7 @@ pub fn init_host_functions(
     evaluate_batches: EvaluateBatches,
     plugin_manager: Arc<dyn PluginManager>,
     config: AppConfig,
+    blob_store: Arc<dyn BlobStore>,
 ) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
 
@@ -113,6 +115,7 @@ pub fn init_host_functions(
         .max(1);
     let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
     let db_for_eval = db.clone();
+    let blob_store_for_eval = blob_store;
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(
             plugin_id.to_string(),
@@ -121,6 +124,7 @@ pub fn init_host_functions(
             eval_batches.clone(),
             evaluator_slots.clone(),
             db_for_eval.clone(),
+            blob_store_for_eval.clone(),
         )
     });
 

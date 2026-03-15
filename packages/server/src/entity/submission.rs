@@ -30,7 +30,7 @@ pub struct Model {
     pub contest_id: Option<i32>,
 
     /// Contest type used for judging this submission.
-    #[sea_orm(default_value = "standard")]
+    #[sea_orm(default_value = "ioi")]
     pub contest_type: String,
 
     pub status: SubmissionStatus,
