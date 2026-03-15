@@ -1,20 +1,19 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useSlotPermissions } from '@broccoli/web-sdk/slot';
 import type { Submission, TestCaseResult } from '@broccoli/web-sdk/submission';
-import Editor from '@monaco-editor/react';
+import { Badge, Button } from '@broccoli/web-sdk/ui';
+import { cn } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
   Clock,
-  FileText,
   Loader2,
   MinusCircle,
   XCircle,
 } from 'lucide-react';
-import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { resolveFeedbackVisibility } from './feedback-visibility';
 import { useIoiApi } from './hooks/useIoiApi';
@@ -31,12 +30,10 @@ import type {
 interface IoiSubmissionResultProps {
   submission?: Submission | null;
   testCases?: TestCaseResult[];
+  children?: ReactNode;
 }
 
-type SubmissionResponse = Submission;
-type TestCaseResultResponse = TestCaseResult;
-
-type DisplayTestCaseResult = TestCaseResultResponse & {
+type DisplayTestCaseResult = TestCaseResult & {
   isPlaceholder?: boolean;
   label?: string;
 };
@@ -45,23 +42,6 @@ type DisplaySubtaskResult = {
   subtask: SubtaskInfo;
   score: number;
   testCases: DisplayTestCaseResult[];
-};
-
-const MONO: React.CSSProperties = {
-  fontVariantNumeric: 'tabular-nums',
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-};
-
-const LANG_DISPLAY: Record<string, { name: string; color: string }> = {
-  cpp: { name: 'C++', color: '#00599c' },
-  c: { name: 'C', color: '#555555' },
-  python3: { name: 'Python 3', color: '#3572a5' },
-  java: { name: 'Java', color: '#b07219' },
-  rust: { name: 'Rust', color: '#dea584' },
-  go: { name: 'Go', color: '#00add8' },
-  javascript: { name: 'JS', color: '#f1e05a' },
-  typescript: { name: 'TS', color: '#3178c6' },
 };
 
 const METHOD_META: Record<string, { abbrKey: string; color: string }> = {
@@ -110,8 +90,7 @@ function VerdictIcon({
     <Icon
       size={size}
       color={c}
-      style={{ flexShrink: 0 }}
-      className={verdict === 'Running' ? 'animate-spin' : undefined}
+      className={cn('shrink-0', verdict === 'Running' && 'animate-spin')}
     />
   );
 }
@@ -161,7 +140,7 @@ function buildStaticTestCaseList({
 }: {
   labels: string[];
   labelMap: Record<string, number>;
-  tcById: Map<number, TestCaseResultResponse>;
+  tcById: Map<number, TestCaseResult>;
   subtaskIndex: number;
 }): DisplayTestCaseResult[] {
   return labels.map((label, labelIndex) => {
@@ -249,9 +228,9 @@ function buildSubtaskResults({
   effectiveFeedback: string;
   labelMap: Record<string, number>;
   testCaseMaxScores: Record<string, number>;
-  allTestCases: TestCaseResultResponse[];
+  allTestCases: TestCaseResult[];
 }): DisplaySubtaskResult[] {
-  const tcById = new Map<number, TestCaseResultResponse>();
+  const tcById = new Map<number, TestCaseResult>();
   for (const testCase of allTestCases) {
     tcById.set(testCase.test_case_id, testCase);
   }
@@ -306,238 +285,7 @@ function buildSubtaskResults({
   return results;
 }
 
-const MONACO_LANG: Record<string, string> = {
-  cpp: 'cpp',
-  c: 'c',
-  python3: 'python',
-  java: 'java',
-  rust: 'rust',
-  go: 'go',
-  javascript: 'javascript',
-  typescript: 'typescript',
-};
-
-function CodeViewer({
-  files,
-  language,
-}: {
-  files: SubmissionResponse['files'];
-  language?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const file = files[0];
-  if (!file) return null;
-
-  const lineCount = file.content.split('\n').length;
-  const editorHeight = Math.min(Math.max(lineCount * 19, 80), 400);
-  const lang = language
-    ? (LANG_DISPLAY[language] ?? { name: language, color: '#6b7280' })
-    : null;
-  const monacoLang = language
-    ? (MONACO_LANG[language] ?? language)
-    : 'plaintext';
-
-  return (
-    <div
-      style={{
-        borderRadius: 8,
-        overflow: 'hidden',
-        border: '1px solid var(--border, rgba(0,0,0,0.1))',
-      }}
-    >
-      {/* Header bar */}
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          width: '100%',
-          padding: '8px 12px',
-          border: 'none',
-          background: '#1e1e2e',
-          cursor: 'pointer',
-          gap: 8,
-        }}
-      >
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
-        >
-          {/* File icon */}
-          <FileText
-            size={14}
-            color="#cdd6f4"
-            style={{ flexShrink: 0, opacity: 0.5 }}
-          />
-          <span
-            style={{
-              ...MONO,
-              fontSize: 12,
-              color: '#cdd6f4',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {file.filename}
-          </span>
-          {lang && (
-            <span
-              style={{
-                padding: '1px 6px',
-                borderRadius: 4,
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: '0.03em',
-                background: `${lang.color}22`,
-                color: lang.color,
-                border: `1px solid ${lang.color}44`,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {lang.name}
-            </span>
-          )}
-        </div>
-        <ChevronDown
-          size={16}
-          color="#6c7086"
-          style={{
-            flexShrink: 0,
-            transition: 'transform 0.2s ease',
-            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
-          }}
-        />
-      </button>
-
-      {/* Collapsible body using grid-template-rows trick */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateRows: open ? '1fr' : '0fr',
-          transition: 'grid-template-rows 0.25s ease',
-        }}
-      >
-        <div style={{ overflow: 'hidden' }}>
-          <div style={{ height: editorHeight }}>
-            {open && (
-              <Editor
-                height="100%"
-                language={monacoLang}
-                value={file.content}
-                theme="vs-dark"
-                options={{
-                  readOnly: true,
-                  domReadOnly: true,
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  lineNumbers: 'on',
-                  scrollBeyondLastLine: false,
-                  renderLineHighlight: 'none',
-                  overviewRulerLanes: 0,
-                  hideCursorInOverviewRuler: true,
-                  overviewRulerBorder: false,
-                  scrollbar: { vertical: 'auto', horizontal: 'auto' },
-                  contextmenu: false,
-                  selectionHighlight: false,
-                  occurrencesHighlight: 'off',
-                  folding: false,
-                  lineDecorationsWidth: 0,
-                  padding: { top: 8, bottom: 8 },
-                }}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CompileOutput({ output }: { output: string }) {
-  const { t } = useTranslation();
-  return (
-    <div
-      style={{
-        borderRadius: 8,
-        overflow: 'hidden',
-        border: '1px solid rgba(239, 68, 68, 0.25)',
-        borderLeft: '3px solid #ef4444',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 12px',
-          background: '#1e1e2e',
-          borderBottom: '1px solid #313244',
-        }}
-      >
-        <AlertCircle size={14} color="#ef4444" style={{ flexShrink: 0 }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#f38ba8' }}>
-          {t('ioi.submission.compilationError')}
-        </span>
-      </div>
-      <div
-        style={{
-          background: '#1e1e2e',
-          padding: 12,
-          maxHeight: 300,
-          overflowY: 'auto',
-          overflowX: 'auto',
-          WebkitOverflowScrolling: 'touch',
-        }}
-      >
-        <pre
-          style={{
-            ...MONO,
-            fontSize: 12,
-            lineHeight: '18px',
-            color: '#f38ba8',
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
-        >
-          {output}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
-function RejectionBanner() {
-  const { t } = useTranslation();
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 14px',
-        borderRadius: 8,
-        background: 'rgba(217, 119, 6, 0.06)',
-        border: '1px solid rgba(217, 119, 6, 0.2)',
-        borderLeft: '3px solid #d97706',
-      }}
-    >
-      <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0 }} />
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>
-          {t('ioi.submission.rejected.title')}
-        </div>
-        <div style={{ fontSize: 12, color: '#a16207', marginTop: 1 }}>
-          {t('ioi.submission.rejected.reason')}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function tcHasDetails(tc: TestCaseResultResponse): boolean {
+function tcHasDetails(tc: TestCaseResult): boolean {
   return !!(
     tc.checker_output ||
     tc.stdout ||
@@ -549,36 +297,11 @@ function tcHasDetails(tc: TestCaseResultResponse): boolean {
 
 function DetailBlock({ label, content }: { label: string; content: string }) {
   return (
-    <div style={{ marginBottom: 8 }}>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          color: 'var(--muted-foreground, #94a3b8)',
-          marginBottom: 4,
-        }}
-      >
+    <div className="mb-2">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <pre
-        style={{
-          ...MONO,
-          fontSize: 12,
-          lineHeight: '18px',
-          color: 'var(--foreground, #1e293b)',
-          margin: 0,
-          padding: '8px 10px',
-          borderRadius: 6,
-          background: 'var(--muted, rgba(0,0,0,0.03))',
-          border: '1px solid var(--border, rgba(0,0,0,0.06))',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          maxHeight: 200,
-          overflowY: 'auto',
-        }}
-      >
+      <pre className="m-0 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-2.5 py-2 font-mono tabular-nums text-xs leading-[18px] text-foreground">
         {content}
       </pre>
     </div>
@@ -589,7 +312,7 @@ function TestCaseDetailPanel({
   tc,
   index,
 }: {
-  tc: TestCaseResultResponse;
+  tc: TestCaseResult;
   index: number;
 }) {
   const vm = VERDICT_META[tc.verdict] ?? {
@@ -600,66 +323,33 @@ function TestCaseDetailPanel({
 
   return (
     <div
+      className="rounded-md px-3 py-2.5"
       style={{
-        padding: '10px 12px',
-        borderRadius: 6,
         background: vm.bg,
         border: `1px solid ${vm.color}22`,
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          marginBottom: 8,
-          paddingBottom: 8,
-          borderBottom: '1px solid var(--border, rgba(0,0,0,0.06))',
-        }}
-      >
+      <div className="mb-2 flex items-center gap-1.5 border-b border-border pb-2">
         <VerdictIcon verdict={tc.verdict} size={16} />
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--foreground, #1e293b)',
-          }}
-        >
+        <span className="text-xs font-semibold text-foreground">
           {t('ioi.submission.testCase', { index: index + 1 })}
         </span>
         {tc.score != null && (
           <span
-            style={{
-              ...MONO,
-              fontSize: 11,
-              fontWeight: 600,
-              color: tc.score > 0 ? '#10b981' : '#6b7280',
-              marginLeft: 4,
-            }}
+            className="ml-1 font-mono tabular-nums text-[11px] font-semibold"
+            style={{ color: tc.score > 0 ? '#10b981' : '#6b7280' }}
           >
             {t('ioi.submission.score', { score: tc.score })}
           </span>
         )}
-        <span style={{ flex: 1 }} />
+        <span className="flex-1" />
         {tc.time_used != null && (
-          <span
-            style={{
-              ...MONO,
-              color: 'var(--muted-foreground, #94a3b8)',
-              fontSize: 11,
-            }}
-          >
+          <span className="font-mono tabular-nums text-[11px] text-muted-foreground">
             {formatMs(tc.time_used)}
           </span>
         )}
         {tc.memory_used != null && (
-          <span
-            style={{
-              ...MONO,
-              color: 'var(--muted-foreground, #94a3b8)',
-              fontSize: 11,
-            }}
-          >
+          <span className="font-mono tabular-nums text-[11px] text-muted-foreground">
             {formatKb(tc.memory_used)}
           </span>
         )}
@@ -698,33 +388,15 @@ function TestCaseDetailPanel({
   );
 }
 
-function TestCaseResultList({
-  testCases,
-}: {
-  testCases: TestCaseResultResponse[];
-}) {
+function TestCaseResultList({ testCases }: { testCases: TestCaseResult[] }) {
   const [selectedTcIndex, setSelectedTcIndex] = useState<number | null>(null);
   const [hoveredTcIndex, setHoveredTcIndex] = useState<number | null>(null);
   const selectedTc =
     selectedTcIndex != null ? testCases[selectedTcIndex] : null;
 
   return (
-    <div
-      style={{
-        borderRadius: 8,
-        overflow: 'hidden',
-        border: '1px solid var(--border, rgba(0,0,0,0.08))',
-        background: 'var(--card, #fff)',
-      }}
-    >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-          gap: 3,
-          padding: '8px 10px',
-        }}
-      >
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-0.5 px-2.5 py-2">
         {testCases.map((tc, i) => {
           const vm = VERDICT_META[tc.verdict] ?? {
             color: '#6b7280',
@@ -764,17 +436,13 @@ function TestCaseResultList({
               onMouseLeave={
                 clickable ? () => setHoveredTcIndex(null) : undefined
               }
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-all duration-150',
+                clickable ? 'cursor-pointer' : 'cursor-default',
+              )}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 8px',
-                borderRadius: 6,
-                fontSize: 12,
                 background:
                   isSelected || hoveredTcIndex === i ? `${vm.color}20` : vm.bg,
-                transition: 'all 0.15s ease',
-                cursor: clickable ? 'pointer' : 'default',
                 outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
                 borderBottom: clickable
                   ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
@@ -782,46 +450,25 @@ function TestCaseResultList({
               }}
             >
               <VerdictIcon verdict={tc.verdict} size={14} />
-              <span
-                style={{
-                  color: 'var(--muted-foreground, #64748b)',
-                  fontSize: 11,
-                }}
-              >
+              <span className="text-[11px] text-muted-foreground">
                 #{i + 1}
               </span>
               {tc.score != null && (
                 <span
-                  style={{
-                    ...MONO,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: tcScoreColor,
-                  }}
+                  className="font-mono tabular-nums text-[10px] font-semibold"
+                  style={{ color: tcScoreColor }}
                 >
                   {tc.score}
                 </span>
               )}
-              <span style={{ flex: 1 }} />
+              <span className="flex-1" />
               {tc.time_used != null && (
-                <span
-                  style={{
-                    ...MONO,
-                    color: 'var(--muted-foreground, #94a3b8)',
-                    fontSize: 10,
-                  }}
-                >
+                <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
                   {formatMs(tc.time_used)}
                 </span>
               )}
               {tc.memory_used != null && (
-                <span
-                  style={{
-                    ...MONO,
-                    color: 'var(--muted-foreground, #94a3b8)',
-                    fontSize: 10,
-                  }}
-                >
+                <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
                   {formatKb(tc.memory_used)}
                 </span>
               )}
@@ -829,11 +476,9 @@ function TestCaseResultList({
                 <ChevronDown
                   size={10}
                   color={vm.color}
+                  className="shrink-0 opacity-50 transition-transform duration-200"
                   style={{
-                    flexShrink: 0,
-                    transition: 'transform 0.2s ease',
                     transform: isSelected ? 'rotate(180deg)' : 'rotate(0deg)',
-                    opacity: 0.5,
                   }}
                 />
               )}
@@ -843,7 +488,7 @@ function TestCaseResultList({
       </div>
 
       {selectedTc && selectedTcIndex != null && (
-        <div style={{ padding: '0 10px 10px' }}>
+        <div className="px-2.5 pb-2.5">
           <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
         </div>
       )}
@@ -863,63 +508,18 @@ function TotalScoreSummary({
   const { t } = useTranslation();
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px 20px',
-        borderRadius: 8,
-        background: 'var(--muted, rgba(0,0,0,0.02))',
-        border: '1px solid var(--border, rgba(0,0,0,0.08))',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          textAlign: 'center',
-          width: '100%',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            fontSize: 10,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: 'var(--muted-foreground, #94a3b8)',
-            marginBottom: 6,
-          }}
-        >
+    <div className="flex items-center justify-center rounded-lg border border-border bg-muted px-5 py-4">
+      <div className="flex w-full flex-col items-center justify-center text-center">
+        <div className="mb-1.5 flex items-center justify-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           {t('ioi.submission.totalScore')}
           {tokened && <TokenedBadge />}
         </div>
         <div
-          style={{
-            ...MONO,
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'center',
-            fontSize: 24,
-            fontWeight: 700,
-            color: scoreColor(totalScore, maxScore),
-          }}
+          className="flex items-baseline justify-center font-mono tabular-nums text-2xl font-bold"
+          style={{ color: scoreColor(totalScore, maxScore) }}
         >
           {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
-          <span
-            style={{
-              fontWeight: 400,
-              fontSize: 16,
-              color: 'var(--muted-foreground, #94a3b8)',
-            }}
-          >
+          <span className="text-base font-normal text-muted-foreground">
             /{maxScore.toFixed(maxScore === Math.floor(maxScore) ? 0 : 2)}
           </span>
         </div>
@@ -937,7 +537,7 @@ function SubtaskCard({
 }: {
   subtask: SubtaskInfo;
   score: number;
-  testCases: TestCaseResultResponse[];
+  testCases: TestCaseResult[];
   feedbackLevel: string;
   index: number;
 }) {
@@ -969,47 +569,21 @@ function SubtaskCard({
 
   return (
     <div
-      style={{
-        borderRadius: 8,
-        overflow: 'hidden',
-        border: '1px solid var(--border, rgba(0,0,0,0.08))',
-        borderLeft: `3px solid ${color}`,
-        background: 'var(--card, #fff)',
-      }}
+      className="overflow-hidden rounded-lg border border-border bg-card"
+      style={{ borderLeft: `3px solid ${color}` }}
     >
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '10px 14px',
-          gap: 8,
-        }}
-      >
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--foreground, #1e293b)',
-              }}
-            >
+      <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-foreground">
               {subtask.name ||
                 t('ioi.submission.subtaskFallback', { index: index + 1 })}
             </div>
           </div>
           <span
+            className="rounded font-mono tabular-nums px-1.5 py-px text-[9px] font-bold tracking-wide"
             style={{
-              ...MONO,
-              padding: '1px 5px',
-              borderRadius: 4,
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
               background: `${method.color}14`,
               color: method.color,
             }}
@@ -1018,55 +592,31 @@ function SubtaskCard({
           </span>
         </div>
         <span
-          style={{
-            ...MONO,
-            fontSize: 14,
-            fontWeight: 700,
-            color,
-            whiteSpace: 'nowrap',
-          }}
+          className="whitespace-nowrap font-mono tabular-nums text-sm font-bold"
+          style={{ color }}
         >
           {score.toFixed(score === Math.floor(score) ? 0 : 2)}
-          <span
-            style={{
-              fontWeight: 400,
-              fontSize: 12,
-              color: 'var(--muted-foreground, #94a3b8)',
-            }}
-          >
+          <span className="text-xs font-normal text-muted-foreground">
             /{maxScore.toFixed(maxScore === Math.floor(maxScore) ? 0 : 2)}
           </span>
         </span>
       </div>
 
       {/* Progress bar */}
-      <div
-        style={{
-          height: 3,
-          background: 'var(--muted, rgba(0,0,0,0.04))',
-        }}
-      >
+      <div className="h-[3px] bg-muted">
         <div
+          className="h-full rounded-r-sm transition-[width] duration-[400ms] ease-in-out"
           style={{
-            height: '100%',
             width: `${Math.min(frac * 100, 100)}%`,
             background: `linear-gradient(90deg, ${color}cc, ${color})`,
-            borderRadius: '0 2px 2px 0',
-            transition: 'width 0.4s ease',
           }}
         />
       </div>
 
       {/* Test cases (full feedback only) */}
       {feedbackLevel === 'full' && testCases.length > 0 && (
-        <div style={{ padding: '8px 10px' }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: 3,
-            }}
-          >
+        <div className="px-2.5 py-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-0.5">
             {visibleTCs.map((tc, i) => {
               const vm = VERDICT_META[tc.verdict] ?? {
                 color: '#6b7280',
@@ -1101,19 +651,15 @@ function SubtaskCard({
                         }
                       : undefined
                   }
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-all duration-150',
+                    clickable ? 'cursor-pointer' : 'cursor-default',
+                  )}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    fontSize: 12,
                     background:
                       isSelected || hoveredTcIndex === i
                         ? `${vm.color}20`
                         : vm.bg,
-                    transition: 'all 0.15s ease',
-                    cursor: clickable ? 'pointer' : 'default',
                     outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
                     borderBottom: clickable
                       ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
@@ -1127,46 +673,25 @@ function SubtaskCard({
                   }
                 >
                   <VerdictIcon verdict={tc.verdict} size={14} />
-                  <span
-                    style={{
-                      color: 'var(--muted-foreground, #64748b)',
-                      fontSize: 11,
-                    }}
-                  >
+                  <span className="text-[11px] text-muted-foreground">
                     #{i + 1}
                   </span>
                   {tc.score != null && (
                     <span
-                      style={{
-                        ...MONO,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: tcScoreColor,
-                      }}
+                      className="font-mono tabular-nums text-[10px] font-semibold"
+                      style={{ color: tcScoreColor }}
                     >
                       {tc.score}
                     </span>
                   )}
-                  <span style={{ flex: 1 }} />
+                  <span className="flex-1" />
                   {tc.time_used != null && (
-                    <span
-                      style={{
-                        ...MONO,
-                        color: 'var(--muted-foreground, #94a3b8)',
-                        fontSize: 10,
-                      }}
-                    >
+                    <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
                       {formatMs(tc.time_used)}
                     </span>
                   )}
                   {tc.memory_used != null && (
-                    <span
-                      style={{
-                        ...MONO,
-                        color: 'var(--muted-foreground, #94a3b8)',
-                        fontSize: 10,
-                      }}
-                    >
+                    <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
                       {formatKb(tc.memory_used)}
                     </span>
                   )}
@@ -1174,13 +699,11 @@ function SubtaskCard({
                     <ChevronDown
                       size={10}
                       color={vm.color}
+                      className="shrink-0 opacity-50 transition-transform duration-200"
                       style={{
-                        flexShrink: 0,
-                        transition: 'transform 0.2s ease',
                         transform: isSelected
                           ? 'rotate(180deg)'
                           : 'rotate(0deg)',
-                        opacity: 0.5,
                       }}
                     />
                   )}
@@ -1191,13 +714,16 @@ function SubtaskCard({
 
           {/* Expandable detail panel for selected test case */}
           {selectedTc && selectedTcIndex != null && (
-            <div style={{ marginTop: 6 }}>
+            <div className="mt-1.5">
               <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
             </div>
           )}
 
           {showExpand && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-1 h-auto px-2.5 py-1 text-[11px] font-medium text-primary"
               onClick={() => {
                 if (
                   listExpanded &&
@@ -1208,22 +734,11 @@ function SubtaskCard({
                 }
                 setListExpanded(!listExpanded);
               }}
-              style={{
-                marginTop: 4,
-                padding: '4px 10px',
-                border: 'none',
-                borderRadius: 4,
-                background: 'var(--muted, rgba(0,0,0,0.03))',
-                color: 'var(--primary, #3b82f6)',
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
             >
               {listExpanded
                 ? t('ioi.submission.showLess')
                 : t('ioi.submission.showAll', { count: testCases.length })}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -1234,77 +749,25 @@ function SubtaskCard({
 function TokenedBadge() {
   const { t } = useTranslation();
   return (
-    <span
-      style={{
-        padding: '2px 8px',
-        borderRadius: 10,
-        fontSize: 10,
-        fontWeight: 600,
-        background: 'rgba(59, 130, 246, 0.1)',
-        color: '#3b82f6',
-        textTransform: 'none',
-        letterSpacing: 'normal',
-      }}
+    <Badge
+      variant="secondary"
+      className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-blue-500"
     >
       {t('ioi.submission.tokened')}
-    </span>
+    </Badge>
   );
 }
 
 function LoadingSkeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <style>
-        {`@keyframes ioi-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }`}
-      </style>
+    <div className="flex flex-col gap-2">
       {[120, 200, 160].map((w, i) => (
         <div
           key={i}
-          style={{
-            height: 14,
-            width: w,
-            borderRadius: 4,
-            background: 'var(--muted, #e5e7eb)',
-            animation: 'ioi-pulse 1.5s ease-in-out infinite',
-            animationDelay: `${i * 150}ms`,
-          }}
+          className="h-3.5 animate-pulse rounded bg-muted"
+          style={{ width: w }}
         />
       ))}
-    </div>
-  );
-}
-
-const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
-  Pending: { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280' },
-  Running: { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' },
-  Judged: { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' },
-  SystemError: { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
-  CompilationError: { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
-  Rejected: { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
-};
-
-function SubmissionStatusBadge({ status }: { status: string }) {
-  const { t } = useTranslation();
-  const s = STATUS_STYLES[status] ?? STATUS_STYLES.Pending;
-  return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '6px 12px',
-        borderRadius: 6,
-        background: s.bg,
-        color: s.color,
-        fontSize: 12,
-        fontWeight: 600,
-        alignSelf: 'flex-start',
-      }}
-    >
-      {status === 'Running' && (
-        <Loader2 size={12} color={s.color} className="animate-spin" />
-      )}
-      {t(`ioi.submission.status.${status}`, status)}
     </div>
   );
 }
@@ -1313,12 +776,12 @@ const TERMINAL_STATUSES = new Set([
   'Judged',
   'CompilationError',
   'SystemError',
-  'Rejected',
 ]);
 
 export function IoiSubmissionResult({
   submission,
   testCases,
+  children,
 }: IoiSubmissionResultProps) {
   const contestId = submission?.contest_id;
   const problemId = submission?.problem_id;
@@ -1408,92 +871,27 @@ export function IoiSubmissionResult({
   });
   const subtaskScoresData = subtaskScoresQuery.data;
 
-  if (guardLoading || !isIoi) return null;
-  if (!submission) return null;
+  // Not IOI or no submission — fall through to default slot children
+  if (guardLoading || !isIoi) return <>{children}</>;
+  if (!submission) return <>{children}</>;
 
-  const isCompileError = submission.status === 'CompilationError';
-  const isRejected = submission.status === 'Rejected';
+  // Host handles code viewer + compile output above the slot for these states
+  if (submission.status === 'CompilationError') return <>{children}</>;
 
-  // Source code viewer (always available if files present)
-  const codeViewer =
-    submission.files && submission.files.length > 0 ? (
-      <CodeViewer files={submission.files} language={submission.language} />
-    ) : null;
-
-  // Compilation error (always shown regardless of feedback level)
-  if (isCompileError) {
-    const compileOutput = submission.result?.compile_output;
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        {compileOutput && <CompileOutput output={compileOutput} />}
-        {!compileOutput && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: 8,
-              borderLeft: '3px solid #ef4444',
-              background: 'rgba(239, 68, 68, 0.06)',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#dc2626',
-            }}
-          >
-            {t('ioi.submission.compilationError')}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Rejection (verdict is null — submission was not judged)
-  if (isRejected) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        <RejectionBanner />
-      </div>
-    );
-  }
-
-  // Loading state for task config (P9)
+  // Loading state for task config
   if (!taskConfig && taskConfigQuery.isLoading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        <LoadingSkeleton />
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
-  // Error state for task config (P9)
+  // Error state for task config
   if (!taskConfig && taskConfigQuery.isError) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        <div
-          style={{
-            padding: '10px 14px',
-            borderRadius: 6,
-            background: 'rgba(245, 158, 11, 0.06)',
-            border: '1px solid rgba(245, 158, 11, 0.2)',
-            fontSize: 12,
-            color: '#b45309',
-          }}
-        >
+      <div className="flex flex-col gap-2">
+        <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-2.5 text-xs text-amber-700">
           {t('ioi.submission.configLoadError')}
         </div>
         {submission?.result?.score != null && (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '12px',
-              ...MONO,
-              fontSize: 20,
-              fontWeight: 700,
-              color: 'var(--foreground, #111)',
-            }}
-          >
+          <div className="p-3 text-center font-mono tabular-nums text-xl font-bold text-foreground">
             {submission.result.score.toFixed(
               submission.result.score === Math.floor(submission.result.score)
                 ? 0
@@ -1505,7 +903,7 @@ export function IoiSubmissionResult({
     );
   }
 
-  if (!submission.result || !taskConfig) return codeViewer;
+  if (!submission.result || !taskConfig || !visibility) return null;
 
   const allTestCases = testCases ?? submission.result.test_case_results ?? [];
   const { effectiveFeedback } = visibility;
@@ -1525,32 +923,14 @@ export function IoiSubmissionResult({
 
   if (effectiveFeedback === 'none') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        <SubmissionStatusBadge status={submission.status} />
+      <div className="flex flex-col gap-2">
         {submission.status === 'SystemError' &&
-          submission.result?.system_error && (
-            <div
-              style={{
-                padding: '8px 12px',
-                borderRadius: 6,
-                fontSize: 12,
-                color: '#dc2626',
-                background: 'rgba(239, 68, 68, 0.06)',
-              }}
-            >
-              {submission.result.system_error}
+          submission.result?.error_message && (
+            <div className="rounded-md bg-red-500/[0.06] px-3 py-2 text-xs text-red-600">
+              {submission.result.error_message}
             </div>
           )}
-        <div
-          style={{
-            padding: 20,
-            textAlign: 'center',
-            color: 'var(--muted-foreground, #94a3b8)',
-            fontSize: 13,
-            fontStyle: 'italic',
-          }}
-        >
+        <div className="p-5 text-center text-[13px] italic text-muted-foreground">
           {t('ioi.submission.noFeedback')}
         </div>
       </div>
@@ -1562,20 +942,12 @@ export function IoiSubmissionResult({
     taskSubtasks.length > 0
       ? taskSubtasks.reduce((sum, s) => sum + s.max_score, 0)
       : 100;
-  const liveStatusBadge =
-    submission.status === 'Pending' ||
-    submission.status === 'Compiling' ||
-    submission.status === 'Running' ? (
-      <SubmissionStatusBadge status={submission.status} />
-    ) : null;
 
   // Feedback: total_only
   if (effectiveFeedback === 'total_only') {
     const totalScore = submission.result.score ?? 0;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        {liveStatusBadge}
+      <div className="flex flex-col gap-2">
         <TotalScoreSummary
           totalScore={totalScore}
           maxScore={configMaxScore}
@@ -1591,9 +963,7 @@ export function IoiSubmissionResult({
 
     if (effectiveFeedback === 'full' && allTestCases.length > 0) {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {codeViewer}
-          {liveStatusBadge}
+        <div className="flex flex-col gap-2">
           <TotalScoreSummary
             totalScore={totalScore}
             maxScore={configMaxScore}
@@ -1605,9 +975,7 @@ export function IoiSubmissionResult({
     }
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {codeViewer}
-        {liveStatusBadge}
+      <div className="flex flex-col gap-2">
         <TotalScoreSummary totalScore={totalScore} maxScore={configMaxScore} />
       </div>
     );
@@ -1623,55 +991,21 @@ export function IoiSubmissionResult({
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {codeViewer}
-      {liveStatusBadge}
-
+    <div className="flex flex-col gap-2">
       {/* Total score summary bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 14px',
-          borderRadius: 8,
-          background: 'var(--muted, rgba(0,0,0,0.02))',
-          border: '1px solid var(--border, rgba(0,0,0,0.08))',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: 'var(--muted-foreground, #94a3b8)',
-            }}
-          >
+      <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3.5 py-2">
+        <div className="flex items-center gap-2.5">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t('ioi.submission.total')}
             {visibility.usesTokenMode && isTokened && <TokenedBadge />}
           </span>
         </div>
         <span
-          style={{
-            ...MONO,
-            fontSize: 16,
-            fontWeight: 700,
-            color: scoreColor(totalScore, maxPossible),
-          }}
+          className="font-mono tabular-nums text-base font-bold"
+          style={{ color: scoreColor(totalScore, maxPossible) }}
         >
           {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
-          <span
-            style={{
-              fontWeight: 400,
-              fontSize: 13,
-              color: 'var(--muted-foreground, #94a3b8)',
-            }}
-          >
+          <span className="text-[13px] font-normal text-muted-foreground">
             /
             {maxPossible.toFixed(
               maxPossible === Math.floor(maxPossible) ? 0 : 2,
@@ -1686,7 +1020,7 @@ export function IoiSubmissionResult({
           r: {
             subtask: SubtaskInfo;
             score: number;
-            testCases: TestCaseResultResponse[];
+            testCases: TestCaseResult[];
           },
           i: number,
         ) => (
@@ -1704,33 +1038,14 @@ export function IoiSubmissionResult({
       {/* Resource usage footer */}
       {(submission.result.time_used != null ||
         submission.result.memory_used != null) && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 12,
-            padding: '4px 0',
-          }}
-        >
+        <div className="flex justify-end gap-3 py-1">
           {submission.result.time_used != null && (
-            <span
-              style={{
-                ...MONO,
-                fontSize: 11,
-                color: 'var(--muted-foreground, #94a3b8)',
-              }}
-            >
+            <span className="font-mono tabular-nums text-[11px] text-muted-foreground">
               {formatMs(submission.result.time_used)}
             </span>
           )}
           {submission.result.memory_used != null && (
-            <span
-              style={{
-                ...MONO,
-                fontSize: 11,
-                color: 'var(--muted-foreground, #94a3b8)',
-              }}
-            >
+            <span className="font-mono tabular-nums text-[11px] text-muted-foreground">
               {formatKb(submission.result.memory_used)}
             </span>
           )}

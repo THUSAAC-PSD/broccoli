@@ -4,7 +4,8 @@
  * token budget indicator.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type React from 'react';
+import { Input } from '@broccoli/web-sdk/ui';
+import { cn } from '@broccoli/web-sdk/utils';
 
 import { getConfiguredScoringMode } from './config-rules';
 
@@ -41,36 +42,6 @@ const TOKEN_MODES = [
   },
 ] as const;
 
-const fieldLabel: React.CSSProperties = {
-  fontSize: '10px',
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  opacity: 0.5,
-  display: 'block',
-  marginBottom: '5px',
-};
-
-const fieldInput: React.CSSProperties = {
-  width: '100%',
-  padding: '7px 10px',
-  borderRadius: '6px',
-  border: '1px solid var(--border, #e5e7eb)',
-  background: 'var(--input, #fff)',
-  color: 'inherit',
-  fontSize: '13px',
-  fontVariantNumeric: 'tabular-nums',
-  outline: 'none',
-  boxSizing: 'border-box',
-  transition: 'border-color 0.15s',
-};
-
-const fieldUnit: React.CSSProperties = {
-  fontSize: '10px',
-  opacity: 0.4,
-  marginTop: '3px',
-};
-
 export function TokenConfigPanel({
   value,
   schema,
@@ -95,48 +66,21 @@ export function TokenConfigPanel({
 
   return (
     <div
+      className="flex flex-col gap-3.5 col-span-2 p-4 rounded-[10px] transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '14px',
-        gridColumn: 'span 2',
-        padding: '16px',
-        borderRadius: '10px',
         border: `1px solid ${isActive ? 'color-mix(in srgb, var(--primary, #4f46e5) 30%, var(--border, #e5e7eb))' : 'var(--border, #e5e7eb)'}`,
         background: isActive
           ? 'color-mix(in srgb, var(--primary, #4f46e5) 2%, var(--card, #fff))'
           : 'var(--card, #fff)',
-        transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div
-          style={{
-            fontSize: '11px',
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            opacity: 0.55,
-          }}
-        >
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-55">
           {schema.title ?? t('ioi.tokenConfig.title')}
         </div>
         {isActive && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className="flex items-center gap-1.5 flex-wrap">
             <StatPill
               label={t('ioi.tokenConfig.initial')}
               value={String(initial)}
@@ -152,17 +96,7 @@ export function TokenConfigPanel({
       </div>
 
       {/* Mode selector */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr 1fr',
-          gap: '0',
-          borderRadius: '8px',
-          border: '1px solid var(--border, #e5e7eb)',
-          overflow: 'hidden',
-          background: 'var(--muted, #f3f4f6)',
-        }}
-      >
+      <div className="grid grid-cols-3 rounded-lg border border-border overflow-hidden bg-muted">
         {TOKEN_MODES.map((m, i) => {
           const isCurrent = mode === m.key;
           const isDisabled = tokensRequired && m.key === 'none';
@@ -176,43 +110,27 @@ export function TokenConfigPanel({
                 }
               }}
               disabled={isDisabled}
+              className={cn(
+                'py-2 px-1 border-none text-xs text-center flex flex-col items-center gap-0.5 relative transition-all duration-150',
+                isCurrent ? 'bg-card font-semibold' : 'bg-transparent',
+                isDisabled
+                  ? 'cursor-not-allowed opacity-35'
+                  : isCurrent
+                    ? 'opacity-100 cursor-pointer'
+                    : 'opacity-60 cursor-pointer',
+              )}
               style={{
-                padding: '8px 4px',
-                border: 'none',
                 borderRight:
                   i < TOKEN_MODES.length - 1
                     ? '1px solid var(--border, #e5e7eb)'
                     : 'none',
-                background: isCurrent ? 'var(--card, #fff)' : 'transparent',
-                cursor: isDisabled ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                fontWeight: isCurrent ? 600 : 400,
                 color: 'inherit',
-                opacity: isDisabled ? 0.35 : isCurrent ? 1 : 0.6,
-                transition: 'all 0.15s',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '2px',
-                position: 'relative',
               }}
             >
               <span>{t(m.labelKey)}</span>
-              <span style={{ fontSize: '9px', opacity: 0.5 }}>
-                {t(m.descKey)}
-              </span>
+              <span className="text-[9px] opacity-50">{t(m.descKey)}</span>
               {isCurrent && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: '20%',
-                    right: '20%',
-                    height: '2px',
-                    borderRadius: '1px 1px 0 0',
-                    background: 'var(--primary, #4f46e5)',
-                  }}
-                />
+                <div className="absolute bottom-0 left-[20%] right-[20%] h-0.5 rounded-t-sm bg-primary" />
               )}
             </button>
           );
@@ -221,41 +139,25 @@ export function TokenConfigPanel({
 
       {/* None mode */}
       {mode === 'none' && (
-        <p
-          style={{
-            fontSize: '12px',
-            opacity: 0.45,
-            margin: 0,
-            fontStyle: 'italic',
-            textAlign: 'center',
-            padding: '8px 0',
-          }}
-        >
+        <p className="text-xs opacity-45 m-0 italic text-center py-2">
           {t('ioi.tokenConfig.disabledMessage')}
         </p>
       )}
 
       {tokensRequired && (
-        <p
-          style={{
-            fontSize: 12,
-            margin: 0,
-            color: 'var(--muted-foreground, #6b7280)',
-            lineHeight: 1.5,
-          }}
-        >
+        <p className="text-xs m-0 text-muted-foreground leading-normal">
           {t('ioi.tokenConfig.requiredForScoringMode')}
         </p>
       )}
 
       {/* Fixed budget mode */}
       {mode === 'fixed_budget' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="flex flex-col gap-2.5">
           <div>
-            <label style={fieldLabel}>
+            <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
               {t('ioi.tokenConfig.initialTokens')}
             </label>
-            <input
+            <Input
               type="number"
               min={0}
               max={100}
@@ -263,64 +165,37 @@ export function TokenConfigPanel({
               onChange={(e) =>
                 update({ initial: parseInt(e.target.value) || 0 })
               }
-              style={fieldInput}
+              className="tabular-nums"
             />
-            <div style={fieldUnit}>{t('ioi.tokenConfig.fixedDuration')}</div>
+            <div className="text-[10px] opacity-40 mt-0.5">
+              {t('ioi.tokenConfig.fixedDuration')}
+            </div>
           </div>
         </div>
       )}
 
       {isActive && (
-        <div
-          style={{
-            fontSize: 11,
-            opacity: 0.5,
-            fontStyle: 'italic',
-            textAlign: 'center',
-            padding: '4px 0',
-          }}
-        >
+        <div className="text-[11px] opacity-50 italic text-center py-1">
           {t('ioi.tokenConfig.feedbackNote')}
         </div>
       )}
 
       {/* Regenerating mode */}
       {mode === 'regenerating' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="flex flex-col gap-3">
           {/* Regen visualization: dots filling up */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              background: 'var(--muted, #f3f4f6)',
-              justifyContent: 'center',
-            }}
-          >
-            <span
-              style={{
-                fontSize: '10px',
-                opacity: 0.4,
-                marginLeft: '4px',
-                fontStyle: 'italic',
-              }}
-            >
+          <div className="flex items-center gap-1.5 py-2 px-3 rounded-md bg-muted justify-center">
+            <span className="text-[10px] opacity-40 ml-1 italic">
               +1 / {val.regen_interval_min ?? 30}min
             </span>
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 1fr',
-              gap: '10px',
-            }}
-          >
+          <div className="grid grid-cols-3 gap-2.5">
             <div>
-              <label style={fieldLabel}>{t('ioi.tokenConfig.initial')}</label>
-              <input
+              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+                {t('ioi.tokenConfig.initial')}
+              </label>
+              <Input
                 type="number"
                 min={0}
                 max={100}
@@ -328,25 +203,33 @@ export function TokenConfigPanel({
                 onChange={(e) =>
                   update({ initial: parseInt(e.target.value) || 0 })
                 }
-                style={fieldInput}
+                className="tabular-nums"
               />
-              <div style={fieldUnit}>{t('ioi.tokenConfig.startingTokens')}</div>
+              <div className="text-[10px] opacity-40 mt-0.5">
+                {t('ioi.tokenConfig.startingTokens')}
+              </div>
             </div>
             <div>
-              <label style={fieldLabel}>{t('ioi.tokenConfig.maximum')}</label>
-              <input
+              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+                {t('ioi.tokenConfig.maximum')}
+              </label>
+              <Input
                 type="number"
                 min={0}
                 max={100}
                 value={max}
                 onChange={(e) => update({ max: parseInt(e.target.value) || 0 })}
-                style={fieldInput}
+                className="tabular-nums"
               />
-              <div style={fieldUnit}>{t('ioi.tokenConfig.cap')}</div>
+              <div className="text-[10px] opacity-40 mt-0.5">
+                {t('ioi.tokenConfig.cap')}
+              </div>
             </div>
             <div>
-              <label style={fieldLabel}>{t('ioi.tokenConfig.interval')}</label>
-              <input
+              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+                {t('ioi.tokenConfig.interval')}
+              </label>
+              <Input
                 type="number"
                 min={1}
                 max={1440}
@@ -354,9 +237,9 @@ export function TokenConfigPanel({
                 onChange={(e) =>
                   update({ regen_interval_min: parseInt(e.target.value) || 1 })
                 }
-                style={fieldInput}
+                className="tabular-nums"
               />
-              <div style={fieldUnit}>
+              <div className="text-[10px] opacity-40 mt-0.5">
                 {t('ioi.tokenConfig.minutesPerToken')}
               </div>
             </div>
@@ -373,20 +256,14 @@ function StatPill({
 }: Readonly<{ label: string; value: string }>) {
   return (
     <div
+      className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-[10px]"
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '6px',
-        fontSize: '10px',
-        fontWeight: 500,
-        padding: '2px 8px',
-        borderRadius: '10px',
         background:
           'color-mix(in srgb, var(--primary, #4f46e5) 10%, transparent)',
         color: 'var(--primary, #4f46e5)',
       }}
     >
-      <span style={{ opacity: 0.7 }}>{label}</span>
+      <span className="opacity-70">{label}</span>
       <span>{value}</span>
     </div>
   );

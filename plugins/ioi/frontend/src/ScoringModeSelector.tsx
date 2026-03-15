@@ -3,6 +3,7 @@
  * Three IOI scoring eras, rendered as a horizontal timeline with selectable cards.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { cn } from '@broccoli/web-sdk/utils';
 
 import { getConfiguredTokenMode } from './config-rules';
 
@@ -65,57 +66,22 @@ export function ScoringModeSelector({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-        gridColumn: 'span 2',
-      }}
-    >
-      <label
-        style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          opacity: 0.55,
-        }}
-      >
+    <div className="flex flex-col gap-2.5 col-span-2">
+      <label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
         {schema.title ?? t('ioi.scoringMode.label')}
       </label>
       {schema.description && (
-        <p
-          style={{ fontSize: '12px', opacity: 0.5, margin: 0, lineHeight: 1.5 }}
-        >
+        <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}
         </p>
       )}
 
       {/* Timeline connector */}
-      <div style={{ position: 'relative' }}>
+      <div className="relative">
         {/* Horizontal line behind cards */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '18px',
-            left: '16px',
-            right: '16px',
-            height: '2px',
-            background: 'var(--border, #e5e7eb)',
-            zIndex: 0,
-          }}
-        />
+        <div className="absolute top-[18px] left-4 right-4 h-0.5 bg-border z-0" />
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            gap: '12px',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
+        <div className="grid grid-cols-3 gap-3 relative z-[1]">
           {MODES.map((mode) => {
             const isSelected = selected === mode.key;
             const accentColor = isSelected
@@ -127,27 +93,11 @@ export function ScoringModeSelector({
                 key={mode.key}
                 type="button"
                 onClick={() => handleSelect(mode.key)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'stretch',
-                  gap: '0',
-                  border: 'none',
-                  padding: '0',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  background: 'none',
-                  color: 'inherit',
-                }}
+                className="flex flex-col items-stretch gap-0 border-none p-0 text-left cursor-pointer bg-transparent"
+                style={{ color: 'inherit' }}
               >
                 {/* Timeline dot */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    marginBottom: '10px',
-                  }}
-                >
+                <div className="flex justify-center mb-2.5">
                   <div
                     style={{
                       width: isSelected ? '14px' : '10px',
@@ -167,75 +117,54 @@ export function ScoringModeSelector({
 
                 {/* Era label */}
                 <div
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    letterSpacing: '0.04em',
-                    color: accentColor,
-                    textAlign: 'center',
-                    marginBottom: '8px',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
+                  className="text-[10px] font-semibold tracking-[0.04em] text-center mb-2 tabular-nums"
+                  style={{ color: accentColor }}
                 >
                   {t(mode.eraKey)}
                 </div>
 
                 {/* Card body */}
                 <div
+                  className={cn(
+                    'rounded-lg p-3 flex-1 transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]',
+                  )}
                   style={{
-                    borderRadius: '8px',
                     border: isSelected
                       ? `1.5px solid ${mode.accent}`
                       : '1px solid var(--border, #e5e7eb)',
-                    padding: '12px',
                     background: isSelected
                       ? `color-mix(in srgb, ${mode.accent} 4%, var(--card, #fff))`
                       : 'var(--card, #fff)',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    flex: 1,
                   }}
                 >
                   {/* Formula badge */}
                   <div
+                    className="text-[11px] font-mono font-medium py-0.5 px-2 rounded inline-block mb-2 tracking-[0.01em] transition-all duration-200"
                     style={{
-                      fontSize: '11px',
-                      fontFamily:
-                        'ui-monospace, "Cascadia Code", "Fira Code", Menlo, monospace',
-                      fontWeight: 500,
-                      padding: '3px 8px',
-                      borderRadius: '4px',
                       background: isSelected
                         ? `color-mix(in srgb, ${mode.accent} 12%, transparent)`
                         : 'var(--muted, #f3f4f6)',
                       color: isSelected
                         ? mode.accent
                         : 'var(--muted-foreground, #6b7280)',
-                      display: 'inline-block',
-                      marginBottom: '8px',
-                      letterSpacing: '0.01em',
-                      transition: 'all 0.2s',
                     }}
                   >
                     {mode.formula}
                   </div>
 
                   <div
-                    style={{
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      marginBottom: '4px',
-                      opacity: isSelected ? 1 : 0.8,
-                    }}
+                    className={cn(
+                      'text-[13px] font-semibold mb-1',
+                      isSelected ? 'opacity-100' : 'opacity-80',
+                    )}
                   >
                     {t(mode.titleKey)}
                   </div>
                   <div
-                    style={{
-                      fontSize: '11px',
-                      opacity: isSelected ? 0.65 : 0.45,
-                      lineHeight: 1.5,
-                      transition: 'opacity 0.2s',
-                    }}
+                    className={cn(
+                      'text-[11px] leading-normal transition-opacity duration-200',
+                      isSelected ? 'opacity-65' : 'opacity-45',
+                    )}
                   >
                     {t(mode.descriptionKey)}
                   </div>
@@ -245,11 +174,11 @@ export function ScoringModeSelector({
           })}
         </div>
 
-        <details style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
-          <summary style={{ cursor: 'pointer' }}>
+        <details className="text-[11px] opacity-60 mt-2">
+          <summary className="cursor-pointer">
             {t('ioi.scoringMode.howItWorks')}
           </summary>
-          <p style={{ marginTop: 6, lineHeight: 1.6, margin: '6px 0 0' }}>
+          <p className="mt-1.5 leading-relaxed m-0">
             {t('ioi.scoringMode.explanation')}
           </p>
         </details>

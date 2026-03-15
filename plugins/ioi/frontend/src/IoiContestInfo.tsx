@@ -1,4 +1,5 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Badge } from '@broccoli/web-sdk/ui';
 import { useParams } from 'react-router';
 
 import { useIsIoiContest } from './hooks/useIsIoiContest';
@@ -43,72 +44,27 @@ export function IoiContestInfo() {
     : { title: contestInfo.scoring_mode, description: '' };
 
   return (
-    <div
-      style={{
-        border: '1px solid var(--border, #e5e7eb)',
-        borderRadius: 8,
-        background: 'var(--card, #fff)',
-        marginBottom: 16,
-        textAlign: 'left',
-      }}
-    >
+    <div className="rounded-lg border border-border bg-card mb-4 p-4 text-left">
       {/* Title row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <span
-          style={{
-            display: 'inline-flex',
-            padding: '2px 8px',
-            borderRadius: 4,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: '0.05em',
-            background: 'rgba(16, 185, 129, 0.1)',
-            color: '#10b981',
-            textTransform: 'uppercase',
-          }}
+      <div className="flex items-center gap-2 mb-2">
+        <Badge
+          variant="default"
+          className="uppercase text-[11px] font-bold tracking-wide"
         >
           IOI
-        </span>
-        <span
-          style={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: 'var(--foreground, #111)',
-          }}
-        >
+        </Badge>
+        <span className="text-sm font-semibold text-foreground">
           {mode.title}
         </span>
       </div>
 
       {/* Description */}
-      <div
-        style={{
-          fontSize: 12,
-          color: 'var(--muted-foreground, #888)',
-          marginBottom: 10,
-        }}
-      >
+      <div className="text-xs text-muted-foreground mb-2.5">
         {mode.description}
       </div>
 
       {/* Metadata row */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 16,
-          fontSize: 12,
-          color: 'var(--muted-foreground, #666)',
-          justifyContent: 'flex-start',
-        }}
-      >
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground justify-start">
         <MetaItem
           label={
             FEEDBACK_KEYS[contestInfo.feedback_level]
@@ -132,17 +88,7 @@ export function IoiContestInfo() {
 
 function MetaItem({ label }: { label: string }) {
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        borderRadius: 4,
-        background: 'var(--muted, #f3f4f6)',
-        fontSize: 11,
-        fontWeight: 500,
-      }}
-    >
+    <span className="inline-flex items-center gap-1 rounded bg-muted text-[11px] font-medium">
       {label}
     </span>
   );

@@ -5,6 +5,7 @@ description = "Stress-test plugin for config UI"
 [web]
 root = "frontend/dist"
 entry = "index.js"
+css = ["styles.css"]
 
 [web.components]
 ColorPickerField = "ColorPickerField"

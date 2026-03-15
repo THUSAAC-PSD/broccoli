@@ -143,6 +143,7 @@ pub fn check_limit(input: String) -> FnResult<String> {
 }
 
 // API: GET /api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status
+// API: GET /api/plugins/submission-limit/problems/{problem_id}/status
 
 #[derive(Serialize)]
 struct LimitStatusResponse {
@@ -156,6 +157,19 @@ struct LimitStatusResponse {
 
 #[plugin_fn]
 pub fn get_limit_status(input: String) -> FnResult<String> {
+    let resp = match handle_limit_status(&input) {
+        Ok(r) => r,
+        Err(e) => PluginHttpResponse {
+            status: 500,
+            headers: None,
+            body: Some(serde_json::json!({ "error": format!("{e:?}") })),
+        },
+    };
+    Ok(serde_json::to_string(&resp)?)
+}
+
+#[plugin_fn]
+pub fn get_limit_status_standalone(input: String) -> FnResult<String> {
     let resp = match handle_limit_status(&input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
@@ -182,11 +196,7 @@ fn handle_limit_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
         }
     };
 
-    let contest_id: i32 = req
-        .params
-        .get("contest_id")
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| SdkError::Other("Missing contest_id".into()))?;
+    let contest_id: Option<i32> = req.params.get("contest_id").and_then(|s| s.parse().ok());
 
     let problem_id: i32 = req
         .params
@@ -194,49 +204,56 @@ fn handle_limit_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
-    #[derive(Deserialize)]
-    struct ContestAccess {
-        is_active: bool,
-        is_participant: bool,
-        has_problem: bool,
-    }
-    let access_rows: Vec<ContestAccess> = host::db::db_query(&format!(
-        "SELECT \
-            ((activate_time IS NULL OR activate_time <= NOW()) AND \
-             (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
-            EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {contest_id} AND user_id = {user_id}) AS is_participant, \
-            EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {contest_id} AND problem_id = {problem_id}) AS has_problem \
-         FROM contest WHERE id = {contest_id}"
-    ))?;
-    let access = match access_rows.first() {
-        Some(access) => access,
-        None => {
+    // Contest access check (only when contest_id is present)
+    if let Some(contest_id) = contest_id {
+        #[derive(Deserialize)]
+        struct ContestAccess {
+            is_active: bool,
+            is_participant: bool,
+            has_problem: bool,
+        }
+        let access_rows: Vec<ContestAccess> = host::db::db_query(&format!(
+            "SELECT \
+                ((activate_time IS NULL OR activate_time <= NOW()) AND \
+                 (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
+                EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {contest_id} AND user_id = {user_id}) AS is_participant, \
+                EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {contest_id} AND problem_id = {problem_id}) AS has_problem \
+             FROM contest WHERE id = {contest_id}"
+        ))?;
+        let access = match access_rows.first() {
+            Some(access) => access,
+            None => {
+                return Ok(PluginHttpResponse {
+                    status: 404,
+                    headers: None,
+                    body: Some(serde_json::json!({ "error": "Contest not found" })),
+                });
+            }
+        };
+        if !access.has_problem
+            || (!req.has_permission("contest:manage")
+                && (!access.is_active || !access.is_participant))
+        {
             return Ok(PluginHttpResponse {
                 status: 404,
                 headers: None,
                 body: Some(serde_json::json!({ "error": "Contest not found" })),
             });
         }
-    };
-    if !access.has_problem
-        || (!req.has_permission("contest:manage") && (!access.is_active || !access.is_participant))
-    {
-        return Ok(PluginHttpResponse {
-            status: 404,
-            headers: None,
-            body: Some(serde_json::json!({ "error": "Contest not found" })),
-        });
     }
 
-    let resolved = resolve_max_submissions(Some(contest_id), problem_id)?;
+    let resolved = resolve_max_submissions(contest_id, problem_id)?;
     let unlimited = resolved.max_submissions == 0;
 
-    // Safety: all interpolated values are i32
+    let contest_filter = match contest_id {
+        Some(cid) => format!("AND contest_id = {}", cid),
+        None => "AND contest_id IS NULL".to_string(),
+    };
     let rows: Vec<SubmissionCount> = host::db::db_query(&format!(
         "SELECT COUNT(*) as count \
          FROM submission \
-         WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
-        user_id, problem_id, contest_id
+         WHERE user_id = {} AND problem_id = {} {}",
+        user_id, problem_id, contest_filter
     ))?;
 
     let count = rows.first().map(|r| r.count).unwrap_or(0) as u32;

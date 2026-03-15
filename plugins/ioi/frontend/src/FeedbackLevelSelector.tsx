@@ -39,28 +39,12 @@ export function FeedbackLevelSelector({
       : 'full';
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-      }}
-    >
-      <label
-        style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          opacity: 0.55,
-        }}
-      >
+    <div className="flex flex-col gap-2">
+      <label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
         {schema.title ?? t('ioi.feedbackLevel.label')}
       </label>
       {schema.description && (
-        <p
-          style={{ fontSize: '12px', opacity: 0.5, margin: 0, lineHeight: 1.5 }}
-        >
+        <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}
         </p>
       )}
@@ -77,14 +61,7 @@ export function FeedbackLevelSelector({
         ))}
       </select>
 
-      <p
-        style={{
-          fontSize: '12px',
-          margin: 0,
-          color: 'var(--muted-foreground, #6b7280)',
-          lineHeight: 1.5,
-        }}
-      >
+      <p className="text-xs m-0 text-muted-foreground leading-normal">
         {tokenEnabled
           ? t('ioi.feedbackLevel.tokenEnabledHint')
           : t('ioi.feedbackLevel.tokenDisabledHint')}

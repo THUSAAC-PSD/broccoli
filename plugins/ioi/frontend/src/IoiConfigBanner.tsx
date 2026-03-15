@@ -33,22 +33,8 @@ export function IoiConfigBanner({ scope }: IoiConfigBannerProps) {
 
   if (phase === 'during') {
     return (
-      <div
-        style={{
-          padding: '10px 14px',
-          borderRadius: 6,
-          marginBottom: 12,
-          fontSize: 13,
-          fontWeight: 500,
-          background: 'rgba(245, 158, 11, 0.08)',
-          color: '#b45309',
-          border: '1px solid rgba(245, 158, 11, 0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <span style={{ fontSize: 16 }}>!</span>
+      <div className="p-2.5 px-3.5 rounded-md mb-3 text-[13px] font-medium bg-amber-500/10 text-amber-700 border border-amber-500/20 flex items-center gap-2">
+        <span className="text-base">!</span>
         {t('ioi.config.activeContestWarning')}
       </div>
     );
@@ -56,17 +42,7 @@ export function IoiConfigBanner({ scope }: IoiConfigBannerProps) {
 
   if (phase === 'before') {
     return (
-      <div
-        style={{
-          padding: '8px 14px',
-          borderRadius: 6,
-          marginBottom: 12,
-          fontSize: 12,
-          color: 'var(--muted-foreground, #888)',
-          background: 'var(--muted, #f9fafb)',
-          border: '1px solid var(--border, #e5e7eb)',
-        }}
-      >
+      <div className="p-2 px-3.5 rounded-md mb-3 text-xs text-muted-foreground bg-muted border border-border">
         {t('ioi.config.beforeContestInfo')}
       </div>
     );

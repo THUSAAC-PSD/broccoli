@@ -2,6 +2,7 @@
  * Cooldown rejection wrapper for the `submission-result.rejection` slot.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Badge } from '@broccoli/web-sdk/ui';
 import {
   type ReactNode,
   useCallback,
@@ -17,12 +18,6 @@ interface Props {
 
 const RING_RADIUS = 40;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
-const MONO: React.CSSProperties = {
-  fontVariantNumeric: 'tabular-nums',
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-};
 
 function getCooldownSeconds(details?: Record<string, unknown>): number | null {
   if (!details) return null;
@@ -69,65 +64,26 @@ function CooldownCountdown({ details }: { details?: Record<string, unknown> }) {
 
   const progress = initialRef.current > 0 ? remaining / initialRef.current : 0;
   const dashOffset = RING_CIRCUMFERENCE * (1 - progress);
+  const pct = (1 - progress) * 100;
 
   return (
-    <div
-      style={{
-        border: '1px solid var(--border, #e5e7eb)',
-        borderRadius: 12,
-        background: 'var(--card, #fff)',
-        overflow: 'hidden',
-        height: '100%',
-      }}
-    >
+    <div className="rounded-xl border border-border bg-card overflow-hidden h-full">
       {/* Header */}
-      <div style={{ padding: '20px 24px 0' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span
-            style={{
-              fontSize: 16,
-              fontWeight: 600,
-              color: 'var(--foreground, #111)',
-            }}
-          >
+      <div className="px-6 pt-5">
+        <div className="flex items-center justify-between">
+          <span className="text-base font-semibold text-foreground">
             {t('cooldown.result')}
           </span>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 500,
-              padding: '2px 8px',
-              borderRadius: 9999,
-              background: 'var(--secondary, #f1f5f9)',
-              color: 'var(--secondary-foreground, #475569)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
+          <Badge variant="secondary" className="rounded-full">
             {t('cooldown.cooldown')}
-          </span>
+          </Badge>
         </div>
       </div>
 
       {/* Content */}
-      <div
-        style={{
-          padding: '8px 24px 24px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 20,
-        }}
-      >
+      <div className="px-6 pb-6 pt-2 flex flex-col items-center gap-5">
         {/* Countdown ring */}
-        <div style={{ position: 'relative' }}>
+        <div className="relative">
           <svg
             width="100"
             height="100"
@@ -157,26 +113,11 @@ function CooldownCountdown({ details }: { details?: Record<string, unknown> }) {
               }}
             />
           </svg>
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
+          <div className="absolute inset-0 flex items-center justify-center">
             {expired ? (
-              <span style={{ fontSize: 28, color: '#10b981' }}>&#10003;</span>
+              <span className="text-[28px] text-emerald-500">&#10003;</span>
             ) : (
-              <span
-                style={{
-                  ...MONO,
-                  fontSize: 24,
-                  fontWeight: 700,
-                  color: 'var(--foreground, #111)',
-                }}
-              >
+              <span className="font-mono tabular-nums text-2xl font-bold text-foreground">
                 {remaining}
               </span>
             )}
@@ -184,40 +125,22 @@ function CooldownCountdown({ details }: { details?: Record<string, unknown> }) {
         </div>
 
         {/* Label */}
-        <div style={{ textAlign: 'center', maxWidth: 260 }}>
+        <div className="text-center max-w-[260px]">
           {expired ? (
             <>
-              <p style={{ fontSize: 13, fontWeight: 500, color: '#10b981' }}>
+              <p className="text-[13px] font-medium text-emerald-500">
                 {t('cooldown.readyToSubmit')}
               </p>
-              <p
-                style={{
-                  fontSize: 11,
-                  color: 'var(--muted-foreground, #888)',
-                  marginTop: 4,
-                }}
-              >
+              <p className="text-[11px] text-muted-foreground mt-1">
                 {t('cooldown.canSubmitNow')}
               </p>
             </>
           ) : (
             <>
-              <p
-                style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: 'var(--foreground, #111)',
-                }}
-              >
+              <p className="text-[13px] font-medium text-foreground">
                 {t('cooldown.cooldownActive')}
               </p>
-              <p
-                style={{
-                  fontSize: 11,
-                  color: 'var(--muted-foreground, #888)',
-                  marginTop: 4,
-                }}
-              >
+              <p className="text-[11px] text-muted-foreground mt-1">
                 {t('cooldown.waitSeconds', { seconds: remaining })}
               </p>
             </>
@@ -226,23 +149,11 @@ function CooldownCountdown({ details }: { details?: Record<string, unknown> }) {
 
         {/* Progress bar */}
         {!expired && initialRef.current > 0 && (
-          <div style={{ width: '100%', maxWidth: 200 }}>
-            <div
-              style={{
-                height: 4,
-                borderRadius: 2,
-                background: 'var(--muted, #f3f4f6)',
-                overflow: 'hidden',
-              }}
-            >
+          <div className="w-full max-w-[200px]">
+            <div className="h-1 rounded-sm bg-muted overflow-hidden">
               <div
-                style={{
-                  height: '100%',
-                  borderRadius: 2,
-                  background: '#f59e0b',
-                  width: `${(1 - progress) * 100}%`,
-                  transition: 'width 0.3s linear',
-                }}
+                className="h-full rounded-sm bg-amber-500"
+                style={{ width: `${pct}%`, transition: 'width 0.3s linear' }}
               />
             </div>
           </div>

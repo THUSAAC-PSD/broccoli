@@ -20,12 +20,18 @@ method = "GET"
 path = "/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
 handler = "get_limit_status"
 
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/submission-limit/problems/{problem_id}/status"
+handler = "get_limit_status_standalone"
+
 [translations]
 en = "i18n/en.toml"
 
 [web]
 root = "frontend/dist"
 entry = "index.js"
+css = ["styles.css"]
 
 [web.components]
 LimitConfigInfo = "LimitConfigInfo"

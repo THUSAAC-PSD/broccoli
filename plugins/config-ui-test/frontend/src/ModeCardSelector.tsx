@@ -5,6 +5,8 @@
  * Receives slot props: { value, schema, onChange, path }
  */
 
+import { cn } from '@broccoli/web-sdk/utils';
+
 interface ModeCardSelectorProps {
   value: unknown;
   schema: { title?: string; description?: string; enum?: string[] };
@@ -36,45 +38,17 @@ export function ModeCardSelector({
   const selected = typeof value === 'string' ? value : '';
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-        gridColumn: 'span 2',
-      }}
-    >
-      <label
-        style={{
-          fontSize: '11px',
-          fontWeight: 500,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          opacity: 0.6,
-        }}
-      >
+    <div className="flex flex-col gap-1.5 col-span-2">
+      <label className="text-[11px] font-medium uppercase tracking-wide opacity-60">
         {schema.title ?? 'Mode'}
-        <span
-          style={{
-            marginLeft: '6px',
-            fontSize: '10px',
-            fontWeight: 400,
-            textTransform: 'none',
-            letterSpacing: 'normal',
-            color: '#d97706',
-          }}
-        >
+        <span className="ml-1.5 text-[10px] font-normal normal-case tracking-normal text-amber-600">
           (plugin override)
         </span>
       </label>
       {schema.description && (
-        <p style={{ fontSize: '12px', opacity: 0.6, margin: 0 }}>
-          {schema.description}
-        </p>
+        <p className="text-xs opacity-60 m-0">{schema.description}</p>
       )}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}
-      >
+      <div className="grid grid-cols-2 gap-2">
         {modes.map((mode) => {
           const info = MODE_INFO[mode] ?? { icon: '\u2753', description: mode };
           const isSelected = selected === mode;
@@ -83,46 +57,23 @@ export function ModeCardSelector({
               key={mode}
               type="button"
               onClick={() => onChange(mode)}
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '12px',
-                borderRadius: '8px',
-                border: isSelected
-                  ? '2px solid var(--primary, #4f46e5)'
-                  : '1px solid var(--border, #e5e7eb)',
-                padding: '12px',
-                textAlign: 'left' as const,
-                cursor: 'pointer',
-                background: isSelected
-                  ? 'color-mix(in srgb, var(--primary, #4f46e5) 5%, transparent)'
-                  : 'transparent',
-                transition: 'border-color 0.15s, background 0.15s',
-              }}
+              className={cn(
+                'flex items-start gap-3 rounded-lg p-3 text-left cursor-pointer transition-colors duration-150',
+                isSelected ? 'border-2 border-primary' : 'border border-input',
+              )}
+              style={
+                isSelected
+                  ? {
+                      background:
+                        'color-mix(in srgb, var(--primary, #4f46e5) 5%, transparent)',
+                    }
+                  : undefined
+              }
             >
-              <span
-                style={{ fontSize: '20px', lineHeight: 1, marginTop: '2px' }}
-              >
-                {info.icon}
-              </span>
+              <span className="text-xl leading-none mt-0.5">{info.icon}</span>
               <div>
-                <div
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    textTransform: 'capitalize' as const,
-                  }}
-                >
-                  {mode}
-                </div>
-                <div
-                  style={{
-                    fontSize: '11px',
-                    opacity: 0.6,
-                    marginTop: '2px',
-                    lineHeight: 1.4,
-                  }}
-                >
+                <div className="text-[13px] font-medium capitalize">{mode}</div>
+                <div className="text-[11px] opacity-60 mt-0.5 leading-snug">
                   {info.description}
                 </div>
               </div>

@@ -3,6 +3,10 @@
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { TestCaseSummary } from '@broccoli/web-sdk/problem';
+
+type TestCaseListItem = TestCaseSummary;
+import { Button, Input } from '@broccoli/web-sdk/ui';
+import { cn } from '@broccoli/web-sdk/utils';
 import type React from 'react';
 import {
   useCallback,
@@ -48,23 +52,6 @@ function getPortalOffset(portalTarget: HTMLElement): {
   portalTarget.removeChild(probe);
   return { dx: probeRect.left, dy: probeRect.top };
 }
-
-const hsl = (n: string, fb: string) => `hsl(var(--${n}, ${fb}))`;
-
-const th = {
-  popover: hsl('popover', '0 0% 100%'),
-  popoverFg: hsl('popover-foreground', '240 10% 3.9%'),
-  card: hsl('card', '0 0% 100%'),
-  muted: hsl('muted', '240 4.8% 95.9%'),
-  mutedFg: hsl('muted-foreground', '240 3.8% 46.1%'),
-  accent: hsl('accent', '240 4.8% 95.9%'),
-  border: hsl('border', '240 5.9% 90%'),
-  input: hsl('input', '240 5.9% 90%'),
-  primary: hsl('primary', '217.2 91.2% 50%'),
-  destructive: hsl('destructive', '0 84.2% 60.2%'),
-  foreground: hsl('foreground', '240 10% 3.9%'),
-  background: hsl('background', '0 0% 100%'),
-} as const;
 
 interface SubtaskEditorProps {
   value: unknown;
@@ -221,46 +208,8 @@ function parseRanges(input: string): number[] {
   return [...result].sort((a, b) => a - b);
 }
 
-const mono: React.CSSProperties = {
-  fontFamily:
-    '"JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace',
-  fontVariantNumeric: 'tabular-nums',
-};
-
-const fieldLabel: React.CSSProperties = {
-  fontSize: '9px',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  opacity: 0.4,
-  display: 'block',
-  marginBottom: '4px',
-};
-
-const fieldInput: React.CSSProperties = {
-  padding: '6px 10px',
-  borderRadius: '6px',
-  border: `1px solid ${th.input}`,
-  background: th.card,
-  color: 'inherit',
-  fontSize: '13px',
-  outline: 'none',
-  boxSizing: 'border-box' as const,
-  transition: 'border-color 0.15s, box-shadow 0.15s',
-};
-
-const headerActionButton: React.CSSProperties = {
-  background: 'none',
-  border: `1px solid ${th.border}`,
-  borderRadius: '6px',
-  padding: '6px 10px',
-  cursor: 'pointer',
-  fontSize: '11px',
-  fontWeight: 600,
-  color: 'inherit',
-  opacity: 0.75,
-  transition: 'opacity 0.15s, border-color 0.15s, color 0.15s',
-};
+/** Monospace font class shorthand. */
+const monoClass = 'font-mono tabular-nums';
 
 function PreviewPopover({
   tc,
@@ -296,139 +245,68 @@ function PreviewPopover({
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      className="fixed w-80 z-[100000] pointer-events-auto"
       style={{
-        position: 'fixed',
         ...(flipAbove
           ? { bottom: window.innerHeight - anchorRect.top - portalOffset.dy }
           : { top: anchorRect.bottom - portalOffset.dy }),
         left: left - portalOffset.dx,
-        width: '320px',
-        zIndex: 100000,
-        pointerEvents: 'auto',
       }}
     >
       <div
-        style={{
-          ...(flipAbove ? { marginBottom: '4px' } : { marginTop: '4px' }),
-          background: th.popover,
-          color: th.popoverFg,
-          backdropFilter: 'blur(8px)',
-          border: `1px solid ${th.border}`,
-          borderRadius: '10px',
-          boxShadow:
-            '0 12px 40px rgba(0,0,0,0.18), 0 4px 12px rgba(0,0,0,0.08)',
-          padding: '12px',
-          isolation: 'isolate',
-        }}
+        className={cn(
+          'bg-popover text-popover-foreground backdrop-blur-sm border border-border rounded-[10px] p-3 isolate shadow-[0_12px_40px_rgba(0,0,0,0.18),0_4px_12px_rgba(0,0,0,0.08)]',
+          flipAbove ? 'mb-1' : 'mt-1',
+        )}
       >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            marginBottom: '8px',
-          }}
-        >
-          <span
-            style={{ ...mono, fontSize: '12px', fontWeight: 700, opacity: 0.6 }}
-          >
+        <div className="flex items-center gap-2 mb-2">
+          <span className={cn(monoClass, 'text-xs font-bold opacity-60')}>
             #{tc.position + 1}
           </span>
           {tc.label && (
-            <span style={{ ...mono, fontSize: '11px', opacity: 0.5 }}>
+            <span className={cn(monoClass, 'text-[11px] opacity-50')}>
               {tc.label}
             </span>
           )}
           {tc.is_sample && (
-            <span
-              style={{
-                fontSize: '9px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                padding: '1px 6px',
-                borderRadius: '4px',
-                background: 'rgba(99,102,241,0.1)',
-                color: '#6366f1',
-              }}
-            >
+            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded bg-indigo-500/10 text-indigo-500">
               {t('ioi.subtask.preview.sample')}
             </span>
           )}
-          <span
-            style={{
-              ...mono,
-              fontSize: '11px',
-              opacity: 0.5,
-              marginLeft: 'auto',
-            }}
-          >
+          <span className={cn(monoClass, 'text-[11px] opacity-50 ml-auto')}>
             {tc.score} pts
           </span>
         </div>
         {tc.description && (
-          <div
-            style={{
-              fontSize: '11px',
-              opacity: 0.6,
-              marginBottom: '8px',
-              lineHeight: 1.4,
-            }}
-          >
+          <div className="text-[11px] opacity-60 mb-2 leading-snug">
             {tc.description.length > 200
-              ? tc.description.slice(0, 200) + '…'
+              ? tc.description.slice(0, 200) + '\u2026'
               : tc.description}
           </div>
         )}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '8px',
-          }}
-        >
+        <div className="grid grid-cols-2 gap-2">
           <div>
-            <div style={{ ...fieldLabel, marginBottom: '2px' }}>
+            <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-0.5">
               {t('ioi.subtask.preview.input')}
             </div>
             <pre
-              style={{
-                ...mono,
-                fontSize: '10px',
-                lineHeight: 1.4,
-                margin: 0,
-                padding: '6px',
-                borderRadius: '4px',
-                maxHeight: '80px',
-                overflow: 'auto',
-                overscrollBehavior: 'contain',
-                background: th.muted,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              }}
+              className={cn(
+                monoClass,
+                'text-[10px] leading-snug m-0 p-1.5 rounded max-h-20 overflow-auto overscroll-contain bg-muted whitespace-pre-wrap break-all',
+              )}
             >
               {tc.input_preview || t('ioi.subtask.preview.empty')}
             </pre>
           </div>
           <div>
-            <div style={{ ...fieldLabel, marginBottom: '2px' }}>
+            <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-0.5">
               {t('ioi.subtask.preview.output')}
             </div>
             <pre
-              style={{
-                ...mono,
-                fontSize: '10px',
-                lineHeight: 1.4,
-                margin: 0,
-                padding: '6px',
-                borderRadius: '4px',
-                maxHeight: '80px',
-                overflow: 'auto',
-                overscrollBehavior: 'contain',
-                background: th.muted,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              }}
+              className={cn(
+                monoClass,
+                'text-[10px] leading-snug m-0 p-1.5 rounded max-h-20 overflow-auto overscroll-contain bg-muted whitespace-pre-wrap break-all',
+              )}
             >
               {tc.output_preview || t('ioi.subtask.preview.empty')}
             </pre>
@@ -493,11 +371,6 @@ function TcChip({
   const { hoverRect, anchorRef, anchorHandlers, popoverHandlers } =
     useHoverPopover();
 
-  const dupBorder = isDuplicate
-    ? '1.5px dashed rgba(239,68,68,0.5)'
-    : undefined;
-  const dupBg = isDuplicate ? 'rgba(239,68,68,0.06)' : undefined;
-
   return (
     <>
       <span
@@ -506,60 +379,38 @@ function TcChip({
         onDragStart={onDragStart}
         onMouseEnter={anchorHandlers.onMouseEnter}
         onMouseLeave={anchorHandlers.onMouseLeave}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '3px 8px',
-          borderRadius: '6px',
-          background: dupBg ?? (hoverRect ? th.accent : th.card),
-          border:
-            dupBorder ?? `1px solid ${hoverRect ? th.primary : th.border}`,
-          fontSize: '11px',
-          ...mono,
-          cursor: onDragStart ? 'grab' : 'default',
-          transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
-          userSelect: 'none',
-          boxShadow: hoverRect
-            ? `0 0 0 1px ${isDuplicate ? 'rgba(239,68,68,0.4)' : th.primary}`
-            : '0 1px 0 0 rgba(0,0,0,0.06)',
-        }}
+        className={cn(
+          monoClass,
+          'inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[11px] select-none transition-[border-color,box-shadow,background] duration-150',
+          isDuplicate
+            ? 'border-[1.5px] border-dashed border-red-500/50 bg-red-500/[0.06]'
+            : hoverRect
+              ? 'border border-primary bg-accent'
+              : 'border border-border bg-card',
+          onDragStart ? 'cursor-grab' : 'cursor-default',
+          hoverRect
+            ? isDuplicate
+              ? 'shadow-[0_0_0_1px_rgba(239,68,68,0.4)]'
+              : 'shadow-[0_0_0_1px_hsl(var(--primary))]'
+            : 'shadow-[0_1px_0_0_rgba(0,0,0,0.06)]',
+        )}
       >
         {tc.label ? (
           <>
-            <span style={{ fontSize: '11px' }}>{tc.label}</span>
-            <span style={{ opacity: 0.35, fontSize: '9px' }}>
-              #{tc.position + 1}
-            </span>
+            <span className="text-[11px]">{tc.label}</span>
+            <span className="opacity-35 text-[9px]">#{tc.position + 1}</span>
           </>
         ) : (
           <>
-            <span style={{ opacity: 0.5, fontSize: '9px' }}>#</span>
+            <span className="opacity-50 text-[9px]">#</span>
             {tc.position + 1}
           </>
         )}
         {tc.is_sample && (
-          <span
-            style={{
-              width: '4px',
-              height: '4px',
-              borderRadius: '50%',
-              background: '#6366f1',
-              flexShrink: 0,
-            }}
-          />
+          <span className="size-1 rounded-full bg-indigo-500 shrink-0" />
         )}
         {isDuplicate && (
-          <span
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              flexShrink: 0,
-              background: '#ef4444',
-              boxShadow: '0 0 0 2px rgba(239,68,68,0.2)',
-            }}
-          />
+          <span className="size-1.5 rounded-full shrink-0 bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.2)]" />
         )}
         <button
           type="button"
@@ -567,23 +418,7 @@ function TcChip({
             e.stopPropagation();
             onRemove();
           }}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '10px',
-            opacity: 0.3,
-            padding: '0 1px',
-            color: 'inherit',
-            lineHeight: 1,
-            transition: 'opacity 0.15s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '0.8';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.3';
-          }}
+          className="bg-transparent border-none cursor-pointer text-[10px] opacity-30 px-px py-0 text-inherit leading-none transition-opacity duration-150 hover:opacity-80"
         >
           ✕
         </button>
@@ -624,20 +459,6 @@ function PoolCard({
   const { hoverRect, anchorRef, anchorHandlers, popoverHandlers } =
     useHoverPopover();
 
-  const borderColor = isDuplicate
-    ? 'rgba(239,68,68,0.5)'
-    : state === 'this'
-      ? 'rgba(16,185,129,0.5)'
-      : th.border;
-
-  const bg = isDuplicate
-    ? 'rgba(239,68,68,0.04)'
-    : state === 'this'
-      ? 'rgba(16,185,129,0.04)'
-      : state === 'other'
-        ? th.muted
-        : th.card;
-
   return (
     <>
       <div
@@ -647,115 +468,60 @@ function PoolCard({
         onClick={onClick}
         onMouseEnter={anchorHandlers.onMouseEnter}
         onMouseLeave={anchorHandlers.onMouseLeave}
-        style={{
-          padding: '8px 10px',
-          borderRadius: '8px',
-          border: `1.5px solid ${borderColor}`,
-          background: bg,
-          cursor: state === 'other' ? 'not-allowed' : 'pointer',
-          opacity: state === 'other' ? 0.45 : 1,
-          transition: 'all 0.15s',
-          userSelect: 'none',
-          position: 'relative',
-          minWidth: 0,
-        }}
+        className={cn(
+          'px-2.5 py-2 rounded-lg border-[1.5px] transition-all duration-150 select-none relative min-w-0',
+          isDuplicate
+            ? 'border-red-500/50 bg-red-500/[0.04]'
+            : state === 'this'
+              ? 'border-emerald-500/50 bg-emerald-500/[0.04]'
+              : state === 'other'
+                ? 'border-border bg-muted'
+                : 'border-border bg-card',
+          state === 'other'
+            ? 'cursor-not-allowed opacity-45'
+            : 'cursor-pointer opacity-100',
+        )}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div className="flex items-center gap-1.5">
           {tc.label ? (
             <>
               <span
-                style={{
-                  ...mono,
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  opacity: 0.8,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
+                className={cn(
+                  monoClass,
+                  'text-[11px] font-bold opacity-80 overflow-hidden text-ellipsis whitespace-nowrap',
+                )}
               >
                 {tc.label}
               </span>
-              <span style={{ ...mono, fontSize: '9px', opacity: 0.35 }}>
+              <span className={cn(monoClass, 'text-[9px] opacity-35')}>
                 #{tc.position + 1}
               </span>
             </>
           ) : (
-            <span
-              style={{
-                ...mono,
-                fontSize: '12px',
-                fontWeight: 700,
-                opacity: 0.7,
-              }}
-            >
+            <span className={cn(monoClass, 'text-xs font-bold opacity-70')}>
               {tc.position + 1}
             </span>
           )}
           {tc.is_sample && (
-            <span
-              style={{
-                fontSize: '8px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                padding: '1px 5px',
-                borderRadius: '3px',
-                background: 'rgba(99,102,241,0.1)',
-                color: '#6366f1',
-              }}
-            >
+            <span className="text-[8px] font-bold uppercase tracking-tight px-[5px] py-px rounded-[3px] bg-indigo-500/10 text-indigo-500">
               S
             </span>
           )}
-          <span
-            style={{
-              ...mono,
-              fontSize: '10px',
-              opacity: 0.4,
-              marginLeft: 'auto',
-            }}
-          >
+          <span className={cn(monoClass, 'text-[10px] opacity-40 ml-auto')}>
             {tc.score}
           </span>
         </div>
         {tc.description && (
-          <div
-            style={{
-              fontSize: '10px',
-              opacity: 0.5,
-              marginTop: '3px',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
+          <div className="text-[10px] opacity-50 mt-[3px] whitespace-nowrap overflow-hidden text-ellipsis">
             {tc.description}
           </div>
         )}
         {state === 'this' && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '3px',
-              right: '3px',
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#10b981',
-            }}
-          />
+          <div className="absolute top-[3px] right-[3px] size-1.5 rounded-full bg-emerald-500" />
         )}
         {state === 'other' && ownerLabel && (
-          <div
-            style={{
-              fontSize: '9px',
-              opacity: 0.6,
-              marginTop: '3px',
-              fontStyle: 'italic',
-            }}
-          >
-            → {ownerLabel}
+          <div className="text-[9px] opacity-60 mt-[3px] italic">
+            {'\u2192'} {ownerLabel}
           </div>
         )}
       </div>
@@ -1016,26 +782,19 @@ function UnifiedSearch({
     : undefined;
   const ddMaxH = Math.min(MAX_DD, (flipAbove ? spaceAbove : spaceBelow) - 8);
 
+  const dropdownPositionStyle: React.CSSProperties = {
+    top: ddTop,
+    bottom: ddBottom,
+    left: inputRect ? inputRect.left - portalOffset.dx : undefined,
+    width: inputRect?.width,
+    maxHeight: ddMaxH,
+  };
+
   const renderDropdown = () => {
     if (!isOpen || !inputRect) return null;
 
-    const dropdownStyle: React.CSSProperties = {
-      position: 'fixed',
-      top: ddTop,
-      bottom: ddBottom,
-      left: inputRect.left - portalOffset.dx,
-      width: inputRect.width,
-      zIndex: 100000,
-      background: th.popover,
-      color: th.popoverFg,
-      border: `1px solid ${th.border}`,
-      borderRadius: '8px',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.08)',
-      maxHeight: ddMaxH,
-      overflowY: 'auto',
-      overscrollBehavior: 'contain',
-      boxSizing: 'border-box',
-    };
+    const ddClass =
+      'fixed z-[100000] bg-popover text-popover-foreground border border-border rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.15),0_2px_6px_rgba(0,0,0,0.08)] overflow-y-auto overscroll-contain box-border';
 
     if (!hasResults) {
       const noMatchMsg = isPositionMode
@@ -1043,15 +802,14 @@ function UnifiedSearch({
         : t('ioi.subtask.noMatchLabel');
       return createPortal(
         <div
-          style={{ ...dropdownStyle, padding: '8px 10px' }}
+          className={cn(ddClass, 'px-2.5 py-2')}
+          style={dropdownPositionStyle}
           onMouseDown={(e) => {
             e.preventDefault();
             cancelBlur();
           }}
         >
-          <span style={{ fontSize: '11px', opacity: 0.5, fontStyle: 'italic' }}>
-            {noMatchMsg}
-          </span>
+          <span className="text-[11px] opacity-50 italic">{noMatchMsg}</span>
         </div>,
         portalTarget,
       );
@@ -1063,36 +821,20 @@ function UnifiedSearch({
         id={listboxId}
         role="listbox"
         aria-label="Search results"
-        style={dropdownStyle}
+        className={ddClass}
+        style={dropdownPositionStyle}
         onMouseDown={(e) => {
           e.preventDefault();
           cancelBlur();
         }}
       >
         {/* Mode badge */}
-        <div
-          style={{
-            padding: '4px 10px',
-            fontSize: '9px',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            opacity: 0.4,
-            borderBottom: `1px solid ${th.border}`,
-          }}
-        >
+        <div className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide opacity-40 border-b border-border">
           {isPositionMode
             ? t('ioi.subtask.positions')
             : t('ioi.subtask.labels')}
           {isPositionMode && posResults?.invalid.length ? (
-            <span
-              style={{
-                color: '#dc2626',
-                marginLeft: '8px',
-                fontWeight: 600,
-                opacity: 1,
-              }}
-            >
+            <span className="text-red-600 ml-2 font-semibold opacity-100">
               {posResults.invalid.length > 3
                 ? `${posResults.invalid.length} ${t('ioi.subtask.notFound')}`
                 : `#${posResults.invalid.join(', #')} ${t('ioi.subtask.notFound')}`}
@@ -1111,20 +853,10 @@ function UnifiedSearch({
                 aria-selected={isActive}
                 onClick={() => addLabels(item.labels!)}
                 onMouseEnter={() => setActiveIndex(idx)}
-                style={{
-                  padding: '6px 10px',
-                  cursor: 'pointer',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  color: '#4f46e5',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.03em',
-                  background: isActive
-                    ? 'rgba(79,70,229,0.12)'
-                    : 'rgba(79,70,229,0.04)',
-                  borderBottom: `1px solid ${th.border}`,
-                  boxSizing: 'border-box',
-                }}
+                className={cn(
+                  'px-2.5 py-1.5 cursor-pointer text-[10px] font-bold text-indigo-600 uppercase tracking-tight border-b border-border box-border',
+                  isActive ? 'bg-indigo-600/[0.12]' : 'bg-indigo-600/[0.04]',
+                )}
               >
                 {t('ioi.subtask.addCount', {
                   count: item.count,
@@ -1151,83 +883,41 @@ function UnifiedSearch({
               aria-selected={isActive}
               onClick={() => addLabels([label])}
               onMouseEnter={() => setActiveIndex(idx)}
-              style={{
-                padding: '5px 10px',
-                fontSize: '11px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: isActive ? 'rgba(79,70,229,0.08)' : 'transparent',
-                borderBottom: `1px solid ${th.border}`,
-                cursor: 'pointer',
-                boxSizing: 'border-box',
-              }}
+              className={cn(
+                'px-2.5 py-[5px] text-[11px] flex items-center gap-2 border-b border-border cursor-pointer box-border',
+                isActive ? 'bg-indigo-600/[0.08]' : 'bg-transparent',
+              )}
             >
-              <span style={{ ...mono, fontWeight: 600 }}>
+              <span className={cn(monoClass, 'font-semibold')}>
                 {tc.label || `#${tc.position + 1}`}
               </span>
-              <span style={{ ...mono, fontSize: '9px', opacity: 0.4 }}>
+              <span className={cn(monoClass, 'text-[9px] opacity-40')}>
                 {tc.label ? `#${tc.position + 1}` : ''}
               </span>
               {tc.is_sample && (
-                <span
-                  style={{
-                    fontSize: '8px',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    padding: '0 4px',
-                    borderRadius: '3px',
-                    background: 'rgba(99,102,241,0.1)',
-                    color: '#6366f1',
-                  }}
-                >
+                <span className="text-[8px] font-bold uppercase px-1 rounded-[3px] bg-indigo-500/10 text-indigo-500">
                   S
                 </span>
               )}
-              <span
-                style={{
-                  ...mono,
-                  fontSize: '9px',
-                  opacity: 0.35,
-                  marginLeft: 'auto',
-                }}
-              >
+              <span className={cn(monoClass, 'text-[9px] opacity-35 ml-auto')}>
                 {tc.score} pts
               </span>
               {otherOwner !== null && (
-                <span
-                  style={{ fontSize: '9px', fontStyle: 'italic', opacity: 0.6 }}
-                >
+                <span className="text-[9px] italic opacity-60">
                   {'\u2192'}{' '}
                   {subtaskNames[otherOwner] ||
                     t('ioi.subtask.defaultName', { index: otherOwner + 1 })}
                 </span>
               )}
               {isDup && (
-                <span
-                  style={{
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    background: '#ef4444',
-                    boxShadow: '0 0 0 2px rgba(239,68,68,0.2)',
-                  }}
-                />
+                <span className="size-1.5 rounded-full shrink-0 bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.2)]" />
               )}
             </div>
           );
         })}
 
         {items.addableTotal > 50 && (
-          <div
-            style={{
-              padding: '5px 10px',
-              fontSize: '10px',
-              opacity: 0.4,
-              textAlign: 'center',
-            }}
-          >
+          <div className="px-2.5 py-[5px] text-[10px] opacity-40 text-center">
             {t('ioi.subtask.andMore', { count: items.addableTotal - 50 })}
           </div>
         )}
@@ -1238,7 +928,7 @@ function UnifiedSearch({
 
   return (
     <div>
-      <input
+      <Input
         ref={inputRef}
         type="text"
         role="combobox"
@@ -1268,14 +958,7 @@ function UnifiedSearch({
           }, 200);
         }}
         onKeyDown={handleKeyDown}
-        style={{
-          ...fieldInput,
-          ...mono,
-          width: '100%',
-          fontSize: '12px',
-          background: th.card,
-          boxSizing: 'border-box' as const,
-        }}
+        className={cn(monoClass, 'w-full text-xs bg-card')}
       />
       {renderDropdown()}
     </div>
@@ -1718,43 +1401,15 @@ export function SubtaskEditor({
     <div
       ref={rootRef}
       onDragEnd={handleDragEnd}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        gridColumn: 'span 2',
-      }}
+      className="flex flex-col gap-3 col-span-2"
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-          flexWrap: 'wrap',
-        }}
-      >
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              opacity: 0.45,
-            }}
-          >
+          <span className="text-[11px] font-bold uppercase tracking-widest opacity-45">
             {schema.title ?? t('ioi.subtask.title')}
           </span>
           {problemId && !tcLoading && testCases.length > 0 && (
-            <span
-              style={{
-                ...mono,
-                fontSize: '10px',
-                opacity: 0.3,
-                marginLeft: '10px',
-              }}
-            >
+            <span className={cn(monoClass, 'text-[10px] opacity-30 ml-2.5')}>
               {testCases.length !== 1
                 ? t('ioi.subtask.testCasesAvailable', {
                     count: testCases.length,
@@ -1765,18 +1420,10 @@ export function SubtaskEditor({
             </span>
           )}
         </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            flexWrap: 'wrap',
-            justifyContent: 'flex-end',
-          }}
-        >
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {subtasks.length > 0 && (
             <>
-              <span style={{ ...mono, fontSize: '11px', opacity: 0.4 }}>
+              <span className={cn(monoClass, 'text-[11px] opacity-40')}>
                 {subtasks.length !== 1
                   ? t('ioi.subtask.subtaskCount', { count: subtasks.length })
                   : t('ioi.subtask.subtaskCountSingular', {
@@ -1784,187 +1431,112 @@ export function SubtaskEditor({
                     })}
               </span>
               <span
-                style={{
-                  ...mono,
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: '2px 10px',
-                  borderRadius: '10px',
-                  background:
-                    totalMax === 100
-                      ? 'rgba(16,185,129,0.1)'
-                      : 'rgba(245,158,11,0.1)',
-                  color: totalMax === 100 ? '#059669' : '#d97706',
-                }}
+                className={cn(
+                  monoClass,
+                  'text-[11px] font-bold px-2.5 py-0.5 rounded-[10px]',
+                  totalMax === 100
+                    ? 'bg-emerald-500/10 text-emerald-700'
+                    : 'bg-amber-500/10 text-amber-600',
+                )}
               >
                 {totalMax} pts
               </span>
             </>
           )}
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleCopyJson}
-            style={headerActionButton}
+            className="text-[11px] font-semibold opacity-75"
           >
             {t('ioi.subtask.copyJson')}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handlePasteJson}
-            style={headerActionButton}
+            className="text-[11px] font-semibold opacity-75"
           >
             {t('ioi.subtask.pasteJson')}
-          </button>
+          </Button>
         </div>
       </div>
 
       {statusMessage && (
         <div
-          style={{
-            padding: '10px 12px',
-            borderRadius: '8px',
-            fontSize: '12px',
-            border:
-              statusMessage.tone === 'success'
-                ? '1px solid rgba(16,185,129,0.25)'
-                : '1px solid rgba(239,68,68,0.25)',
-            background:
-              statusMessage.tone === 'success'
-                ? 'rgba(16,185,129,0.08)'
-                : 'rgba(239,68,68,0.08)',
-            color: statusMessage.tone === 'success' ? '#047857' : '#dc2626',
-          }}
+          className={cn(
+            'px-3 py-2.5 rounded-lg text-xs border',
+            statusMessage.tone === 'success'
+              ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-800'
+              : 'border-red-500/25 bg-red-500/[0.08] text-red-600',
+          )}
         >
           {statusMessage.text}
         </div>
       )}
 
       {pendingImport && (
-        <div
-          style={{
-            padding: '12px',
-            borderRadius: '10px',
-            border: `1px solid ${th.border}`,
-            background: `color-mix(in srgb, ${th.muted} 55%, transparent)`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <div
-            style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              color: th.foreground,
-            }}
-          >
+        <div className="p-3 rounded-[10px] border border-border bg-muted/55 flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs font-semibold text-foreground">
             {t('ioi.subtask.importReady', { count: pendingImport.length })}
           </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => applyImportedSubtasks(pendingImport, 'replace')}
-              style={{
-                ...headerActionButton,
-                borderColor: th.primary,
-                color: th.primary,
-                opacity: 1,
-              }}
+              className="border-primary text-primary"
             >
               {t('ioi.subtask.importReplace')}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => applyImportedSubtasks(pendingImport, 'merge')}
-              style={headerActionButton}
+              className="opacity-75"
             >
               {t('ioi.subtask.importMerge')}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setPendingImport(null)}
-              style={headerActionButton}
+              className="opacity-75"
             >
               {t('ioi.subtask.importCancel')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {schema.description && (
-        <p
-          style={{
-            fontSize: '12px',
-            opacity: 0.45,
-            margin: 0,
-            lineHeight: 1.5,
-          }}
-        >
+        <p className="text-xs opacity-45 m-0 leading-normal">
           {schema.description}
         </p>
       )}
 
       {problemId && tcLoading && (
-        <div
-          style={{
-            padding: '16px',
-            textAlign: 'center',
-            fontSize: '12px',
-            opacity: 0.5,
-            borderRadius: '8px',
-            border: `1px solid ${th.border}`,
-          }}
-        >
+        <div className="p-4 text-center text-xs opacity-50 rounded-lg border border-border">
           {t('ioi.subtask.loading')}
         </div>
       )}
 
       {problemId && tcError && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: '8px',
-            background: 'rgba(239,68,68,0.06)',
-            border: '1px solid rgba(239,68,68,0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontSize: '12px',
-            color: '#dc2626',
-          }}
-        >
+        <div className="px-4 py-3 rounded-lg bg-red-500/[0.06] border border-red-500/20 flex items-center justify-between text-xs text-red-600">
           <span>{tcError}</span>
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={refetch}
-            style={{
-              background: 'none',
-              border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: '5px',
-              padding: '3px 10px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              color: 'inherit',
-            }}
+            className="border-red-500/30 text-inherit text-[11px]"
           >
             {t('ioi.subtask.retry')}
-          </button>
+          </Button>
         </div>
       )}
 
       {!tcLoading && problemId && testCases.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: 16,
-            fontSize: 12,
-            color: 'var(--muted-foreground, #888)',
-            borderRadius: '8px',
-            border: `1px dashed ${th.border}`,
-          }}
-        >
+        <div className="text-center p-4 text-xs text-muted-foreground rounded-lg border border-dashed border-border">
           {t('ioi.subtask.noTestCasesOnProblem')}
         </div>
       )}
@@ -1973,38 +1545,24 @@ export function SubtaskEditor({
         testCases.length > 0 &&
         (unassignedLabels.length > 0 || duplicateLabels.length > 0) && (
           <div
-            style={{
-              borderRadius: '8px',
-              border: `1px solid ${duplicateLabels.length > 0 ? 'rgba(239,68,68,0.4)' : 'rgba(245,158,11,0.3)'}`,
-              boxShadow:
-                duplicateLabels.length > 0
-                  ? '0 0 0 1px rgba(239,68,68,0.15)'
-                  : undefined,
-              overflow: 'hidden',
-            }}
+            className={cn(
+              'rounded-lg border overflow-hidden',
+              duplicateLabels.length > 0
+                ? 'border-red-500/40 shadow-[0_0_0_1px_rgba(239,68,68,0.15)]'
+                : 'border-amber-500/30',
+            )}
           >
             <button
               type="button"
               onClick={() => setWarningsExpanded((p) => !p)}
-              style={{
-                width: '100%',
-                padding: '7px 12px',
-                border: 'none',
-                cursor: 'pointer',
-                background:
-                  duplicateLabels.length > 0
-                    ? 'rgba(239,68,68,0.06)'
-                    : 'rgba(245,158,11,0.06)',
-                color: duplicateLabels.length > 0 ? '#dc2626' : '#b45309',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '11px',
-                fontWeight: 600,
-                textAlign: 'left',
-              }}
+              className={cn(
+                'w-full px-3 py-[7px] border-none cursor-pointer flex items-center gap-1.5 text-[11px] font-semibold text-left',
+                duplicateLabels.length > 0
+                  ? 'bg-red-500/[0.06] text-red-600'
+                  : 'bg-amber-500/[0.06] text-amber-800',
+              )}
             >
-              <span style={{ fontSize: '13px' }}>
+              <span className="text-[13px]">
                 {warningsExpanded ? '\u25BE' : '\u25B8'}
               </span>
               <span>
@@ -2018,14 +1576,14 @@ export function SubtaskEditor({
                 })()}
               </span>
               {unassignedLabels.length > 0 && (
-                <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                <span className="font-normal opacity-70">
                   {t('ioi.subtask.unassignedCount', {
                     count: unassignedLabels.length,
                   })}
                 </span>
               )}
               {duplicateLabels.length > 0 && (
-                <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                <span className="font-normal opacity-70">
                   {duplicateLabels.length !== 1
                     ? t('ioi.subtask.duplicateCount', {
                         count: duplicateLabels.length,
@@ -2037,27 +1595,9 @@ export function SubtaskEditor({
               )}
             </button>
             {warningsExpanded && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1px',
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                }}
-              >
+              <div className="flex flex-col gap-px max-h-[200px] overflow-y-auto">
                 {unassignedLabels.length > 0 && (
-                  <div
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: '11px',
-                      background: 'rgba(245,158,11,0.04)',
-                      color: '#b45309',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}
-                  >
+                  <div className="px-3 py-2 text-[11px] bg-amber-500/[0.04] text-amber-800 flex items-center gap-1.5">
                     <span>
                       {unassignedLabels.length !== 1
                         ? t('ioi.subtask.unassignedMessage', {
@@ -2070,15 +1610,8 @@ export function SubtaskEditor({
                   </div>
                 )}
                 {duplicateLabels.length > 0 && (
-                  <div
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: '11px',
-                      background: 'rgba(239,68,68,0.04)',
-                      color: '#dc2626',
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                  <div className="px-3 py-2 text-[11px] bg-red-500/[0.04] text-red-600">
+                    <div className="font-semibold mb-1">
                       {duplicateLabels.length !== 1
                         ? t('ioi.subtask.duplicateMessage', {
                             count: duplicateLabels.length,
@@ -2087,7 +1620,7 @@ export function SubtaskEditor({
                             count: duplicateLabels.length,
                           })}
                     </div>
-                    <div style={{ opacity: 0.8 }}>
+                    <div className="opacity-80">
                       {duplicateLabels.slice(0, 12).map(([label, indices]) => {
                         const tc = tcByLabel.get(label);
                         const display = tc
@@ -2105,18 +1638,17 @@ export function SubtaskEditor({
                         return (
                           <div
                             key={label}
-                            style={{
-                              ...mono,
-                              fontSize: '10px',
-                              lineHeight: 1.6,
-                            }}
+                            className={cn(
+                              monoClass,
+                              'text-[10px] leading-relaxed',
+                            )}
                           >
                             {display} {'\u2192'} {names}
                           </div>
                         );
                       })}
                       {duplicateLabels.length > 12 && (
-                        <div style={{ fontSize: '10px', opacity: 0.6 }}>
+                        <div className="text-[10px] opacity-60">
                           {t('ioi.subtask.andMore', {
                             count: duplicateLabels.length - 12,
                           })}
@@ -2131,19 +1663,11 @@ export function SubtaskEditor({
         )}
 
       {subtasks.length === 0 && (
-        <div
-          style={{
-            padding: '28px',
-            borderRadius: '10px',
-            border: `1.5px dashed ${th.border}`,
-            textAlign: 'center',
-            background: `color-mix(in srgb, ${th.muted} 40%, transparent)`,
-          }}
-        >
-          <div style={{ fontSize: '13px', opacity: 0.45, marginBottom: '4px' }}>
+        <div className="p-7 rounded-[10px] border-[1.5px] border-dashed border-border text-center bg-muted/40">
+          <div className="text-[13px] opacity-45 mb-1">
             {t('ioi.subtask.noSubtasks')}
           </div>
-          <div style={{ fontSize: '11px', opacity: 0.3 }}>
+          <div className="text-[11px] opacity-30">
             {t('ioi.subtask.noSubtasksHint')}
           </div>
         </div>
@@ -2177,84 +1701,56 @@ export function SubtaskEditor({
               dragCountersRef.current[idx] = 0;
               handleDrop(idx);
             }}
-            style={{
-              border:
-                dropTarget === idx
-                  ? `1.5px solid ${th.primary}`
-                  : `1px solid ${th.border}`,
-              borderRadius: '10px',
-              background: dropTarget === idx ? 'rgba(79,70,229,0.02)' : th.card,
-              transition: 'border-color 0.15s, background 0.15s',
-            }}
+            className={cn(
+              'rounded-[10px] transition-[border-color,background] duration-150',
+              dropTarget === idx
+                ? 'border-[1.5px] border-primary bg-indigo-600/[0.02]'
+                : 'border border-border bg-card',
+            )}
           >
+            {/* Color bar — uses per-method dynamic color, must stay inline */}
             <div
+              className="h-[3px] rounded-t-[10px]"
               style={{
-                height: '3px',
-                borderRadius: '10px 10px 0 0',
                 background: `linear-gradient(90deg, ${methodInfo.color}, color-mix(in srgb, ${methodInfo.color} 30%, transparent))`,
               }}
             />
 
-            <div
-              style={{
-                padding: '14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto auto auto',
-                  gap: '10px',
-                  alignItems: 'end',
-                }}
-              >
+            <div className="p-3.5 flex flex-col gap-2.5">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2.5 items-end">
                 <div>
-                  <div style={fieldLabel}>{t('ioi.subtask.fieldName')}</div>
-                  <input
+                  <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-1">
+                    {t('ioi.subtask.fieldName')}
+                  </div>
+                  <Input
                     type="text"
                     value={subtask.name}
                     onChange={(e) =>
                       updateSubtask(idx, { name: e.target.value })
                     }
-                    style={{
-                      ...fieldInput,
-                      width: '100%',
-                      ...(duplicateNameIndices.has(idx)
-                        ? { borderColor: 'rgba(245, 158, 11, 0.5)' }
-                        : {}),
-                    }}
+                    className={cn(
+                      'w-full',
+                      duplicateNameIndices.has(idx) && 'border-amber-500/50',
+                    )}
                     maxLength={50}
                   />
                   {duplicateNameIndices.has(idx) && (
-                    <div
-                      style={{
-                        fontSize: '10px',
-                        color: '#b45309',
-                        marginTop: '2px',
-                      }}
-                    >
+                    <div className="text-[10px] text-amber-800 mt-0.5">
                       {t('ioi.subtask.duplicateName')}
                     </div>
                   )}
                 </div>
                 <div>
-                  <div style={fieldLabel}>{t('ioi.subtask.fieldMethod')}</div>
-                  <div style={{ position: 'relative' }}>
+                  <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-1">
+                    {t('ioi.subtask.fieldMethod')}
+                  </div>
+                  <div className="relative">
                     <select
                       value={subtask.scoring_method}
                       onChange={(e) =>
                         updateSubtask(idx, { scoring_method: e.target.value })
                       }
-                      style={{
-                        ...fieldInput,
-                        minWidth: '130px',
-                        paddingLeft: '34px',
-                        appearance: 'none',
-                        WebkitAppearance: 'none',
-                      }}
+                      className="h-9 min-w-[130px] pl-[34px] rounded-md border border-input bg-card text-[13px] appearance-none outline-none transition-[border-color,box-shadow] duration-150"
                     >
                       {SCORING_METHODS.map((m) => (
                         <option key={m.key} value={m.key}>
@@ -2263,20 +1759,13 @@ export function SubtaskEditor({
                       ))}
                     </select>
                     <span
+                      className={cn(
+                        monoClass,
+                        'absolute left-[7px] top-1/2 -translate-y-1/2 text-[9px] font-extrabold px-[5px] py-px rounded-[3px] tracking-tight pointer-events-none',
+                      )}
                       style={{
-                        position: 'absolute',
-                        left: '7px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        ...mono,
-                        fontSize: '9px',
-                        fontWeight: 800,
-                        padding: '1px 5px',
-                        borderRadius: '3px',
                         background: methodInfo.bg,
                         color: methodInfo.color,
-                        letterSpacing: '0.02em',
-                        pointerEvents: 'none',
                       }}
                     >
                       {t(methodInfo.shortKey)}
@@ -2284,8 +1773,10 @@ export function SubtaskEditor({
                   </div>
                 </div>
                 <div>
-                  <div style={fieldLabel}>{t('ioi.subtask.fieldPoints')}</div>
-                  <input
+                  <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-1">
+                    {t('ioi.subtask.fieldPoints')}
+                  </div>
+                  <Input
                     type="number"
                     min={0}
                     max={10000}
@@ -2296,121 +1787,57 @@ export function SubtaskEditor({
                         max_score: parseFloat(e.target.value) || 0,
                       })
                     }
-                    style={{ ...fieldInput, ...mono, width: '80px' }}
+                    className={cn(monoClass, 'w-20')}
                   />
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => removeSubtask(idx)}
-                  style={{
-                    width: '30px',
-                    height: '30px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: '6px',
-                    border: '1px solid transparent',
-                    background: 'none',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    color: 'inherit',
-                    opacity: 0.3,
-                    transition: 'all 0.15s',
-                  }}
                   title={t('ioi.subtask.removeSubtask')}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.color = th.destructive;
-                    e.currentTarget.style.borderColor = th.destructive;
-                    e.currentTarget.style.background = 'rgba(239,68,68,0.06)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = '0.3';
-                    e.currentTarget.style.color = 'inherit';
-                    e.currentTarget.style.borderColor = 'transparent';
-                    e.currentTarget.style.background = 'none';
-                  }}
+                  className="size-[30px] opacity-30 hover:opacity-100 hover:text-destructive hover:border-destructive hover:bg-red-500/[0.06] transition-all duration-150"
                 >
                   ✕
-                </button>
+                </Button>
               </div>
 
-              <div
-                style={{
-                  fontSize: '11px',
-                  opacity: 0.35,
-                  fontStyle: 'italic',
-                  paddingLeft: '2px',
-                }}
-              >
+              <div className="text-[11px] opacity-35 italic pl-0.5">
                 {t(methodInfo.hintKey)}
               </div>
 
-              <div
-                style={{
-                  padding: '12px',
-                  borderRadius: '8px',
-                  background: th.muted,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '8px',
-                  }}
-                >
-                  <span
-                    style={{
-                      ...fieldLabel,
-                      marginBottom: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                    }}
-                  >
+              <div className="p-3 rounded-lg bg-muted">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-bold uppercase tracking-widest opacity-40 flex items-center gap-2">
                     <span>{t('ioi.subtask.testCases')}</span>
-                    <span style={{ fontWeight: 400, ...mono }}>
+                    <span className={cn('font-normal', monoClass)}>
                       {t('ioi.subtask.assigned', {
                         count: subtask.test_cases.length,
                       })}
                     </span>
                   </span>
                   {problemId && testCases.length > 0 && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() =>
                         setOpenPools((p) => ({ ...p, [idx]: !p[idx] }))
                       }
-                      style={{
-                        background: isPoolOpen
-                          ? 'rgba(79,70,229,0.08)'
-                          : 'none',
-                        border:
-                          '1px solid ' +
-                          (isPoolOpen ? 'rgba(79,70,229,0.3)' : th.border),
-                        borderRadius: '5px',
-                        padding: '3px 10px',
-                        cursor: 'pointer',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        color: isPoolOpen ? '#4f46e5' : 'inherit',
-                        opacity: isPoolOpen ? 1 : 0.5,
-                        transition: 'all 0.15s',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                      }}
+                      className={cn(
+                        'text-[10px] font-semibold uppercase tracking-tight transition-all duration-150 h-auto py-[3px] px-2.5',
+                        isPoolOpen
+                          ? 'bg-indigo-600/[0.08] border-indigo-600/30 text-indigo-600'
+                          : 'opacity-50',
+                      )}
                     >
                       {isPoolOpen
                         ? t('ioi.subtask.hidePool')
                         : t('ioi.subtask.showPool')}
-                    </button>
+                    </Button>
                   )}
                 </div>
 
                 {testCases.length > 0 && (
-                  <div style={{ marginBottom: '8px' }}>
+                  <div className="mb-2">
                     <UnifiedSearch
                       testCases={testCases}
                       subtask={subtask}
@@ -2428,36 +1855,20 @@ export function SubtaskEditor({
 
                 {/* Assigned chips */}
                 <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '4px',
-                    minHeight: '28px',
-                    maxHeight: '160px',
-                    overflowY: 'auto',
-                    alignItems: 'center',
-                  }}
+                  className="flex flex-wrap gap-1 min-h-7 max-h-40 overflow-y-auto items-center"
                   title="Hover over a chip to preview test case data"
                 >
                   {subtask.test_cases.map((tcId) => {
                     const tc = tcByLabel.get(tcId);
                     if (!tc) {
-                      // Orphaned label — show as raw string
+                      // Orphaned label -- show as raw string
                       return (
                         <span
                           key={tcId}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            fontSize: '11px',
-                            ...mono,
-                            background: 'rgba(239,68,68,0.06)',
-                            border: '1px solid rgba(239,68,68,0.2)',
-                            color: '#dc2626',
-                          }}
+                          className={cn(
+                            monoClass,
+                            'inline-flex items-center gap-[3px] px-2 py-[3px] rounded-md text-[11px] bg-red-500/[0.06] border border-red-500/20 text-red-600',
+                          )}
                         >
                           {tcId}
                           <button
@@ -2469,15 +1880,7 @@ export function SubtaskEditor({
                                 ),
                               })
                             }
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              fontSize: '10px',
-                              opacity: 0.5,
-                              padding: '0 1px',
-                              color: 'inherit',
-                            }}
+                            className="bg-transparent border-none cursor-pointer text-[10px] opacity-50 px-px py-0 text-inherit"
                           >
                             ✕
                           </button>
@@ -2503,13 +1906,7 @@ export function SubtaskEditor({
                     );
                   })}
                   {subtask.test_cases.length === 0 && (
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        opacity: 0.3,
-                        fontStyle: 'italic',
-                      }}
-                    >
+                    <span className="text-[11px] opacity-30 italic">
                       {t('ioi.subtask.noTestCases')}
                     </span>
                   )}
@@ -2517,27 +1914,15 @@ export function SubtaskEditor({
 
                 {/* Pool grid */}
                 {isPoolOpen && (
-                  <div style={{ marginTop: '10px' }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: '8px',
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          opacity: 0.4,
-                          fontWeight: 600,
-                        }}
-                      >
+                  <div className="mt-2.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] opacity-40 font-semibold">
                         {t('ioi.subtask.allTestCases')}
                       </span>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          type="button"
+                      <div className="flex gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => {
                             const unassignedForThis = testCases
                               .filter((tc) => !assignmentMap.has(tcLabel(tc)))
@@ -2551,24 +1936,13 @@ export function SubtaskEditor({
                               ],
                             });
                           }}
-                          style={{
-                            background: 'none',
-                            border: `1px solid ${th.border}`,
-                            borderRadius: '4px',
-                            padding: '2px 8px',
-                            cursor: 'pointer',
-                            fontSize: '9px',
-                            fontWeight: 600,
-                            color: 'inherit',
-                            opacity: 0.5,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.03em',
-                          }}
+                          className="text-[9px] font-semibold opacity-50 uppercase tracking-tight h-auto py-0.5 px-2"
                         >
                           {t('ioi.subtask.addAllUnassigned')}
-                        </button>
-                        <button
-                          type="button"
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => {
                             if (subtask.test_cases.length === 0) return;
                             const n = subtask.test_cases.length;
@@ -2583,34 +1957,13 @@ export function SubtaskEditor({
                               updateSubtask(idx, { test_cases: [] });
                             }
                           }}
-                          style={{
-                            background: 'none',
-                            border: `1px solid ${th.border}`,
-                            borderRadius: '4px',
-                            padding: '2px 8px',
-                            cursor: 'pointer',
-                            fontSize: '9px',
-                            fontWeight: 600,
-                            color: 'inherit',
-                            opacity: 0.5,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.03em',
-                          }}
+                          className="text-[9px] font-semibold opacity-50 uppercase tracking-tight h-auto py-0.5 px-2"
                         >
                           {t('ioi.subtask.clear')}
-                        </button>
+                        </Button>
                       </div>
                     </div>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns:
-                          'repeat(auto-fill, minmax(90px, 1fr))',
-                        gap: '6px',
-                        maxHeight: '300px',
-                        overflowY: 'auto',
-                      }}
-                    >
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] gap-1.5 max-h-[300px] overflow-y-auto">
                       {testCases.map((tc) => {
                         const label = tcLabel(tc);
                         const owners = assignmentMap.get(label) ?? [];
@@ -2654,35 +2007,13 @@ export function SubtaskEditor({
         );
       })}
 
-      <button
-        type="button"
+      <Button
+        variant="outline"
         onClick={addSubtask}
-        style={{
-          padding: '14px',
-          borderRadius: '10px',
-          border: `1.5px dashed ${th.border}`,
-          background: 'none',
-          cursor: 'pointer',
-          fontSize: '12px',
-          fontWeight: 600,
-          color: 'inherit',
-          opacity: 0.4,
-          transition: 'all 0.2s',
-          letterSpacing: '0.02em',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.opacity = '0.8';
-          e.currentTarget.style.borderColor = th.primary;
-          e.currentTarget.style.color = th.primary;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.opacity = '0.4';
-          e.currentTarget.style.borderColor = th.border;
-          e.currentTarget.style.color = 'inherit';
-        }}
+        className="w-full p-3.5 rounded-[10px] border-[1.5px] border-dashed border-border bg-transparent text-xs font-semibold opacity-40 tracking-tight transition-all duration-200 hover:opacity-80 hover:border-primary hover:text-primary"
       >
         {t('ioi.subtask.addSubtask')}
-      </button>
+      </Button>
     </div>
   );
 }

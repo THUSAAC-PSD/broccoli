@@ -5,6 +5,7 @@
  * Receives: { children } (the default SchemaField rendering for scoring)
  */
 
+import { Button } from '@broccoli/web-sdk/ui';
 import { type ReactNode, useState } from 'react';
 
 interface CollapsibleWrapperProps {
@@ -15,35 +16,18 @@ export function CollapsibleWrapper({ children }: CollapsibleWrapperProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div style={{ position: 'relative' }}>
-      <div style={{ position: 'absolute', top: '-4px', right: 0, zIndex: 10 }}>
-        <button
+    <div className="relative">
+      <div className="absolute -top-1 right-0 z-10">
+        <Button
+          variant="outline"
+          size="sm"
           type="button"
           onClick={() => setCollapsed((v) => !v)}
-          style={{
-            borderRadius: '6px',
-            border: '1px solid var(--border, #e5e7eb)',
-            background: 'var(--background, #fff)',
-            padding: '2px 8px',
-            fontSize: '11px',
-            cursor: 'pointer',
-            opacity: 0.7,
-            transition: 'opacity 0.15s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '1';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.7';
-          }}
+          className="text-[11px] opacity-70 hover:opacity-100"
         >
           {collapsed ? 'Expand' : 'Collapse'}
-          <span
-            style={{ marginLeft: '4px', fontSize: '10px', color: '#d97706' }}
-          >
-            (plugin)
-          </span>
-        </button>
+          <span className="ml-1 text-[10px] text-amber-600">(plugin)</span>
+        </Button>
       </div>
       <div
         style={{
@@ -56,17 +40,7 @@ export function CollapsibleWrapper({ children }: CollapsibleWrapperProps) {
         {children}
       </div>
       {collapsed && (
-        <div
-          style={{
-            borderRadius: '8px',
-            border:
-              '1px dashed color-mix(in srgb, currentColor 30%, transparent)',
-            padding: '16px',
-            textAlign: 'center' as const,
-            fontSize: '12px',
-            opacity: 0.5,
-          }}
-        >
+        <div className="rounded-lg border border-dashed border-muted-foreground p-4 text-center text-xs opacity-50">
           Scoring section collapsed — click Expand to configure
         </div>
       )}

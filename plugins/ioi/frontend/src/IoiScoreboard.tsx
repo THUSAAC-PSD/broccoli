@@ -1,7 +1,7 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { cn } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
-import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { useIoiApi } from './hooks/useIoiApi';
 import { useIsIoiContest } from './hooks/useIsIoiContest';
@@ -9,15 +9,10 @@ import type { ScoreboardEntry, ScoreboardResponse } from './types';
 
 interface IoiScoreboardProps {
   contestId?: number;
+  children?: ReactNode;
 }
 
 const MEDAL_COLORS = ['#D4AF37', '#A8A8A8', '#CD7F32'] as const;
-
-const SCORE_FONT: React.CSSProperties = {
-  fontVariantNumeric: 'tabular-nums',
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-};
 
 function scoreColor(score: number, maxPossible: number): string {
   if (maxPossible <= 0) return 'transparent';
@@ -37,75 +32,32 @@ function scoreBorderColor(score: number, maxPossible: number): string {
 
 function PhaseBar({ phase }: { phase: string }) {
   const { t } = useTranslation();
-  const style: React.CSSProperties = {
-    padding: '8px 16px',
-    borderRadius: 6,
-    fontSize: 13,
-    fontWeight: 500,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  };
-
-  if (phase === 'before') {
-    return (
-      <div
-        style={{
-          ...style,
-          background: 'rgba(59, 130, 246, 0.1)',
-          color: 'rgb(59, 130, 246)',
-        }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: 'rgb(59, 130, 246)',
-          }}
-        />
-        {t('ioi.scoreboard.phase.before')}
-      </div>
-    );
-  }
-  if (phase === 'during') {
-    return (
-      <div
-        style={{
-          ...style,
-          background: 'rgba(16, 185, 129, 0.1)',
-          color: 'rgb(16, 185, 129)',
-        }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: 'rgb(16, 185, 129)',
-          }}
-        />
-        {t('ioi.scoreboard.phase.during')}
-      </div>
-    );
-  }
   return (
     <div
-      style={{
-        ...style,
-        background: 'rgba(107, 114, 128, 0.1)',
-        color: 'rgb(107, 114, 128)',
-      }}
+      className={cn(
+        'flex items-center gap-2 py-2 px-4 rounded-md text-[13px] font-medium',
+        phase === 'before' && 'bg-blue-500/10 text-blue-500',
+        phase === 'during' && 'bg-emerald-500/10 text-emerald-500',
+        phase !== 'before' &&
+          phase !== 'during' &&
+          'bg-gray-500/10 text-gray-500',
+      )}
     >
       <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: 'rgb(107, 114, 128)',
-        }}
+        className={cn(
+          'w-2 h-2 rounded-full',
+          phase === 'before'
+            ? 'bg-blue-500'
+            : phase === 'during'
+              ? 'bg-emerald-500'
+              : 'bg-gray-500',
+        )}
       />
-      {t('ioi.scoreboard.phase.after')}
+      {phase === 'before'
+        ? t('ioi.scoreboard.phase.before')
+        : phase === 'during'
+          ? t('ioi.scoreboard.phase.during')
+          : t('ioi.scoreboard.phase.after')}
     </div>
   );
 }
@@ -121,21 +73,12 @@ function PhaseBanner({
   const isEnded = type === 'ended';
   return (
     <div
-      style={{
-        padding: '8px 14px',
-        borderRadius: 6,
-        marginBottom: 12,
-        fontSize: 13,
-        fontWeight: 500,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        background: isEnded
-          ? 'rgba(245, 158, 11, 0.1)'
-          : 'rgba(16, 185, 129, 0.1)',
-        color: isEnded ? '#b45309' : '#059669',
-        border: `1px solid ${isEnded ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'}`,
-      }}
+      className={cn(
+        'flex items-center justify-between py-2 px-3.5 rounded-md mb-3 text-[13px] font-medium border',
+        isEnded
+          ? 'bg-amber-500/10 text-amber-700 border-amber-500/20'
+          : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+      )}
     >
       <span>
         {isEnded
@@ -145,17 +88,7 @@ function PhaseBanner({
       <button
         onClick={onDismiss}
         aria-label="Dismiss"
-        style={{
-          border: 'none',
-          background: 'none',
-          cursor: 'pointer',
-          opacity: 0.5,
-          color: 'inherit',
-          padding: '0 4px',
-          lineHeight: 1,
-          display: 'flex',
-          alignItems: 'center',
-        }}
+        className="border-none bg-transparent cursor-pointer opacity-50 text-inherit p-0 px-1 leading-none flex items-center"
       >
         <svg
           width="14"
@@ -178,13 +111,7 @@ function PhaseBanner({
 function MedalBadge({ rank }: { rank: number }) {
   if (rank > 3) {
     return (
-      <span
-        style={{
-          ...SCORE_FONT,
-          fontSize: 13,
-          color: 'var(--muted-foreground, #888)',
-        }}
-      >
+      <span className="font-mono tabular-nums text-[13px] text-muted-foreground">
         {rank}
       </span>
     );
@@ -192,60 +119,31 @@ function MedalBadge({ rank }: { rank: number }) {
   const color = MEDAL_COLORS[rank - 1];
   return (
     <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 24,
-        height: 24,
-        borderRadius: '50%',
-        background: color,
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: 700,
-      }}
+      className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-bold"
+      style={{ background: color }}
     >
       {rank}
     </span>
   );
 }
 
-const stickyBase: React.CSSProperties = {
-  position: 'sticky',
-  zIndex: 1,
-};
-
 function ScoreCell({ score, max }: { score: number; max: number }) {
   return (
     <td
-      style={{
-        padding: '6px 12px',
-        textAlign: 'center',
-        background: scoreColor(score, max),
-        borderBottom: '1px solid var(--border, #e5e7eb)',
-        position: 'relative',
-      }}
+      className="py-1.5 px-3 text-center border-b border-border relative"
+      style={{ background: scoreColor(score, max) }}
     >
       <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 3,
-          background: scoreBorderColor(score, max),
-        }}
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{ background: scoreBorderColor(score, max) }}
       />
       <span
-        style={{
-          ...SCORE_FONT,
-          fontSize: 13,
-          fontWeight: score > 0 ? 600 : 400,
-          color:
-            score > 0
-              ? 'var(--foreground, #111)'
-              : 'var(--muted-foreground, #999)',
-        }}
+        className={cn(
+          'font-mono tabular-nums text-[13px]',
+          score > 0
+            ? 'font-semibold text-foreground'
+            : 'font-normal text-muted-foreground',
+        )}
       >
         {score.toFixed(score === Math.floor(score) ? 0 : 2)}
       </span>
@@ -253,7 +151,7 @@ function ScoreCell({ score, max }: { score: number; max: number }) {
   );
 }
 
-export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
+export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
   const { isIoi, isLoading: guardLoading } = useIsIoiContest(contestId);
   const api = useIoiApi();
   const { t } = useTranslation();
@@ -304,20 +202,11 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
     return () => clearInterval(id);
   }, [dataUpdatedAt]);
 
-  if (guardLoading || !isIoi) return null;
+  if (guardLoading || !isIoi) return <>{children}</>;
 
   if (isError && !scoreboard) {
     return (
-      <div
-        style={{
-          padding: 24,
-          textAlign: 'center',
-          borderRadius: 6,
-          background: 'rgba(239, 68, 68, 0.06)',
-          color: '#dc2626',
-          fontSize: 13,
-        }}
-      >
+      <div className="p-6 text-center rounded-md bg-red-500/[0.06] text-red-600 text-[13px]">
         {t('ioi.scoreboard.loadError')}
       </div>
     );
@@ -325,13 +214,7 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
 
   if (isLoading || !scoreboard) {
     return (
-      <div
-        style={{
-          padding: 24,
-          textAlign: 'center',
-          color: 'var(--muted-foreground, #888)',
-        }}
-      >
+      <div className="p-6 text-center text-muted-foreground">
         {t('ioi.scoreboard.loading')}
       </div>
     );
@@ -358,25 +241,6 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
   const maxTotal =
     Object.values(maxPerProblem).reduce((sum, v) => sum + v, 0) || 1;
 
-  const headerStyle: React.CSSProperties = {
-    padding: '8px 12px',
-    textAlign: 'center',
-    fontWeight: 600,
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    color: 'var(--muted-foreground, #888)',
-    borderBottom: '2px solid var(--border, #e5e7eb)',
-    background: 'var(--muted, #f9fafb)',
-    whiteSpace: 'nowrap',
-  };
-
-  const cellStyle: React.CSSProperties = {
-    padding: '6px 12px',
-    borderBottom: '1px solid var(--border, #e5e7eb)',
-    fontSize: 13,
-  };
-
   const secondsAgo =
     dataUpdatedAt > 0 ? Math.floor((now - dataUpdatedAt) / 1000) : 0;
 
@@ -389,34 +253,16 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
         />
       )}
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-          flexWrap: 'wrap',
-          gap: 8,
-        }}
-      >
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <PhaseBar phase={phase} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="flex items-center gap-3">
           {dataUpdatedAt > 0 && (
-            <span style={{ fontSize: 11, opacity: 0.5 }}>
+            <span className="text-[11px] opacity-50">
               {t('ioi.scoreboard.lastUpdated', { seconds: secondsAgo })}
             </span>
           )}
           {phase === 'during' && (
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 12,
-                color: 'var(--muted-foreground, #888)',
-                cursor: 'pointer',
-              }}
-            >
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
               <input
                 type="checkbox"
                 checked={autoRefresh}
@@ -430,29 +276,13 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
       </div>
 
       {phase === 'during' && (
-        <div
-          style={{
-            padding: '6px 12px',
-            marginBottom: 12,
-            borderRadius: 4,
-            fontSize: 12,
-            color: 'var(--muted-foreground, #888)',
-            background: 'var(--muted, #f9fafb)',
-            border: '1px solid var(--border, #e5e7eb)',
-          }}
-        >
+        <div className="py-1.5 px-3 mb-3 rounded text-xs text-muted-foreground bg-muted border border-border">
           {t('ioi.scoreboard.ownScoresOnly')}
         </div>
       )}
 
       {rankings.length === 0 ? (
-        <div
-          style={{
-            padding: 48,
-            textAlign: 'center',
-            color: 'var(--muted-foreground, #888)',
-          }}
-        >
+        <div className="py-12 text-center text-muted-foreground">
           {phase === 'before'
             ? t('ioi.scoreboard.empty.before')
             : phase === 'during'
@@ -460,45 +290,35 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
               : t('ioi.scoreboard.empty.after')}
         </div>
       ) : (
-        <div
-          style={{
-            overflowX: 'auto',
-            borderRadius: 8,
-            border: '1px solid var(--border, #e5e7eb)',
-          }}
-        >
-          <table
-            style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}
-          >
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full border-collapse min-w-[500px]">
             <thead>
               <tr>
                 <th
-                  style={{
-                    ...headerStyle,
-                    width: 50,
-                    textAlign: 'center',
-                    ...stickyBase,
-                    left: 0,
-                  }}
+                  className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap sticky z-[1]"
+                  style={{ left: 0, width: 50 }}
                 >
                   {t('ioi.scoreboard.header.rank')}
                 </th>
                 <th
-                  style={{
-                    ...headerStyle,
-                    textAlign: 'left',
-                    ...stickyBase,
-                    left: 50,
-                  }}
+                  className="py-2 px-3 text-left font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap sticky z-[1]"
+                  style={{ left: 50 }}
                 >
                   {t('ioi.scoreboard.header.user')}
                 </th>
                 {problemLabels.map((label: string, i: number) => (
-                  <th key={problemIds[i]} style={{ ...headerStyle, width: 80 }}>
+                  <th
+                    key={problemIds[i]}
+                    className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
+                    style={{ width: 80 }}
+                  >
                     {label}
                   </th>
                 ))}
-                <th style={{ ...headerStyle, width: 90 }}>
+                <th
+                  className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
+                  style={{ width: 90 }}
+                >
                   {t('ioi.scoreboard.header.total')}
                 </th>
               </tr>
@@ -511,7 +331,6 @@ export function IoiScoreboard({ contestId }: IoiScoreboardProps) {
                   problemIds={problemIds}
                   maxPerProblem={maxPerProblem}
                   maxTotal={maxTotal}
-                  cellStyle={cellStyle}
                 />
               ))}
             </tbody>
@@ -527,13 +346,11 @@ function RankRow({
   problemIds,
   maxPerProblem,
   maxTotal,
-  cellStyle,
 }: {
   entry: ScoreboardEntry;
   problemIds: number[];
   maxPerProblem: Record<number, number>;
   maxTotal: number;
-  cellStyle: React.CSSProperties;
 }) {
   const problemScoreMap: Record<number, number> = {};
   if (entry.problems) {
@@ -543,27 +360,16 @@ function RankRow({
   }
 
   return (
-    <tr style={{ transition: 'background 0.15s' }}>
+    <tr className="transition-colors duration-150">
       <td
-        style={{
-          ...cellStyle,
-          textAlign: 'center',
-          width: 50,
-          ...stickyBase,
-          left: 0,
-          background: 'inherit',
-        }}
+        className="py-1.5 px-3 border-b border-border text-[13px] text-center sticky z-[1] bg-inherit"
+        style={{ left: 0, width: 50 }}
       >
         <MedalBadge rank={entry.rank} />
       </td>
       <td
-        style={{
-          ...cellStyle,
-          fontWeight: 500,
-          ...stickyBase,
-          left: 50,
-          background: 'inherit',
-        }}
+        className="py-1.5 px-3 border-b border-border text-[13px] font-medium sticky z-[1] bg-inherit"
+        style={{ left: 50 }}
       >
         {entry.username}
       </td>
@@ -573,13 +379,8 @@ function RankRow({
         return <ScoreCell key={pid} score={score} max={max} />;
       })}
       <td
-        style={{
-          ...cellStyle,
-          textAlign: 'center',
-          fontWeight: 700,
-          background: scoreColor(entry.total_score, maxTotal),
-          ...SCORE_FONT,
-        }}
+        className="py-1.5 px-3 text-center font-bold font-mono tabular-nums border-b border-border"
+        style={{ background: scoreColor(entry.total_score, maxTotal) }}
       >
         {entry.total_score.toFixed(
           entry.total_score === Math.floor(entry.total_score) ? 0 : 2,

@@ -20,9 +20,15 @@ method = "GET"
 path = "/api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status"
 handler = "get_cooldown_status"
 
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/cooldown/problems/{problem_id}/status"
+handler = "get_cooldown_status_standalone"
+
 [web]
 root = "frontend/dist"
 entry = "index.js"
+css = ["styles.css"]
 
 [web.components]
 CooldownConfigInfo = "CooldownConfigInfo"

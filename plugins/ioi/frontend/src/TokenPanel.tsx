@@ -1,6 +1,7 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Button } from '@broccoli/web-sdk/ui';
+import { cn } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useIoiApi } from './hooks/useIoiApi';
@@ -15,16 +16,6 @@ interface TokenPanelProps {
   } | null;
   contestId?: number;
 }
-
-const SCORE_FONT: React.CSSProperties = {
-  fontVariantNumeric: 'tabular-nums',
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-};
-
-const PRIMARY_ACTION_BG = '#2563eb';
-const PRIMARY_ACTION_BORDER = '#1d4ed8';
-const PRIMARY_ACTION_TEXT = '#ffffff';
 
 function formatCountdown(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
@@ -140,80 +131,37 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
       dots.push(
         <span
           key={i}
-          style={{
-            display: 'inline-block',
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            background: isAvailable ? '#10b981' : 'transparent',
-            border: isAvailable
-              ? '2px solid #10b981'
-              : '2px solid var(--border, #d1d5db)',
-            transition: 'all 0.2s',
-          }}
+          className={cn(
+            'inline-block w-2.5 h-2.5 rounded-full transition-all duration-200',
+            isAvailable
+              ? 'bg-emerald-500 border-2 border-emerald-500'
+              : 'bg-transparent border-2 border-border',
+          )}
         />,
       );
     }
   }
 
   return (
-    <div
-      style={{
-        border: '1px solid var(--border, #e5e7eb)',
-        borderRadius: 8,
-        padding: 16,
-        background: 'var(--card, #fff)',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'var(--muted-foreground, #888)',
-          marginBottom: 12,
-        }}
-      >
+    <div className="rounded-lg border border-border p-4 bg-card">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
         {t('ioi.tokenPanel.title')}
       </div>
 
       {/* Token display */}
       {tokenStatus.total > 0 && (
         <>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              marginBottom: 8,
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className="flex items-center gap-1 mb-2 flex-wrap">
             {showDots ? (
               dots
             ) : (
-              <span
-                style={{
-                  ...SCORE_FONT,
-                  fontSize: 20,
-                  fontWeight: 700,
-                  color: 'var(--foreground, #111)',
-                }}
-              >
+              <span className="font-mono tabular-nums text-xl font-bold text-foreground">
                 {tokenStatus.available}
-                <span style={{ opacity: 0.4 }}>/{tokenStatus.total}</span>
+                <span className="opacity-40">/{tokenStatus.total}</span>
               </span>
             )}
             {showDots && (
-              <span
-                style={{
-                  ...SCORE_FONT,
-                  marginLeft: 8,
-                  fontSize: 13,
-                  color: 'var(--foreground, #111)',
-                }}
-              >
+              <span className="font-mono tabular-nums ml-2 text-[13px] text-foreground">
                 {t('ioi.tokenPanel.available', {
                   available: tokenStatus.available,
                   total: tokenStatus.total,
@@ -222,14 +170,7 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
             )}
           </div>
           {countdownLabel && (
-            <div
-              style={{
-                ...SCORE_FONT,
-                marginBottom: 12,
-                fontSize: 12,
-                color: 'var(--muted-foreground, #666)',
-              }}
-            >
+            <div className="font-mono tabular-nums mb-3 text-xs text-muted-foreground">
               {t('ioi.tokenPanel.nextTokenIn', { remaining: countdownLabel })}
             </div>
           )}
@@ -238,149 +179,73 @@ export function TokenPanel({ submission, contestId }: TokenPanelProps) {
 
       {/* Use token button with confirmation */}
       {canUseToken && (
-        <div style={{ position: 'relative' }}>
+        <div className="relative">
           {confirmingSubmissionId === submission.id ? (
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: 6,
-                border: '1px solid rgba(245, 158, 11, 0.3)',
-                background: 'rgba(245, 158, 11, 0.06)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 12,
-                  color: 'var(--foreground, #111)',
-                  lineHeight: 1.5,
-                }}
-              >
+            <div className="p-2.5 px-3 rounded-md border border-amber-500/30 bg-amber-500/[0.06] flex flex-col gap-2">
+              <div className="text-xs text-foreground leading-normal">
                 {t('ioi.tokenPanel.confirmUse', {
                   id: submission.id,
                   remaining: tokenStatus.available - 1,
                 })}
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1"
                   onClick={() => {
                     setConfirmingSubmissionId(null);
                     handleUseToken();
                   }}
                   disabled={isUsing}
-                  style={{
-                    flex: 1,
-                    padding: '6px 12px',
-                    borderRadius: 5,
-                    border: `1px solid ${PRIMARY_ACTION_BORDER}`,
-                    background: PRIMARY_ACTION_BG,
-                    color: PRIMARY_ACTION_TEXT,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: isUsing ? 'not-allowed' : 'pointer',
-                    opacity: isUsing ? 0.6 : 1,
-                  }}
                 >
                   {isUsing
                     ? t('ioi.tokenPanel.usingToken')
                     : t('ioi.tokenPanel.confirm')}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
                   onClick={() => setConfirmingSubmissionId(null)}
-                  style={{
-                    flex: 1,
-                    padding: '6px 12px',
-                    borderRadius: 5,
-                    border: '1px solid var(--border, #d1d5db)',
-                    background: 'transparent',
-                    color: 'var(--foreground, #111)',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                  }}
                 >
                   {t('ioi.tokenPanel.cancel')}
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
-            <button
+            <Button
+              className="w-full"
               onClick={() => setConfirmingSubmissionId(submission.id)}
-              style={{
-                width: '100%',
-                padding: '8px 16px',
-                borderRadius: 6,
-                border: `1px solid ${PRIMARY_ACTION_BORDER}`,
-                background: PRIMARY_ACTION_BG,
-                color: PRIMARY_ACTION_TEXT,
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'opacity 0.15s',
-              }}
             >
               {t('ioi.tokenPanel.useToken')}
-            </button>
+            </Button>
           )}
         </div>
       )}
 
       {alreadyTokened && (
-        <div
-          style={{
-            padding: '6px 10px',
-            borderRadius: 4,
-            fontSize: 12,
-            color: '#10b981',
-            background: 'rgba(16, 185, 129, 0.1)',
-            textAlign: 'center',
-          }}
-        >
+        <div className="py-1.5 px-2.5 rounded text-xs text-emerald-500 bg-emerald-500/10 text-center">
           {t('ioi.tokenPanel.alreadyUsed')}
         </div>
       )}
 
       {error && (
-        <div
-          style={{
-            marginTop: 8,
-            padding: '6px 10px',
-            borderRadius: 4,
-            fontSize: 12,
-            color: '#ef4444',
-            background: 'rgba(239, 68, 68, 0.1)',
-          }}
-        >
+        <div className="mt-2 py-1.5 px-2.5 rounded text-xs text-red-500 bg-red-500/10">
           {error}
         </div>
       )}
 
       {/* Tokened submissions list */}
       {tokenStatus.tokened_submission_ids.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--muted-foreground, #888)',
-              marginBottom: 4,
-            }}
-          >
+        <div className="mt-3">
+          <div className="text-[11px] text-muted-foreground mb-1">
             {t('ioi.tokenPanel.tokenedSubmissions')}
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="flex gap-1.5 flex-wrap">
             {tokenStatus.tokened_submission_ids.map((sid: number) => (
               <span
                 key={sid}
-                style={{
-                  ...SCORE_FONT,
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  fontSize: 11,
-                  background: 'var(--muted, #f3f4f6)',
-                  color: 'var(--foreground, #111)',
-                }}
+                className="font-mono tabular-nums px-2 py-0.5 rounded text-[11px] bg-muted text-foreground"
               >
                 #{sid}
               </span>

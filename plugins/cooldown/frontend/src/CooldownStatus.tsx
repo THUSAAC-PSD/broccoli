@@ -3,6 +3,7 @@
  */
 import { useApiFetch } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { cn } from '@broccoli/web-sdk/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Props {
@@ -19,12 +20,6 @@ interface CooldownStatusData {
 
 const PLUGIN_BASE = '/api/v1/p/cooldown/api/plugins/cooldown';
 
-const MONO: React.CSSProperties = {
-  fontVariantNumeric: 'tabular-nums',
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-};
-
 export function CooldownStatus({ submission, contestId, problemId }: Props) {
   const apiFetch = useApiFetch();
   const { t } = useTranslation();
@@ -35,11 +30,12 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
   const submissionId = submission?.id;
 
   const fetchStatus = useCallback(async () => {
-    if (!contestId || !problemId) return;
+    if (!problemId) return;
+    const url = contestId
+      ? `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/status`
+      : `${PLUGIN_BASE}/problems/${problemId}/status`;
     try {
-      const res = await apiFetch(
-        `${PLUGIN_BASE}/contests/${contestId}/problems/${problemId}/status`,
-      );
+      const res = await apiFetch(url);
       if (!res.ok) return;
       const d: CooldownStatusData = await res.json();
       setData(d);
@@ -61,7 +57,7 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
 
   // Fetch on mount and when submission changes
   useEffect(() => {
-    if (!contestId || !problemId) return;
+    if (!problemId) return;
 
     let cancelled = false;
 
@@ -96,56 +92,36 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
     };
   }, [fetchStatus, remaining > 0]);
 
-  if (!contestId || !problemId || !data) return null;
+  if (!problemId || !data) return null;
 
   // Cooldown disabled — don't show the panel
   if (data.cooldown_seconds === 0) return null;
 
   const isReady = remaining === 0;
+  const pct =
+    ((data.cooldown_seconds - remaining) / data.cooldown_seconds) * 100;
 
   return (
-    <div
-      style={{
-        border: '1px solid var(--border, #e5e7eb)',
-        borderRadius: 8,
-        padding: 16,
-        background: 'var(--card, #fff)',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'var(--muted-foreground, #888)',
-          marginBottom: 12,
-        }}
-      >
+    <div className="rounded-lg border border-border p-4 bg-card">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
         {t('cooldown.cooldown')}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="flex items-center gap-2">
         {/* Status dot */}
         <span
-          style={{
-            display: 'inline-block',
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: isReady ? '#10b981' : '#f59e0b',
-            flexShrink: 0,
-          }}
+          className={cn(
+            'inline-block w-2 h-2 rounded-full shrink-0',
+            isReady ? 'bg-emerald-500' : 'bg-amber-500',
+          )}
         />
 
         {isReady ? (
-          <span style={{ fontSize: 13, color: '#10b981', fontWeight: 500 }}>
+          <span className="text-[13px] text-emerald-500 font-medium">
             {t('cooldown.ready')}
           </span>
         ) : (
-          <span
-            style={{ ...MONO, fontSize: 13, color: '#f59e0b', fontWeight: 500 }}
-          >
+          <span className="font-mono tabular-nums text-[13px] text-amber-500 font-medium">
             {t('cooldown.waitShort', { seconds: remaining })}
           </span>
         )}
@@ -153,34 +129,15 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
 
       {/* Progress bar when cooling down */}
       {!isReady && data.cooldown_seconds > 0 && (
-        <div
-          style={{
-            marginTop: 10,
-            height: 4,
-            borderRadius: 2,
-            background: 'var(--muted, #f3f4f6)',
-            overflow: 'hidden',
-          }}
-        >
+        <div className="mt-2.5 h-1 rounded-sm bg-muted overflow-hidden">
           <div
-            style={{
-              height: '100%',
-              width: `${((data.cooldown_seconds - remaining) / data.cooldown_seconds) * 100}%`,
-              borderRadius: 2,
-              background: '#f59e0b',
-              transition: 'width 1s linear',
-            }}
+            className="h-full rounded-sm bg-amber-500 transition-[width] duration-1000 ease-linear"
+            style={{ width: `${pct}%` }}
           />
         </div>
       )}
 
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 11,
-          color: 'var(--muted-foreground, #888)',
-        }}
-      >
+      <div className="mt-2 text-[11px] text-muted-foreground">
         {t('cooldown.betweenSubmissions', { seconds: data.cooldown_seconds })}
       </div>
     </div>

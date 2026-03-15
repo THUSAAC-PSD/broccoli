@@ -5,6 +5,8 @@
  * Receives slot props: { value, schema, onChange, path }
  */
 
+import { Input } from '@broccoli/web-sdk/ui';
+
 interface ColorPickerFieldProps {
   value: unknown;
   schema: { title?: string; description?: string };
@@ -19,86 +21,39 @@ export function ColorPickerField({
   const color = typeof value === 'string' ? value : '#000000';
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-        gridColumn: 'span 2',
-      }}
-    >
-      <label
-        style={{
-          fontSize: '11px',
-          fontWeight: 500,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          opacity: 0.6,
-        }}
-      >
+    <div className="flex flex-col gap-1.5 col-span-2">
+      <label className="text-[11px] font-medium uppercase tracking-wide opacity-60">
         {schema.title ?? 'Color'}
-        <span
-          style={{
-            marginLeft: '6px',
-            fontSize: '10px',
-            fontWeight: 400,
-            textTransform: 'none',
-            letterSpacing: 'normal',
-            color: '#d97706',
-          }}
-        >
+        <span className="ml-1.5 text-[10px] font-normal normal-case tracking-normal text-amber-600">
           (plugin override)
         </span>
       </label>
       {schema.description && (
-        <p style={{ fontSize: '12px', opacity: 0.6, margin: 0 }}>
-          {schema.description}
-        </p>
+        <p className="text-xs opacity-60 m-0">{schema.description}</p>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="flex items-center gap-3">
         {/* Native color picker */}
         <input
           type="color"
           value={color}
           onChange={(e) => onChange(e.target.value)}
-          style={{
-            height: '36px',
-            width: '48px',
-            cursor: 'pointer',
-            borderRadius: '6px',
-            border: '1px solid var(--border, #e5e7eb)',
-            padding: '2px',
-          }}
+          className="h-9 w-12 cursor-pointer rounded-md border border-input p-0.5"
         />
         {/* Hex text input */}
-        <input
+        <Input
           type="text"
           value={color}
           onChange={(e) => onChange(e.target.value)}
           maxLength={20}
-          style={{
-            height: '36px',
-            width: '112px',
-            borderRadius: '6px',
-            border: '1px solid var(--border, #e5e7eb)',
-            background: 'transparent',
-            padding: '4px 12px',
-            fontSize: '13px',
-            fontFamily: 'monospace',
-          }}
+          className="w-28 font-mono"
         />
         {/* Live preview swatch */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="flex items-center gap-2">
           <div
-            style={{
-              height: '36px',
-              width: '36px',
-              borderRadius: '6px',
-              border: '1px solid var(--border, #e5e7eb)',
-              backgroundColor: color,
-            }}
+            className="h-9 w-9 rounded-md border border-input"
+            style={{ backgroundColor: color }}
           />
-          <span style={{ fontSize: '12px', opacity: 0.6 }}>Preview</span>
+          <span className="text-xs opacity-60">Preview</span>
         </div>
       </div>
     </div>

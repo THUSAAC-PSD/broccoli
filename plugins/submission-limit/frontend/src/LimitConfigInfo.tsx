@@ -3,6 +3,7 @@
  */
 import { useApiFetch } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { cn } from '@broccoli/web-sdk/utils';
 import { useEffect, useState } from 'react';
 
 type ConfigScope =
@@ -105,13 +106,7 @@ export function LimitConfigInfo({
   // Contest scope: simple hint
   if (isContest) {
     return (
-      <p
-        style={{
-          margin: 0,
-          fontSize: '12px',
-          color: 'var(--muted-foreground, #6b7280)',
-        }}
-      >
+      <p className="m-0 text-xs text-muted-foreground">
         {t('limit.contestHint')}
       </p>
     );
@@ -131,15 +126,12 @@ export function LimitConfigInfo({
 
   return (
     <div
-      style={{
-        fontSize: '12px',
-        color: 'var(--muted-foreground, #6b7280)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: rows.length > 0 ? '6px' : '0',
-      }}
+      className={cn(
+        'text-xs text-muted-foreground flex flex-col',
+        rows.length > 0 ? 'gap-1.5' : 'gap-0',
+      )}
     >
-      <p style={{ margin: 0 }}>
+      <p className="m-0">
         {!hasLocalOverride && effective ? (
           <>
             {t('limit.inheritInfo', {
@@ -153,28 +145,16 @@ export function LimitConfigInfo({
         )}
       </p>
       {rows.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <div className="flex flex-col gap-0.5">
           {rows.map((row) => (
-            <div
-              key={row.label}
-              style={{ display: 'flex', gap: '6px', alignItems: 'baseline' }}
-            >
-              <span style={{ fontWeight: 500, minWidth: '52px' }}>
-                {row.label}:
-              </span>
+            <div key={row.label} className="flex gap-1.5 items-baseline">
+              <span className="font-medium min-w-[52px]">{row.label}:</span>
               {row.value !== null ? (
-                <code
-                  style={{
-                    background: 'var(--muted, #f3f4f6)',
-                    padding: '0 5px',
-                    borderRadius: '3px',
-                    fontSize: '11px',
-                  }}
-                >
+                <code className="bg-muted px-1.5 rounded text-[11px]">
                   {formatLimit(row.value, t)}
                 </code>
               ) : (
-                <span style={{ fontStyle: 'italic', fontSize: '11px' }}>
+                <span className="italic text-[11px]">
                   {defaultLabel
                     ? t('limit.notSetWithDefault', { default: defaultLabel })
                     : t('limit.notSet')}
@@ -183,12 +163,7 @@ export function LimitConfigInfo({
               {!hasLocalOverride &&
                 effective &&
                 row.label === effective.source && (
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--primary, #2563eb)',
-                    }}
-                  >
+                  <span className="text-[11px] text-primary">
                     ← {t('limit.active')}
                   </span>
                 )}

@@ -151,6 +151,7 @@ type = "string"
 [web]
 root = "frontend/dist"
 entry = "index.js"
+css = ["styles.css"]
 
 [web.components]
 ScoringModeSelector = "ScoringModeSelector"
@@ -198,12 +199,12 @@ component = "SubtaskEditor"
 # Contestant-facing slots
 [[web.slots]]
 name = "ranking.content"
-position = "replace"
+position = "wrap"
 component = "IoiScoreboard"
 
 [[web.slots]]
 name = "submission-result.content"
-position = "replace"
+position = "wrap"
 component = "IoiSubmissionResult"
 
 [[web.slots]]
