@@ -108,11 +108,11 @@ export function ProblemFormDialog({
     e.preventDefault();
 
     if (!title.trim()) {
-      toast.error('Title is required');
+      toast.error(t('validation.titleRequired'));
       return;
     }
     if (!content.trim()) {
-      toast.error('Problem content is required');
+      toast.error(t('validation.contentRequired'));
       return;
     }
 

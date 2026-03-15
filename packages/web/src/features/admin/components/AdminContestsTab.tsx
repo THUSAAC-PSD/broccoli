@@ -191,23 +191,23 @@ export function ContestFormDialog({
     e.preventDefault();
 
     if (!title.trim()) {
-      toast.error('Title is required');
+      toast.error(t('validation.titleRequired'));
       return;
     }
     if (!startTime || !endTime) {
-      toast.error('Start time and end time are required');
+      toast.error(t('validation.startEndTimeRequired'));
       return;
     }
     if (startTime >= endTime) {
-      toast.error('Start time must be before end time');
+      toast.error(t('validation.startBeforeEnd'));
       return;
     }
     if (activateTime && activateTime > startTime) {
-      toast.error('Activate time must be before or equal to start time');
+      toast.error(t('validation.activateBeforeStart'));
       return;
     }
     if (deactivateTime && deactivateTime < endTime) {
-      toast.error('Deactivate time must be after or equal to end time');
+      toast.error(t('validation.deactivateAfterEnd'));
       return;
     }
 

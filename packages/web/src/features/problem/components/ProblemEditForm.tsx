@@ -115,11 +115,11 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     e.preventDefault();
 
     if (!formData.title.trim()) {
-      toast.error('Title is required');
+      toast.error(t('validation.titleRequired'));
       return;
     }
     if (!formData.content.trim()) {
-      toast.error('Problem content is required');
+      toast.error(t('validation.contentRequired'));
       return;
     }
 
