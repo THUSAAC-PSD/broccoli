@@ -1314,6 +1314,13 @@ export interface components {
              */
             components: components["schemas"]["ComponentMap"];
             /**
+             * @description CSS files to load alongside the JS entry point.
+             * @example [
+             *       "style.css"
+             *     ]
+             */
+            css: string[];
+            /**
              * @description Public URL to the plugin's frontend ESM entry point.
              * @example /assets/plugin-123/index.js
              */

@@ -97,6 +97,11 @@ export function PluginRegistryProvider({
       // Call onDestroy if provided
       await module.onDestroy?.();
 
+      // Remove plugin CSS
+      document
+        .querySelectorAll(`link[data-plugin-id="${pluginId}"]`)
+        .forEach((el) => el.remove());
+
       // Remove plugin components
       if (manifest.components) {
         setComponents((prev) => {
@@ -208,6 +213,29 @@ export function PluginRegistryProvider({
 
       const results = await Promise.allSettled(
         pluginList.map(async (pluginInfo) => {
+          // Load CSS files declared by the plugin
+          if (pluginInfo.css && pluginInfo.css.length > 0) {
+            for (const cssUrl of pluginInfo.css) {
+              const href = resolvePluginEntryUrl(cssUrl, bustCache);
+              // Avoid duplicate <link> tags — match by plugin ID, not href
+              // (href includes cache-buster query params that change on reload)
+              const existing = document.querySelector(
+                `link[data-plugin-id="${pluginInfo.id}"][data-css-file="${cssUrl}"]`,
+              );
+              if (!existing) {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                link.dataset.pluginId = pluginInfo.id;
+                link.dataset.cssFile = cssUrl;
+                document.head.appendChild(link);
+              } else {
+                // Update href to pick up new cache buster on reload
+                existing.setAttribute('href', href);
+              }
+            }
+          }
+
           const pluginModule: PluginModule = pluginInfo.entry
             ? await import(
                 /* @vite-ignore */ resolvePluginEntryUrl(
@@ -268,6 +296,26 @@ export function PluginRegistryProvider({
 
       // Dynamic import with new URL (cache buster ensures fresh module)
       try {
+        // Load CSS files declared by the plugin
+        if (pluginInfo.css && pluginInfo.css.length > 0) {
+          for (const cssUrl of pluginInfo.css) {
+            const href = resolvePluginEntryUrl(cssUrl, true);
+            const existing = document.querySelector(
+              `link[data-plugin-id="${pluginInfo.id}"][data-css-file="${cssUrl}"]`,
+            );
+            if (!existing) {
+              const link = document.createElement('link');
+              link.rel = 'stylesheet';
+              link.href = href;
+              link.dataset.pluginId = pluginInfo.id;
+              link.dataset.cssFile = cssUrl;
+              document.head.appendChild(link);
+            } else {
+              existing.setAttribute('href', href);
+            }
+          }
+        }
+
         const pluginModule: PluginModule = pluginInfo.entry
           ? await import(
               /* @vite-ignore */ resolvePluginEntryUrl(pluginInfo.entry, true)

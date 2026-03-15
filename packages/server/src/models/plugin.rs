@@ -72,6 +72,10 @@ pub struct ActivePluginResponse {
         }
     ]))]
     pub routes: Vec<WebRouteConfig>,
+
+    /// CSS files to load alongside the JS entry point.
+    #[schema(example = json!(["style.css"]))]
+    pub css: Vec<String>,
 }
 
 /// Detailed information about a plugin.
@@ -157,6 +161,24 @@ impl From<PluginInfo> for ActivePluginResponse {
             format!("{}?t={}", base, mtime)
         };
 
+        let css: Vec<String> = web_manifest
+            .css
+            .iter()
+            .map(|css_file| {
+                let base = format!("/assets/{}/{}", info.id, css_file);
+                let css_path = info.root_dir.join(&web_manifest.root).join(css_file);
+                let mtime = std::fs::metadata(&css_path)
+                    .and_then(|m| m.modified())
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    })
+                    .unwrap_or(0);
+                format!("{}?t={}", base, mtime)
+            })
+            .collect();
+
         Self {
             id: info.id.clone(),
             name: info.manifest.name,
@@ -164,6 +186,7 @@ impl From<PluginInfo> for ActivePluginResponse {
             components: web_manifest.components.clone(),
             slots: web_manifest.slots.clone(),
             routes: web_manifest.routes.clone(),
+            css,
         }
     }
 }
