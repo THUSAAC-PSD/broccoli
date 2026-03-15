@@ -15,16 +15,21 @@ export function PluginCard({
   plugin,
   toggling,
   onToggle,
+  onClick,
 }: {
   plugin: PluginDetail;
   toggling: boolean;
   onToggle: (plugin: PluginDetail, enable: boolean) => void;
+  onClick?: (plugin: PluginDetail) => void;
 }) {
   const { t } = useTranslation();
   const isEnabled = plugin.status === 'Loaded';
 
   return (
-    <Card className="flex flex-col">
+    <Card
+      className={`flex flex-col${onClick ? ' cursor-pointer transition-colors hover:bg-muted/50' : ''}`}
+      onClick={() => onClick?.(plugin)}
+    >
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <span className="truncate">{plugin.name}</span>
@@ -66,7 +71,10 @@ export function PluginCard({
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div
+            className="flex items-center gap-2 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
             {toggling && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}

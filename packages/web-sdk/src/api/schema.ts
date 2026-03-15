@@ -2112,7 +2112,7 @@ export interface components {
        */
       total_pages: number;
     };
-    /** @description Detailed information about a plugin. */
+    /** @description Detailed information about a plugin (used in list endpoint). */
     PluginDetailResponse: {
       /**
        * @description Plugin description.
@@ -2152,11 +2152,90 @@ export interface components {
        */
       version: string;
     };
+    /** @description Full detailed information about a plugin including manifest data. */
+    PluginFullDetailResponse: {
+      /**
+       * @description Plugin description.
+       * @example This plugin does awesome things!
+       */
+      description?: string | null;
+      /**
+       * @description Indicates if the plugin has a server component.
+       * @example true
+       */
+      has_server: boolean;
+      /**
+       * @description Indicates if the plugin has a web (frontend) component.
+       * @example true
+       */
+      has_web: boolean;
+      /**
+       * @description Indicates if the plugin has a worker component.
+       * @example false
+       */
+      has_worker: boolean;
+      /**
+       * @description Unique identifier for the plugin.
+       * @example plugin-123
+       */
+      id: string;
+      /**
+       * @description Plugin name.
+       * @example An Awesome Plugin
+       */
+      name: string;
+      /** @description Plugin status. */
+      status: components['schemas']['PluginStatusResponse'];
+      /**
+       * @description Plugin version.
+       * @example 1.0.0
+       */
+      version: string;
+      /** @description Server component details (if present). */
+      server?: components['schemas']['ServerDetailResponse'] | null;
+      /** @description Worker component details (if present). */
+      worker?: components['schemas']['WorkerDetailResponse'] | null;
+      /** @description Web component details (if present). */
+      web?: components['schemas']['WebDetailResponse'] | null;
+      /** @description Available translation locales. */
+      translations: string[];
+    };
     /**
      * @description Plugin status for API responses, abstracting away error details.
      * @enum {string}
      */
     PluginStatusResponse: 'Unloaded' | 'Loaded' | 'Failed';
+    /** @description Server component details. */
+    ServerDetailResponse: {
+      /** @description Permissions requested by the server component. */
+      permissions: string[];
+      /** @description HTTP routes exposed by the server component. */
+      routes: components['schemas']['ServerRouteConfig'][];
+    };
+    ServerRouteConfig: {
+      /** @description The HTTP method for the route. */
+      method: string;
+      /** @description The URL path for the route. */
+      path: string;
+      /** @description The handler function for this route. */
+      handler: string;
+      /** @description The permission required to access this route. */
+      permission?: string | null;
+    };
+    /** @description Worker component details. */
+    WorkerDetailResponse: {
+      /** @description Permissions requested by the worker component. */
+      permissions: string[];
+    };
+    /** @description Web (frontend) component details. */
+    WebDetailResponse: {
+      /** @description Components exposed by the plugin. */
+      components: components['schemas']['ComponentMap'];
+      /** @description Slots for UI extension. */
+      slots: components['schemas']['WebSlotConfig'][];
+      /** @description Routes for client-side navigation. */
+      routes: components['schemas']['WebRouteConfig'][];
+    };
     /** @description Problem summary for list views (content omitted). */
     ProblemListItem: {
       /**
@@ -2938,7 +3017,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['PluginDetailResponse'];
+          'application/json': components['schemas']['PluginFullDetailResponse'];
         };
       };
       /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */

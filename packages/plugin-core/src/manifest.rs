@@ -66,7 +66,7 @@ pub struct ServerConfig {
     pub routes: Vec<ServerRouteConfig>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct ServerRouteConfig {
     /// The HTTP method for the route, e.g., "GET", "POST", etc.
     pub method: String,

@@ -12,6 +12,7 @@ import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { PluginCard } from '@/features/plugin/components/PluginCard';
+import { PluginDetailDialog } from '@/features/plugin/components/PluginDetailDialog';
 
 export default function PluginsPage() {
   const { t } = useTranslation();
@@ -20,6 +21,7 @@ export default function PluginsPage() {
   const queryClient = useQueryClient();
 
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
+  const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
   const { unloadPlugin } = usePluginRegistry();
 
   const {
@@ -71,7 +73,7 @@ export default function PluginsPage() {
         });
       }
     },
-    [apiClient, queryClient, unloadPlugin],
+    [apiClient, queryClient, unloadPlugin, t],
   );
 
   if (!user || !user.permissions.includes('plugin:manage')) {
@@ -128,10 +130,18 @@ export default function PluginsPage() {
               plugin={plugin}
               toggling={togglingIds.has(plugin.id)}
               onToggle={handleToggle}
+              onClick={(p) => setDetailPluginId(p.id)}
             />
           ))}
         </div>
       )}
+      <PluginDetailDialog
+        pluginId={detailPluginId}
+        open={!!detailPluginId}
+        onOpenChange={(open) => {
+          if (!open) setDetailPluginId(null);
+        }}
+      />
     </PageLayout>
   );
 }

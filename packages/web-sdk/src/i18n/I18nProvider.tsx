@@ -78,7 +78,11 @@ export function I18nProvider({
 
   const t = useCallback(
     (key: string, params?: Record<string, string>) => {
-      let value = pluginTranslations[key] ?? coreI18n[locale]?.[key] ?? key;
+      let value =
+        pluginTranslations[key] ??
+        coreI18n[locale]?.[key] ??
+        coreI18n['en']?.[key] ??
+        key;
       if (params) {
         for (const [param, replacement] of Object.entries(params)) {
           value = value.replace(`{${param}}`, replacement);

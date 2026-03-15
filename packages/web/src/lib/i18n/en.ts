@@ -301,8 +301,7 @@ export const en: Record<string, string> = {
   'admin.bulkParticipantsDuplicate': 'Duplicate usernames found in JSON.',
   'admin.bulkParticipantsInvalidUsername':
     'Invalid username format. Use letters, digits, and underscores (1-32 chars).',
-  'admin.bulkParticipantsInvalidPassword':
-    'Password must be 8-128 characters.',
+  'admin.bulkParticipantsInvalidPassword': 'Password must be 8-128 characters.',
   'admin.bulkParticipantsExistingWithPassword':
     'Existing users must not include password in preview input.',
   'admin.bulkParticipantsExistingWithPasswordList':
@@ -443,6 +442,30 @@ export const en: Record<string, string> = {
   'plugins.component.web': 'Web',
   'plugins.component.worker': 'Worker',
   'sidebar.plugins': 'Plugins',
+  'plugins.detail.title': 'Plugin Details',
+  'plugins.detail.server': 'Server',
+  'plugins.detail.web': 'Web',
+  'plugins.detail.worker': 'Worker',
+  'plugins.detail.translations': 'Translations',
+  'plugins.detail.permissions': 'Permissions',
+  'plugins.detail.routes': 'Routes',
+  'plugins.detail.slots': 'Slots',
+  'plugins.detail.components': 'Components',
+  'plugins.detail.method': 'Method',
+  'plugins.detail.path': 'Path',
+  'plugins.detail.handler': 'Handler',
+  'plugins.detail.permission': 'Permission',
+  'plugins.detail.slotName': 'Slot',
+  'plugins.detail.position': 'Position',
+  'plugins.detail.component': 'Component',
+  'plugins.detail.priority': 'Priority',
+  'plugins.detail.export': 'Export',
+  'plugins.detail.noTranslations': 'No translations defined.',
+  'plugins.detail.noRoutes': 'No routes defined.',
+  'plugins.detail.noSlots': 'No slots defined.',
+  'plugins.detail.noComponents': 'No components defined.',
+  'plugins.detail.meta': 'Meta',
+  'plugins.detail.loadError': 'Failed to load plugin details.',
 
   // Amazing button plugin
   'plugin.amazingButton.label': 'Amazing Button',
