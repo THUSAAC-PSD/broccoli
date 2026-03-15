@@ -301,6 +301,8 @@ export const en: Record<string, string> = {
   'admin.bulkParticipantsDuplicate': 'Duplicate usernames found in JSON.',
   'admin.bulkParticipantsInvalidUsername':
     'Invalid username format. Use letters, digits, and underscores (1-32 chars).',
+  'admin.bulkParticipantsInvalidPassword':
+    'Password must be 8-128 characters.',
   'admin.bulkParticipantsExistingWithPassword':
     'Existing users must not include password in preview input.',
   'admin.bulkParticipantsExistingWithPasswordList':
@@ -446,6 +448,26 @@ export const en: Record<string, string> = {
   'plugin.amazingButton.label': 'Amazing Button',
   'plugin.amazingButton.alert': 'Amazing!',
   'plugin.amazingButton.pageTitle': 'Amazing Page!',
+
+  // Validation
+  'validation.titleRequired': 'Title is required.',
+  'validation.contentRequired': 'Content is required.',
+  'validation.startEndTimeRequired': 'Start time and end time are required.',
+  'validation.startBeforeEnd': 'Start time must be before end time.',
+  'validation.activateBeforeStart':
+    'Activate time must be before or equal to start time.',
+  'validation.deactivateAfterEnd':
+    'Deactivate time must be after or equal to end time.',
+  'validation.usernameFormat':
+    'Username must be 1-32 characters (letters, digits, underscores only).',
+  'validation.passwordLength': 'Password must be 8-128 characters.',
+  'validation.pluginToggleError': 'Failed to toggle plugin.',
+
+  // Clarification
+  'clarification.submitSuccess': 'Submitted successfully.',
+  'clarification.submitError': 'Failed to submit.',
+  'clarification.replySuccess': 'Reply sent.',
+  'clarification.replyError': 'Failed to send reply.',
 
   // Common
   'common.cancel': 'Cancel',

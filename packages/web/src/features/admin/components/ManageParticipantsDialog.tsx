@@ -512,7 +512,7 @@ function BulkImportTab({
             setErrorMsg(t('admin.bulkParticipantsEmpty'));
             break;
           case 'admin.bulkParticipantsInvalidPassword':
-            setErrorMsg('Password must be 8-128 characters');
+            setErrorMsg(t('admin.bulkParticipantsInvalidPassword'));
             break;
           default:
             setErrorMsg(t('admin.bulkParticipantsInvalidJson'));

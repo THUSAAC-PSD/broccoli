@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+
 import {
   createClarification,
   fetchClarifications,
@@ -17,15 +19,16 @@ export function useClarifications(contestId: number, enabled: boolean) {
 }
 
 export function useCreateClarification(contestId: number) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: CreateClarificationBody) =>
       createClarification(contestId, body),
     onSuccess: () => {
-      toast.success('Submitted successfully');
+      toast.success(t('clarification.submitSuccess'));
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to submit');
+      toast.error(error.message || t('clarification.submitError'));
     },
     onSettled: () => {
       queryClient.invalidateQueries({
@@ -36,6 +39,7 @@ export function useCreateClarification(contestId: number) {
 }
 
 export function useReplyClarification(contestId: number) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: {
@@ -48,10 +52,10 @@ export function useReplyClarification(contestId: number) {
         is_public: payload.is_public,
       }),
     onSuccess: () => {
-      toast.success('Reply sent');
+      toast.success(t('clarification.replySuccess'));
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to send reply');
+      toast.error(error.message || t('clarification.replyError'));
     },
     onSettled: () => {
       queryClient.invalidateQueries({
