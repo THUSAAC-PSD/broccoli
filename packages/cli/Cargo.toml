@@ -1,6 +1,6 @@
 [package]
 name = "broccoli-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "CLI for scaffolding and building Broccoli plugins"
 license = "MIT"
 repository = "https://github.com/THUSAAC-PSD/broccoli"

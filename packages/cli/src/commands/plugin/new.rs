@@ -25,6 +25,9 @@ const TMPL_GITIGNORE: &str = include_str!("../../../templates/backend/.gitignore
 const TMPL_PACKAGE_JSON: &str = include_str!("../../../templates/frontend/package.json.tmpl");
 const TMPL_TSCONFIG: &str = include_str!("../../../templates/frontend/tsconfig.json.tmpl");
 const TMPL_INDEX_TSX: &str = include_str!("../../../templates/frontend/src/index.tsx.tmpl");
+const STATIC_STYLES_CSS: &str = include_str!("../../../templates/frontend/src/styles.css");
+const STATIC_TAILWIND_CONFIG: &str = include_str!("../../../templates/frontend/tailwind.config.js");
+const STATIC_POSTCSS_CONFIG: &str = include_str!("../../../templates/frontend/postcss.config.js");
 
 #[derive(Args)]
 pub struct NewPluginArgs {
@@ -201,6 +204,22 @@ fn write_frontend_files(
 
     for (rel_path, template) in templates {
         write_template(template, &dir.join(rel_path), vars)?;
+        files.push(format!("{prefix}{rel_path}"));
+    }
+
+    // Static files (no template variables, written as-is)
+    let static_files: &[(&str, &str)] = &[
+        ("src/styles.css", STATIC_STYLES_CSS),
+        ("tailwind.config.js", STATIC_TAILWIND_CONFIG),
+        ("postcss.config.js", STATIC_POSTCSS_CONFIG),
+    ];
+
+    for (rel_path, content) in static_files {
+        let path = dir.join(rel_path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, content)?;
         files.push(format!("{prefix}{rel_path}"));
     }
 
