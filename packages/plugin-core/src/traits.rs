@@ -311,6 +311,7 @@ pub trait PluginManager: Send + Sync {
         func_name: &str,
         input: Vec<u8>,
     ) -> Result<Vec<u8>, PluginError> {
+        let timeout = Duration::from_secs(self.get_config().call_timeout_secs);
         let registry = self
             .get_registry()
             .read()
@@ -327,11 +328,14 @@ pub trait PluginManager: Send + Sync {
         let pool = plugin_entry
             .runtime
             .as_ref()
-            .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?;
+            .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?
+            .clone();
+
+        drop(registry);
 
         let result = tokio::task::block_in_place(|| {
             let plugin = pool
-                .get(Duration::new(120, 0))
+                .get(timeout)
                 .map_err(|e| {
                     PluginError::Internal(format!(
                         "Failed to acquire runtime instance for plugin '{}': {}",

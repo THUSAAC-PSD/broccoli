@@ -21,7 +21,7 @@ pub struct TestCaseInfo {
     pub id: i32,
     pub input: String,
     pub expected_output: String,
-    pub score: i32,
+    pub score: f64,
     pub is_sample: bool,
 }
 

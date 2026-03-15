@@ -1,4 +1,5 @@
 mod checker;
+mod config;
 mod evaluate;
 pub mod hook_events;
 mod http;
@@ -9,6 +10,7 @@ mod submission;
 mod verdict;
 
 pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
+pub use config::ConfigResult;
 pub use evaluate::{
     BuildEvalOpsInput, ResolvedLanguage, StartEvaluateBatchInput, StartEvaluateCaseInput,
     TestCaseVerdict,

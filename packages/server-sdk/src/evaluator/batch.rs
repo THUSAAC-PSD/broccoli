@@ -117,6 +117,7 @@ pub fn evaluate_all(
                 };
 
                 if outcome.verdict == Verdict::CompileError {
+                    insert_tc_result(host, submission_id, &outcome, &tc_map, &scale_score)?;
                     outcomes.push(outcome);
                     let _ = host.cancel_evaluate_batch(&batch_id);
                     break;

@@ -1,11 +1,5 @@
 use crate::error::SdkError;
-
-/// The result of a config lookup.
-#[derive(Debug)]
-pub struct ConfigResult {
-    pub config: serde_json::Value,
-    pub is_default: bool,
-}
+use crate::types::ConfigResult;
 
 /// Get a plugin config value by scope, ref_id, and namespace.
 pub fn get_config(scope: &str, ref_id: &str, namespace: &str) -> Result<ConfigResult, SdkError> {

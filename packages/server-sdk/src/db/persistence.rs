@@ -17,7 +17,10 @@ pub fn update_submission(update: &SubmissionUpdate) -> Result<(), SdkError> {
 
     if let Some(verdict_opt) = &update.verdict {
         match verdict_opt {
-            Some(v) => sets.push(format!("verdict = '{}'", v.to_db_str())),
+            Some(v) => {
+                let escaped = v.to_db_str().replace('\0', "").replace('\'', "''");
+                sets.push(format!("verdict = '{}'", escaped));
+            }
             None => sets.push("verdict = NULL".to_string()),
         }
     }
@@ -105,13 +108,14 @@ pub fn insert_test_case_results(results: &[TestCaseResultRow]) -> Result<(), Sdk
             .unwrap_or_else(|| "NULL".to_string());
 
         let score_val = if r.score.is_finite() { r.score } else { 0.0 };
+        let verdict_escaped = r.verdict.to_db_str().replace('\0', "").replace('\'', "''");
         let sql = format!(
             "INSERT INTO test_case_result \
              (submission_id, test_case_id, verdict, score, time_used, memory_used, checker_output, stdout, stderr, created_at) \
              VALUES ({}, {}, '{}', {}, {}, {}, {}, {}, {}, NOW())",
             r.submission_id,
             r.test_case_id,
-            r.verdict.to_db_str(),
+            verdict_escaped,
             score_val,
             r.time_used.map_or("NULL".to_string(), |t| t.to_string()),
             r.memory_used.map_or("NULL".to_string(), |m| m.to_string()),

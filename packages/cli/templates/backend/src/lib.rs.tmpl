@@ -1,6 +1,9 @@
+#[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use extism_pdk::{plugin_fn, FnResult};
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     // Register your plugin's capabilities here. Examples:
@@ -20,6 +23,7 @@ pub fn init() -> FnResult<String> {
     Ok("ok".into())
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn hello(input: String) -> FnResult<String> {
     host::logger::log_info(&format!("{{plugin_name_pascal}} received: {input}"))?;

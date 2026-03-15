@@ -50,3 +50,14 @@ pub struct PluginHttpResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<serde_json::Value>,
 }
+
+impl PluginHttpResponse {
+    /// Create an error response with a JSON `{ "error": "<message>" }` body.
+    pub fn error(status: u16, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            headers: None,
+            body: Some(serde_json::json!({ "error": message.into() })),
+        }
+    }
+}

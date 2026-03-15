@@ -193,6 +193,11 @@ pub struct WebConfig {
     /// Routes for client-side navigation.
     #[serde(default)]
     pub routes: Vec<WebRouteConfig>,
+
+    /// CSS files to load alongside the JS entry point, relative to the web root.
+    /// e.g., `["style.css"]`
+    #[serde(default)]
+    pub css: Vec<String>,
 }
 
 // pub type ComponentMap = HashMap<String, String>;

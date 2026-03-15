@@ -17,8 +17,6 @@ const TMPL_PLUGIN_WEB: &str = include_str!("../../../templates/plugin_web.toml.t
 const TMPL_CARGO_TOML: &str = include_str!("../../../templates/backend/Cargo.toml.tmpl");
 const TMPL_RUST_TOOLCHAIN: &str =
     include_str!("../../../templates/backend/rust-toolchain.toml.tmpl");
-const TMPL_CARGO_CONFIG: &str =
-    include_str!("../../../templates/backend/dot-cargo/config.toml.tmpl");
 const TMPL_LIB_RS: &str = include_str!("../../../templates/backend/src/lib.rs.tmpl");
 const TMPL_GITIGNORE: &str = include_str!("../../../templates/backend/.gitignore.tmpl");
 
@@ -177,7 +175,6 @@ fn write_backend_files(dir: &Path, vars: &TemplateVars, files: &mut Vec<String>)
     let templates: &[(&str, &str)] = &[
         ("Cargo.toml", TMPL_CARGO_TOML),
         ("rust-toolchain.toml", TMPL_RUST_TOOLCHAIN),
-        (".cargo/config.toml", TMPL_CARGO_CONFIG),
         ("src/lib.rs", TMPL_LIB_RS),
         (".gitignore", TMPL_GITIGNORE),
     ];

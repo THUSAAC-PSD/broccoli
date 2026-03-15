@@ -22,7 +22,7 @@ pub struct TestCaseData {
     /// Expected output for comparison
     pub expected_output: String,
     /// Maximum score for this test case
-    pub score: i32,
+    pub score: f64,
 }
 
 /// A judge job message sent to the worker queue.
