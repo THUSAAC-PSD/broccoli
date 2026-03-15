@@ -667,6 +667,22 @@ struct VisibilityContext {
     has_view_all: bool,
 }
 
+/// Lightweight test case metadata (excludes heavy I/O columns).
+#[derive(FromQueryResult)]
+struct TestCaseMeta {
+    id: i32,
+    is_sample: bool,
+    position: i32,
+}
+
+/// Test case I/O data fetched only when needed.
+#[derive(FromQueryResult)]
+struct TestCaseIoData {
+    id: i32,
+    input: String,
+    expected_output: String,
+}
+
 /// Build full submission response with related data.
 async fn build_submission_response(
     db: &DatabaseConnection,
@@ -715,19 +731,83 @@ async fn build_submission_response(
     let show_results = sub.status.is_terminal() || is_running;
 
     let result_response = if show_results {
-        let test_results = test_case_result::Entity::find()
+        // Query 1: test case results (lightweight — no I/O columns from test_case).
+        let results = test_case_result::Entity::find()
             .filter(test_case_result::Column::SubmissionId.eq(sub.id))
-            .find_also_related(test_case::Entity)
-            .order_by_asc(test_case::Column::Position)
             .all(db)
             .await?;
 
-        let test_case_results = test_results
+        // Query 2: test case metadata for ordering and sample detection.
+        // Excludes input/expected_output (the heavy columns).
+        let tc_ids: Vec<i32> = results.iter().map(|r| r.test_case_id).collect();
+        let tc_meta: HashMap<i32, TestCaseMeta> = if tc_ids.is_empty() {
+            HashMap::new()
+        } else {
+            test_case::Entity::find()
+                .filter(test_case::Column::Id.is_in(tc_ids.clone()))
+                .select_only()
+                .column(test_case::Column::Id)
+                .column(test_case::Column::IsSample)
+                .column(test_case::Column::Position)
+                .into_model::<TestCaseMeta>()
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|tc| (tc.id, tc))
+                .collect()
+        };
+
+        // Sort results by test case position.
+        let mut results_with_pos: Vec<_> = results
             .into_iter()
-            .map(|(result, tc)| {
-                let is_sample = tc.as_ref().is_some_and(|t| t.is_sample);
-                // Only admins and sample tests get I/O data.
+            .map(|r| {
+                let pos = tc_meta
+                    .get(&r.test_case_id)
+                    .map_or(i32::MAX, |m| m.position);
+                (r, pos)
+            })
+            .collect();
+        results_with_pos.sort_by_key(|(_, pos)| *pos);
+
+        // Query 3 (conditional): fetch I/O only for test cases that need it.
+        let io_ids: Vec<i32> = if has_view_all {
+            tc_ids
+        } else {
+            tc_meta
+                .values()
+                .filter(|m| m.is_sample)
+                .map(|m| m.id)
+                .collect()
+        };
+        let io_data: HashMap<i32, TestCaseIoData> = if io_ids.is_empty() {
+            HashMap::new()
+        } else {
+            test_case::Entity::find()
+                .filter(test_case::Column::Id.is_in(io_ids))
+                .select_only()
+                .column(test_case::Column::Id)
+                .column(test_case::Column::Input)
+                .column(test_case::Column::ExpectedOutput)
+                .into_model::<TestCaseIoData>()
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|io| (io.id, io))
+                .collect()
+        };
+
+        let test_case_results = results_with_pos
+            .into_iter()
+            .map(|(result, _)| {
+                let is_sample = tc_meta
+                    .get(&result.test_case_id)
+                    .is_some_and(|m| m.is_sample);
                 let show_io = has_view_all || is_sample;
+                let io = if show_io {
+                    io_data.get(&result.test_case_id)
+                } else {
+                    None
+                };
                 TestCaseResultResponse {
                     id: result.id,
                     verdict: result.verdict,
@@ -735,16 +815,8 @@ async fn build_submission_response(
                     time_used: result.time_used,
                     memory_used: result.memory_used,
                     test_case_id: result.test_case_id,
-                    input: if show_io {
-                        tc.as_ref().map(|t| t.input.clone())
-                    } else {
-                        None
-                    },
-                    expected_output: if show_io {
-                        tc.as_ref().map(|t| t.expected_output.clone())
-                    } else {
-                        None
-                    },
+                    input: io.map(|d| d.input.clone()),
+                    expected_output: io.map(|d| d.expected_output.clone()),
                     stdout: if show_io { result.stdout } else { None },
                     stderr: if show_io { result.stderr } else { None },
                     checker_output: if show_io { result.checker_output } else { None },
