@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use super::file_cacher::{BlobStoreFileCacher, FileCacher, NoopFileCacher};
 use super::models::OperationTask;

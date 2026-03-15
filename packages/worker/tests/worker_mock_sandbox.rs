@@ -732,7 +732,7 @@ async fn channel_pipe_io_redirect_between_environments() {
                     stdout: IOTarget::Inherit,
                     stderr: IOTarget::Inherit,
                 },
-                collect: vec![],.
+                collect: vec![],
                 depends_on: vec![],
                 cache: None,
             },
@@ -805,7 +805,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
                     stdout: IOTarget::Inherit,
                     stderr: IOTarget::Inherit,
                 },
-                collect: vec![],.
+                collect: vec![],
                 depends_on: vec![],
                 cache: None,
             },

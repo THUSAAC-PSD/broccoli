@@ -5,7 +5,8 @@ import { useCallback, useRef, useState } from 'react';
 
 interface BlobRefValue {
   filename: string;
-  hash: string;
+  hash?: string;
+  content_hash?: string;
 }
 
 export function BlobRefField({
@@ -101,15 +102,17 @@ export function BlobRefField({
           <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
           <span className="truncate">{uploadingName}</span>
         </div>
-      ) : value ? (
+      ) : value?.filename ? (
         /* Populated state */
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
             <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="font-medium truncate">{value.filename}</span>
-            <span className="text-muted-foreground font-mono text-xs truncate">
-              {value.hash.slice(0, 12)}...
-            </span>
+            {(value.hash ?? value.content_hash) && (
+              <span className="text-muted-foreground font-mono text-xs truncate">
+                {(value.hash ?? value.content_hash)!.slice(0, 12)}...
+              </span>
+            )}
           </div>
           <Button
             type="button"
