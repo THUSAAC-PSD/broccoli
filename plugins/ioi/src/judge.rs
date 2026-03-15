@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use broccoli_server_sdk::prelude::*;
 
 use crate::config::{ContestConfig, SubtaskDef, TaskConfig, resolve_tc_label, round_score};
-use crate::evaluate::evaluate_all;
 use crate::persist::persist_results;
 use crate::subtasks::score_all_subtasks;
+use broccoli_server_sdk::evaluator::evaluate_all;
 
 /// Context gathered from host functions, passed to pure judge logic.
 pub struct JudgeContext {
@@ -53,7 +53,9 @@ pub fn judge_with_context(
         });
     }
 
-    let outcomes = evaluate_all(host, req, &ctx.test_cases, ctx.submission_id)?;
+    let outcomes = evaluate_all(host, req, &ctx.test_cases, ctx.submission_id, |raw, tc| {
+        round_score(raw * tc.score)
+    })?;
 
     let id_to_label: HashMap<i32, String> = ctx
         .test_cases
@@ -257,8 +259,8 @@ mod tests {
         let sub = host.submission();
         assert_eq!(sub.status, Some(SubmissionStatus::CompilationError));
         assert_eq!(sub.verdict, Some(None));
-        // CE early-terminates without inserting TC result rows
-        assert_eq!(host.tc_results().len(), 0);
+        // CE inserts one TC result row (the CompileError verdict)
+        assert_eq!(host.tc_results().len(), 1);
     }
 
     #[test]

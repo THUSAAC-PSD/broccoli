@@ -1,9 +1,12 @@
+#[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
 
 pub mod checkers;
 pub mod util;
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     host::registry::register_checker_format("exact", "check_exact")?;
@@ -18,6 +21,7 @@ pub fn init() -> FnResult<String> {
     Ok("ok".to_string())
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_exact(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -25,6 +29,7 @@ pub fn check_exact(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_lines(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -32,6 +37,7 @@ pub fn check_lines(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_tokens(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -39,6 +45,7 @@ pub fn check_tokens(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_tokens_ci(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -46,6 +53,7 @@ pub fn check_tokens_ci(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_tokens_float(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -53,6 +61,7 @@ pub fn check_tokens_float(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_unordered_tokens(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -60,6 +69,7 @@ pub fn check_unordered_tokens(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_unordered_lines(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
@@ -67,6 +77,7 @@ pub fn check_unordered_lines(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&verdict)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn check_testlib(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;

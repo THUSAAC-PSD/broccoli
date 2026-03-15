@@ -1,7 +1,7 @@
 use broccoli_server_sdk::prelude::*;
 
 use crate::config::round_score;
-use crate::evaluate::EvalOutcome;
+use broccoli_server_sdk::evaluator::EvalOutcome;
 
 /// Persist the terminal submission update after evaluation.
 pub fn persist_results(

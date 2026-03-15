@@ -1,5 +1,4 @@
 pub mod config;
-pub mod evaluate;
 pub mod judge;
 pub mod persist;
 pub mod scoring;
@@ -9,6 +8,7 @@ pub mod tokens;
 use std::collections::HashMap;
 
 use broccoli_server_sdk::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +66,7 @@ struct ContestRouteInfo {
     phase: String,
 }
 
+#[cfg(target_arch = "wasm32")]
 fn plugin_error(status: u16, message: impl Into<String>) -> PluginHttpResponse {
     PluginHttpResponse {
         status,
@@ -74,6 +75,7 @@ fn plugin_error(status: u16, message: impl Into<String>) -> PluginHttpResponse {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn load_contest_route_info(contest_id: i32) -> Result<ContestRouteInfo, SdkError> {
     let rows: Vec<ContestRouteInfo> = host::db::db_query(&format!(
         "SELECT contest_type, is_public, \
@@ -91,6 +93,7 @@ fn load_contest_route_info(contest_id: i32) -> Result<ContestRouteInfo, SdkError
         .ok_or_else(|| SdkError::Other("Contest not found".into()))
 }
 
+#[cfg(target_arch = "wasm32")]
 fn contest_has_problem(contest_id: i32, problem_id: i32) -> Result<bool, SdkError> {
     #[derive(Deserialize)]
     struct ExistsRow {
@@ -106,6 +109,7 @@ fn contest_has_problem(contest_id: i32, problem_id: i32) -> Result<bool, SdkErro
     Ok(rows.first().is_some_and(|row| row.exists))
 }
 
+#[cfg(target_arch = "wasm32")]
 fn user_is_participant(contest_id: i32, user_id: i32) -> Result<bool, SdkError> {
     #[derive(Deserialize)]
     struct ExistsRow {
@@ -121,6 +125,7 @@ fn user_is_participant(contest_id: i32, user_id: i32) -> Result<bool, SdkError> 
     Ok(rows.first().is_some_and(|row| row.exists))
 }
 
+#[cfg(target_arch = "wasm32")]
 fn can_view_contest(
     req: &PluginHttpRequest,
     contest_id: i32,
@@ -141,14 +146,17 @@ fn can_view_contest(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn can_view_privileged_submission_feedback(req: &PluginHttpRequest) -> bool {
     req.has_permission("contest:manage") || req.has_permission("submission:view_all")
 }
 
+#[cfg(target_arch = "wasm32")]
 fn tokens_enabled(config: &ContestConfig) -> bool {
     config.tokens.mode != TokenMode::None
 }
 
+#[cfg(target_arch = "wasm32")]
 fn load_contest_config(contest_id: i32) -> Result<ContestConfig, SdkError> {
     Ok(
         serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
@@ -156,6 +164,7 @@ fn load_contest_config(contest_id: i32) -> Result<ContestConfig, SdkError> {
     )
 }
 
+#[cfg(target_arch = "wasm32")]
 fn load_task_config(contest_id: i32, problem_id: i32) -> Result<TaskConfig, SdkError> {
     Ok(serde_json::from_value(
         host::config::get_contest_problem_config(contest_id, problem_id, "task")?.config,
@@ -163,6 +172,7 @@ fn load_task_config(contest_id: i32, problem_id: i32) -> Result<TaskConfig, SdkE
     .unwrap_or_default())
 }
 
+#[cfg(target_arch = "wasm32")]
 fn load_effective_subtasks(
     problem_id: i32,
     task_config: &TaskConfig,
@@ -178,6 +188,7 @@ fn load_effective_subtasks(
     Ok((test_cases, subtasks))
 }
 
+#[cfg(target_arch = "wasm32")]
 fn viewer_has_token_feedback_for_submission(
     req: &PluginHttpRequest,
     contest_id: i32,
@@ -191,10 +202,12 @@ fn viewer_has_token_feedback_for_submission(
     Ok(token_state.tokened_submission_ids.contains(&submission_id))
 }
 
+#[cfg(target_arch = "wasm32")]
 fn should_include_in_contest_aggregations(contest_id: i32, user_id: i32) -> Result<bool, SdkError> {
     user_is_participant(contest_id, user_id)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     host::registry::register_contest_type("ioi", "handle_ioi_submission")?;
@@ -202,6 +215,7 @@ pub fn init() -> FnResult<String> {
     Ok("ok".into())
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn handle_ioi_submission(input: String) -> FnResult<String> {
     let host_impl = WasmHost;
@@ -233,6 +247,8 @@ pub fn handle_ioi_submission(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&output)?)
 }
 
+#[cfg(target_arch = "wasm32")]
+#[cfg(target_arch = "wasm32")]
 fn run_judge(
     host_impl: &WasmHost,
     req: &OnSubmissionInput,
@@ -298,6 +314,7 @@ fn run_judge(
     Ok(result.output)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn update_task_score(
     config: &ContestConfig,
     contest_id: i32,
@@ -324,6 +341,7 @@ fn update_task_score(
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
 fn recompute_sum_best_subtask(
     contest_id: i32,
     problem_id: i32,
@@ -381,6 +399,7 @@ fn recompute_sum_best_subtask(
     Ok(score_sum_best_subtask(&all_subtask_scores))
 }
 
+#[cfg(target_arch = "wasm32")]
 fn compute_official_task_score(
     config: &ContestConfig,
     contest_id: i32,
@@ -443,6 +462,7 @@ fn compute_official_task_score(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn load_token_state(contest_id: i32, user_id: i32) -> Result<TokenState, SdkError> {
     let key = format!("tokens:{contest_id}:{user_id}");
     match host::storage::store_get(&key)? {
@@ -451,12 +471,14 @@ fn load_token_state(contest_id: i32, user_id: i32) -> Result<TokenState, SdkErro
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn save_token_state(contest_id: i32, user_id: i32, state: &TokenState) -> Result<(), SdkError> {
     let key = format!("tokens:{contest_id}:{user_id}");
     let json = serde_json::to_string(state).map_err(|e| SdkError::Serialization(e.to_string()))?;
     host::storage::store_set(&key, &json)
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_use_token(input: String) -> FnResult<String> {
     let resp = match handle_use_token(&input) {
@@ -470,6 +492,7 @@ pub fn api_use_token(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
@@ -588,6 +611,7 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_contest_info(input: String) -> FnResult<String> {
     let resp = match handle_contest_info(&input) {
@@ -601,6 +625,7 @@ pub fn api_contest_info(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_contest_info(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
@@ -637,6 +662,7 @@ fn handle_contest_info(input: &str) -> Result<PluginHttpResponse, SdkError> {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_task_config(input: String) -> FnResult<String> {
     let resp = match handle_task_config(&input) {
@@ -650,6 +676,7 @@ pub fn api_task_config(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_task_config(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
@@ -765,6 +792,7 @@ fn handle_task_config(input: &str) -> Result<PluginHttpResponse, SdkError> {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_submission_status(input: String) -> FnResult<String> {
     let resp = match handle_submission_status(&input) {
@@ -778,6 +806,7 @@ pub fn api_submission_status(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
@@ -830,6 +859,7 @@ fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError>
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_token_status(input: String) -> FnResult<String> {
     let resp = match handle_token_status(&input) {
@@ -843,6 +873,7 @@ pub fn api_token_status(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
@@ -911,6 +942,7 @@ fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_scoreboard(input: String) -> FnResult<String> {
     let resp = match handle_scoreboard(&input) {
@@ -924,6 +956,7 @@ pub fn api_scoreboard(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
@@ -1096,6 +1129,7 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_submission_subtask_scores(input: String) -> FnResult<String> {
     let resp = match handle_submission_subtask_scores(&input) {
@@ -1109,6 +1143,7 @@ pub fn api_submission_subtask_scores(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&resp)?)
 }
 
+#[cfg(target_arch = "wasm32")]
 fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;

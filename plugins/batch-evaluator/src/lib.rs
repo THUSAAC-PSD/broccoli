@@ -1,8 +1,11 @@
+#[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
 
 pub mod batch;
 
+#[cfg(target_arch = "wasm32")]
 fn load_sandbox_config() -> batch::SandboxConfig {
     match host::config::get_global_config("sandbox") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
@@ -10,6 +13,7 @@ fn load_sandbox_config() -> batch::SandboxConfig {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     host::registry::register_evaluator("batch", "evaluate_batch")?;
@@ -17,6 +21,7 @@ pub fn init() -> FnResult<String> {
     Ok("ok".to_string())
 }
 
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn evaluate_batch(input: String) -> FnResult<String> {
     let req: BuildEvalOpsInput = serde_json::from_str(&input)?;
