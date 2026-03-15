@@ -43,6 +43,21 @@ impl Default for IsolateSandboxManager {
     }
 }
 
+fn is_fifo(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        std::fs::metadata(path)
+            .map(|m| m.file_type().is_fifo())
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
+}
+
 fn parse_box_id(id: Option<&str>) -> Result<String, SandboxError> {
     let raw = id.unwrap_or("0");
     raw.parse::<u32>()
@@ -332,16 +347,28 @@ impl SandboxManager for IsolateSandboxManager {
                         ))
                     })?;
                 result.stdout = if let Some(stdout_path) = &run_options.stdout {
-                    tokio::fs::read_to_string(box_dir.join(stdout_path))
-                        .await
-                        .unwrap_or_default()
+                    let resolved = box_dir.join(stdout_path);
+                    // FIFOs must not be re-read after process exit: the write
+                    // end is closed, so open(O_RDONLY) would block forever.
+                    if is_fifo(&resolved) {
+                        String::new()
+                    } else {
+                        tokio::fs::read_to_string(&resolved)
+                            .await
+                            .unwrap_or_default()
+                    }
                 } else {
                     String::from_utf8_lossy(&output.stdout).to_string()
                 };
                 result.stderr = if let Some(stderr_path) = &run_options.stderr {
-                    tokio::fs::read_to_string(box_dir.join(stderr_path))
-                        .await
-                        .unwrap_or_default()
+                    let resolved = box_dir.join(stderr_path);
+                    if is_fifo(&resolved) {
+                        String::new()
+                    } else {
+                        tokio::fs::read_to_string(&resolved)
+                            .await
+                            .unwrap_or_default()
+                    }
                 } else {
                     String::from_utf8_lossy(&output.stderr).to_string()
                 };

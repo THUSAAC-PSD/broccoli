@@ -1,17 +1,62 @@
 use super::file_cacher::FileCacher;
 use super::models::*;
-use super::sandbox::{ExecutionResult, RunOptions, SandboxManager};
+use super::sandbox::{
+    DirectoryOptions, DirectoryRule, ExecutionResult, RunOptions, SandboxManager,
+};
 use super::task_cache::{TaskCacheStore, compute_cache_key};
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::FileTypeExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, error, info, instrument, warn};
 
+/// Resolve a relative path safely within a base directory.
+/// Rejects absolute paths, `..` components, and other unsafe path elements
+/// to prevent path traversal attacks from plugin-supplied file paths.
+fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
+    let mut resolved = base.to_path_buf();
+    for component in Path::new(relative).components() {
+        match component {
+            Component::Normal(part) => resolved.push(part),
+            Component::CurDir => {}
+            _ => {
+                return Err(anyhow!(
+                    "Unsafe path component in '{}': {:?}",
+                    relative,
+                    component
+                ));
+            }
+        }
+    }
+    Ok(resolved)
+}
+
 /// Global counter for unique isolate box IDs (0–999, wraps around).
 static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Validate that a channel or pipe name is safe for use as a filename.
+/// Rejects empty names, path separators, `..` traversals, and unsafe characters.
+fn validate_pipe_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(anyhow!("Pipe/channel name cannot be empty"));
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') || name.contains("..") {
+        return Err(anyhow!(
+            "Pipe/channel name contains unsafe characters: '{name}'"
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(anyhow!(
+            "Pipe/channel name must be alphanumeric, underscore, or hyphen: '{name}'"
+        ));
+    }
+    Ok(())
+}
 
 fn allocate_box_id() -> String {
     let id = NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed) % 1000;
@@ -73,10 +118,13 @@ impl OperationHandler {
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 
             // Create sandbox
-            let working_dir = self
-                .create_sandbox(&box_id)
-                .await
-                .context("Failed to create sandbox")?;
+            let working_dir = match self.create_sandbox(&box_id).await {
+                Ok(dir) => dir,
+                Err(e) => {
+                    self.cleanup_environments(&environments).await.ok();
+                    return Err(e.context("Failed to create sandbox"));
+                }
+            };
 
             // Load initial files — clean up sandbox on failure since it's not yet
             // tracked in `environments` and would be orphaned.
@@ -97,8 +145,67 @@ impl OperationHandler {
             );
         }
 
+        let channel_names: HashSet<String> =
+            operation.channels.iter().map(|c| c.name.clone()).collect();
+        for name in &channel_names {
+            if let Err(e) = validate_pipe_name(name) {
+                self.cleanup_environments(&environments).await.ok();
+                return Err(e);
+            }
+        }
+        let shared_channels_dir = if !channel_names.is_empty() {
+            let dir = std::env::temp_dir().join(format!(
+                "broccoli-channels-{}-{}-{}",
+                std::process::id(),
+                NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0),
+            ));
+            if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+                self.cleanup_environments(&environments).await.ok();
+                return Err(
+                    anyhow::Error::new(e).context("Failed to create shared channels directory")
+                );
+            }
+
+            for channel in &operation.channels {
+                let fifo_path = dir.join(&channel.name);
+                let output = tokio::process::Command::new("mkfifo")
+                    .arg(&fifo_path)
+                    .output()
+                    .await
+                    .context("Failed to execute mkfifo for channel")?;
+                if !output.status.success() {
+                    // Clean up on failure
+                    let _ = tokio::fs::remove_dir_all(&dir).await;
+                    self.cleanup_environments(&environments).await.ok();
+                    return Err(anyhow!(
+                        "mkfifo failed for channel {}: {}",
+                        channel.name,
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                debug!(channel = %channel.name, "Created shared channel FIFO");
+            }
+
+            Some(dir)
+        } else {
+            None
+        };
+
         // Get execution order
-        let execution_layers = self.get_execution_order(operation)?;
+        let execution_layers = match self.get_execution_order(operation) {
+            Ok(layers) => layers,
+            Err(e) => {
+                if let Some(ref dir) = shared_channels_dir {
+                    let _ = tokio::fs::remove_dir_all(dir).await;
+                }
+                self.cleanup_environments(&environments).await.ok();
+                return Err(e);
+            }
+        };
         debug!(layers = ?execution_layers, "Task execution layers determined");
 
         let mut task_results = HashMap::new();
@@ -126,7 +233,13 @@ impl OperationHandler {
                         .unwrap_or(false)
                 });
 
-                futures.push(self.execute_step_with_deps(task, &environments, deps_ok));
+                futures.push(self.execute_step_with_deps(
+                    task,
+                    &environments,
+                    deps_ok,
+                    shared_channels_dir.as_deref(),
+                    &channel_names,
+                ));
             }
 
             let results = join_all(futures).await;
@@ -139,6 +252,11 @@ impl OperationHandler {
         }
 
         // Cleanup
+        if let Some(dir) = &shared_channels_dir
+            && let Err(e) = tokio::fs::remove_dir_all(dir).await
+        {
+            error!(error = %e, "Failed to clean up shared channels directory");
+        }
         self.cleanup_environments(&environments).await.ok();
 
         info!(
@@ -171,7 +289,7 @@ impl OperationHandler {
         files: &[(String, SessionFile)],
     ) -> Result<()> {
         for (target_path, source) in files {
-            let dest = working_dir.join(Path::new(target_path));
+            let dest = safe_join(working_dir, target_path)?;
             if let Some(parent) = dest.parent() {
                 tokio::fs::create_dir_all(parent)
                     .await
@@ -290,6 +408,8 @@ impl OperationHandler {
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
         deps_ok: bool,
+        shared_channels_dir: Option<&Path>,
+        channel_names: &HashSet<String>,
     ) -> TaskExecutionResult {
         if !deps_ok {
             warn!(task_id = %step.id, "Skipping task due to dependency failure");
@@ -307,7 +427,10 @@ impl OperationHandler {
             return cached;
         }
 
-        let result = match self.execute_step(step, environments).await {
+        let result = match self
+            .execute_step(step, environments, shared_channels_dir, channel_names)
+            .await
+        {
             Ok(result) => result,
             Err(e) => {
                 error!(task_id = %step.id, error = %e, "Task execution error");
@@ -364,7 +487,13 @@ impl OperationHandler {
         };
 
         for (filename, content_hash) in &cached_outputs {
-            let dest = env.working_dir.join(Path::new(filename));
+            let dest = match safe_join(&env.working_dir, filename) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(step_id = %step.id, error = %e, "Unsafe cached output path");
+                    return None;
+                }
+            };
             if let Some(parent) = dest.parent()
                 && let Err(e) = tokio::fs::create_dir_all(parent).await
             {
@@ -430,7 +559,13 @@ impl OperationHandler {
                 output_hashes.insert(filename.clone(), hash.clone());
                 continue;
             }
-            let src = env.working_dir.join(Path::new(filename));
+            let src = match safe_join(&env.working_dir, filename) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(step_id = %step.id, error = %e, "Unsafe cache output path");
+                    return;
+                }
+            };
             if !tokio::fs::try_exists(&src).await.unwrap_or(false) {
                 debug!(step_id = %step.id, file = %filename, "Cache output file not found, skipping cache store");
                 return;
@@ -462,7 +597,7 @@ impl OperationHandler {
     ) -> Result<String> {
         let mut input_files = Vec::new();
         for filename in key_inputs {
-            let path = working_dir.join(Path::new(filename));
+            let path = safe_join(working_dir, filename)?;
             let content = tokio::fs::read(&path)
                 .await
                 .with_context(|| format!("Failed to read cache key input: {}", path.display()))?;
@@ -476,11 +611,13 @@ impl OperationHandler {
     }
 
     /// Execute a single step
-    #[instrument(skip(self, step, environments))]
+    #[instrument(skip(self, step, environments, shared_channels_dir, channel_names))]
     async fn execute_step(
         &self,
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
+        shared_channels_dir: Option<&Path>,
+        channel_names: &HashSet<String>,
     ) -> Result<TaskExecutionResult> {
         debug!(step_id = %step.id, "Executing step");
 
@@ -488,8 +625,26 @@ impl OperationHandler {
             .get(&step.env_ref)
             .ok_or_else(|| anyhow!("Environment not found: {}", step.env_ref))?;
 
-        let (stdin_path, stdout_path, stderr_path) =
-            self.prepare_io(&env.working_dir, &step.io).await?;
+        let (stdin_path, stdout_path, stderr_path) = self
+            .prepare_io(
+                &env.working_dir,
+                &step.io,
+                shared_channels_dir,
+                channel_names,
+            )
+            .await?;
+
+        let mut directory_rules = step.conf.directory_rules.clone();
+        if let Some(channels_dir) = shared_channels_dir {
+            directory_rules.push(DirectoryRule {
+                inside_path: PathBuf::from("channels"),
+                outside_path: Some(channels_dir.to_path_buf()),
+                options: DirectoryOptions {
+                    read_write: true,
+                    ..Default::default()
+                },
+            });
+        }
 
         let run_opts = RunOptions {
             resource_limits: step.conf.resource_limits.clone(),
@@ -500,7 +655,7 @@ impl OperationHandler {
             stdout: stdout_path,
             stderr: stderr_path,
             env_rules: step.conf.env_rules.clone(),
-            directory_rules: step.conf.directory_rules.clone(),
+            directory_rules,
         };
 
         let exec_result = self
@@ -528,25 +683,52 @@ impl OperationHandler {
         &self,
         working_dir: &Path,
         io_config: &IOConfig,
+        shared_channels_dir: Option<&Path>,
+        channel_names: &HashSet<String>,
     ) -> Result<(Option<PathBuf>, Option<PathBuf>, Option<PathBuf>)> {
         let stdin = self
-            .prepare_io_target(working_dir, &io_config.stdin)
+            .prepare_io_target(
+                working_dir,
+                &io_config.stdin,
+                shared_channels_dir,
+                channel_names,
+            )
             .await?;
         let stdout = self
-            .prepare_io_target(working_dir, &io_config.stdout)
+            .prepare_io_target(
+                working_dir,
+                &io_config.stdout,
+                shared_channels_dir,
+                channel_names,
+            )
             .await?;
         let stderr = self
-            .prepare_io_target(working_dir, &io_config.stderr)
+            .prepare_io_target(
+                working_dir,
+                &io_config.stderr,
+                shared_channels_dir,
+                channel_names,
+            )
             .await?;
 
         Ok((stdin, stdout, stderr))
     }
 
-    /// Prepare single IO target
+    /// Prepare single IO target.
+    ///
+    /// For channel pipes (name in `channel_names`), returns the absolute host
+    /// path to the pre-created FIFO in the shared channels directory. Both mock
+    /// and isolate sandboxes open stdin/stdout/stderr on the host before
+    /// entering the sandbox, so absolute host paths work correctly.
+    ///
+    /// For regular (non-channel) pipes, creates a per-environment FIFO at
+    /// `working_dir/pipes/{name}` as before.
     async fn prepare_io_target(
         &self,
         working_dir: &Path,
         target: &IOTarget,
+        shared_channels_dir: Option<&Path>,
+        channel_names: &HashSet<String>,
     ) -> Result<Option<PathBuf>> {
         match target {
             IOTarget::Null | IOTarget::Inherit => Ok(None),
@@ -555,8 +737,17 @@ impl OperationHandler {
                 Ok(Some(p.to_path_buf()))
             }
             IOTarget::Pipe { name } => {
-                if name.is_empty() {
-                    return Err(anyhow!("Pipe name cannot be empty"));
+                validate_pipe_name(name)?;
+
+                if channel_names.contains(name) {
+                    let channels_dir = shared_channels_dir.ok_or_else(|| {
+                        anyhow!(
+                            "Pipe '{}' references a channel but no channels directory exists",
+                            name
+                        )
+                    })?;
+                    let fifo_path = channels_dir.join(name);
+                    return Ok(Some(fifo_path));
                 }
 
                 let pipes_dir = working_dir.join("pipes");
@@ -583,6 +774,14 @@ impl OperationHandler {
                     .context("Failed to execute mkfifo")?;
 
                 if !output.status.success() {
+                    // Concurrent steps in the same layer may race to create
+                    // the same per-environment FIFO. If mkfifo fails because
+                    // the file already exists as a FIFO, treat it as success.
+                    if let Ok(meta) = tokio::fs::metadata(&pipe_path).await
+                        && meta.file_type().is_fifo()
+                    {
+                        return Ok(Some(pipe_path));
+                    }
                     return Err(anyhow!(
                         "mkfifo failed for {}: {}",
                         pipe_path.display(),
@@ -602,7 +801,7 @@ impl OperationHandler {
     ) -> Result<HashMap<String, String>> {
         let mut collected = HashMap::new();
         for file_path in collect_files {
-            let src = working_dir.join(Path::new(file_path));
+            let src = safe_join(working_dir, file_path)?;
             if tokio::fs::try_exists(&src).await.unwrap_or(false) {
                 let hash = self.file_cacher.upload_from_path(&src).await.map_err(|e| {
                     anyhow!("Failed to upload output file {}: {}", src.display(), e)

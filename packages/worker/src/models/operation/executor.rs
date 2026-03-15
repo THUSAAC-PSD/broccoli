@@ -13,7 +13,7 @@ use crate::models::operation::handler::OperationHandler;
 use anyhow::Result;
 use async_trait::async_trait;
 use common::language::LanguageDefinition;
-use common::storage::database::DatabaseBlobStore;
+use common::storage::config::create_blob_store;
 use common::worker::*;
 use futures::future::join_all;
 use tracing::{error, info, warn};
@@ -146,10 +146,9 @@ impl OperationTaskExecutor {
         };
 
         let storage_config = config.map(|c| &c.storage);
-
-        let database_url = config
-            .map(|c| c.database.url.clone())
-            .unwrap_or_else(|| "postgres://localhost/broccoli".into());
+        let blob_store_config = storage_config
+            .map(|s| s.blob_store.clone())
+            .unwrap_or_default();
         let cache_dir = storage_config
             .map(|s| s.cache_dir.clone())
             .unwrap_or_else(|| "./data/cache".into());
@@ -157,39 +156,44 @@ impl OperationTaskExecutor {
             .map(|s| s.max_cache_size)
             .unwrap_or(512 * 1024 * 1024);
 
+        let database_url = config
+            .map(|c| c.database.url.clone())
+            .unwrap_or_else(|| "postgres://localhost/broccoli".into());
+
         let db = match sea_orm::Database::connect(&database_url).await {
             Ok(db) => db,
             Err(e) => {
                 error!(
                     error = %e,
-                    "Failed to connect to database for blob store, falling back to Noop cachers"
+                    "Failed to connect to database, falling back to Noop cachers"
                 );
                 return noop();
             }
         };
 
-        if let Err(e) = DatabaseBlobStore::ensure_table(&db).await {
-            error!(error = %e, "Failed to ensure blob_data table");
-            return noop();
-        }
-
         let db_for_cache = db.clone();
 
-        let blob_store = Arc::new(DatabaseBlobStore::new(db, 128 * 1024 * 1024));
+        let blob_store = match create_blob_store(&blob_store_config, db).await {
+            Ok(store) => {
+                info!(
+                    backend = %blob_store_config.backend,
+                    cache_dir = %cache_dir,
+                    max_cache_size,
+                    "Blob store initialized"
+                );
+                store
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to initialize blob store, falling back to Noop cachers");
+                return noop();
+            }
+        };
 
         let file_cacher: Box<dyn FileCacher> =
             match BlobStoreFileCacher::new(blob_store, PathBuf::from(&cache_dir), max_cache_size)
                 .await
             {
-                Ok(cacher) => {
-                    info!(
-                        database_url = %database_url,
-                        cache_dir = %cache_dir,
-                        max_cache_size,
-                        "DatabaseBlobStore + BlobStoreFileCacher initialized"
-                    );
-                    Box::new(cacher)
-                }
+                Ok(cacher) => Box::new(cacher),
                 Err(e) => {
                     error!(
                         error = %e,

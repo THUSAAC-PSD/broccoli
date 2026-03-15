@@ -65,9 +65,12 @@ impl Default for WorkerConfig {
     }
 }
 
-/// Storage configuration for database-backed blob store and local cache.
+/// Storage configuration.
 #[derive(Debug, Deserialize, Clone)]
 pub struct StorageConfig {
+    /// Blob store backend configuration.
+    #[serde(flatten)]
+    pub blob_store: common::storage::config::BlobStoreConfig,
     /// Local directory for the file cache. Default: "./data/cache".
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
@@ -86,6 +89,7 @@ fn default_max_cache_size() -> u64 {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
+            blob_store: common::storage::config::BlobStoreConfig::default(),
             cache_dir: default_cache_dir(),
             max_cache_size: default_max_cache_size(),
         }
@@ -127,6 +131,9 @@ impl WorkerAppConfig {
             .set_default("mq.operation_result_queue_name", "operation_results")?
             .set_default("mq.dlq_queue_name", "judge_jobs_dlq")?
             .set_default("database.url", "postgres://localhost/broccoli")?
+            .set_default("storage.backend", "database")?
+            .set_default("storage.data_dir", "./data")?
+            .set_default("storage.max_blob_size", 128 * 1024 * 1024_i64)?
             .set_default("storage.cache_dir", "./data/cache")?
             .set_default("storage.max_cache_size", 512 * 1024 * 1024_i64)?
             .add_source(File::with_name(&config_path).required(false))

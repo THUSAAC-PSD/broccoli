@@ -78,7 +78,7 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
             &executable,
             &tc.input,
             &tc.expected_output,
-            tc.score as f64,
+            tc.score,
             wall_timeout,
             time_limit,
         );

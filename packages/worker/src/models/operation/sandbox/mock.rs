@@ -183,13 +183,31 @@ impl MockSandboxManager {
 
                 Self::remove_existing_target(&inside_path).await?;
 
-                std::os::unix::fs::symlink(outside_path, &inside_path).map_err(|err| {
-                    SandboxError::Initialization(format!(
-                        "failed to create mock directory mapping {} -> {}: {err}",
-                        inside_path.display(),
-                        outside_path.display()
-                    ))
-                })?;
+                match std::os::unix::fs::symlink(outside_path, &inside_path) {
+                    Ok(()) => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                        // Concurrent steps in the same layer may race to
+                        // create the same symlink.  If the symlink already
+                        // points to the correct target, treat it as success.
+                        if let Ok(target) = std::fs::read_link(&inside_path) {
+                            if target != *outside_path {
+                                return Err(SandboxError::Initialization(format!(
+                                    "mock directory mapping {} exists but points to {}, expected {}",
+                                    inside_path.display(),
+                                    target.display(),
+                                    outside_path.display()
+                                )));
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        return Err(SandboxError::Initialization(format!(
+                            "failed to create mock directory mapping {} -> {}: {err}",
+                            inside_path.display(),
+                            outside_path.display()
+                        )));
+                    }
+                }
             }
             None => {
                 fs::create_dir_all(&inside_path).await.map_err(|err| {
