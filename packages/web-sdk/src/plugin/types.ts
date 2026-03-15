@@ -18,6 +18,8 @@ export type SlotConfig = components['schemas']['WebSlotConfig'] & {
 export type RouteConfig = components['schemas']['WebRouteConfig'];
 
 export type PluginDetail = components['schemas']['PluginDetailResponse'];
+export type PluginFullDetail =
+  components['schemas']['PluginFullDetailResponse'];
 export type PluginStatus = components['schemas']['PluginStatusResponse'];
 
 export interface ComponentBundle {
