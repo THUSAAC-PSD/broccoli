@@ -1,4 +1,4 @@
-import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
@@ -15,7 +15,7 @@ const MAX_FILE_SIZE = 128 * 1024 * 1024; // 128MB
 
 export function useAttachmentUpload(problemId: number) {
   const { t } = useTranslation();
-  const apiFetch = useApiFetch();
+  const apiClient = useApiClient();
   const queryClient = useQueryClient();
 
   const upload = useCallback(
@@ -27,7 +27,7 @@ export function useAttachmentUpload(problemId: number) {
 
       try {
         const attachment = await uploadAttachment(
-          apiFetch,
+          apiClient,
           problemId,
           file,
           path,
@@ -43,7 +43,7 @@ export function useAttachmentUpload(problemId: number) {
         return null;
       }
     },
-    [apiFetch, problemId, queryClient, t],
+    [apiClient, problemId, queryClient, t],
   );
 
   return { upload };

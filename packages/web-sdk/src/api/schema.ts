@@ -775,7 +775,7 @@ export interface paths {
     put?: never;
     /**
      * Bulk-retry DLQ messages
-     * @description Re-enqueues multiple dead letter messages for processing. Supports either specific message IDs or filter-based selection. Only judge_job messages with a known submission_id are retryable. Requires `dlq:manage` permission.
+     * @description Retries multiple dead letter messages by resetting their submissions to Pending and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable. Requires `dlq:manage` permission.
      */
     post: operations['bulkRetryDlq'];
     delete?: never;
@@ -839,7 +839,7 @@ export interface paths {
     put?: never;
     /**
      * Retry a DLQ message
-     * @description Re-enqueues a dead letter message for processing. Only works for judge_job message type. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
+     * @description Retries a dead letter message by resetting the submission to Pending and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task messages are coordinated by the plugin and cannot be retried from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
      */
     post: operations['retryDlqMessage'];
     delete?: never;
@@ -1499,6 +1499,53 @@ export interface components {
        */
       user_id: number;
     };
+    /** @description Response DTO for listing additional files. */
+    AdditionalFileListResponse: {
+      files: components['schemas']['AdditionalFileResponse'][];
+      /** Format: int64 */
+      total: number;
+    };
+    /** @description Response DTO for a single additional file. */
+    AdditionalFileResponse: {
+      /**
+       * @description SHA-256 content hash.
+       * @example a1b2c3d4e5f6...
+       */
+      content_hash: string;
+      /**
+       * @description MIME content type.
+       * @example text/x-c
+       */
+      content_type?: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /**
+       * @description Original upload filename.
+       * @example grader.h
+       */
+      filename: string;
+      /**
+       * @description Additional file reference ID (UUIDv7).
+       * @example 01936f0e-1234-7abc-8000-000000000002
+       */
+      id: string;
+      /**
+       * @description Language code (e.g. "cpp", "python3").
+       * @example cpp
+       */
+      language: string;
+      /**
+       * @description Virtual subpath (e.g. "include/grader.h").
+       * @example include/grader.h
+       */
+      path: string;
+      /**
+       * Format: int64
+       * @description Blob size in bytes.
+       * @example 2048
+       */
+      size: number;
+    };
     /** @description Response DTO for listing attachments. */
     AttachmentListResponse: {
       attachments: components['schemas']['AttachmentResponse'][];
@@ -1530,7 +1577,7 @@ export interface components {
        */
       id: string;
       /**
-       * @description Virtual path within the owner's namespace.
+       * @description Virtual path within the problem's namespace.
        * @example images/figure1.png
        */
       path: string;
@@ -2309,7 +2356,7 @@ export interface components {
       id: number;
       /** @example job-abc123 */
       message_id: string;
-      /** @example judge_job */
+      /** @example stuck_submission */
       message_type: string;
       /** @description Full message payload for replay. */
       payload: unknown;
@@ -2359,7 +2406,7 @@ export interface components {
       id: number;
       /** @example job-abc123 */
       message_id: string;
-      /** @example judge_job */
+      /** @example stuck_submission */
       message_type: string;
       /** @example false */
       resolved: boolean;
@@ -2560,16 +2607,16 @@ export interface components {
     MessageTypeCounts: {
       /**
        * Format: int64
-       * @description Number of unresolved judge_job messages.
-       * @example 3
+       * @description Number of unresolved operation_task messages.
+       * @example 1
        */
-      judge_job: number;
+      operation_task: number;
       /**
        * Format: int64
-       * @description Number of unresolved judge_result messages.
-       * @example 2
+       * @description Number of unresolved stuck_submission messages.
+       * @example 3
        */
-      judge_result: number;
+      stuck_submission: number;
     };
     /** @description Pagination metadata included in list responses. */
     Pagination: {
@@ -4720,7 +4767,10 @@ export interface operations {
         type?: string;
       };
       header?: never;
-      path?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
       cookie?: never;
     };
     requestBody?: never;
@@ -4758,7 +4808,10 @@ export interface operations {
     parameters: {
       query?: never;
       header?: never;
-      path?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
       cookie?: never;
     };
     requestBody: {
@@ -4818,7 +4871,12 @@ export interface operations {
     parameters: {
       query?: never;
       header?: never;
-      path?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Clarification ID */
+        clarification_id: number;
+      };
       cookie?: never;
     };
     requestBody: {
@@ -6213,7 +6271,7 @@ export interface operations {
       query?: {
         /**
          * @description Filter by message type.
-         * @example judge_job
+         * @example stuck_submission
          */
         message_type?: string;
         /**
@@ -6360,15 +6418,6 @@ export interface operations {
       };
       /** @description Forbidden (PERMISSION_DENIED) */
       403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description MQ unavailable (INTERNAL_ERROR) */
-      500: {
         headers: {
           [name: string]: unknown;
         };
@@ -6526,7 +6575,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Message requeued */
+      /** @description Submission re-dispatched */
       200: {
         headers: {
           [name: string]: unknown;
@@ -6535,7 +6584,7 @@ export interface operations {
           'application/json': components['schemas']['DlqRetryResponse'];
         };
       };
-      /** @description Cannot retry judge_result messages (VALIDATION_ERROR) */
+      /** @description Only stuck_submission messages can be retried, or submission is not in a retryable state (VALIDATION_ERROR) */
       400: {
         headers: {
           [name: string]: unknown;
@@ -6562,7 +6611,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Message not found (NOT_FOUND) */
+      /** @description Message or submission not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -7466,7 +7515,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['AttachmentListResponse'];
+          'application/json': components['schemas']['AdditionalFileListResponse'];
         };
       };
       /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
@@ -7521,7 +7570,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['AttachmentResponse'];
+          'application/json': components['schemas']['AdditionalFileResponse'];
         };
       };
       /** @description Validation error (VALIDATION_ERROR) */
@@ -7569,7 +7618,7 @@ export interface operations {
       path: {
         /** @description Problem ID */
         id: number;
-        /** @description Attachment reference ID (UUID) */
+        /** @description Additional file reference ID (UUID) */
         ref_id: string;
       };
       cookie?: never;
@@ -7626,7 +7675,7 @@ export interface operations {
       path: {
         /** @description Problem ID */
         id: number;
-        /** @description Attachment reference ID (UUID) */
+        /** @description Additional file reference ID (UUID) */
         ref_id: string;
       };
       cookie?: never;

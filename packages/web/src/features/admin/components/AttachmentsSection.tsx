@@ -1,4 +1,4 @@
-import { useApiClient, useApiFetch } from '@broccoli/web-sdk/api';
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, FileDropZone, Input } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
@@ -57,7 +57,6 @@ function FileTypeIcon({ contentType }: { contentType: string | null }) {
 export function AttachmentsSection({ problemId }: AttachmentsSectionProps) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
-  const apiFetch = useApiFetch();
   const queryClient = useQueryClient();
   const { upload: uploadFile } = useAttachmentUpload(problemId);
 
@@ -194,11 +193,16 @@ export function AttachmentsSection({ problemId }: AttachmentsSectionProps) {
   const handleDownload = useCallback(
     async (file: Attachment) => {
       try {
-        const res = await apiFetch(attachmentUrl(problemId, file.id));
-        if (!res.ok) throw new Error(`Download failed (${res.status})`);
+        const { data, error } = await apiClient.GET(
+          '/problems/{id}/attachments/{ref_id}',
+          {
+            params: { path: { id: problemId, ref_id: file.id } },
+            parseAs: 'blob',
+          },
+        );
+        if (error) throw error;
 
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(data as Blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = file.filename;
@@ -211,7 +215,7 @@ export function AttachmentsSection({ problemId }: AttachmentsSectionProps) {
         toast.error(t('admin.attachments.downloadError'));
       }
     },
-    [apiFetch, problemId, t],
+    [apiClient, problemId, t],
   );
 
   const uploadProgressText = useMemo(() => {

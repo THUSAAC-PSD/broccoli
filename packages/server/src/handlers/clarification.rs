@@ -26,7 +26,10 @@ use crate::utils::contest::{check_contest_access, find_contest};
     description = "Returns clarifications visible to the current user. Admins see all; \
                     contestants see own questions, public announcements, public replies, \
                     and direct messages addressed to them.",
-    params(ClarificationListQuery),
+    params(
+        ("id" = i32, Path, description = "Contest ID"),
+        ClarificationListQuery,
+    ),
     responses(
         (status = 200, description = "List of clarifications", body = ClarificationListResponse),
         (status = 401, description = "Unauthorized", body = ErrorBody),
@@ -145,6 +148,7 @@ pub async fn list_clarifications(
     summary = "Create a clarification",
     description = "Contestants can create questions. Admins can also create announcements \
                     and direct messages to specific participants.",
+    params(("id" = i32, Path, description = "Contest ID")),
     request_body = CreateClarificationRequest,
     responses(
         (status = 201, description = "Clarification created", body = ClarificationResponse),
@@ -248,6 +252,10 @@ pub async fn create_clarification(
     summary = "Reply to a clarification",
     description = "Admin replies to a question or direct message. \
                     When `is_public` is true the reply becomes visible to all participants.",
+    params(
+        ("id" = i32, Path, description = "Contest ID"),
+        ("clarification_id" = i32, Path, description = "Clarification ID"),
+    ),
     request_body = ReplyClarificationRequest,
     responses(
         (status = 200, description = "Reply saved", body = ClarificationResponse),

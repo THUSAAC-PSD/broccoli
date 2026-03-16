@@ -47,7 +47,7 @@ export function attachmentMarkdownRef(
 }
 
 export async function uploadAttachment(
-  apiFetch: (input: string | URL, init?: RequestInit) => Promise<Response>,
+  apiClient: ApiClient,
   problemId: number,
   file: File,
   path?: string,
@@ -58,15 +58,16 @@ export async function uploadAttachment(
     formData.append('path', path.trim());
   }
 
-  const res = await apiFetch(`/api/v1/problems/${problemId}/attachments`, {
-    method: 'POST',
+  const { data, error } = await apiClient.POST('/problems/{id}/attachments', {
+    params: { path: { id: problemId } },
     body: formData,
+    bodySerializer: (body) => body as BodyInit,
   });
+  if (error)
+    throw new Error((error as { message?: string }).message ?? 'Upload failed');
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error(body?.message ?? `Upload failed (${res.status})`);
-  }
-
-  return res.json();
+  return {
+    ...data,
+    content_type: data.content_type ?? null,
+  };
 }
