@@ -70,6 +70,7 @@ Builds the plugin described by the `plugin.toml` in the target directory.
 ```bash
 broccoli plugin build
 broccoli plugin build plugins/ioi
+broccoli plugin build plugins/ioi --install
 broccoli plugin build plugins/ioi --release
 ```
 
@@ -87,7 +88,8 @@ to `plugin.toml`:
 ```toml
 [build]
 frontend_dir = "web"
-frontend_cmd = "pnpm build"
+frontend_install_cmd = "pnpm install --ignore-workspace"
+frontend_build_cmd = "pnpm build"
 ```
 
 Without that file, the CLI tries to infer the frontend directory from
@@ -112,6 +114,7 @@ Useful flags:
 
 - `--server <URL>` overrides the saved server URL.
 - `--token <TOKEN>` overrides the saved token.
+- `--install` forces execution of the frontend install command at startup.
 - `--release` uses release builds for backend rebuilds.
 - `--debounce <MS>` changes the file-watch debounce interval.
 
@@ -123,7 +126,8 @@ ignore = ["*.log", "coverage/"]
 
 [build]
 frontend_dir = "web"
-frontend_cmd = "pnpm build"
+frontend_install_cmd = "pnpm install --ignore-workspace"
+frontend_build_md = "pnpm build"
 frontend_dev_cmd = "pnpm dev"
 ```
 

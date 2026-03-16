@@ -12,12 +12,13 @@ use super::wasm::copy_wasm_artifact;
 
 /// Builds a plugin's backend (Rust/WASM) and/or frontend components.
 ///
-/// The frontend directory and build command can be customized via
+/// The frontend directory, install command, and build command can be customized via
 /// `broccoli.dev.toml` in the plugin directory:
 ///
 ///   [build]
-///   frontend_dir = "client"        # where to run the build command
-///   frontend_cmd = "npm run build" # default: "pnpm build"
+///   frontend_dir = "client"              # where to run the build command
+///   frontend_install_cmd = "npm install" # default: "pnpm install --ignore-workspace"
+///   frontend_build_cmd = "npm run build" # default: "pnpm build"
 ///
 /// Without a config file, the frontend directory is auto-detected from
 /// the [web].root field in plugin.toml, or by looking for package.json
@@ -27,6 +28,10 @@ pub struct BuildPluginArgs {
     /// Path to the plugin directory (defaults to current directory)
     #[arg(default_value = ".")]
     pub path: PathBuf,
+
+    /// Force execution of the frontend installation command even if node_modules exists
+    #[arg(long)]
+    pub install: bool,
 
     /// Build in release mode (optimized)
     #[arg(long)]
@@ -120,6 +125,43 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
             );
         }
 
+        // Install frontend dependencies if node_modules is missing or install flag is set
+        let node_modules_exists = fe_dir.join("node_modules").exists();
+        if !node_modules_exists || args.install {
+            let install_cmd_str = dev.frontend_install_cmd.join(" ");
+
+            if args.install {
+                println!(
+                    "{}  Running '{}' in {}...",
+                    style("→").blue().bold(),
+                    style(&install_cmd_str).cyan(),
+                    fe_dir.display()
+                );
+            } else {
+                println!(
+                    "{}  node_modules not found. Auto-running '{}'...",
+                    style("!").yellow().bold(),
+                    style(&install_cmd_str).cyan()
+                );
+            }
+
+            let (program, cmd_args) = dev
+                .frontend_install_cmd
+                .split_first()
+                .context("frontend_install_cmd is empty in broccoli.dev.toml")?;
+
+            let status = Command::new(program)
+                .args(cmd_args)
+                .current_dir(&fe_dir)
+                .status()
+                .with_context(|| format!("Failed to run '{}'", install_cmd_str))?;
+
+            if !status.success() {
+                bail!("Frontend installation failed");
+            }
+            println!("{}  Dependencies installed", style("✓").green().bold());
+        }
+
         println!(
             "{}  Building frontend for {}...",
             style("→").blue().bold(),
@@ -127,9 +169,9 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
         );
 
         let (program, cmd_args) = dev
-            .frontend_cmd
+            .frontend_build_cmd
             .split_first()
-            .context("frontend_cmd is empty in broccoli.dev.toml")?;
+            .context("frontend_build_cmd is empty in broccoli.dev.toml")?;
 
         let status = Command::new(program)
             .args(cmd_args)
@@ -138,7 +180,7 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
             .with_context(|| {
                 format!(
                     "Failed to run '{}'. Is it installed?",
-                    dev.frontend_cmd.join(" ")
+                    dev.frontend_build_cmd.join(" ")
                 )
             })?;
 

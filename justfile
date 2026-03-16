@@ -59,28 +59,28 @@ format-check:
     pnpm format:check
 
 # Build all WASM plugins (debug)
-build-plugins:
-    cargo run -p broccoli-cli -- plugin build plugins/standard-checkers
-    cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator
-    cargo run -p broccoli-cli -- plugin build plugins/ioi
-    cargo run -p broccoli-cli -- plugin build plugins/cooldown
-    cargo run -p broccoli-cli -- plugin build plugins/submission-limit
+build-plugins *args:
+    cargo run -p broccoli-cli -- plugin build plugins/standard-checkers {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/ioi {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/cooldown {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/submission-limit {{args}}
 
 # Build all WASM plugins (release)
 build-plugins-release:
-    cargo run -p broccoli-cli -- plugin build plugins/standard-checkers --release
-    cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator --release
-    cargo run -p broccoli-cli -- plugin build plugins/ioi --release
-    cargo run -p broccoli-cli -- plugin build plugins/cooldown --release
-    cargo run -p broccoli-cli -- plugin build plugins/submission-limit --release
+    cargo run -p broccoli-cli -- plugin build plugins/standard-checkers --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/ioi --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/cooldown --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/submission-limit --install --release
 
 # Build a single WASM plugin (e.g., just build-plugin plugins/standard-checkers)
-build-plugin path:
-    cargo run -p broccoli-cli -- plugin build {{path}}
+build-plugin path *args:
+    cargo run -p broccoli-cli -- plugin build {{path}} {{args}}
 
 # Build a single WASM plugin in release mode
 build-plugin-release path:
-    cargo run -p broccoli-cli -- plugin build {{path}} --release
+    cargo run -p broccoli-cli -- plugin build {{path}} --install --release
 
 # Start PostgreSQL, Redis, and SeaweedFS
 up:
