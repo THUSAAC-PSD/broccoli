@@ -61,10 +61,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body suppressHydrationWarning>
         <QueryClientProvider client={queryClient}>
-          <ApiClientProvider
-            baseUrl={appConfig.api.baseUrl}
-            authTokenKey={appConfig.api.authTokenKey}
-          >
+          <ApiClientProvider baseUrl={appConfig.api.baseUrl}>
             <I18nProvider defaultLocale="en" coreI18n={{ en }}>
               <ThemeProvider defaultTheme="light" storageKey="theme">
                 <AuthProvider>

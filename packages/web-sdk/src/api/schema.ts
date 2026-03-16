@@ -251,9 +251,29 @@ export interface paths {
     put?: never;
     /**
      * Log in and obtain a JWT token
-     * @description Authenticates the user and returns a JWT token valid for 7 days, along with the user's role and permissions. Returns 401 INVALID_CREDENTIALS on wrong username or password.
+     * @description Authenticates the user and returns a short-lived JWT access token. Sets a long-lived HttpOnly cookie containing a refresh token. Returns 401 INVALID_CREDENTIALS on wrong username or password.
      */
     post: operations['loginUser'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/logout': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Log out user
+     * @description Revokes the refresh token and clears the cookie.
+     */
+    post: operations['logoutUser'];
     delete?: never;
     options?: never;
     head?: never;
@@ -274,6 +294,26 @@ export interface paths {
     get: operations['getCurrentUser'];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Refresh access token
+     * @description Exchanges a valid HttpOnly refresh token cookie for a new short-lived access token. Fails if the user is banned or the token is expired/revoked.
+     */
+    post: operations['refreshToken'];
     delete?: never;
     options?: never;
     head?: never;
@@ -2567,7 +2607,7 @@ export interface components {
        */
       role: string;
       /**
-       * @description JWT bearer token valid for 7 days.
+       * @description JWT bearer access token valid for 5 minutes.
        * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
        */
       token: string;
@@ -4385,6 +4425,24 @@ export interface operations {
       };
     };
   };
+  logoutUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Logged out successfully */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   getCurrentUser: {
     parameters: {
       query?: never;
@@ -4405,6 +4463,44 @@ export interface operations {
       };
       /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  refreshToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Token refreshed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['LoginResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
         headers: {
           [name: string]: unknown;
         };

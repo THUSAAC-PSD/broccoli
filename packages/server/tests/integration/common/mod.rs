@@ -202,9 +202,12 @@ async fn shared_pg_port() -> u16 {
 pub mod routes {
     pub const REGISTER: &str = "/api/v1/auth/register";
     pub const LOGIN: &str = "/api/v1/auth/login";
+    pub const REFRESH: &str = "/api/v1/auth/refresh";
+    pub const LOGOUT: &str = "/api/v1/auth/logout";
     pub const ME: &str = "/api/v1/auth/me";
     pub const USERS: &str = "/api/v1/users";
     pub const PROBLEMS: &str = "/api/v1/problems";
+
     pub fn admin_plugin_details(id: &str) -> String {
         format!("/api/v1/admin/plugins/{id}")
     }
@@ -584,6 +587,7 @@ impl TestApp {
             // turning localhost calls into spurious 502 responses.
             client: Client::builder()
                 .no_proxy()
+                .cookie_store(true)
                 .build()
                 .expect("Failed to build reqwest client"),
             db,

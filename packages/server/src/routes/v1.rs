@@ -25,6 +25,8 @@ fn auth_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::auth::register))
         .routes(routes!(handlers::auth::login))
+        .routes(routes!(handlers::auth::refresh))
+        .routes(routes!(handlers::auth::logout))
         .routes(routes!(handlers::auth::me))
         .routes(routes!(handlers::auth::request_device_code))
         .routes(routes!(handlers::auth::authorize_device))
