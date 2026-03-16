@@ -1,0 +1,138 @@
+@import 'dockview-react/dist/styles/dockview.css';
+
+/*
+ * Broccoli dockview theme
+ */
+
+.dockview-theme-broccoli {
+  /* Backgrounds */
+  --dv-background-color: hsl(var(--background));
+  --dv-group-view-background-color: hsl(var(--card));
+
+  /* Tab bar */
+  --dv-tabs-and-actions-container-background-color: hsl(var(--muted));
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-tabs-and-actions-container-height: 34px;
+  --dv-tabs-container-scrollbar-color: hsl(var(--muted-foreground) / 0.4);
+
+  /* Active group: selected tab */
+  --dv-activegroup-visiblepanel-tab-background-color: hsl(var(--card));
+  --dv-activegroup-visiblepanel-tab-color: hsl(var(--foreground));
+
+  /* Active group: unselected tabs */
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-color: hsl(var(--muted-foreground));
+
+  /* Inactive group: selected tab */
+  --dv-inactivegroup-visiblepanel-tab-background-color: hsl(var(--muted) / 0.6);
+  --dv-inactivegroup-visiblepanel-tab-color: hsl(var(--muted-foreground));
+
+  /* Inactive group: unselected tabs */
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-color: hsl(var(--muted-foreground) / 0.6);
+
+  /* Tab divider & spacing */
+  --dv-tab-divider-color: transparent;
+  --dv-tab-font-size: 12px;
+  --dv-tab-margin: 0;
+
+  /* Separators/sash (resize handles) */
+  --dv-separator-border: hsl(var(--border));
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: hsl(var(--primary));
+  --dv-active-sash-transition-duration: 0.12s;
+  --dv-active-sash-transition-delay: 0.1s;
+
+  /* Pane header */
+  --dv-paneview-header-border-color: hsl(var(--border));
+  --dv-paneview-active-outline-color: hsl(var(--primary));
+
+  /* Drag & drop overlay */
+  --dv-drag-over-background-color: hsl(var(--primary) / 0.08);
+  --dv-drag-over-border-color: hsl(var(--primary) / 0.3);
+  --dv-drag-over-border: 2px solid hsl(var(--primary) / 0.3);
+
+  /* Floating panels */
+  --dv-floating-box-shadow: 0 8px 32px hsl(var(--foreground) / 0.12);
+
+  /* Icon hover */
+  --dv-icon-hover-background-color: hsl(var(--accent));
+
+  /* Scrollbar */
+  --dv-scrollbar-background-color: hsl(var(--muted-foreground) / 0.2);
+
+  /* Misc */
+  --dv-border-radius: 0px;
+  --dv-transition-duration: 120ms;
+  --dv-overlay-z-index: 999;
+}
+
+/* Tab styling */
+.dockview-theme-broccoli .dv-tab {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 0 12px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dockview-theme-broccoli .dv-tab.dv-active-tab {
+  box-shadow: inset 0 -2px 0 hsl(var(--primary));
+}
+
+.dockview-theme-broccoli .dv-tab.dv-inactive-tab:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+/* Tab close button */
+.dockview-theme-broccoli .dv-default-tab .dv-default-tab-action {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.dockview-theme-broccoli .dv-tab:hover .dv-default-tab .dv-default-tab-action,
+.dockview-theme-broccoli
+  .dv-tab.dv-active-tab
+  .dv-default-tab
+  .dv-default-tab-action {
+  opacity: 1;
+}
+
+/* Void container (empty area right of tabs; draggable) */
+.dockview-theme-broccoli .dv-tabs-and-actions-container .dv-void-container {
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+/* Content area */
+.dockview-theme-broccoli .dv-groupview > .dv-content-container {
+  background: hsl(var(--card));
+}
+
+/* Sash (resize handle) visual affordance */
+.dockview-theme-broccoli
+  .dv-split-view-container
+  > .dv-sash-container
+  > .dv-sash {
+  transition: background-color 0.2s ease;
+}
+.dockview-theme-broccoli
+  .dv-split-view-container
+  > .dv-sash-container
+  > .dv-sash:hover {
+  background-color: hsl(var(--primary) / 0.15);
+}
+
+/*
+ * Dockview's .dv-view has overflow:auto, but the panel wrapper inside it has
+ * height:100% (set by dockview-react), so the .dv-view never actually overflows.
+ * Panels manage their own scrolling. Set to hidden to prevent a phantom scrollbar.
+ */
+.dockview-theme-broccoli .dv-split-view-container .dv-view-container .dv-view {
+  overflow: hidden;
+}
+
+/* Watermark */
+.dockview-theme-broccoli .dv-watermark {
+  background: hsl(var(--card));
+}
