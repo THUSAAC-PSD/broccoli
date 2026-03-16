@@ -4,6 +4,24 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use common::storage::{BlobStore, ContentHash};
 
+/// Ensure a cached file is world-readable so sandbox processes and
+/// subsequent `tokio::fs::copy` calls don't hit "Permission denied".
+#[cfg(unix)]
+fn ensure_readable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mode = meta.permissions().mode();
+        if mode & 0o044 != 0o044 {
+            if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)) {
+                tracing::warn!(path = %path.display(), error = %e, "Failed to set readable permissions on cached file");
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn ensure_readable(_path: &Path) {}
+
 /// Abstracts file fetch/upload for the worker.
 #[async_trait]
 pub trait FileCacher: Send + Sync {
@@ -145,8 +163,11 @@ impl BlobStoreFileCacher {
         while state.total_size > self.max_cache_size && !state.entries.is_empty() {
             if let Some((hash, size)) = state.entries.pop_lru() {
                 let path = self.cache_dir.join(&hash);
-                let _ = tokio::fs::remove_file(&path).await;
-                state.total_size = state.total_size.saturating_sub(size);
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    tracing::warn!(path = %path.display(), error = %e, "Failed to evict cached file");
+                } else {
+                    state.total_size = state.total_size.saturating_sub(size);
+                }
             }
         }
     }
@@ -180,6 +201,7 @@ impl FileCacher for BlobStoreFileCacher {
         // First non-blocking check for cache hit
         if cached.exists() {
             self.touch(&hash_hex).await;
+            ensure_readable(&cached);
             tokio::fs::copy(&cached, dest)
                 .await
                 .map_err(|e| format!("Failed to copy cached file: {e}"))?;
@@ -198,6 +220,7 @@ impl FileCacher for BlobStoreFileCacher {
         // Check again in case another task downloaded it while we were waiting
         if cached.exists() {
             self.touch(&hash_hex).await;
+            ensure_readable(&cached);
             tokio::fs::copy(&cached, dest)
                 .await
                 .map_err(|e| format!("Failed to copy cached file: {e}"))?;
@@ -241,14 +264,14 @@ impl FileCacher for BlobStoreFileCacher {
         })?;
 
         // Successfully downloaded, update cache state
+        ensure_readable(&cached);
         self.record_cache_entry(hash_hex.clone(), file_size).await;
 
-        // Copy to destination (or attempt a hard link if possible, falling back to copy)
-        if std::fs::hard_link(&cached, dest).is_err() {
-            tokio::fs::copy(&cached, dest)
-                .await
-                .map_err(|e| format!("Failed to copy to dest: {e}"))?;
-        }
+        // Always copy (never hard-link) so the caller can change dest permissions
+        // without corrupting the cached file's permissions.
+        tokio::fs::copy(&cached, dest)
+            .await
+            .map_err(|e| format!("Failed to copy to dest: {e}"))?;
 
         Ok(())
     }
@@ -275,14 +298,17 @@ impl FileCacher for BlobStoreFileCacher {
         let cached = self.cache_path(&hash_hex);
 
         if !cached.exists() {
-            // Attempt to hardlink from source to cache to avoid data copy
-            let cached_ok = if std::fs::hard_link(src, &cached).is_err() {
-                // Fall back to copying if hard link fails (e.g. across mount points)
-                tokio::fs::copy(src, &cached).await.is_ok()
-            } else {
-                true
-            };
+            // Copy source to cache (don't hard-link — isolate sandbox cleanup can
+            // alter permissions/ownership on the original inode).
+            let cached_ok = tokio::fs::copy(src, &cached).await.is_ok();
             if cached_ok {
+                // Ensure the cached file is readable regardless of sandbox permissions.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ =
+                        std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o644));
+                }
                 self.record_cache_entry(hash_hex.clone(), file_size).await;
             }
         } else {

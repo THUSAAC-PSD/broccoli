@@ -29,7 +29,7 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
 
     let sandbox_config = load_sandbox_config();
 
-    let default_lang = host::language::get_language_config(&req.solution_language, "")
+    let default_lang = host::language::get_language_config(&req.solution_language, "", &[])
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
     let primary_source = req
         .solution_source
@@ -37,9 +37,18 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
         .find(|file| file.filename == default_lang.source_filename)
         .or_else(|| req.solution_source.first())
         .ok_or_else(|| extism_pdk::Error::msg("No source file provided"))?;
-    let lang =
-        host::language::get_language_config(&req.solution_language, &primary_source.filename)
-            .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let extra_sources: Vec<String> = req
+        .solution_source
+        .iter()
+        .filter(|f| f.filename != primary_source.filename)
+        .map(|f| f.filename.clone())
+        .collect();
+    let lang = host::language::get_language_config(
+        &req.solution_language,
+        &primary_source.filename,
+        &extra_sources,
+    )
+    .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let operations = batch::build_operation(&req, &lang, &sandbox_config)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;

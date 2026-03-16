@@ -41,7 +41,7 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
     let sandbox_config = load_sandbox_config();
     let comm_config = load_comm_config(problem_id);
 
-    let default_lang = host::language::get_language_config(&req.solution_language, "")
+    let default_lang = host::language::get_language_config(&req.solution_language, "", &[])
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
     let primary_source = req
         .solution_source
@@ -49,9 +49,18 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
         .find(|f| f.filename == default_lang.source_filename)
         .or_else(|| req.solution_source.first())
         .ok_or_else(|| extism_pdk::Error::msg("No contestant source file provided"))?;
-    let contestant_lang =
-        host::language::get_language_config(&req.solution_language, &primary_source.filename)
-            .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let contestant_extra: Vec<String> = req
+        .solution_source
+        .iter()
+        .filter(|f| f.filename != primary_source.filename)
+        .map(|f| f.filename.clone())
+        .collect();
+    let contestant_lang = host::language::get_language_config(
+        &req.solution_language,
+        &primary_source.filename,
+        &contestant_extra,
+    )
+    .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     if comm_config.manager_sources.is_empty() {
         return Err(extism_pdk::Error::msg(
@@ -62,11 +71,19 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
     }
 
     // Primary file = first entry, used for language resolution
-    // TODO: allow explicit specification of primary file in config if needed for some languages (e.g. Java)
     let mgr_filename = &comm_config.manager_sources[0].filename;
-    let manager_lang =
-        host::language::get_language_config(&comm_config.manager_language, mgr_filename)
-            .map_err(|e| extism_pdk::Error::msg(format!("Manager language config: {e}")))?;
+    let mgr_extra: Vec<String> = comm_config
+        .manager_sources
+        .iter()
+        .skip(1)
+        .map(|s| s.filename.clone())
+        .collect();
+    let manager_lang = host::language::get_language_config(
+        &comm_config.manager_language,
+        mgr_filename,
+        &mgr_extra,
+    )
+    .map_err(|e| extism_pdk::Error::msg(format!("Manager language config: {e}")))?;
 
     let operations = operation::build_operation(
         &req,

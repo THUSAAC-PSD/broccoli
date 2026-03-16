@@ -385,7 +385,7 @@ pub fn parse_testlib_partial(stderr: &str) -> (f64, Option<String>) {
             } else {
                 0.0
             };
-            let rest = line[first_token.len()..].trim();
+            let rest = line.get(first_token.len()..).unwrap_or("").trim();
             let message = if rest.is_empty() {
                 None
             } else {

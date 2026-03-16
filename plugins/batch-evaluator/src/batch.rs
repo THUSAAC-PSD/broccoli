@@ -40,7 +40,7 @@ impl Default for SandboxConfig {
             exec_open_files_limit: 64,
             exec_file_size_limit_kb: 65_536, // 64 MB
             exec_wall_time_multiplier: 3.0,
-            result_timeout_ms: 30_000, // 30s
+            result_timeout_ms: 120_000, // 120s
         }
     }
 }
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(config.compile_memory_limit_kb, 524_288);
         assert_eq!(config.exec_extra_time_s, 0.0);
         assert_eq!(config.exec_wall_time_multiplier, 3.0);
-        assert_eq!(config.result_timeout_ms, 30_000);
+        assert_eq!(config.result_timeout_ms, 120_000);
     }
 
     #[test]

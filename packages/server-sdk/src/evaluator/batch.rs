@@ -93,7 +93,7 @@ pub fn evaluate_all(
     let mut timed_out = false;
 
     while collected < test_cases.len() {
-        match host.get_next_evaluate_result(&batch_id, 30_000) {
+        match host.get_next_evaluate_result(&batch_id, 120_000) {
             Ok(Some(verdict)) => {
                 let normalized = if verdict.score.is_finite() {
                     verdict.score.clamp(0.0, 1.0)

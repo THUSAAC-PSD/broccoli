@@ -60,6 +60,24 @@ pub fn interpret_result(
         }
     }
 
+    for i in 0..num_processes {
+        let step_id = format!("run_contestant_{i}");
+        if !result.task_results.contains_key(&step_id) {
+            return TestCaseVerdict {
+                test_case_id,
+                verdict: Verdict::SystemError,
+                score: 0.0,
+                time_used_ms: None,
+                memory_used_kb: None,
+                message: Some(format!(
+                    "Missing expected step '{step_id}' in operation result"
+                )),
+                stdout: None,
+                stderr: None,
+            };
+        }
+    }
+
     let mut total_time_s: f64 = 0.0;
     let mut max_memory_kb: Option<u32> = None;
 

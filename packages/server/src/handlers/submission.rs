@@ -114,7 +114,7 @@ fn validate_submission_contract(
         .map(|file| file.filename.as_str())
         .unwrap_or_default();
 
-    resolve_language(language, submitted_filename, languages).map_err(AppError::Validation)?;
+    resolve_language(language, submitted_filename, languages, &[]).map_err(AppError::Validation)?;
 
     let submission_format: Option<HashMap<String, Vec<String>>> = problem
         .submission_format
