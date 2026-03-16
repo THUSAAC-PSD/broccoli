@@ -1,4 +1,4 @@
-import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { Button, FileDropZone, Label } from '@broccoli/web-sdk/ui';
 import { File, Loader2, Upload, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -22,7 +22,7 @@ export function BlobRefField({
   onChange: (v: BlobRefValue | undefined) => void;
   isExplicit: boolean;
 }>) {
-  const apiFetch = useApiFetch();
+  const apiClient = useApiClient();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingName, setUploadingName] = useState<string>('');
@@ -37,19 +37,24 @@ export function BlobRefField({
         const formData = new FormData();
         formData.append('file', file);
 
-        const res = await apiFetch('/api/v1/config/upload', {
-          method: 'POST',
-          body: formData,
-        });
+        const { data, error: apiError } = await apiClient.POST(
+          '/config/upload',
+          {
+            body: formData,
+            bodySerializer: (body) => body as BodyInit,
+          },
+        );
 
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(body?.message ?? `Upload failed (${res.status})`);
+        if (apiError) {
+          throw new Error(
+            (apiError as { message?: string }).message ?? 'Upload failed',
+          );
         }
 
-        const data: { filename: string; content_hash: string } =
-          await res.json();
-        onChange({ filename: data.filename, hash: data.content_hash });
+        onChange({
+          filename: data.filename,
+          hash: data.content_hash,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Upload failed');
       } finally {
@@ -57,7 +62,7 @@ export function BlobRefField({
         setUploadingName('');
       }
     },
-    [apiFetch, onChange],
+    [apiClient, onChange],
   );
 
   const handleFilesSelected = useCallback(

@@ -1,4 +1,4 @@
-import { useApiClient, useApiFetch } from '@broccoli/web-sdk/api';
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, FileDropZone, Input } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
@@ -34,7 +34,6 @@ export function AdditionalFilesSection({
 }: AdditionalFilesSectionProps) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
-  const apiFetch = useApiFetch();
   const queryClient = useQueryClient();
 
   const [staged, setStaged] = useState<StagedFile[]>([]);
@@ -106,14 +105,19 @@ export function AdditionalFilesSection({
           formData.append('path', item.path.trim());
         }
 
-        const res = await apiFetch(
-          `/api/v1/problems/${problemId}/additional-files`,
-          { method: 'POST', body: formData },
+        const { error } = await apiClient.POST(
+          '/problems/{id}/additional-files',
+          {
+            params: { path: { id: problemId } },
+            body: formData,
+            bodySerializer: (body) => body as BodyInit,
+          },
         );
 
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(body?.message ?? `Upload failed (${res.status})`);
+        if (error) {
+          throw new Error(
+            (error as { message?: string }).message ?? 'Upload failed',
+          );
         }
 
         return true;
@@ -124,7 +128,7 @@ export function AdditionalFilesSection({
         return false;
       }
     },
-    [apiFetch, problemId, t],
+    [apiClient, problemId, t],
   );
 
   const handleUploadSingle = useCallback(
@@ -191,13 +195,16 @@ export function AdditionalFilesSection({
   const handleDownload = useCallback(
     async (file: AdditionalFile) => {
       try {
-        const res = await apiFetch(
-          `/api/v1/problems/${problemId}/additional-files/${file.id}`,
+        const { data, error } = await apiClient.GET(
+          '/problems/{id}/additional-files/{ref_id}',
+          {
+            params: { path: { id: problemId, ref_id: file.id } },
+            parseAs: 'blob',
+          },
         );
-        if (!res.ok) throw new Error(`Download failed (${res.status})`);
+        if (error) throw error;
 
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(data as Blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = file.filename;
@@ -210,7 +217,7 @@ export function AdditionalFilesSection({
         toast.error(t('admin.additionalFiles.downloadError'));
       }
     },
-    [apiFetch, problemId, t],
+    [apiClient, problemId, t],
   );
 
   const grouped = groupFilesByLanguage(files);
