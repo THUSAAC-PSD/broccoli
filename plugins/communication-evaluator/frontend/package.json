@@ -1,0 +1,33 @@
+{
+  "name": "@broccoli/plugin-communication-evaluator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "build": "tsup src/index.tsx src/styles.css --format esm --dts --external react --external react-dom --external @tanstack/react-query --external @broccoli/web-sdk/hooks --external @broccoli/web-sdk/i18n",
+    "dev": "tsup src/index.tsx src/styles.css --format esm --external react --external react-dom --external @tanstack/react-query --external @broccoli/web-sdk/hooks --external @broccoli/web-sdk/i18n --watch --sourcemap"
+  },
+  "dependencies": {
+    "@broccoli/web-sdk": "file:../../../packages/web-sdk"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "@types/react": "^19.1.16",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "tsup": "^8.5.0",
+    "typescript": "~5.9.3"
+  }
+}

@@ -6,6 +6,19 @@ description = "CMS-style communication evaluator — manager + N contestant proc
 entry = "communication_evaluator.wasm"
 permissions = ["logger", "plugin:register", "operations:dispatch", "language:config", "config:read"]
 
+[web]
+root = "frontend/dist"
+entry = "index.js"
+css = ["styles.css"]
+
+[web.components]
+ManagerLanguageSelector = "ManagerLanguageSelector"
+
+[[web.slots]]
+name = "config.field.communication-evaluator.communication.manager_language"
+position = "replace"
+component = "ManagerLanguageSelector"
+
 [config.communication]
 description = "Communication evaluator settings"
 scopes = ["problem"]
