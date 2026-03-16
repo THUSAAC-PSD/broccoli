@@ -16,7 +16,9 @@ import { ChevronDown, Plus, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { MarkdownEditor } from '@/components/MarkdownEditor';
+import { MarkdownEditorWithAttachments } from '@/features/admin/components/MarkdownEditorWithAttachments';
 import { SwitchField } from '@/features/admin/components/SwitchField';
+import type { Attachment } from '@/features/problem/api/attachments';
 import {
   fetchSupportedLanguages,
   type SupportedLanguage,
@@ -37,6 +39,8 @@ export interface ProblemFormData {
 interface ProblemFormProps {
   data: ProblemFormData;
   onChange: (data: ProblemFormData) => void;
+  problemId?: number;
+  attachments?: Attachment[];
 }
 
 function fallbackDefaultFilename(languageId: string): string {
@@ -57,7 +61,12 @@ function getDefaultFilename(language: SupportedLanguage): string {
   return language.defaultFilename || fallbackDefaultFilename(language.id);
 }
 
-export function ProblemForm({ data, onChange }: ProblemFormProps) {
+export function ProblemForm({
+  data,
+  onChange,
+  problemId,
+  attachments,
+}: ProblemFormProps) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const { data: registries } = useRegistries();
@@ -193,13 +202,30 @@ export function ProblemForm({ data, onChange }: ProblemFormProps) {
 
       <div className="space-y-2">
         <Label htmlFor="problem-content">{t('admin.field.content')}</Label>
-        <MarkdownEditor
-          id="problem-content"
-          value={data.content}
-          onChange={handleContentChange}
-          minHeight={250}
-          placeholder="Problem statement (Markdown supported)"
-        />
+        {problemId != null && attachments ? (
+          <>
+            <MarkdownEditorWithAttachments
+              id="problem-content"
+              value={data.content}
+              onChange={handleContentChange}
+              minHeight={250}
+              placeholder="Problem statement (Markdown supported)"
+              problemId={problemId}
+              attachments={attachments}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('admin.attachments.editorHint')}
+            </p>
+          </>
+        ) : (
+          <MarkdownEditor
+            id="problem-content"
+            value={data.content}
+            onChange={handleContentChange}
+            minHeight={250}
+            placeholder="Problem statement (Markdown supported)"
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

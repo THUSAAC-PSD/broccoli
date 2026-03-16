@@ -8,12 +8,17 @@ import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 
 import { AdditionalFilesSection } from '@/features/admin/components/AdditionalFilesSection';
+import { AttachmentsSection } from '@/features/admin/components/AttachmentsSection';
 import {
   ProblemForm,
   type ProblemFormData,
 } from '@/features/admin/components/ProblemForm';
 import { TestCaseBulkUploadDialog } from '@/features/admin/components/TestCaseBulkUploadDialog';
 import { TestCaseFormDialog } from '@/features/admin/components/TestCaseFormDialog';
+import {
+  attachmentsQueryKey,
+  fetchAttachments,
+} from '@/features/problem/api/attachments';
 import { extractErrorMessage } from '@/lib/extract-error';
 
 interface ProblemEditFormProps {
@@ -89,6 +94,12 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       if (error) throw error;
       return data;
     },
+    enabled: Number.isFinite(problemIdNum),
+  });
+
+  const { data: attachments = [] } = useQuery({
+    queryKey: attachmentsQueryKey(problemIdNum),
+    queryFn: () => fetchAttachments(apiClient, problemIdNum),
     enabled: Number.isFinite(problemIdNum),
   });
 
@@ -176,7 +187,20 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <ProblemForm data={formData} onChange={setFormData} />
+            <ProblemForm
+              data={formData}
+              onChange={setFormData}
+              problemId={problemIdNum}
+              attachments={attachments}
+            />
+
+            {/* Attachments Section */}
+            <div className="space-y-4 pt-4">
+              <h2 className="text-lg font-semibold">
+                {t('admin.attachments.title')}
+              </h2>
+              <AttachmentsSection problemId={problemIdNum} />
+            </div>
 
             {/* Additional Files Section */}
             <div className="space-y-4 pt-4">

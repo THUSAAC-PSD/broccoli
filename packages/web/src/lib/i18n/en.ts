@@ -405,6 +405,35 @@ export const en: Record<string, string> = {
   'admin.additionalFiles.upload': 'Upload',
   'admin.manageAdditionalFiles': 'Manage Additional Files',
 
+  // Attachments (admin)
+  'admin.attachments.title': 'Attachments',
+  'admin.attachments.description':
+    'Public files (images, PDFs) that can be referenced in the problem statement.',
+  'admin.attachments.empty': 'No attachments yet.',
+  'admin.attachments.dropzone': 'Drop files here or click to browse',
+  'admin.attachments.uploading': 'Uploading {filename}...',
+  'admin.attachments.uploaded': 'File uploaded successfully.',
+  'admin.attachments.uploadError': 'Failed to upload file.',
+  'admin.attachments.deleteError': 'Failed to delete file.',
+  'admin.attachments.deleted': 'File deleted successfully.',
+  'admin.attachments.downloadError': 'Failed to download file.',
+  'admin.attachments.staged': '{count} files ready to upload',
+  'admin.attachments.uploadAll': 'Upload All',
+  'admin.attachments.clear': 'Clear',
+  'admin.attachments.upload': 'Upload',
+  'admin.attachments.fileCount': '{count} files',
+  'admin.attachments.copyMarkdown': 'Copy Markdown',
+  'admin.attachments.markdownCopied': 'Markdown reference copied.',
+  'admin.attachments.dropImageHint': 'Drop files here to upload',
+  'admin.attachments.uploadingBatch':
+    'Uploading {current} of {total} — {filename}...',
+  'admin.attachments.fileTooLarge': 'File is too large (max 128MB).',
+  'admin.attachments.editorHint':
+    'Drag & drop images, paste screenshots, or type ![ for autocomplete',
+  'admin.attachments.insertImage': 'Insert image',
+  'admin.attachments.insertFile': 'Insert file',
+  'admin.manageAttachments': 'Manage Attachments',
+
   // Test Cases (admin)
   'admin.manageTestCases': 'Manage Test Cases',
   'admin.testCases.title': 'Test Cases',
