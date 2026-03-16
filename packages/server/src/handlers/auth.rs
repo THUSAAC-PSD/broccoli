@@ -1,11 +1,13 @@
 use std::time::{Duration, Instant};
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum_extra::extract::CookieJar;
+use axum_extra::extract::cookie::{Cookie, SameSite};
 use sea_orm::*;
 use std::sync::OnceLock;
 use tracing::instrument;
 
-use crate::entity::{role, role_permission, user};
+use crate::entity::{refresh_token, role, role_permission, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -17,6 +19,20 @@ use crate::models::auth::{
 use crate::state::AppState;
 use crate::utils::soft_delete::SoftDeletable;
 use crate::utils::{hash, jwt};
+
+const REFRESH_TOKEN_EXPIRY_DAYS: i64 = 7;
+const REFRESH_COOKIE_NAME: &str = "broccoli_refresh";
+
+/// Helper to build the HttpOnly refresh cookie
+fn build_refresh_cookie(token: String, max_age_days: i64) -> Cookie<'static> {
+    Cookie::build((REFRESH_COOKIE_NAME, token))
+        .http_only(true)
+        .secure(true) // Ensure this is handled properly behind reverse proxies
+        .same_site(SameSite::Strict)
+        .path("/api/v1/auth/refresh")
+        .max_age(time::Duration::days(max_age_days))
+        .build()
+}
 
 /// A pre-computed dummy hash used during login when the username does not exist,
 /// ensuring the response time is consistent regardless of username validity
@@ -85,7 +101,7 @@ pub async fn register(
     tag = "Auth",
     operation_id = "loginUser",
     summary = "Log in and obtain a JWT token",
-    description = "Authenticates the user and returns a JWT token valid for 7 days, along with the user's role and permissions. Returns 401 INVALID_CREDENTIALS on wrong username or password.",
+    description = "Authenticates the user and returns a short-lived JWT access token. Sets a long-lived HttpOnly cookie containing a refresh token. Returns 401 INVALID_CREDENTIALS on wrong username or password.",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Login successful", body = LoginResponse),
@@ -93,11 +109,12 @@ pub async fn register(
         (status = 401, description = "Invalid credentials (INVALID_CREDENTIALS)", body = ErrorBody),
     ),
 )]
-#[instrument(skip(state, payload), fields(username = %payload.username))]
+#[instrument(skip(state, payload, jar), fields(username = %payload.username))]
 pub async fn login(
     State(state): State<AppState>,
+    jar: CookieJar,
     AppJson(payload): AppJson<LoginRequest>,
-) -> Result<Json<LoginResponse>, AppError> {
+) -> Result<impl IntoResponse, AppError> {
     validate_login_request(&payload)?;
 
     let username = payload.username.trim();
@@ -130,7 +147,96 @@ pub async fn login(
 
     let permissions: Vec<String> = role_perms.into_iter().map(|rp| rp.permission).collect();
 
-    let token = jwt::sign(
+    // Generate short-lived access token
+    let access_token = jwt::sign_access_token(
+        user.id,
+        &user.username,
+        &user.role,
+        permissions.clone(),
+        &state.config.auth.jwt_secret,
+    )
+    .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
+
+    // Generate and store long-lived refresh token
+    let rt_string = jwt::generate_refresh_token();
+    let expiry = chrono::Utc::now() + chrono::Duration::days(REFRESH_TOKEN_EXPIRY_DAYS);
+
+    refresh_token::ActiveModel {
+        token: Set(rt_string.clone()),
+        user_id: Set(user.id),
+        expires_at: Set(expiry),
+        created_at: Set(chrono::Utc::now()),
+    }
+    .insert(&state.db)
+    .await?;
+
+    let cookie = build_refresh_cookie(rt_string, REFRESH_TOKEN_EXPIRY_DAYS);
+
+    Ok((
+        jar.add(cookie),
+        Json(LoginResponse {
+            token: access_token,
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            permissions,
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/refresh",
+    tag = "Auth",
+    operation_id = "refreshToken",
+    summary = "Refresh access token",
+    description = "Exchanges a valid HttpOnly refresh token cookie for a new short-lived access token. Fails if the user is banned or the token is expired/revoked.",
+    responses(
+        (status = 200, description = "Token refreshed", body = LoginResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+    ),
+)]
+#[instrument(skip(state, jar))]
+pub async fn refresh(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> Result<impl IntoResponse, AppError> {
+    let token_str = jar
+        .get(REFRESH_COOKIE_NAME)
+        .map(|c| c.value().to_string())
+        .ok_or(AppError::TokenMissing)?;
+
+    let record = refresh_token::Entity::find_by_id(&token_str)
+        .find_also_related(user::Entity)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::TokenInvalid)?;
+
+    let (rt_model, maybe_user) = record;
+
+    if rt_model.expires_at < chrono::Utc::now() {
+        rt_model.delete(&state.db).await?;
+        return Err(AppError::TokenInvalid);
+    }
+
+    let user = match maybe_user {
+        Some(u) if u.deleted_at.is_none() => u,
+        _ => {
+            // User was banned or soft-deleted since the refresh token was issued
+            rt_model.delete(&state.db).await?;
+            return Err(AppError::PermissionDenied);
+        }
+    };
+
+    let role_perms = role_permission::Entity::find()
+        .filter(role_permission::Column::Role.eq(&user.role))
+        .all(&state.db)
+        .await?;
+
+    let permissions: Vec<String> = role_perms.into_iter().map(|rp| rp.permission).collect();
+
+    let new_access_token = jwt::sign_access_token(
         user.id,
         &user.username,
         &user.role,
@@ -140,12 +246,42 @@ pub async fn login(
     .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
     Ok(Json(LoginResponse {
-        token,
+        token: new_access_token,
         id: user.id,
         username: user.username,
         role: user.role,
         permissions,
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/logout",
+    tag = "Auth",
+    operation_id = "logoutUser",
+    summary = "Log out user",
+    description = "Revokes the refresh token and clears the cookie.",
+    responses(
+        (status = 204, description = "Logged out successfully"),
+    ),
+)]
+#[instrument(skip(state, jar))]
+pub async fn logout(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> Result<impl IntoResponse, AppError> {
+    if let Some(cookie) = jar.get(REFRESH_COOKIE_NAME) {
+        refresh_token::Entity::delete_by_id(cookie.value().to_string())
+            .exec(&state.db)
+            .await?;
+    }
+
+    let mut removal_cookie = Cookie::build((REFRESH_COOKIE_NAME, ""))
+        .path("/api/v1/auth/refresh")
+        .build();
+    removal_cookie.make_removal();
+
+    Ok((StatusCode::NO_CONTENT, jar.add(removal_cookie)))
 }
 
 #[utoipa::path(
@@ -337,7 +473,7 @@ pub async fn authorize_device(
         ));
     }
 
-    let token = jwt::sign(
+    let token = jwt::sign_access_token(
         auth_user.user_id,
         &auth_user.username,
         &auth_user.role,

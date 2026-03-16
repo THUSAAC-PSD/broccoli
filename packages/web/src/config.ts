@@ -1,7 +1,7 @@
 export interface AppConfig {
   api: {
     baseUrl: string;
-    authTokenKey: string;
+    sessionStatusKey: string;
   };
   plugin: {
     backendUrl: string;
@@ -12,7 +12,7 @@ export const appConfig: AppConfig = {
   api: {
     baseUrl:
       import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1',
-    authTokenKey: 'broccoli_token',
+    sessionStatusKey: 'broccoli_is_logged_in',
   },
   plugin: {
     backendUrl:

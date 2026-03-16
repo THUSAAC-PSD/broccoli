@@ -21,6 +21,7 @@ anyhow = "1.0.100"
 argon2 = "0.5.3"
 async-trait = "0.1.89"
 axum = "0.8.8"
+axum-extra = { version = "0.12.5", features = ["cookie"] }
 axum_typed_multipart = "0.16.5"
 broccoli_queue = { version = "0.4.6", features = ["redis"] }
 chrono = { version = "0.4.43", features = ["serde"] }

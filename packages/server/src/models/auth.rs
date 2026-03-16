@@ -79,7 +79,7 @@ impl From<crate::entity::user::Model> for RegisterResponse {
 /// Successful login response.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct LoginResponse {
-    /// JWT bearer token valid for 7 days.
+    /// JWT bearer access token valid for 5 minutes.
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")]
     pub token: String,
     /// ID of the authenticated user.

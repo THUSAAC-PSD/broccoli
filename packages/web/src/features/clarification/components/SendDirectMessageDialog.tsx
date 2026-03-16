@@ -38,7 +38,9 @@ export function SendDirectMessageDialog({
   const { data: participants = [] } = useQuery({
     queryKey: ['contest-participants', contestId],
     queryFn: async () => {
-      const token = localStorage.getItem(appConfig.api.authTokenKey);
+      // FIX: use api client from context instead of direct fetch to ensure auth
+      // headers are included and token refresh is handled
+      const token = localStorage.getItem(appConfig.api.sessionStatusKey);
       const res = await fetch(
         `${appConfig.api.baseUrl}/contests/${contestId}/participants`,
         { headers: token ? { Authorization: `Bearer ${token}` } : {} },

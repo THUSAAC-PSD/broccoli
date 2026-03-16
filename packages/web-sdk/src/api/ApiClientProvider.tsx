@@ -1,14 +1,13 @@
 import createClient from 'openapi-fetch';
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useCallback, useMemo, useRef } from 'react';
 
 import { ApiClientContext } from '@/api/api-client-context';
 import type { paths } from '@/api/schema';
-import { AUTH_TOKEN_CLEARED_EVENT } from '@/auth/types';
+import { AUTH_SESSION_EXPIRED_EVENT } from '@/auth/types';
 
 interface ApiClientProviderProps {
   children: ReactNode;
   baseUrl: string;
-  authTokenKey: string;
 }
 
 async function shouldClearAuthToken(response: Response): Promise<boolean> {
@@ -18,6 +17,8 @@ async function shouldClearAuthToken(response: Response): Promise<boolean> {
 
   try {
     const body = await response.clone().json();
+    // Only trigger a clear if the token is explicitly invalid/expired,
+    // not just missing (which allows the AuthProvider to attempt a refresh).
     return body?.code === 'TOKEN_INVALID';
   } catch {
     return false;
@@ -27,53 +28,51 @@ async function shouldClearAuthToken(response: Response): Promise<boolean> {
 export function ApiClientProvider({
   children,
   baseUrl,
-  authTokenKey,
 }: ApiClientProviderProps) {
-  const clearAuthToken = useMemo(
-    () => () => {
-      localStorage.removeItem(authTokenKey);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent(AUTH_TOKEN_CLEARED_EVENT, {
-            detail: { key: authTokenKey },
-          }),
-        );
-      }
-    },
-    [authTokenKey],
-  );
+  const accessTokenRef = useRef<string | null>(null);
+
+  const setAccessToken = useCallback((token: string | null) => {
+    accessTokenRef.current = token;
+  }, []);
+
+  const clearAuth = useCallback(() => {
+    accessTokenRef.current = null;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
+    }
+  }, []);
 
   const apiClient = useMemo(() => {
     const client = createClient<paths>({
       baseUrl,
-      // TODO: headers
+      credentials: 'include',
     });
 
     client.use({
       onRequest({ request }) {
-        const token = localStorage.getItem(authTokenKey);
-        if (token) {
-          request.headers.set('Authorization', `Bearer ${token}`);
+        const currentToken = accessTokenRef.current;
+        if (currentToken) {
+          request.headers.set('Authorization', `Bearer ${currentToken}`);
         }
         return request;
       },
       async onResponse({ response }) {
         if (await shouldClearAuthToken(response)) {
-          clearAuthToken();
+          clearAuth();
         }
         return response;
       },
     });
 
     return client;
-  }, [baseUrl, authTokenKey, clearAuthToken]);
+  }, [baseUrl, clearAuth]);
 
   const apiFetch = useMemo(
     () => async (input: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
-      const token = localStorage.getItem(authTokenKey);
-      if (token && !headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
+      const currentToken = accessTokenRef.current;
+      if (currentToken && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${currentToken}`);
       }
 
       const response = await fetch(new URL(input, baseUrl), {
@@ -82,16 +81,16 @@ export function ApiClientProvider({
       });
 
       if (await shouldClearAuthToken(response)) {
-        clearAuthToken();
+        clearAuth();
       }
 
       return response;
     },
-    [authTokenKey, baseUrl, clearAuthToken],
+    [baseUrl, clearAuth],
   );
 
   return (
-    <ApiClientContext value={{ apiClient, apiFetch }}>
+    <ApiClientContext value={{ apiClient, apiFetch, setAccessToken }}>
       {children}
     </ApiClientContext>
   );
