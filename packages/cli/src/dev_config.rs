@@ -16,8 +16,11 @@
 //! # Default: auto-detected from [web].root parent, then web/, frontend/, or root.
 //! frontend_dir = "client"
 //!
+//! # Command to install frontend dependencies. Default: "pnpm install --ignore-workspace"
+//! frontend_install_cmd = "npm install"
+//!
 //! # Command to build the frontend (one-shot). Default: "pnpm build"
-//! frontend_cmd = "npm run build"
+//! frontend_build_cmd = "npm run build"
 //!
 //! # Command to start the frontend dev server (long-running, used by `watch`).
 //! # Default: "pnpm dev"
@@ -40,8 +43,11 @@ pub struct ResolvedDevConfig {
     pub extra_ignores: Vec<String>,
     /// Resolved frontend source directory (absolute path), if any.
     pub frontend_dir: Option<PathBuf>,
+    /// Frontend install command + args (one-shot). Default: ["pnpm", "install",
+    /// "--ignore-workspace"]
+    pub frontend_install_cmd: Vec<String>,
     /// Frontend build command + args (one-shot). Default: ["pnpm", "build"]
-    pub frontend_cmd: Vec<String>,
+    pub frontend_build_cmd: Vec<String>,
     /// Frontend dev command + args (long-running, watch mode). Default: ["pnpm", "dev"]
     pub frontend_dev_cmd: Vec<String>,
 }
@@ -66,8 +72,10 @@ struct RawWatchConfig {
 struct RawBuildConfig {
     /// Explicit frontend source directory (relative to plugin root).
     frontend_dir: Option<String>,
+    /// Frontend install command (one-shot). Default: "pnpm install --ignore-workspace"
+    frontend_install_cmd: Option<String>,
     /// Frontend build command (one-shot). Default: "pnpm build"
-    frontend_cmd: Option<String>,
+    frontend_build_cmd: Option<String>,
     /// Frontend dev command (long-running, watch mode). Default: "pnpm dev"
     frontend_dev_cmd: Option<String>,
 }
@@ -82,7 +90,12 @@ pub fn resolve(plugin_dir: &Path, web_root: Option<&str>) -> ResolvedDevConfig {
     let frontend_dir =
         resolve_frontend_dir(plugin_dir, web_root, raw.build.frontend_dir.as_deref());
 
-    let frontend_cmd = match raw.build.frontend_cmd {
+    let frontend_install_cmd = match raw.build.frontend_install_cmd {
+        Some(cmd) => shell_words(cmd.trim()),
+        None => vec!["pnpm".into(), "install".into(), "--ignore-workspace".into()],
+    };
+
+    let frontend_build_cmd = match raw.build.frontend_build_cmd {
         Some(cmd) => shell_words(cmd.trim()),
         None => vec!["pnpm".into(), "build".into()],
     };
@@ -95,7 +108,8 @@ pub fn resolve(plugin_dir: &Path, web_root: Option<&str>) -> ResolvedDevConfig {
     ResolvedDevConfig {
         extra_ignores: raw.watch.ignore,
         frontend_dir,
-        frontend_cmd,
+        frontend_install_cmd,
+        frontend_build_cmd,
         frontend_dev_cmd,
     }
 }

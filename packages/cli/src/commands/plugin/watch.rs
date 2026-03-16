@@ -36,8 +36,9 @@ use super::wasm::copy_wasm_artifact;
 ///
 ///   [build]
 ///   frontend_dir = "client"            # frontend source directory
-///   frontend_cmd = "npm run build"     # one-shot build (default: "pnpm build")
-///   frontend_dev_cmd = "npm run dev"   # dev server (default: "pnpm dev")
+///   frontend_install_cmd = "pnpm install --ignore-workspace" # install command
+///   frontend_build_cmd = "pnpm build"  # one-shot build (default: "pnpm build")
+///   frontend_dev_cmd = "pnpm dev"      # dev server (default: "pnpm dev")
 ///
 /// Built-in ignores (always active): target/, .git/, node_modules/.
 #[derive(Args)]
@@ -53,6 +54,10 @@ pub struct WatchPluginArgs {
     /// Auth token (overrides saved credentials)
     #[arg(long, env = "BROCCOLI_TOKEN")]
     pub token: Option<String>,
+
+    /// Force execution of the frontend installation command even if node_modules exists
+    #[arg(long)]
+    pub install: bool,
 
     /// Build in release mode
     #[arg(long)]
@@ -131,6 +136,34 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
 
     let mut fe_child: Option<Child> = None;
     if manifest.web.is_some() {
+        let fe_dir = dev.frontend_dir.as_deref().unwrap_or(&plugin_dir);
+
+        // Ensure dependencies are installed before starting watch
+        let node_modules_exists = fe_dir.join("node_modules").exists();
+        if !node_modules_exists || args.install {
+            let install_cmd_str = dev.frontend_install_cmd.join(" ");
+            println!(
+                "{}  Preparing frontend dependencies: '{}'...",
+                style("→").blue().bold(),
+                style(&install_cmd_str).cyan()
+            );
+
+            let (prog, args) = dev
+                .frontend_install_cmd
+                .split_first()
+                .context("frontend_install_cmd is empty")?;
+
+            let status = Command::new(prog)
+                .args(args)
+                .current_dir(fe_dir)
+                .status()
+                .with_context(|| format!("Failed to run '{}'", install_cmd_str))?;
+
+            if !status.success() {
+                bail!("Frontend installation failed");
+            }
+        }
+
         match spawn_frontend_dev(&dev, &plugin_dir) {
             Ok(child) => {
                 fe_child = Some(child);
@@ -554,9 +587,9 @@ fn build_frontend(dev: &ResolvedDevConfig) -> anyhow::Result<()> {
     }
 
     let (program, cmd_args) = dev
-        .frontend_cmd
+        .frontend_build_cmd // Updated name
         .split_first()
-        .context("frontend_cmd is empty in broccoli.dev.toml")?;
+        .context("frontend_build_cmd is empty in broccoli.dev.toml")?;
 
     let status = Command::new(program)
         .args(cmd_args)
@@ -565,7 +598,7 @@ fn build_frontend(dev: &ResolvedDevConfig) -> anyhow::Result<()> {
         .with_context(|| {
             format!(
                 "Failed to run '{}'. Is it installed?",
-                dev.frontend_cmd.join(" ")
+                dev.frontend_build_cmd.join(" ")
             )
         })?;
 
