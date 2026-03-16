@@ -9,6 +9,7 @@ export type ApiFetch = (
 
 export interface ApiClientContextValue {
   apiClient: ApiClient;
+  /** Authenticated fetch for untyped endpoints (e.g. plugin APIs). */
   apiFetch: ApiFetch;
   /** Sets the in-memory access token used for requests. */
   setAccessToken: (token: string | null) => void;

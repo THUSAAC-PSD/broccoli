@@ -1,7 +1,7 @@
 /**
  * Displays config inheritance info above the config form fields.
  */
-import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { cn } from '@broccoli/web-sdk/utils';
 import { useEffect, useState } from 'react';
@@ -57,7 +57,7 @@ export function LimitConfigInfo({
   schema,
   hasExplicitValue,
 }: Props) {
-  const apiFetch = useApiFetch();
+  const apiClient = useApiClient();
   const { t } = useTranslation();
   const [parentValues, setParentValues] = useState<ParentValues | null>(null);
 
@@ -69,21 +69,36 @@ export function LimitConfigInfo({
 
     let cancelled = false;
     const s = scope as { contestId: number; problemId: number };
-    const fetchConfig = async (
-      path: string,
-    ): Promise<Record<string, unknown> | null> => {
-      try {
-        const res = await apiFetch(`/api/v1${path}`);
-        if (!res.ok) return null;
-        const data = await res.json();
-        return (data?.config ?? null) as Record<string, unknown> | null;
-      } catch {
-        return null;
-      }
-    };
+
     Promise.all([
-      fetchConfig(`/contests/${s.contestId}/config/${pluginId}/${namespace}`),
-      fetchConfig(`/problems/${s.problemId}/config/${pluginId}/${namespace}`),
+      apiClient
+        .GET('/contests/{id}/config/{plugin_id}/{namespace}', {
+          params: {
+            path: {
+              id: s.contestId,
+              plugin_id: pluginId,
+              namespace,
+            },
+          },
+        })
+        .then(({ data }) =>
+          data?.config ? (data.config as Record<string, unknown>) : null,
+        )
+        .catch(() => null),
+      apiClient
+        .GET('/problems/{id}/config/{plugin_id}/{namespace}', {
+          params: {
+            path: {
+              id: s.problemId,
+              plugin_id: pluginId,
+              namespace,
+            },
+          },
+        })
+        .then(({ data }) =>
+          data?.config ? (data.config as Record<string, unknown>) : null,
+        )
+        .catch(() => null),
     ]).then(([contestCfg, problemCfg]) => {
       if (cancelled) return;
       setParentValues({
@@ -95,7 +110,7 @@ export function LimitConfigInfo({
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, scope, pluginId, namespace, isContestProblem]);
+  }, [apiClient, scope, pluginId, namespace, isContestProblem]);
 
   const schemaDefault = schema?.properties?.max_submissions?.default;
   const defaultLabel =

@@ -55,9 +55,9 @@ export function AuthImage({
     return <img src={src} alt={alt} className={className} />;
   }
 
-  if (failed || !blobUrl) {
-    // Show nothing while loading; if failed, hide the broken image
-    return failed ? null : null;
+  if (!blobUrl) {
+    // Show broken image on failure so users can report it to admins
+    return failed ? <img alt={alt} className={className} /> : null;
   }
 
   return <img src={blobUrl} alt={alt} className={className} />;
