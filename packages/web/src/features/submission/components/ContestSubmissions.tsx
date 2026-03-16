@@ -2,41 +2,33 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   getStatusLabel,
-  type Submission,
   SUBMISSION_STATUS_FILTER_OPTIONS,
   type SubmissionStatusFilterValue,
-  type SubmissionSummary,
   toSubmissionStatus,
 } from '@broccoli/web-sdk/submission';
-import { Badge, Button, FilterDropdown } from '@broccoli/web-sdk/ui';
-import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
+import { Button, FilterDropdown } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Code2,
-  Inbox,
   ListFilter,
   Search,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
 
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
 import { useContest } from '@/features/contest/contexts/contest-context';
 import { fetchSupportedLanguages } from '@/features/problem/api/fetch-supported-languages';
 import { fetchContestSubmissions } from '@/features/submission/api/fetch-contest-submissions';
-import { formatMemory } from '@/features/submission/components/TestCaseRow';
-import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
-import { SubmissionResult } from './SubmissionResult';
+import { SubmissionsTable } from './SubmissionsTable';
 
 const PER_PAGE = 20;
 
-export function SubmissionsList({ contestId }: { contestId: number }) {
+export function ContestSubmissions({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const apiClient = useApiClient();
@@ -53,8 +45,6 @@ export function SubmissionsList({ contestId }: { contestId: number }) {
   const [appliedStatus, setAppliedStatus] =
     useState<SubmissionStatusFilterValue>('all');
   const [page, setPage] = useState(1);
-
-  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const { data: problems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
@@ -132,7 +122,6 @@ export function SubmissionsList({ contestId }: { contestId: number }) {
     setAppliedLanguage(draftLanguage === 'all' ? null : draftLanguage);
     setAppliedStatus(draftStatus);
     setPage(1);
-    setExpandedId(null);
   };
 
   return (
@@ -177,60 +166,23 @@ export function SubmissionsList({ contestId }: { contestId: number }) {
           <div className="flex items-center justify-center py-16">
             <span className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           </div>
-        ) : submissions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
-            <Inbox className="h-8 w-8 opacity-30" />
-            <p className="text-sm">{t('overview.noSubmissions')}</p>
-          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-xs font-medium text-muted-foreground bg-muted/30">
-                <th className="w-8 px-4 py-2.5" />
-                <th className="px-4 py-2.5 text-left font-medium">
-                  {t('overview.problem')}
-                </th>
-                <th className="px-4 py-2.5 text-left font-medium">
-                  {t('overview.verdict')}
-                </th>
-                <th className="px-4 py-2.5 text-left font-medium">
-                  {t('overview.language')}
-                </th>
-                <th className="px-4 py-2.5 text-right font-medium">
-                  {t('result.timeHeader')}
-                </th>
-                <th className="px-4 py-2.5 text-right font-medium">
-                  {t('result.memoryHeader')}
-                </th>
-                <th className="px-4 py-2.5 text-right font-medium">
-                  {t('overview.submitted')}
-                </th>
-                <th className="w-8 px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {submissions.map((sub) => (
-                <SubmissionsListRow
-                  key={sub.id}
-                  submission={sub}
-                  contestId={contestId}
-                  isExpanded={expandedId === sub.id}
-                  onToggle={() =>
-                    setExpandedId(expandedId === sub.id ? null : sub.id)
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
+          <SubmissionsTable
+            submissions={submissions}
+            columns={SubmissionsTable.fullColumns}
+            linkBuilder={(sub) =>
+              `/contests/${contestId}/submissions/${sub.id}`
+            }
+          />
         )}
       </div>
 
       {/* Pagination */}
       {pagination && pagination.total_pages > 1 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            {t('overview.submitted')} {(page - 1) * PER_PAGE + 1}–
-            {Math.min(page * PER_PAGE, pagination.total)} / {pagination.total}
+          <span className="tabular-nums">
+            {(page - 1) * PER_PAGE + 1}–
+            {Math.min(page * PER_PAGE, pagination.total)} of {pagination.total}
           </span>
           <div className="flex items-center gap-1">
             <Button
@@ -259,115 +211,4 @@ export function SubmissionsList({ contestId }: { contestId: number }) {
       )}
     </div>
   );
-}
-
-function SubmissionsListRow({
-  submission,
-  contestId,
-  isExpanded,
-  onToggle,
-}: {
-  submission: SubmissionSummary;
-  contestId: number;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  const { t } = useTranslation();
-  const { label: verdictLabel, variant: verdictVariant } = getVerdictBadge(
-    submission.verdict ?? null,
-    submission.status,
-    t,
-  );
-
-  return (
-    <>
-      <tr
-        onClick={onToggle}
-        className={`border-b last:border-b-0 cursor-pointer transition-colors duration-75 hover:bg-muted/30 ${
-          isExpanded ? 'bg-muted/20' : ''
-        }`}
-      >
-        <td className="px-4 py-2.5 text-muted-foreground/50">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </td>
-        <td className="px-4 py-2.5 font-medium">
-          <span className="truncate">
-            {submission.problem_title}
-            <span className="ml-1.5 text-xs font-mono text-muted-foreground/40">
-              #{submission.id}
-            </span>
-          </span>
-        </td>
-        <td className="px-4 py-2.5">
-          {verdictLabel ? (
-            <Badge variant={verdictVariant} className="text-xs">
-              {verdictLabel}
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">
-          {submission.language}
-        </td>
-        <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground text-right tabular-nums whitespace-nowrap">
-          {submission.time_used != null ? `${submission.time_used}ms` : '—'}
-        </td>
-        <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground text-right tabular-nums whitespace-nowrap">
-          {submission.memory_used != null
-            ? `${formatMemory(submission.memory_used)}MB`
-            : '—'}
-        </td>
-        <td className="px-4 py-2.5 text-xs text-muted-foreground text-right whitespace-nowrap">
-          {formatRelativeDatetime(submission.created_at, t)}
-        </td>
-        <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-          <Link
-            to={`/contests/${contestId}/submissions/${submission.id}`}
-            className="text-muted-foreground/50 hover:text-primary transition-colors"
-            title={t('submissions.viewDetails')}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-          </Link>
-        </td>
-      </tr>
-      {isExpanded && (
-        <tr>
-          <td colSpan={8} className="px-4 pb-4 pt-1 border-b">
-            <SubmissionDetail submissionId={submission.id} />
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function SubmissionDetail({ submissionId }: { submissionId: number }) {
-  const apiClient = useApiClient();
-
-  const { data: submission, isLoading } = useQuery<Submission>({
-    queryKey: ['submission', submissionId],
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET('/submissions/{id}', {
-        params: { path: { id: submissionId } },
-      });
-      if (error) throw error;
-      return data;
-    },
-    staleTime: 60_000,
-  });
-
-  if (isLoading || !submission) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <span className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
-
-  return <SubmissionResult submission={submission} />;
 }

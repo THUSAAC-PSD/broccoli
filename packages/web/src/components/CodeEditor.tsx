@@ -616,7 +616,7 @@ export function CodeEditor({
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      // Only intercept file drops — let dockview panel drags pass through
+      // Only intercept file drops, let dockview panel drags pass through
       if (!e.dataTransfer.types.includes('Files')) return;
       e.preventDefault();
       e.stopPropagation();
