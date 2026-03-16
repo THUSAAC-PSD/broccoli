@@ -1,12 +1,8 @@
-pub mod judge_result;
 pub mod operation_dlq;
 pub mod operation_result;
-pub mod worker_dlq;
 
-pub use judge_result::consume_judge_results;
 pub use operation_dlq::consume_operation_dlq;
 pub use operation_result::consume_operation_results;
-pub use worker_dlq::consume_worker_dlq;
 
 use common::SubmissionStatus;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};

@@ -75,19 +75,6 @@ pub struct MqAppConfig {
     /// Connection pool size. Default: 5.
     #[serde(default = "default_mq_pool_size")]
     pub pool_size: u8,
-    /// Queue name for worker tasks (server publishes, worker consumes). Default: "judge_jobs".
-    #[serde(default = "default_mq_queue_name")]
-    pub queue_name: String,
-    /// Queue name for judge results (worker publishes, server consumes). Default: "judge_results".
-    #[serde(default = "default_mq_result_queue_name")]
-    pub result_queue_name: String,
-    /// Queue name for dead letter messages from workers. Default: "judge_jobs_dlq".
-    ///
-    /// Workers publish DLQ envelopes to this queue when they exhaust retries on judge_job processing.
-    /// The server consumes from this queue and persists to PostgreSQL.
-    /// Note: Server-side judge_result DLQ is handled in-process (no separate queue needed).
-    #[serde(default = "default_mq_dlq_queue_name")]
-    pub dlq_queue_name: String,
     /// Queue for operation/worker tasks (server -> worker). Default: "operation_tasks".
     #[serde(default = "default_operation_queue_name")]
     pub operation_queue_name: String,
@@ -111,15 +98,6 @@ fn default_mq_url() -> String {
 fn default_mq_pool_size() -> u8 {
     5
 }
-fn default_mq_queue_name() -> String {
-    "judge_jobs".into()
-}
-fn default_mq_result_queue_name() -> String {
-    "judge_results".into()
-}
-fn default_mq_dlq_queue_name() -> String {
-    "judge_jobs_dlq".into()
-}
 fn default_operation_queue_name() -> String {
     "operation_tasks".into()
 }
@@ -136,9 +114,6 @@ impl Default for MqAppConfig {
             enabled: default_mq_enabled(),
             url: default_mq_url(),
             pool_size: default_mq_pool_size(),
-            queue_name: default_mq_queue_name(),
-            result_queue_name: default_mq_result_queue_name(),
-            dlq_queue_name: default_mq_dlq_queue_name(),
             operation_queue_name: default_operation_queue_name(),
             operation_result_queue_name: default_operation_result_queue_name(),
             operation_dlq_queue_name: default_operation_dlq_queue_name(),

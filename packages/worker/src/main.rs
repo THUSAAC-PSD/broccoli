@@ -34,16 +34,12 @@ async fn main() -> anyhow::Result<()> {
     );
 
     info!(
-        queue_name = %config.mq.queue_name,
         operation_queue_name = %config.mq.operation_queue_name,
-        result_queue_name = %config.mq.result_queue_name,
-        dlq_queue_name = %config.mq.dlq_queue_name,
         operation_dlq_queue_name = %config.mq.operation_dlq_queue_name,
         max_retries = config.mq.dlq.max_retries,
         "MQ connected"
     );
 
-    let dlq_queue = config.mq.dlq_queue_name.clone();
     let op_dlq_queue = config.mq.operation_dlq_queue_name.clone();
     let dlq_config = config.mq.dlq.clone();
     let mq_for_handler = Arc::clone(&mq);
@@ -59,24 +55,19 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         let mq_for_handler = Arc::clone(&mq_for_handler);
-        let mq_for_op_handler = Arc::clone(&mq_for_handler);
         let worker = Arc::clone(&worker);
-        let worker_for_op = Arc::clone(&worker);
-        let dlq_queue = dlq_queue.clone();
-        let op_dlq_queue_clone = op_dlq_queue.clone();
+        let op_dlq_queue = op_dlq_queue.clone();
         let dlq_config = dlq_config.clone();
-        let dlq_config_for_op = dlq_config.clone();
         let retry_tracker = Arc::clone(&retry_tracker);
-        let retry_tracker_for_op = Arc::clone(&retry_tracker);
 
-        let judge_fut = mq.process_messages(
-            &config.mq.queue_name,
+        let op_fut = mq.process_messages(
+            &config.mq.operation_queue_name,
             None,
             None,
             move |message: BrokerMessage<Task>| {
                 let mq = Arc::clone(&mq_for_handler);
                 let worker = Arc::clone(&worker);
-                let dlq_queue = dlq_queue.clone();
+                let dlq_queue = op_dlq_queue.clone();
                 let dlq_config = dlq_config.clone();
                 let retry_tracker = Arc::clone(&retry_tracker);
                 async move {
@@ -87,32 +78,6 @@ async fn main() -> anyhow::Result<()> {
                         &dlq_queue,
                         &dlq_config,
                         &retry_tracker,
-                        DlqMessageType::JudgeJob,
-                    )
-                    .await
-                }
-            },
-        );
-
-        let op_fut = mq.process_messages(
-            &config.mq.operation_queue_name,
-            None,
-            None,
-            move |message: BrokerMessage<Task>| {
-                let mq = Arc::clone(&mq_for_op_handler);
-                let worker = Arc::clone(&worker_for_op);
-                let dlq_queue = op_dlq_queue_clone.clone();
-                let dlq_config = dlq_config_for_op.clone();
-                let retry_tracker = Arc::clone(&retry_tracker_for_op);
-                async move {
-                    process_message(
-                        message,
-                        &worker,
-                        &mq,
-                        &dlq_queue,
-                        &dlq_config,
-                        &retry_tracker,
-                        DlqMessageType::OperationTask,
                     )
                     .await
                 }
@@ -120,25 +85,6 @@ async fn main() -> anyhow::Result<()> {
         );
 
         let should_break = tokio::select! {
-            result = judge_fut => {
-                match result {
-                    Ok(()) => {
-                        info!("Judge consumer exited normally");
-                        true
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Judge MQ error, reconnecting in 5s...");
-                        tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                            _ = tokio::signal::ctrl_c() => {
-                                info!("Shutdown signal received during reconnect wait");
-                                return Ok(());
-                            }
-                        }
-                        false
-                    }
-                }
-            }
             result = op_fut => {
                 match result {
                     Ok(()) => {
@@ -180,7 +126,6 @@ async fn process_message(
     dlq_queue: &str,
     dlq_config: &DlqConfig,
     retry_tracker: &Arc<Mutex<RetryTracker>>,
-    dlq_message_type: DlqMessageType,
 ) -> Result<(), BroccoliError> {
     let task = message.payload;
     let task_id = task.id.clone();
@@ -232,26 +177,23 @@ async fn process_message(
                             "Max retries exhausted, sending to DLQ"
                         );
 
-                        // For operation tasks, publish an error TaskResult so the
-                        // waiting plugin receives a failure notification instead of
-                        // hanging until timeout.
-                        if dlq_message_type == DlqMessageType::OperationTask {
-                            let error_result = common::worker::TaskResult {
-                                task_id: task_id.clone(),
-                                success: false,
-                                output: serde_json::json!({}),
-                                error: Some(format!(
-                                    "Operation failed after {} retries: {}",
-                                    history.len(),
-                                    error_str
-                                )),
-                            };
-                            if let Err(e) = mq
-                                .publish(&task.result_queue, None, &error_result, None)
-                                .await
-                            {
-                                error!(job_id = %task_id, error = %e, "Failed to publish error result for operation task");
-                            }
+                        // Publish an error TaskResult so the waiting plugin receives
+                        // a failure notification instead of hanging until timeout.
+                        let error_result = common::worker::TaskResult {
+                            task_id: task_id.clone(),
+                            success: false,
+                            output: serde_json::json!({}),
+                            error: Some(format!(
+                                "Operation failed after {} retries: {}",
+                                history.len(),
+                                error_str
+                            )),
+                        };
+                        if let Err(e) = mq
+                            .publish(&task.result_queue, None, &error_result, None)
+                            .await
+                        {
+                            error!(job_id = %task_id, error = %e, "Failed to publish error result for operation task");
                         }
 
                         let payload = serde_json::to_value(&task).unwrap_or_else(|ser_err| {
@@ -261,7 +203,7 @@ async fn process_message(
 
                         let envelope = DlqEnvelope {
                             message_id: task_id.clone(),
-                            message_type: dlq_message_type,
+                            message_type: DlqMessageType::OperationTask,
                             submission_id: None,
                             payload,
                             error_code: DlqErrorCode::MaxRetriesExceeded,
@@ -309,17 +251,9 @@ async fn process_task(
             }
         })??;
 
-    // Judge tasks: publish the inner JudgeResult directly (server consumer expects it)
-    // Other tasks: publish the full TaskResult wrapper
-    if task.task_type == "judge" {
-        mq.publish(&task.result_queue, None, &result.output, None)
-            .await
-            .map_err(|e| WorkerError::Mq(e.to_string()))?;
-    } else {
-        mq.publish(&task.result_queue, None, &result, None)
-            .await
-            .map_err(|e| WorkerError::Mq(e.to_string()))?;
-    }
+    mq.publish(&task.result_queue, None, &result, None)
+        .await
+        .map_err(|e| WorkerError::Mq(e.to_string()))?;
 
     info!(
         job_id = %task.id,

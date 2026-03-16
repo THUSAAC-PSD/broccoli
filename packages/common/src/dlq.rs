@@ -6,10 +6,6 @@ use crate::retry::RetryAttempt;
 pub struct SubmissionDlqErrorCode;
 
 impl SubmissionDlqErrorCode {
-    /// Worker failed to process a judge job after exhausting retries.
-    pub const WORKER_PROCESSING_FAILED: &'static str = "WORKER_PROCESSING_FAILED";
-    /// Server failed to process a judge result after exhausting retries.
-    pub const RESULT_PROCESSING_FAILED: &'static str = "RESULT_PROCESSING_FAILED";
     /// Job stuck in pending status and timed out waiting for worker.
     pub const STUCK_JOB: &'static str = "STUCK_JOB";
 }
@@ -47,20 +43,17 @@ impl std::fmt::Display for DlqErrorCode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DlqMessageType {
-    /// Failed judge job (server -> worker message)
-    JudgeJob,
-    /// Failed judge result (worker -> server message)
-    JudgeResult,
     /// Failed operation task (server -> worker message)
     OperationTask,
+    /// Submission stuck in pending/judging status
+    StuckSubmission,
 }
 
 impl DlqMessageType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::JudgeJob => "judge_job",
-            Self::JudgeResult => "judge_result",
             Self::OperationTask => "operation_task",
+            Self::StuckSubmission => "stuck_submission",
         }
     }
 }
@@ -76,11 +69,10 @@ impl std::str::FromStr for DlqMessageType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "judge_job" => Ok(Self::JudgeJob),
-            "judge_result" => Ok(Self::JudgeResult),
             "operation_task" => Ok(Self::OperationTask),
+            "stuck_submission" => Ok(Self::StuckSubmission),
             _ => Err(format!(
-                "Invalid message_type '{}'. Must be 'judge_job', 'judge_result', or 'operation_task'",
+                "Invalid message_type '{}'. Must be 'operation_task' or 'stuck_submission'",
                 s
             )),
         }

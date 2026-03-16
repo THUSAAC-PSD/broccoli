@@ -92,8 +92,6 @@ impl AppConfig {
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
             .set_default("mq.pool_size", 5_i64)?
-            .set_default("mq.queue_name", "judge_jobs")?
-            .set_default("mq.result_queue_name", "judge_results")?
             .set_default("mq.operation_queue_name", "operation_tasks")?
             .set_default("mq.operation_result_queue_name", "operation_results")?
             .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?

@@ -7950,7 +7950,6 @@ dependencies = [
  "hex",
  "lru",
  "mq",
- "plugin-core",
  "sea-orm",
  "serde",
  "serde_json",
