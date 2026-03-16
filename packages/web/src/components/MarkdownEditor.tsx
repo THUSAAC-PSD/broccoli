@@ -1,16 +1,22 @@
 import { useTheme } from '@broccoli/web-sdk/theme';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@broccoli/web-sdk/ui';
+import type { Monaco } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 import { useState } from 'react';
 
 import { Markdown } from '@/components/Markdown';
 
-interface MarkdownEditorProps {
+export interface MarkdownEditorProps {
   id?: string;
   value: string;
   onChange: (value: string) => void;
   minHeight?: number;
   placeholder?: string;
+  onEditorMount?: (
+    editor: editor.IStandaloneCodeEditor,
+    monaco: Monaco,
+  ) => void;
 }
 
 export function MarkdownEditor({
@@ -19,6 +25,7 @@ export function MarkdownEditor({
   onChange,
   minHeight = 200,
   placeholder,
+  onEditorMount,
 }: MarkdownEditorProps) {
   const { theme } = useTheme();
   const [tab, setTab] = useState<string>('write');
@@ -43,6 +50,7 @@ export function MarkdownEditor({
             language="markdown"
             value={value}
             onChange={(v) => onChange(v ?? '')}
+            onMount={onEditorMount}
             theme={theme === 'dark' ? 'vs-dark' : 'vs'}
             options={{
               minimap: { enabled: false },

@@ -19,8 +19,9 @@ import {
   DropdownMenuTrigger,
 } from '@broccoli/web-sdk/ui';
 import { formatDateTime } from '@broccoli/web-sdk/utils';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Image,
   List,
   MoreHorizontal,
   Paperclip,
@@ -35,12 +36,17 @@ import { toast } from 'sonner';
 
 import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
 import { AdditionalFilesDialog } from '@/features/admin/components/AdditionalFilesDialog';
+import { AttachmentsDialog } from '@/features/admin/components/AttachmentsDialog';
 import {
   ProblemForm,
   type ProblemFormData,
 } from '@/features/admin/components/ProblemForm';
 import { TestCasesDialog } from '@/features/admin/components/TestCasesDialog';
 import { fetchContestProblems } from '@/features/contest/api/fetch-contest-problems';
+import {
+  attachmentsQueryKey,
+  fetchAttachments,
+} from '@/features/problem/api/attachments';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
 import { extractErrorMessage } from '@/lib/extract-error';
 
@@ -73,6 +79,12 @@ export function ProblemFormDialog({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const apiClient = useApiClient();
+
+  const { data: attachments = [] } = useQuery({
+    queryKey: attachmentsQueryKey(problem?.id ?? 0),
+    queryFn: () => fetchAttachments(apiClient, problem!.id),
+    enabled: isEdit && open,
+  });
 
   const formData: ProblemFormData = {
     title,
@@ -199,7 +211,12 @@ export function ProblemFormDialog({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <ProblemForm data={formData} onChange={handleFormChange} />
+            <ProblemForm
+              data={formData}
+              onChange={handleFormChange}
+              problemId={isEdit ? problem!.id : undefined}
+              attachments={isEdit ? attachments : undefined}
+            />
             <DialogFooter>
               <Button type="submit" disabled={loading}>
                 {loading
@@ -223,12 +240,14 @@ function useProblemColumns({
   onDelete,
   onManageTestCases,
   onManageAdditionalFiles,
+  onManageAttachments,
   onConfigure,
 }: {
   onEdit: (problem: ProblemSummary) => void;
   onDelete: (problem: ProblemSummary) => void;
   onManageTestCases: (problem: ProblemSummary) => void;
   onManageAdditionalFiles: (problem: ProblemSummary) => void;
+  onManageAttachments: (problem: ProblemSummary) => void;
   onConfigure?: (problem: ProblemSummary) => void;
 }): DataTableColumn<ProblemSummary>[] {
   const { t, locale } = useTranslation();
@@ -318,6 +337,10 @@ function useProblemColumns({
               <Paperclip className="h-4 w-4" />
               {t('admin.manageAdditionalFiles')}
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onManageAttachments(row.original)}>
+              <Image className="h-4 w-4" />
+              {t('admin.manageAttachments')}
+            </DropdownMenuItem>
             {onConfigure && (
               <DropdownMenuItem onClick={() => onConfigure(row.original)}>
                 <Settings className="h-4 w-4" />
@@ -364,6 +387,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const [additionalFilesProblem, setAdditionalFilesProblem] = useState<
     ProblemSummary | undefined
   >();
+  const [attachmentsDialogOpen, setAttachmentsDialogOpen] = useState(false);
+  const [attachmentsProblem, setAttachmentsProblem] = useState<
+    ProblemSummary | undefined
+  >();
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [configProblem, setConfigProblem] = useState<
     ProblemSummary | undefined
@@ -389,6 +416,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     setAdditionalFilesDialogOpen(true);
   }
 
+  function handleManageAttachments(problem: ProblemSummary) {
+    setAttachmentsProblem(problem);
+    setAttachmentsDialogOpen(true);
+  }
+
   function handleConfigure(problem: ProblemSummary) {
     setConfigProblem(problem);
     setConfigDialogOpen(true);
@@ -412,6 +444,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onDelete: handleDeleteProblem,
     onManageTestCases: handleManageTestCases,
     onManageAdditionalFiles: handleManageAdditionalFiles,
+    onManageAttachments: handleManageAttachments,
     onConfigure: hasProblemConfig ? handleConfigure : undefined,
   });
 
@@ -456,6 +489,13 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
           problem={additionalFilesProblem}
           open={additionalFilesDialogOpen}
           onOpenChange={setAdditionalFilesDialogOpen}
+        />
+      )}
+      {attachmentsProblem && (
+        <AttachmentsDialog
+          problem={attachmentsProblem}
+          open={attachmentsDialogOpen}
+          onOpenChange={setAttachmentsDialogOpen}
         />
       )}
       {configProblem && (

@@ -6,6 +6,8 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
+import { AuthImage } from '@/components/AuthImage';
+
 interface MarkdownProps {
   children: string;
   className?: string;
@@ -105,7 +107,11 @@ export function Markdown({ children, className }: MarkdownProps) {
             <td className="px-3 py-2 border-b border-border/50">{children}</td>
           ),
           img: ({ src, alt }: ComponentPropsWithoutRef<'img'>) => (
-            <img src={src} alt={alt} className="rounded-md max-w-full my-3" />
+            <AuthImage
+              src={src}
+              alt={alt}
+              className="rounded-md max-w-full my-3"
+            />
           ),
           input: ({ checked, ...props }: ComponentPropsWithoutRef<'input'>) => (
             <input
