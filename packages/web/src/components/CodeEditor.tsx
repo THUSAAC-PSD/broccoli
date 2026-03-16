@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@broccoli/web-sdk/ui';
+import type { Monaco } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
 import { useQuery } from '@tanstack/react-query';
 import JSZip from 'jszip';
@@ -22,12 +23,15 @@ import {
   X,
 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
+import type * as monacoNs from 'monaco-editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { KeybindingModeDropdown } from '@/components/KeybindingModeDropdown';
 import {
   fetchSupportedLanguages,
   type SupportedLanguage,
 } from '@/features/problem/api/fetch-supported-languages';
+import { useEditorKeybindings } from '@/lib/use-editor-keybindings';
 
 type Language = SupportedLanguage;
 
@@ -363,6 +367,17 @@ export function CodeEditor({
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const vimStatusRef = useRef<HTMLDivElement | null>(null);
+  const [editorInstance, setEditorInstance] =
+    useState<editor.IStandaloneCodeEditor | null>(null);
+  const [monacoInstance, setMonacoInstance] = useState<typeof monacoNs | null>(
+    null,
+  );
+  const [keybindingMode, setKeybindingMode] = useEditorKeybindings(
+    editorInstance,
+    monacoInstance,
+    vimStatusRef,
+  );
   const { theme } = useTheme();
 
   // Reset editor state when storageKey changes (switching problems)
@@ -610,8 +625,13 @@ export function CodeEditor({
     }
   };
 
-  const handleEditorDidMount = (ed: editor.IStandaloneCodeEditor) => {
+  const handleEditorDidMount = (
+    ed: editor.IStandaloneCodeEditor,
+    monaco: Monaco,
+  ) => {
     editorRef.current = ed;
+    setEditorInstance(ed);
+    setMonacoInstance(monaco as typeof monacoNs);
   };
 
   const handleDrop = useCallback(
@@ -690,6 +710,10 @@ export function CodeEditor({
           )}
         </Button>
       )}
+      <KeybindingModeDropdown
+        mode={keybindingMode}
+        onChange={setKeybindingMode}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm">
@@ -760,24 +784,30 @@ export function CodeEditor({
   );
 
   const editorArea = (
-    <div className="flex-1 min-h-0 border rounded-lg overflow-hidden">
-      <Editor
-        height="100%"
-        language={getMonacoLanguage(activeFile.filename)}
-        value={activeFile.content}
-        onChange={(value) => updateFileContent(activeFile.id, value || '')}
-        onMount={handleEditorDidMount}
-        theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-        options={{
-          minimap: { enabled: false },
-          fontSize: 14,
-          lineNumbers: 'on',
-          roundedSelection: false,
-          scrollBeyondLastLine: false,
-          automaticLayout: true,
-          tabSize: 4,
-          wordWrap: 'on',
-        }}
+    <div className="flex-1 min-h-0 border rounded-lg overflow-hidden flex flex-col">
+      <div className="flex-1 min-h-0">
+        <Editor
+          height="100%"
+          language={getMonacoLanguage(activeFile.filename)}
+          value={activeFile.content}
+          onChange={(value) => updateFileContent(activeFile.id, value || '')}
+          onMount={handleEditorDidMount}
+          theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+          options={{
+            minimap: { enabled: false },
+            fontSize: 14,
+            lineNumbers: 'on',
+            roundedSelection: false,
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            tabSize: 4,
+            wordWrap: 'on',
+          }}
+        />
+      </div>
+      <div
+        ref={vimStatusRef}
+        className={`vim-status-bar h-6 shrink-0 border-t border-border bg-muted/40 px-3 font-mono text-[11px] leading-6 text-muted-foreground ${keybindingMode !== 'vim' ? 'hidden' : ''}`}
       />
     </div>
   );

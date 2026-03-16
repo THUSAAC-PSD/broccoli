@@ -2,3 +2,58 @@
 @import '@broccoli/web-sdk/index.css';
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
+
+/* Vim mode cursor fix */
+.monaco-editor .vim-cursor {
+  background: hsl(var(--foreground)) !important;
+  color: hsl(var(--background)) !important;
+}
+
+/* 
+  monaco-vim injects raw spans and an <input> for ex-commands.
+  Structure: .vim-status-bar
+    > span (modeInfoNode)   — "--INSERT--", "--VISUAL--" etc.
+    > span (secInfoNode)    — contains <input> for ":" commands
+    > span.vim-notification — transient messages
+    > span (keyInfoNode)    — pending keys, floated right
+*/
+
+.vim-status-bar {
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Mode label (e.g. --INSERT--) */
+.vim-status-bar > span:first-child {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: hsl(var(--foreground));
+}
+
+/* Pending keys indicator (floated right by monaco-vim) */
+.vim-status-bar > span:last-child {
+  margin-left: auto;
+  float: none !important;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Notification span */
+.vim-status-bar .vim-notification {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Ex-command input (`:` commands like :w, :q, :s/foo/bar/) */
+.vim-status-bar input {
+  all: unset;
+  font: inherit;
+  color: hsl(var(--foreground));
+  caret-color: hsl(var(--primary));
+  flex: 1;
+  min-width: 0;
+}
+
+.vim-status-bar input::placeholder {
+  color: hsl(var(--muted-foreground));
+}

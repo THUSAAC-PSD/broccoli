@@ -3,9 +3,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@broccoli/web-sdk/ui';
 import type { Monaco } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { useState } from 'react';
+import type * as monacoNs from 'monaco-editor';
+import { useCallback, useRef, useState } from 'react';
 
+import { KeybindingModeDropdown } from '@/components/KeybindingModeDropdown';
 import { Markdown } from '@/components/Markdown';
+import { useEditorKeybindings } from '@/lib/use-editor-keybindings';
 
 export interface MarkdownEditorProps {
   id?: string;
@@ -29,17 +32,44 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const { theme } = useTheme();
   const [tab, setTab] = useState<string>('write');
+  const [editorInstance, setEditorInstance] =
+    useState<editor.IStandaloneCodeEditor | null>(null);
+  const [monacoInstance, setMonacoInstance] = useState<typeof monacoNs | null>(
+    null,
+  );
+  const vimStatusRef = useRef<HTMLDivElement | null>(null);
+  const [keybindingMode, setKeybindingMode] = useEditorKeybindings(
+    editorInstance,
+    monacoInstance,
+    vimStatusRef,
+  );
+
+  const handleMount = useCallback(
+    (ed: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+      setEditorInstance(ed);
+      setMonacoInstance(monaco as typeof monacoNs);
+      onEditorMount?.(ed, monaco);
+    },
+    [onEditorMount],
+  );
 
   return (
     <Tabs value={tab} onValueChange={setTab}>
-      <TabsList className="h-8">
-        <TabsTrigger value="write" className="text-xs px-3 py-1">
-          Write
-        </TabsTrigger>
-        <TabsTrigger value="preview" className="text-xs px-3 py-1">
-          Preview
-        </TabsTrigger>
-      </TabsList>
+      <div className="flex items-center justify-between">
+        <TabsList className="h-8">
+          <TabsTrigger value="write" className="text-xs px-3 py-1">
+            Write
+          </TabsTrigger>
+          <TabsTrigger value="preview" className="text-xs px-3 py-1">
+            Preview
+          </TabsTrigger>
+        </TabsList>
+        <KeybindingModeDropdown
+          mode={keybindingMode}
+          onChange={setKeybindingMode}
+          compact
+        />
+      </div>
       <TabsContent value="write" className="mt-1">
         <div
           className="border rounded-md overflow-hidden"
@@ -50,7 +80,7 @@ export function MarkdownEditor({
             language="markdown"
             value={value}
             onChange={(v) => onChange(v ?? '')}
-            onMount={onEditorMount}
+            onMount={handleMount}
             theme={theme === 'dark' ? 'vs-dark' : 'vs'}
             options={{
               minimap: { enabled: false },
@@ -68,6 +98,10 @@ export function MarkdownEditor({
               padding: { top: 8, bottom: 8 },
               placeholder,
             }}
+          />
+          <div
+            ref={vimStatusRef}
+            className={`vim-status-bar h-6 border-t border-border bg-muted/40 px-3 font-mono text-[11px] leading-6 text-muted-foreground ${keybindingMode !== 'vim' ? 'hidden' : ''}`}
           />
         </div>
       </TabsContent>

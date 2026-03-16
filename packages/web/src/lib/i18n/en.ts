@@ -119,6 +119,8 @@ export const en: Record<string, string> = {
   'editor.upload': 'Upload files',
   'editor.addFile': 'Add file',
   'editor.toggleFullscreen': 'Toggle fullscreen',
+  'editor.keybindings': 'Keybinding mode',
+  'editor.keybindingNormal': 'Normal',
 
   // Submission result
   'result.title': 'Result',
