@@ -380,6 +380,31 @@ export const en: Record<string, string> = {
   'admin.submissionFormat.empty': 'No language configured yet.',
   'admin.loading': 'Loading...',
 
+  // Additional Files (admin)
+  'admin.additionalFiles.title': 'Additional Files',
+  'admin.additionalFiles.description':
+    'Judge-private files (graders, headers) compiled alongside submissions.',
+  'admin.additionalFiles.empty': 'No additional files yet.',
+  'admin.additionalFiles.uploadError': 'Failed to upload file.',
+  'admin.additionalFiles.uploaded': 'File uploaded successfully.',
+  'admin.additionalFiles.deleteError': 'Failed to delete file.',
+  'admin.additionalFiles.deleted': 'File deleted successfully.',
+  'admin.additionalFiles.downloadError': 'Failed to download file.',
+  'admin.additionalFiles.selectLanguageFirst':
+    'Please select a language first.',
+  'admin.additionalFiles.dropzone': 'Drop files here or click to browse',
+  'admin.additionalFiles.language': 'Language',
+  'admin.additionalFiles.path': 'Virtual path (optional)',
+  'admin.additionalFiles.pathPlaceholder': 'e.g., include/grader.h',
+  'admin.additionalFiles.fileCount': '{count} files',
+  'admin.additionalFiles.uploading': 'Uploading {filename}...',
+  'admin.additionalFiles.noLanguages': 'No languages configured.',
+  'admin.additionalFiles.staged': '{count} files ready to upload',
+  'admin.additionalFiles.uploadAll': 'Upload All',
+  'admin.additionalFiles.clear': 'Clear',
+  'admin.additionalFiles.upload': 'Upload',
+  'admin.manageAdditionalFiles': 'Manage Additional Files',
+
   // Test Cases (admin)
   'admin.manageTestCases': 'Manage Test Cases',
   'admin.testCases.title': 'Test Cases',
