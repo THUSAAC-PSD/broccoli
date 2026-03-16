@@ -9,7 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@broccoli/web-sdk/ui';
-import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowRight, Clock, Code2, Home, Trophy } from 'lucide-react';
 import { Link } from 'react-router';
@@ -18,7 +17,7 @@ import { ListSkeleton } from '@/components/ListSkeleton';
 import { PageLayout } from '@/components/PageLayout';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { getContestStatus } from '@/features/contest/utils/status';
-import { getVerdictBadge } from '@/features/submission/utils/verdict';
+import { SubmissionsTable } from '@/features/submission/components/SubmissionsTable';
 
 export default function OverviewPage() {
   const { t } = useTranslation();
@@ -212,51 +211,17 @@ export default function OverviewPage() {
                     {t('overview.noSubmissions')}
                   </p>
                 ) : (
-                  <div className="rounded-md border">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="px-4 py-2 text-left font-medium">
-                            {t('overview.problem')}
-                          </th>
-                          <th className="px-4 py-2 text-left font-medium">
-                            {t('overview.language')}
-                          </th>
-                          <th className="px-4 py-2 text-left font-medium">
-                            {t('overview.verdict')}
-                          </th>
-                          <th className="px-4 py-2 text-left font-medium">
-                            {t('overview.submitted')}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {submissions.map((s) => {
-                          const vb = getVerdictBadge(s.verdict, s.status, t);
-                          return (
-                            <tr key={s.id} className="border-b last:border-b-0">
-                              <td className="px-4 py-2">
-                                <Link
-                                  to={`/problems/${s.problem_id}`}
-                                  className="font-medium hover:text-primary hover:underline"
-                                >
-                                  {s.problem_title}
-                                </Link>
-                              </td>
-                              <td className="px-4 py-2">
-                                <Badge variant="outline">{s.language}</Badge>
-                              </td>
-                              <td className="px-4 py-2">
-                                <Badge variant={vb.variant}>{vb.label}</Badge>
-                              </td>
-                              <td className="px-4 py-2 text-muted-foreground">
-                                {formatRelativeDatetime(s.created_at, t)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="rounded-md border overflow-hidden">
+                    <SubmissionsTable
+                      submissions={submissions}
+                      columns={SubmissionsTable.fullColumns}
+                      expandable={false}
+                      linkBuilder={(sub) =>
+                        sub.contest_id
+                          ? `/contests/${sub.contest_id}/submissions/${sub.id}`
+                          : `/submissions/${sub.id}`
+                      }
+                    />
                   </div>
                 )}
               </CardContent>

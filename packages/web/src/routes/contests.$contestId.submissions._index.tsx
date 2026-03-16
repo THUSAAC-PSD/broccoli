@@ -6,7 +6,7 @@ import { Link, useParams } from 'react-router';
 import { PageLayout } from '@/components/PageLayout';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
-import { SubmissionsList } from '@/features/submission/components/SubmissionsList';
+import { ContestSubmissions } from '@/features/submission/components/ContestSubmissions';
 
 export default function ContestSubmissionsPage() {
   const { t } = useTranslation();
@@ -44,5 +44,5 @@ export default function ContestSubmissionsPage() {
     );
   }
 
-  return <SubmissionsList contestId={id} />;
+  return <ContestSubmissions contestId={id} />;
 }
