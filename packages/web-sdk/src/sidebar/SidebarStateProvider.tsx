@@ -43,8 +43,8 @@ export function SidebarStateProvider({
     root.classList.add(sidebarState);
 
     // Persist to localStorage
-    localStorage.setItem('sidebar-state', sidebarState);
-  }, [sidebarState]);
+    localStorage.setItem(storageKey, sidebarState);
+  }, [sidebarState, storageKey]);
 
   const value = {
     sidebarState,

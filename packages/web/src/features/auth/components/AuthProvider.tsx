@@ -1,5 +1,9 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import type { LoginRequest, User } from '@broccoli/web-sdk/auth';
+import {
+  AUTH_TOKEN_CLEARED_EVENT,
+  type LoginRequest,
+  type User,
+} from '@broccoli/web-sdk/auth';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { appConfig } from '@/config';
@@ -42,6 +46,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    const handleTokenCleared = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (!key || key === appConfig.api.authTokenKey) {
+        logout();
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === appConfig.api.authTokenKey && event.newValue == null) {
+        logout();
+      }
+    };
+
+    window.addEventListener(AUTH_TOKEN_CLEARED_EVENT, handleTokenCleared);
+    window.addEventListener('storage', handleStorage);
+
     const initAuth = async () => {
       const token = localStorage.getItem(appConfig.api.authTokenKey);
       if (!token) {
@@ -60,6 +80,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     initAuth();
+
+    return () => {
+      window.removeEventListener(AUTH_TOKEN_CLEARED_EVENT, handleTokenCleared);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, [apiClient, logout]);
 
   const value = useMemo(

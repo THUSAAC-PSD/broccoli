@@ -55,6 +55,12 @@ interface CodeEditorProps {
   onToggleFullscreen?: () => void;
   /** Unique key for persisting code to localStorage (e.g. problem ID). */
   storageKey?: string;
+  /** Currently selected contest type. */
+  contestType?: string;
+  /** Callback when contest type changes. */
+  onContestTypeChange?: (contestType: string) => void;
+  /** Available contest types from registry. */
+  contestTypes?: string[];
   /**
    * Server-provided file names per language (from problem.submission_format).
    * Keys are language ids (e.g. "cpp", "java"), values are arrays of filenames.
@@ -92,8 +98,14 @@ const EXT_TO_LANGUAGE_ID: Record<string, string> = {
   hpp: 'cpp',
   c: 'c',
   h: 'c',
-  py: 'python',
+  py: 'python3',
   java: 'java',
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  ts: 'typescript',
+  rs: 'rust',
+  go: 'go',
 };
 
 function getMonacoLanguage(filename: string): string {
@@ -192,8 +204,12 @@ function nextFileId() {
 const FILENAME_MAP: Record<string, string> = {
   cpp: 'solution.cpp',
   c: 'solution.c',
-  python: 'solution.py',
+  python3: 'solution.py',
   java: 'Main.java',
+  javascript: 'solution.js',
+  typescript: 'solution.ts',
+  rust: 'solution.rs',
+  go: 'solution.go',
 };
 
 /**
@@ -231,6 +247,9 @@ export function CodeEditor({
   isFullscreen,
   onToggleFullscreen,
   storageKey,
+  contestType,
+  onContestTypeChange,
+  contestTypes,
   submissionFormat,
 }: CodeEditorProps) {
   const { t } = useTranslation();
@@ -629,6 +648,26 @@ export function CodeEditor({
             as="div"
             className="flex items-center gap-2"
           />
+          {contestTypes && contestTypes.length > 0 && onContestTypeChange && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  {contestType ?? 'standard'}
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {contestTypes.map((ct) => (
+                  <DropdownMenuItem
+                    key={ct}
+                    onClick={() => onContestTypeChange(ct)}
+                  >
+                    {ct}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             variant="ghost"
             size="sm"

@@ -3,6 +3,8 @@ import type { components } from '@/api/schema';
 export type User = components['schemas']['MeResponse'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 
+export const AUTH_TOKEN_CLEARED_EVENT = 'broccoli:auth-token-cleared';
+
 export const USER_PERMISSIONS = [
   'submission:view_all',
   'submission:rejudge',

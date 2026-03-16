@@ -81,23 +81,31 @@ export function TestCaseFormDialog({
     e.preventDefault();
     setLoading(true);
 
-    const body = {
-      label: label || null,
+    const createBody = {
       input,
       expected_output: expectedOutput,
       score,
       is_sample: isSample,
       description: description || null,
+      label: label.trim(),
+    };
+    const updateBody = {
+      input,
+      expected_output: expectedOutput,
+      score,
+      is_sample: isSample,
+      description: description || null,
+      label: label.trim() || null,
     };
 
     const result = isEdit
       ? await apiClient.PATCH('/problems/{id}/test-cases/{tc_id}', {
           params: { path: { id: problemId, tc_id: testCaseId! } },
-          body,
+          body: updateBody,
         })
       : await apiClient.POST('/problems/{id}/test-cases', {
           params: { path: { id: problemId } },
-          body,
+          body: createBody,
         });
 
     setLoading(false);
@@ -136,18 +144,6 @@ export function TestCaseFormDialog({
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="tc-label">
-                {t('admin.testCases.field.label')}
-              </Label>
-              <Input
-                id="tc-label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="Optional identifier"
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="tc-input">
                 {t('admin.testCases.field.input')}
               </Label>
@@ -175,7 +171,21 @@ export function TestCaseFormDialog({
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="tc-label">
+                  {t('admin.testCases.field.label')}
+                </Label>
+                <Input
+                  id="tc-label"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={64}
+                  required={!isEdit}
+                  placeholder="sample_01"
+                  className="font-mono"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="tc-score">
                   {t('admin.testCases.field.score')}

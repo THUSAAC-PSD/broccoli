@@ -30,7 +30,7 @@ pub struct JudgeResult {
     /// Execution verdict (None if compilation failed or system error).
     pub verdict: Option<Verdict>,
     /// Total score across all test cases.
-    pub score: Option<i32>,
+    pub score: Option<f64>,
     /// Maximum time used across all test cases (milliseconds).
     pub time_used: Option<i32>,
     /// Maximum memory used across all test cases (kilobytes).
@@ -73,7 +73,7 @@ pub struct TestCaseJudgeResult {
     /// Verdict for this test case.
     pub verdict: Verdict,
     /// Points earned for this test case.
-    pub score: i32,
+    pub score: f64,
     /// Time used in milliseconds.
     pub time_used: Option<i32>,
     /// Memory used in kilobytes.

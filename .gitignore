@@ -1,6 +1,5 @@
 .DS_Store
 .vscode/
-.github/
 
 target/
 **/*.wasm
@@ -19,8 +18,7 @@ tmp/
 .env.local
 .env.*.local
 
-/plugins/*
-!/plugins/broccoli-zh-cn/
-!/plugins/.gitkeep
+config/config.toml
 
 /data
+/vendor

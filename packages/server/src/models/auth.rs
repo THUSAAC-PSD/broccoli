@@ -112,3 +112,41 @@ pub struct MeResponse {
     #[schema(example = json!(["submission:submit"]))]
     pub permissions: Vec<String>,
 }
+
+/// Request body for device code generation (can be empty).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct DeviceCodeRequest {}
+
+/// Response for device code generation.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct DeviceCodeResponse {
+    /// Secret device code for polling (never shown to user).
+    pub device_code: String,
+    /// User-visible code to enter in the browser, formatted as XXXX-XXXX.
+    #[schema(example = "BCDF-GHJK")]
+    pub user_code: String,
+    /// URL where the user should go to enter the user code.
+    #[schema(example = "http://localhost:5173/auth/device")]
+    pub verification_url: String,
+    /// Seconds until the codes expire.
+    #[schema(example = 900)]
+    pub expires_in: u64,
+    /// Minimum polling interval in seconds.
+    #[schema(example = 5)]
+    pub interval: u64,
+}
+
+/// Request body for authorizing a device code.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct DeviceAuthorizeRequest {
+    /// The user code displayed in the CLI (case-insensitive, hyphens optional).
+    #[schema(example = "BCDF-GHJK")]
+    pub user_code: String,
+}
+
+/// Request body for polling the device token endpoint.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct DeviceTokenRequest {
+    /// The device code received from the device-code endpoint.
+    pub device_code: String,
+}

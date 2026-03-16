@@ -1,0 +1,130 @@
+name = "communication-evaluator"
+version = "0.1.0"
+description = "CMS-style communication evaluator — manager + N contestant processes via FIFOs"
+
+[server]
+entry = "communication_evaluator.wasm"
+permissions = ["logger", "plugin:register", "operations:dispatch", "language:config", "config:read"]
+
+[config.communication]
+description = "Communication evaluator settings"
+scopes = ["problem"]
+
+[config.communication.properties.num_processes]
+type = "integer"
+title = "Number of Contestant Processes"
+description = "Number of contestant process instances to run in parallel via FIFOs"
+default = 1
+min = 1
+max = 10
+
+[config.communication.properties.communication_mode]
+type = "string"
+title = "Communication Mode"
+description = "redirect: contestant uses stdin/stdout (FIFOs redirected). fifo_args: contestant receives FIFO paths as arguments."
+enum = ["redirect", "fifo_args"]
+default = "redirect"
+
+[config.communication.properties.manager_language]
+type = "string"
+title = "Manager Language"
+description = "Language ID to compile the manager source (e.g., cpp)"
+default = "cpp"
+
+[config.communication.properties.manager_sources]
+type = "array"
+title = "Manager Source Files"
+description = "Manager source files to compile. The first entry is the primary source used for language resolution. Each entry needs a filename and the SHA-256 content hash of the file in the blob store."
+
+[config.communication.properties.manager_sources.items]
+type = "object"
+format = "blob-ref"
+
+[config.communication.properties.manager_sources.items.properties.filename]
+type = "string"
+title = "Filename"
+description = "Source filename (e.g. manager.cpp, manager.h)"
+min_length = 1
+
+[config.communication.properties.manager_sources.items.properties.hash]
+type = "string"
+title = "Content Hash"
+description = "SHA-256 content hash of the file in the blob store"
+min_length = 1
+
+[config.communication.properties.manager_time_limit_s]
+type = "number"
+title = "Manager Time Limit (seconds)"
+description = "Maximum wall-clock time for the manager process"
+default = 30.0
+min = 1.0
+step = 1.0
+precision = 1
+unit = "s"
+
+[config.communication.properties.manager_memory_limit_kb]
+type = "integer"
+title = "Manager Memory Limit (KB)"
+description = "Maximum memory for the manager process"
+default = 524288
+min = 1024
+step = 1024
+unit = "KB"
+
+[config.sandbox]
+description = "Sandbox resource limits for compilation and execution steps"
+scopes = ["plugin"]
+
+[config.sandbox.properties.compile_time_limit_s]
+type = "number"
+title = "Compile Time Limit"
+default = 30.0
+min = 1.0
+step = 1.0
+precision = 1
+unit = "s"
+
+[config.sandbox.properties.compile_wall_time_multiplier]
+type = "number"
+title = "Compile Wall Time Multiplier"
+default = 2.0
+min = 1.0
+step = 0.5
+precision = 1
+
+[config.sandbox.properties.compile_memory_limit_kb]
+type = "integer"
+title = "Compile Memory Limit"
+default = 524288
+min = 1024
+step = 1024
+unit = "KB"
+
+[config.sandbox.properties.compile_process_limit]
+type = "integer"
+title = "Compile Process Limit"
+default = 32
+min = 1
+
+[config.sandbox.properties.exec_wall_time_multiplier]
+type = "number"
+title = "Exec Wall Time Multiplier"
+description = "Multiplier for contestant wall-time limit (generous for FIFO I/O blocking)"
+default = 5.0
+min = 1.0
+step = 0.5
+precision = 1
+
+[config.sandbox.properties.exec_process_limit]
+type = "integer"
+title = "Exec Process Limit"
+default = 1
+min = 1
+
+[config.sandbox.properties.result_timeout_ms]
+type = "integer"
+title = "Result Timeout"
+default = 60000
+min = 1000
+step = 1000
+unit = "ms"

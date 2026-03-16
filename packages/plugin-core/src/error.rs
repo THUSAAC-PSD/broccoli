@@ -17,6 +17,12 @@ pub enum PluginError {
     #[error("Plugin discovery failed: {0}")]
     DiscoveryFailed(String),
 
+    #[error("Function '{func_name}' not found in plugin '{plugin_id}'")]
+    FunctionNotFound {
+        plugin_id: String,
+        func_name: String,
+    },
+
     #[error("Failed to call function '{func_name}' on plugin '{plugin_id}': {message}")]
     ExecutionFailed {
         plugin_id: String,

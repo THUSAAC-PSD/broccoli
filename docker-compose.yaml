@@ -2,13 +2,17 @@ services:
   db:
     image: postgres:18-alpine
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: broccoli_pg_secret
       POSTGRES_DB: broccoli
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
 
   redis:
     image: redis:7-alpine
@@ -17,6 +21,33 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "broccoli_redis_secret", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.worker
+  #   privileged: true
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   environment:
+  #     BROCCOLI__DATABASE__URL: "postgres://postgres:password@db:5432/broccoli"
+  #     BROCCOLI__MQ__URL: "redis://:broccoli_redis_secret@redis:6379"
+  #     BROCCOLI__MQ__ENABLED: "true"
+  #     BROCCOLI__WORKER__SANDBOX_BACKEND: "isolate"
+  #     BROCCOLI__WORKER__ISOLATE_BIN: "isolate"
+  #     BROCCOLI__WORKER__ENABLE_CGROUPS: "true"
+  #     BROCCOLI__STORAGE__DATA_DIR: "/data"
+  #     RUST_LOG: "info"
+  #   volumes:
+  #     - worker_data:/data
 
   seaweedfs:
     image: chrislusf/seaweedfs:4.15
@@ -38,4 +69,5 @@ services:
 volumes:
   pg_data:
   redis_data:
+  # worker_data:
   seaweed_data:

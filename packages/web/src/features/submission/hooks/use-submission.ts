@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 60_000;
 
 const TERMINAL_STATUSES = new Set([
   'Judged',
@@ -14,6 +13,49 @@ const TERMINAL_STATUSES = new Set([
   'SystemError',
 ]);
 
+export interface SubmissionError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+function parseSubmissionErrorValue(value: unknown): SubmissionError | null {
+  if (!value) return null;
+
+  if (typeof value === 'string') {
+    try {
+      return parseSubmissionErrorValue(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.code === 'string' && typeof obj.message === 'string') {
+    const result: SubmissionError = { code: obj.code, message: obj.message };
+    if (obj.details != null && typeof obj.details === 'object') {
+      result.details = obj.details as Record<string, unknown>;
+    }
+    return result;
+  }
+
+  return (
+    parseSubmissionErrorValue(obj.error) ??
+    parseSubmissionErrorValue(obj.data) ??
+    parseSubmissionErrorValue(obj.body) ??
+    parseSubmissionErrorValue(obj.response)
+  );
+}
+
+function parseSubmissionError(err: unknown): SubmissionError {
+  const parsed = parseSubmissionErrorValue(err);
+  if (parsed) return parsed;
+  return { code: 'UNKNOWN', message: String(err) };
+}
 interface UseSubmissionOptions {
   problemId: number;
   contestId?: number;
@@ -27,8 +69,12 @@ interface SubmissionFile {
 interface UseSubmissionReturn {
   submission: Submission | null;
   isSubmitting: boolean;
-  error: string | null;
-  submit: (files: SubmissionFile[], language: string) => Promise<void>;
+  error: SubmissionError | null;
+  submit: (
+    files: SubmissionFile[],
+    language: string,
+    contestType?: string,
+  ) => Promise<void>;
   reset: () => void;
 }
 
@@ -41,30 +87,19 @@ export function useSubmission({
   const queryClient = useQueryClient();
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SubmissionError | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
   }, []);
 
   const startPolling = useCallback(
     (submissionId: number) => {
       stopPolling();
-
-      // Stop polling after timeout
-      timeoutRef.current = setTimeout(() => {
-        stopPolling();
-        setIsSubmitting(false);
-      }, POLL_TIMEOUT_MS);
 
       pollingRef.current = setInterval(async () => {
         try {
@@ -94,16 +129,11 @@ export function useSubmission({
   );
 
   const submit = useCallback(
-    async (files: SubmissionFile[], language: string) => {
+    async (files: SubmissionFile[], language: string, contestType?: string) => {
       stopPolling();
       setError(null);
       setIsSubmitting(true);
       setSubmission(null);
-
-      const body = {
-        files,
-        language,
-      };
 
       try {
         let data: Submission;
@@ -115,7 +145,7 @@ export function useSubmission({
               params: {
                 path: { id: contestId, problem_id: problemId },
               },
-              body,
+              body: { files, language },
             },
           );
           if (res.error) throw res.error;
@@ -123,7 +153,7 @@ export function useSubmission({
         } else {
           const res = await apiClient.POST('/problems/{id}/submissions', {
             params: { path: { id: problemId } },
-            body,
+            body: { files, language, contest_type: contestType },
           });
           if (res.error) throw res.error;
           data = res.data;
@@ -142,12 +172,20 @@ export function useSubmission({
         startPolling(data.id);
       } catch (err) {
         console.error('Submission failed:', err);
-        setError(String(err));
+        setError(parseSubmissionError(err));
         toast.error(t('toast.submission.error'));
         setIsSubmitting(false);
       }
     },
-    [apiClient, contestId, problemId, queryClient, startPolling, stopPolling, t],
+    [
+      apiClient,
+      contestId,
+      problemId,
+      queryClient,
+      startPolling,
+      stopPolling,
+      t,
+    ],
   );
 
   const reset = useCallback(() => {
@@ -156,6 +194,12 @@ export function useSubmission({
     setIsSubmitting(false);
     setError(null);
   }, [stopPolling]);
+
+  // Reset when problem changes (e.g. navigating between problems in a contest)
+  useEffect(() => {
+    reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problemId]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -13,7 +13,7 @@ use worker::models::operation::models::{
 };
 use worker::models::operation::sandbox::isolate::IsolateSandboxManager;
 use worker::models::operation::sandbox::{
-    DirectoryOptions, DirectoryRule, ResourceLimits, RunOptions, SandboxOptions,
+    DirectoryOptions, DirectoryRule, ResourceLimits, RunOptions,
 };
 use worker::models::worker::Worker;
 
@@ -70,7 +70,6 @@ fn build_operation_task(command: &str) -> OperationTask {
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![Step {
             id: "step-1".to_string(),
@@ -80,6 +79,7 @@ fn build_operation_task(command: &str) -> OperationTask {
             io: IOConfig::default(),
             collect: vec![],
             depends_on: vec![],
+            cache: None,
         }],
         channels: vec![],
     }
@@ -90,7 +90,7 @@ async fn build_worker_with_isolate_sandbox() -> Worker {
     worker.register_executor(
         "operation",
         Arc::new(OperationTaskExecutor::new_with_sandbox_manager(Box::new(
-            IsolateSandboxManager,
+            IsolateSandboxManager::default(),
         ))),
     );
     worker
@@ -106,6 +106,7 @@ async fn execute_operation_with_isolate(
         task_type: "operation".to_string(),
         executor_name: "operation".to_string(),
         payload: serde_json::to_value(operation).unwrap(),
+        result_queue: "test_results".into(),
     };
 
     let result = worker.execute_task(task).await.unwrap();
@@ -186,7 +187,6 @@ printf '2 40\n' > input.txt
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: Default::default(),
         }],
         tasks: vec![
             Step {
@@ -207,6 +207,7 @@ printf '2 40\n' > input.txt
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
+                cache: None,
             },
             Step {
                 id: "compile".to_string(),
@@ -226,6 +227,7 @@ printf '2 40\n' > input.txt
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["prepare".to_string()],
+                cache: None,
             },
             Step {
                 id: "run".to_string(),
@@ -233,12 +235,19 @@ printf '2 40\n' > input.txt
                 argv: vec!["./main".to_string()],
                 conf: RunOptions::default(),
                 io: IOConfig {
-                    stdin: IOTarget::File("input.txt".to_string()),
-                    stdout: IOTarget::File("output.txt".to_string()),
-                    stderr: IOTarget::File("error.txt".to_string()),
+                    stdin: IOTarget::File {
+                        path: "input.txt".to_string(),
+                    },
+                    stdout: IOTarget::File {
+                        path: "output.txt".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "error.txt".to_string(),
+                    },
                 },
                 collect: vec![],
                 depends_on: vec!["compile".to_string()],
+                cache: None,
             },
             Step {
                 id: "verify".to_string(),
@@ -258,6 +267,7 @@ printf '2 40\n' > input.txt
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["run".to_string()],
+                cache: None,
             },
         ],
         channels: vec![],
@@ -306,7 +316,6 @@ CPP
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![
             Step {
@@ -321,6 +330,7 @@ CPP
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
+                cache: None,
             },
             Step {
                 id: "compile-bad".to_string(),
@@ -336,6 +346,7 @@ CPP
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["prepare-bad".to_string()],
+                cache: None,
             },
             Step {
                 id: "run-should-skip".to_string(),
@@ -349,6 +360,7 @@ CPP
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["compile-bad".to_string()],
+                cache: None,
             },
         ],
         channels: vec![],
@@ -385,7 +397,6 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
         environments: vec![Environment {
             id: "env-1".to_string(),
             files_in: vec![],
-            conf: SandboxOptions::default(),
         }],
         tasks: vec![Step {
             id: "pipe-invalid".to_string(),
@@ -398,11 +409,14 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
             conf: RunOptions::default(),
             io: IOConfig {
                 stdin: IOTarget::Inherit,
-                stdout: IOTarget::Pipe(String::new()),
+                stdout: IOTarget::Pipe {
+                    name: String::new(),
+                },
                 stderr: IOTarget::Inherit,
             },
             collect: vec![],
             depends_on: vec![],
+            cache: None,
         }],
         channels: vec![],
     };
@@ -445,12 +459,10 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
             Environment {
                 id: "env-a".to_string(),
                 files_in: vec![],
-                conf: SandboxOptions {},
             },
             Environment {
                 id: "env-b".to_string(),
                 files_in: vec![],
-                conf: SandboxOptions {},
             },
         ],
         tasks: vec![
@@ -469,6 +481,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec![],
+                cache: None,
             },
             Step {
                 id: "consumer".to_string(),
@@ -490,6 +503,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
                 io: IOConfig::default(),
                 collect: vec![],
                 depends_on: vec!["producer".to_string()],
+                cache: None,
             },
         ],
         channels: vec![],

@@ -119,7 +119,7 @@ pub async fn is_contest_participant<C: sea_orm::ConnectionTrait>(
 }
 
 /// Check if the user is a participant of the contest, returning 404 if the contest is not public
-/// and the user is not a participant, or 400 if the contest is public but the user is not a
+/// and the user is not a participant, or 403 if the contest is public but the user is not a
 /// participant.
 /// Admins with `contest:manage` bypass the check.
 pub async fn require_contest_participant<C: sea_orm::ConnectionTrait>(
@@ -135,7 +135,7 @@ pub async fn require_contest_participant<C: sea_orm::ConnectionTrait>(
         return Ok(());
     }
     if contest.is_public {
-        return Err(AppError::Validation("Not a participant".into()));
+        return Err(AppError::PermissionDenied);
     }
     Err(AppError::NotFound("Contest not found".into()))
 }

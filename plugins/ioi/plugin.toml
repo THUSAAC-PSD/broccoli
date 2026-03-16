@@ -1,0 +1,218 @@
+name = "ioi"
+version = "0.1.0"
+description = "IOI-style contest plugin with subtask scoring, multi-submission modes, and tokens"
+
+[server]
+entry = "ioi_plugin.wasm"
+permissions = [
+    "logger",
+    "plugin:register",
+    "sql",
+    "evaluator:evaluate",
+    "config:read",
+    "storage",
+]
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/ioi/contests/{contest_id}/submissions/{submission_id}/token"
+handler = "api_use_token"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/ioi/contests/{contest_id}/scoreboard"
+handler = "api_scoreboard"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/ioi/contests/{contest_id}/info"
+handler = "api_contest_info"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/ioi/contests/{contest_id}/problems/{problem_id}/config"
+handler = "api_task_config"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/ioi/contests/{contest_id}/problems/{problem_id}/submission-status"
+handler = "api_submission_status"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/ioi/contests/{contest_id}/token-status"
+handler = "api_token_status"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/ioi/contests/{contest_id}/submissions/{submission_id}/subtask-scores"
+handler = "api_submission_subtask_scores"
+
+[translations]
+en = "i18n/en.toml"
+
+[config.contest]
+description = "IOI contest-level configuration: scoring mode, feedback, tokens"
+scopes = ["contest"]
+
+[config.contest.properties.scoring_mode]
+type = "string"
+title = "Scoring Mode"
+description = "How the task score is computed across submissions"
+enum = ["max_submission", "sum_best_subtask", "best_tokened_or_last"]
+default = "max_submission"
+
+[config.contest.properties.feedback_level]
+type = "string"
+title = "Feedback Level"
+description = "Baseline submission feedback visible before a token is used"
+enum = ["full", "subtask_scores", "total_only", "none"]
+default = "full"
+
+[config.contest.properties.tokens]
+type = "object"
+title = "Token Configuration"
+description = "Token system that can unlock full feedback on a submission"
+
+[config.contest.properties.tokens.properties.mode]
+type = "string"
+title = "Token Mode"
+enum = ["none", "fixed_budget", "regenerating"]
+default = "none"
+
+[config.contest.properties.tokens.properties.initial]
+type = "integer"
+title = "Initial Tokens"
+default = 2
+min = 0
+max = 100
+
+[config.contest.properties.tokens.properties.max]
+type = "integer"
+title = "Maximum Tokens"
+description = "Cap for regenerating mode"
+default = 5
+min = 0
+max = 100
+
+[config.contest.properties.tokens.properties.regen_interval_min]
+type = "integer"
+title = "Regeneration Interval"
+description = "Minutes between token regeneration"
+default = 30
+min = 1
+max = 1440
+unit = "min"
+
+[config.task]
+description = "Per-task configuration: subtask definitions"
+scopes = ["contest_problem"]
+
+[config.task.properties.subtasks]
+type = "array"
+title = "Subtask Definitions"
+description = "Define subtask groups with scoring methods. Leave empty for flat scoring."
+span = 2
+
+[config.task.properties.subtasks.items]
+type = "object"
+
+[config.task.properties.subtasks.items.properties.name]
+type = "string"
+title = "Name"
+default = "Subtask"
+min_length = 1
+max_length = 50
+
+[config.task.properties.subtasks.items.properties.scoring_method]
+type = "string"
+title = "Scoring Method"
+enum = ["group_min", "sum", "group_mul"]
+default = "group_min"
+
+[config.task.properties.subtasks.items.properties.max_score]
+type = "number"
+title = "Max Score"
+default = 100.0
+min = 0.0
+max = 10000.0
+step = 1.0
+precision = 2
+unit = "pts"
+
+[config.task.properties.subtasks.items.properties.test_cases]
+type = "array"
+title = "Test Cases"
+description = "Labels of test cases in this subtask"
+
+[config.task.properties.subtasks.items.properties.test_cases.items]
+type = "string"
+
+[web]
+root = "frontend/dist"
+entry = "index.js"
+css = ["styles.css"]
+
+[web.components]
+ScoringModeSelector = "ScoringModeSelector"
+FeedbackLevelSelector = "FeedbackLevelSelector"
+SubtaskEditor = "SubtaskEditor"
+TokenConfigPanel = "TokenConfigPanel"
+IoiScoreboard = "IoiScoreboard"
+IoiSubmissionResult = "IoiSubmissionResult"
+TokenPanel = "TokenPanel"
+IoiContestInfo = "IoiContestInfo"
+IoiConfigBanner = "IoiConfigBanner"
+
+# Admin config banners
+[[web.slots]]
+name = "config.form.ioi.contest"
+position = "prepend"
+component = "IoiConfigBanner"
+
+[[web.slots]]
+name = "config.form.ioi.task"
+position = "prepend"
+component = "IoiConfigBanner"
+
+# Admin config field replacements
+[[web.slots]]
+name = "config.field.ioi.contest.scoring_mode"
+position = "replace"
+component = "ScoringModeSelector"
+
+[[web.slots]]
+name = "config.field.ioi.contest.feedback_level"
+position = "replace"
+component = "FeedbackLevelSelector"
+
+[[web.slots]]
+name = "config.field.ioi.contest.tokens"
+position = "replace"
+component = "TokenConfigPanel"
+
+[[web.slots]]
+name = "config.field.ioi.task.subtasks"
+position = "replace"
+component = "SubtaskEditor"
+
+# Contestant-facing slots
+[[web.slots]]
+name = "ranking.content"
+position = "wrap"
+component = "IoiScoreboard"
+
+[[web.slots]]
+name = "submission-result.content"
+position = "wrap"
+component = "IoiSubmissionResult"
+
+[[web.slots]]
+name = "problem-detail.sidebar"
+position = "prepend"
+component = "TokenPanel"
+
+[[web.slots]]
+name = "contest-overview.content"
+position = "prepend"
+component = "IoiContestInfo"

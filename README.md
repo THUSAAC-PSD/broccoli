@@ -61,27 +61,48 @@ The SDK provides a plugin system with:
 ```typescript
 import {
   PluginRegistryProvider,
-  Slot,
-  usePluginRegistry,
-} from '@broccoli/web-sdk/react';
-import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
+  type ComponentBundle,
+  type PluginModule,
+} from '@broccoli/web-sdk/plugin';
+import { Slot } from '@broccoli/web-sdk/slot';
 
-// Define plugin manifest
-const manifest: PluginManifest = {
-  name: 'my-plugin',
-  version: '1.0.0',
-  slots: [
-    {
-      name: 'slots.header',
-      position: 'append',
-      component: 'components/MyButton',
-    },
-  ],
+function MyButton() {
+  return null;
+}
+
+const components: ComponentBundle = {
+  'components/MyButton': MyButton,
 };
 
-// Register plugin
-const { registerPlugin } = usePluginRegistry();
-registerPlugin(manifest, components);
+const myPlugin: PluginModule = {
+  manifest: {
+    id: 'my-plugin',
+    name: 'my-plugin',
+    version: '1.0.0',
+    components: {
+      'components/MyButton': 'MyButton',
+    },
+    slots: [
+      {
+        name: 'slots.header',
+        position: 'append',
+        component: 'components/MyButton',
+      },
+    ],
+  },
+  MyButton,
+};
+
+function App() {
+  return (
+    <PluginRegistryProvider
+      backendUrl="http://127.0.0.1:3000"
+      pluginModules={[myPlugin]}
+    >
+      <Slot name="slots.header" />
+    </PluginRegistryProvider>
+  );
+}
 ```
 
 ### Web Package (`@broccoli/web`)
@@ -149,41 +170,51 @@ plugins/
         └── MyComponent.tsx
 ```
 
-2. **Define plugin manifest** (`index.ts`):
+2. **Define a plugin module** (`index.ts`):
 
 ```typescript
-import type { PluginManifest, ComponentBundle } from '@broccoli/web-sdk';
+import type { ComponentBundle, PluginModule } from '@broccoli/web-sdk/plugin';
 import { MyComponent } from './components/MyComponent';
-
-export const manifest: PluginManifest = {
-  name: 'my-plugin',
-  version: '1.0.0',
-  slots: [
-    {
-      name: 'slots.header',
-      position: 'after',
-      component: 'components/MyComponent',
-    },
-  ],
-};
 
 export const components: ComponentBundle = {
   'components/MyComponent': MyComponent,
 };
+
+export const plugin: PluginModule = {
+  manifest: {
+    id: 'my-plugin',
+    name: 'my-plugin',
+    version: '1.0.0',
+    components: {
+      'components/MyComponent': 'MyComponent',
+    },
+    slots: [
+      {
+        name: 'slots.header',
+        position: 'after',
+        component: 'components/MyComponent',
+      },
+    ],
+  },
+  MyComponent,
+};
 ```
 
-3. **Register plugin** in `App.tsx`:
+3. **Provide the plugin module** in `App.tsx`:
 
 ```typescript
-import * as MyPlugin from './plugins/my-plugin';
+import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
+import { plugin as myPlugin } from './plugins/my-plugin';
 
-function AppContent() {
-  const { registerPlugin } = usePluginRegistry();
-
-  useEffect(() => {
-    registerPlugin(MyPlugin.manifest, MyPlugin.components);
-  }, [registerPlugin]);
-  // ...
+function App() {
+  return (
+    <PluginRegistryProvider
+      backendUrl="http://127.0.0.1:3000"
+      pluginModules={[myPlugin]}
+    >
+      <AppContent />
+    </PluginRegistryProvider>
+  );
 }
 ```
 

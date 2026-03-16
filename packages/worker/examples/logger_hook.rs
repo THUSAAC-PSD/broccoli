@@ -6,7 +6,27 @@ use common::hook::{Hook, HookAction};
 use common::worker::TaskEvent;
 
 /// A simple logger hook that logs all task events
-pub struct LoggerHook;
+pub struct LoggerHook {
+    topics: Vec<String>,
+}
+
+impl Default for LoggerHook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LoggerHook {
+    pub fn new() -> Self {
+        Self {
+            topics: vec![
+                "task_started".to_string(),
+                "task_completed".to_string(),
+                "task_failed".to_string(),
+            ],
+        }
+    }
+}
 
 #[async_trait]
 impl Hook<TaskEvent> for LoggerHook {
@@ -17,8 +37,8 @@ impl Hook<TaskEvent> for LoggerHook {
         "logger_hook"
     }
 
-    fn topics(&self) -> &[&str] {
-        &["task_started", "task_completed", "task_failed"]
+    fn topics(&self) -> &[String] {
+        &self.topics
     }
 
     async fn on_event(&self, _ctx: (), event: &TaskEvent) -> Result<HookAction<TaskEvent>> {
@@ -46,7 +66,7 @@ async fn main() -> Result<()> {
     let mut registry = common::hook::HookRegistry::new(());
 
     // Register the logger hook
-    registry.add_hook(LoggerHook)?;
+    registry.add_hook(LoggerHook::new())?;
 
     println!("Logger hook example registered successfully!");
     println!("The LoggerHook will log all task events it receives.");

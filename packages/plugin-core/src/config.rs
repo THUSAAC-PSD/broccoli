@@ -1,10 +1,16 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PluginConfig {
     pub plugins_dir: PathBuf,
     pub enable_wasi: bool,
+    #[serde(default = "default_call_timeout")]
+    pub call_timeout_secs: u64,
+}
+
+fn default_call_timeout() -> u64 {
+    300
 }
 
 impl Default for PluginConfig {
@@ -12,6 +18,7 @@ impl Default for PluginConfig {
         Self {
             plugins_dir: PathBuf::from("./plugins"),
             enable_wasi: true,
+            call_timeout_secs: default_call_timeout(),
         }
     }
 }

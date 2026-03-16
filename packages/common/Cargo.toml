@@ -10,6 +10,7 @@ object-storage = ["dep:rust-s3", "dep:tokio-util"]
 
 [dependencies]
 anyhow.workspace = true
+broccoli-server-sdk.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 config.workspace = true

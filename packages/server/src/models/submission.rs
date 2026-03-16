@@ -42,9 +42,13 @@ impl From<SubmissionFile> for SubmissionFileDto {
 pub struct CreateSubmissionRequest {
     /// Source files. At least one file required.
     pub files: Vec<SubmissionFileDto>,
-    /// Programming language (e.g., "cpp", "java", "python").
+    /// Programming language (e.g., "cpp", "java", "python3").
     #[schema(example = "cpp")]
     pub language: String,
+    /// Optional contest type override for standalone submissions (e.g., "ioi", "icpc").
+    /// If omitted, uses the problem's default_contest_type.
+    #[schema(example = "ioi")]
+    pub contest_type: Option<String>,
 }
 
 /// Query parameters for submission listing.
@@ -94,6 +98,9 @@ pub struct SubmissionResponse {
     /// Contest ID if this is a contest submission, null otherwise.
     #[schema(example = 1)]
     pub contest_id: Option<i32>,
+    /// Contest type used for judging this submission.
+    #[schema(example = "ioi")]
+    pub contest_type: String,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Judge result if judging is complete, null otherwise.
@@ -109,6 +116,7 @@ pub struct SubmissionListItem {
     pub language: String,
     pub status: SubmissionStatus,
     /// Execution verdict if judged, null otherwise.
+    #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
     #[schema(example = 1)]
     pub user_id: i32,
@@ -120,11 +128,14 @@ pub struct SubmissionListItem {
     pub problem_title: String,
     /// Contest ID if this is a contest submission, null otherwise.
     pub contest_id: Option<i32>,
+    /// Contest type used for judging.
+    #[schema(example = "ioi")]
+    pub contest_type: String,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Total score if judged, null otherwise.
-    #[schema(example = 100)]
-    pub score: Option<i32>,
+    #[schema(example = 100.0)]
+    pub score: Option<f64>,
     /// Total time used in ms if judged, null otherwise.
     #[schema(example = 50)]
     pub time_used: Option<i32>,
@@ -144,10 +155,11 @@ pub struct SubmissionListResponse {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
     /// Execution verdict (null if compilation failed or system error).
+    #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
     /// Total score across all test cases.
-    #[schema(example = 100)]
-    pub score: Option<i32>,
+    #[schema(example = 100.0)]
+    pub score: Option<f64>,
     /// Maximum time used in milliseconds.
     #[schema(example = 50)]
     pub time_used: Option<i32>,
@@ -169,9 +181,10 @@ pub struct JudgeResultResponse {
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
+    #[schema(value_type = String, example = "Accepted")]
     pub verdict: Verdict,
-    #[schema(example = 10)]
-    pub score: i32,
+    #[schema(example = 10.0)]
+    pub score: f64,
     /// Time used in milliseconds.
     #[schema(example = 5)]
     pub time_used: Option<i32>,
@@ -285,7 +298,8 @@ pub struct BulkRejudgeRequest {
     pub language: Option<String>,
     /// Filter by verdict string.
     /// Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
-    /// Custom verdicts must use `other:<custom>`, e.g. `other:PartiallyAccepted`.
+    /// Custom verdicts may use the raw custom label (e.g. PartiallyAccepted).
+    /// `Other(<custom>)` is also accepted.
     #[schema(example = "WrongAnswer")]
     pub verdict: Option<String>,
     /// Filter by user ID.

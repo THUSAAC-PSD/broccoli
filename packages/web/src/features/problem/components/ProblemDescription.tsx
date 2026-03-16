@@ -76,8 +76,11 @@ export function ProblemDescription({
 
         <section className="space-y-4">
           <h3 className="text-base font-bold">{t('problem.examples')}</h3>
-          {examples.map((example, index) => (
-            <div key={index} className="border rounded-lg overflow-hidden">
+          {examples.map((example) => (
+            <div
+              key={`${example.input}\u0000${example.output}\u0000${example.explanation ?? ''}`}
+              className="border rounded-lg overflow-hidden"
+            >
               <div className="grid grid-cols-2 divide-x">
                 <div>
                   <div className="bg-muted/50 px-4 py-2 font-medium text-sm border-b">

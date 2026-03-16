@@ -1,6 +1,6 @@
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
-import type { ServerTableParams } from '@broccoli/web-sdk/hooks';
+import { type ServerTableParams, useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 import {
@@ -35,6 +35,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 
+import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
 import { Markdown } from '@/components/Markdown';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
@@ -145,9 +147,11 @@ export function ContestFormDialog({
   const [submissionsVisible, setSubmissionsVisible] = useState(false);
   const [showCompileOutput, setShowCompileOutput] = useState(true);
   const [showParticipantsList, setShowParticipantsList] = useState(true);
+  const [contestType, setContestType] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const apiClient = useApiClient();
+  const { data: registries } = useRegistries();
 
   useEffect(() => {
     if (!open) return;
@@ -172,6 +176,7 @@ export function ContestFormDialog({
           setSubmissionsVisible(data.submissions_visible);
           setShowCompileOutput(data.show_compile_output);
           setShowParticipantsList(data.show_participants_list);
+          setContestType(data.contest_type ?? '');
         });
     } else {
       setTitle('');
@@ -184,6 +189,7 @@ export function ContestFormDialog({
       setSubmissionsVisible(false);
       setShowCompileOutput(true);
       setShowParticipantsList(true);
+      setContestType('');
     }
   }, [apiClient, open, contest]);
 
@@ -224,6 +230,7 @@ export function ContestFormDialog({
       submissions_visible: submissionsVisible,
       show_compile_output: showCompileOutput,
       show_participants_list: showParticipantsList,
+      contest_type: contestType || undefined,
     };
 
     const result = isEdit
@@ -328,6 +335,25 @@ export function ContestFormDialog({
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="contest-type">
+                {t('admin.field.contestType')}
+              </Label>
+              <select
+                id="contest-type"
+                value={contestType}
+                onChange={(e) => setContestType(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">{t('admin.field.contestTypeNone')}</option>
+                {(registries?.contest_types ?? []).map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <Separator />
 
             <div className="space-y-3">
@@ -408,6 +434,7 @@ export function ContestProblemsDialog({
   const queryClient = useQueryClient();
   const contestProblemsKey = ['contest-problems', contest.id];
   const apiClient = useApiClient();
+  const hasContestProblemConfig = useHasConfigSchemas('contest_problem');
 
   const { data: contestProblems = [], isLoading: loadingContestProblems } =
     useQuery({
@@ -438,12 +465,16 @@ export function ContestProblemsDialog({
   const [addingId, setAddingId] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [previewProblemId, setPreviewProblemId] = useState<number | null>(null);
+  const [configCPOpen, setConfigCPOpen] = useState(false);
+  const [configProblemId, setConfigProblemId] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
       setSearch('');
       setErrorMsg('');
       setPreviewProblemId(null);
+      setConfigCPOpen(false);
+      setConfigProblemId(null);
     }
   }, [open]);
 
@@ -549,6 +580,19 @@ export function ContestProblemsDialog({
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
+                        {hasContestProblemConfig && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              setConfigProblemId(p.problem_id);
+                              setConfigCPOpen(true);
+                            }}
+                          >
+                            <Settings className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -657,6 +701,22 @@ export function ContestProblemsDialog({
             }}
           />
         )}
+        {configProblemId !== null && (
+          <ResourceConfigDialog
+            scope={{
+              scope: 'contest_problem',
+              contestId: contest.id,
+              problemId: configProblemId,
+            }}
+            resourceLabel={
+              contestProblems.find(
+                (p: ContestProblem) => p.problem_id === configProblemId,
+              )?.problem_title ?? `Problem ${configProblemId}`
+            }
+            open={configCPOpen}
+            onOpenChange={setConfigCPOpen}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -669,11 +729,13 @@ function useContestColumns({
   onDelete,
   onManageProblems,
   onBulkParticipants,
+  onConfigure,
 }: {
   onEdit: (contest: ContestSummary) => void;
   onDelete: (contest: ContestSummary) => void;
   onManageProblems: (contest: ContestSummary) => void;
   onBulkParticipants: (contest: ContestSummary) => void;
+  onConfigure?: (contest: ContestSummary) => void;
 }): DataTableColumn<ContestSummary>[] {
   const { t, locale } = useTranslation();
   return [
@@ -703,6 +765,17 @@ function useContestColumns({
         );
         return <Badge variant={variant}>{label}</Badge>;
       },
+    },
+    {
+      id: 'contest_type',
+      header: t('admin.field.contestType'),
+      size: 120,
+      cell: ({ row }) =>
+        row.original.contest_type ? (
+          <Badge variant="outline">{row.original.contest_type}</Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
     },
     {
       id: 'visibility',
@@ -756,6 +829,12 @@ function useContestColumns({
               <Users className="h-4 w-4" />
               {t('admin.bulkParticipantsAction')}
             </DropdownMenuItem>
+            {onConfigure && (
+              <DropdownMenuItem onClick={() => onConfigure(row.original)}>
+                <Settings className="h-4 w-4" />
+                {t('admin.configure')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -781,6 +860,7 @@ export function AdminContestsTab() {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const hasContestConfig = useHasConfigSchemas('contest');
 
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
   const [editingContest, setEditingContest] = useState<
@@ -793,6 +873,10 @@ export function AdminContestsTab() {
   >();
   const [participantsDialogOpen, setParticipantsDialogOpen] = useState(false);
   const [participantsContest, setParticipantsContest] = useState<
+    ContestSummary | undefined
+  >();
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [configContest, setConfigContest] = useState<
     ContestSummary | undefined
   >();
 
@@ -816,6 +900,11 @@ export function AdminContestsTab() {
     setParticipantsDialogOpen(true);
   }
 
+  function handleConfigure(contest: ContestSummary) {
+    setConfigContest(contest);
+    setConfigDialogOpen(true);
+  }
+
   async function handleDeleteContest(contest: ContestSummary) {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
     const { error } = await apiClient.DELETE('/contests/{id}', {
@@ -834,6 +923,7 @@ export function AdminContestsTab() {
     onDelete: handleDeleteContest,
     onManageProblems: handleManageProblems,
     onBulkParticipants: handleBulkParticipants,
+    onConfigure: hasContestConfig ? handleConfigure : undefined,
   });
 
   return (
@@ -872,6 +962,14 @@ export function AdminContestsTab() {
           contest={participantsContest}
           open={participantsDialogOpen}
           onOpenChange={setParticipantsDialogOpen}
+        />
+      )}
+      {configContest && (
+        <ResourceConfigDialog
+          scope={{ scope: 'contest', contestId: configContest.id }}
+          resourceLabel={configContest.title}
+          open={configDialogOpen}
+          onOpenChange={setConfigDialogOpen}
         />
       )}
     </>

@@ -15,6 +15,8 @@ use crate::entity::{contest, contest_problem, problem, test_case, test_case_resu
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
+use crate::models::plugin_config::config_key;
 use crate::models::problem::*;
 use crate::state::AppState;
 use crate::utils::contest::require_problem_read_access;
@@ -46,6 +48,30 @@ pub async fn create_problem(
     auth_user.require_permission("problem:create")?;
     validate_create_problem(&payload)?;
 
+    let problem_type = if payload.problem_type.is_empty() {
+        first_registered_evaluator(&state.registries.evaluator_registry).await
+    } else {
+        payload.problem_type
+    };
+    let default_contest_type = if payload.default_contest_type.is_empty() {
+        first_registered_contest_type(&state.registries.contest_type_registry).await
+    } else {
+        payload.default_contest_type
+    };
+
+    validate_problem_type(&problem_type, &state.registries.evaluator_registry).await?;
+    validate_checker_format(
+        &payload.checker_format,
+        &state.registries.checker_format_registry,
+    )
+    .await?;
+    validate_submission_format(payload.submission_format.as_ref(), &state.config.languages)?;
+    validate_contest_type(
+        &default_contest_type,
+        &state.registries.contest_type_registry,
+    )
+    .await?;
+
     let now = chrono::Utc::now();
     let submission_format_json = payload
         .submission_format
@@ -55,6 +81,9 @@ pub async fn create_problem(
         content: Set(payload.content),
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
+        problem_type: Set(problem_type),
+        checker_format: Set(payload.checker_format),
+        default_contest_type: Set(default_contest_type),
         show_test_details: Set(payload.show_test_details.unwrap_or(false)),
         submission_format: Set(submission_format_json),
         created_at: Set(now),
@@ -137,6 +166,9 @@ pub async fn list_problems(
         .column(problem::Column::Title)
         .column(problem::Column::TimeLimit)
         .column(problem::Column::MemoryLimit)
+        .column(problem::Column::ProblemType)
+        .column(problem::Column::CheckerFormat)
+        .column(problem::Column::DefaultContestType)
         .column(problem::Column::ShowTestDetails)
         .column(problem::Column::CreatedAt)
         .column(problem::Column::UpdatedAt)
@@ -212,6 +244,18 @@ pub async fn update_problem(
 ) -> Result<Json<ProblemResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
     validate_update_problem(&payload)?;
+    if let Some(ref pt) = payload.problem_type {
+        validate_problem_type(pt, &state.registries.evaluator_registry).await?;
+    }
+    if let Some(ref cf) = payload.checker_format {
+        validate_checker_format(cf, &state.registries.checker_format_registry).await?;
+    }
+    if let Some(Some(ref sf)) = payload.submission_format {
+        validate_submission_format(Some(sf), &state.config.languages)?;
+    }
+    if let Some(ref ct) = payload.default_contest_type {
+        validate_contest_type(ct, &state.registries.contest_type_registry).await?;
+    }
 
     if payload == UpdateProblemRequest::default() {
         let mut existing = ProblemResponse::from(find_problem(&state.db, id).await?);
@@ -235,6 +279,15 @@ pub async fn update_problem(
     }
     if let Some(ml) = payload.memory_limit {
         active.memory_limit = Set(ml);
+    }
+    if let Some(problem_type) = payload.problem_type {
+        active.problem_type = Set(problem_type);
+    }
+    if let Some(checker_format) = payload.checker_format {
+        active.checker_format = Set(checker_format);
+    }
+    if let Some(default_contest_type) = payload.default_contest_type {
+        active.default_contest_type = Set(default_contest_type);
     }
     if let Some(show_test_details) = payload.show_test_details {
         active.show_test_details = Set(show_test_details);
@@ -313,6 +366,14 @@ pub async fn delete_problem(
     active.deleted_at = Set(Some(chrono::Utc::now()));
     active.update(&txn).await?;
 
+    delete_config_by_scope(&txn, "problem", &config_key::problem(id)).await?;
+    delete_config_by_scope_like(
+        &txn,
+        "contest_problem",
+        &config_key::contest_problem_by_problem_like(id),
+    )
+    .await?;
+
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -332,6 +393,7 @@ pub async fn delete_problem(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in problem (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -343,22 +405,29 @@ pub async fn create_test_case(
     AppJson(payload): AppJson<CreateTestCaseRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
-    validate_create_test_case(&payload)?;
 
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
+    validate_create_test_case(&payload)?;
 
     let position = match payload.position {
         Some(p) => p,
         None => next_test_case_position(&txn, problem_id).await?,
     };
 
+    let label = payload
+        .label
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
+        .unwrap_or_else(|| position.to_string());
+    ensure_test_case_label_available(&txn, problem_id, &label, None).await?;
     let new_tc = test_case::ActiveModel {
         input: Set(payload.input),
         expected_output: Set(payload.expected_output),
         score: Set(payload.score),
         description: Set(payload.description.map(|d| d.trim().to_string())),
-        label: Set(payload.label.unwrap_or_else(|| position.to_string())),
+        label: Set(label),
         is_sample: Set(payload.is_sample),
         position: Set(position),
         problem_id: Set(problem_id),
@@ -491,6 +560,7 @@ pub async fn get_test_case(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Test case not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in problem (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -528,10 +598,10 @@ pub async fn update_test_case(
     if let Some(position) = payload.position {
         active.position = Set(position);
     }
-    match payload.label {
-        Some(Some(label)) => active.label = Set(label),
-        Some(None) => active.label = Set(active.position.clone().unwrap().to_string()),
-        None => {}
+    if let Some(label) = payload.label {
+        let label = label.trim().to_string();
+        ensure_test_case_label_available(&txn, problem_id, &label, Some(tc_id)).await?;
+        active.label = Set(label);
     }
     match payload.description {
         Some(Some(desc)) => active.description = Set(Some(desc.trim().to_string())),
@@ -608,6 +678,7 @@ pub async fn delete_test_case(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
+        (status = 409, description = "Duplicate label in problem (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -639,7 +710,6 @@ pub async fn upload_test_cases(
 
     let is_replace = matches!(data.strategy, UploadTestCasesMergeStrategy::Replace);
     if is_replace {
-        // Delete existing test cases
         test_case::Entity::delete_many()
             .filter(test_case::Column::ProblemId.eq(problem_id))
             .exec(&txn)
@@ -678,7 +748,6 @@ pub async fn upload_test_cases(
                 }
                 UploadTestCasesMergeStrategy::Skip => continue,
                 UploadTestCasesMergeStrategy::Overwrite => {
-                    // Update existing test case
                     let mut active: test_case::ActiveModel = existing.into();
                     active.input = Set(entry.input);
                     active.expected_output = Set(entry.expected_output);
@@ -690,12 +759,11 @@ pub async fn upload_test_cases(
                     continue;
                 }
                 UploadTestCasesMergeStrategy::Replace => {
-                    unreachable!(); // should have been deleted at the start
+                    unreachable!();
                 }
             }
         }
 
-        // Insert new test case
         let new_tc = test_case::ActiveModel {
             input: Set(entry.input),
             expected_output: Set(entry.expected_output),
@@ -970,6 +1038,29 @@ async fn next_test_case_position<C: ConnectionTrait>(
         .ok_or_else(|| AppError::Validation("Position overflow".into()))
 }
 
+async fn ensure_test_case_label_available<C: ConnectionTrait>(
+    db: &C,
+    problem_id: i32,
+    label: &str,
+    exclude_id: Option<i32>,
+) -> Result<(), AppError> {
+    let mut query = test_case::Entity::find()
+        .filter(test_case::Column::ProblemId.eq(problem_id))
+        .filter(test_case::Column::Label.eq(label));
+
+    if let Some(exclude_id) = exclude_id {
+        query = query.filter(test_case::Column::Id.ne(exclude_id));
+    }
+
+    if query.one(db).await?.is_some() {
+        return Err(AppError::Conflict(format!(
+            "Test case label '{label}' already exists in problem {problem_id}"
+        )));
+    }
+
+    Ok(())
+}
+
 fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
     let input_preview = truncate_preview(&m.input);
     let output_preview = truncate_preview(&m.expected_output);
@@ -1007,21 +1098,13 @@ const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = 2048 * 1024 * 1024;
 /// Extracts the label from a filename given a format pattern like "prefix*suffix".
 /// Returns None if the filename doesn't match the pattern.
 fn extract_label<'a>(filename: &'a str, format: &str) -> Option<&'a str> {
-    let parts: Vec<&str> = format.split("*").collect();
-    if parts.len() != 2 {
-        // If the format doesn't contain exactly one {label}, matching fails
-        return None;
-    }
-
-    let prefix = parts[0];
-    let suffix = parts[1];
+    let (prefix, suffix) = format.split_once('*')?;
 
     if filename.starts_with(prefix)
         && filename.ends_with(suffix)
         && filename.len() >= prefix.len() + suffix.len()
     {
-        let label = &filename[prefix.len()..filename.len() - suffix.len()];
-        Some(label)
+        Some(&filename[prefix.len()..filename.len() - suffix.len()])
     } else {
         None
     }
@@ -1063,14 +1146,10 @@ fn parse_zip_test_cases(
         }
 
         let is_sample = is_sample_directory(dir);
+        let label_as_input = extract_label(filename, input_format);
+        let label_as_output = extract_label(filename, output_format);
 
-        // Attempt to extract label assuming it's an input file
-        let label_as_in = extract_label(filename, input_format);
-        // Attempt to extract label assuming it's an output file
-        let label_as_out = extract_label(filename, output_format);
-
-        // If it matches neither pattern, skip it
-        if label_as_in.is_none() && label_as_out.is_none() {
+        if label_as_input.is_none() && label_as_output.is_none() {
             continue;
         }
 
@@ -1095,7 +1174,7 @@ fn parse_zip_test_cases(
         let content = String::from_utf8(buf)
             .map_err(|_| AppError::Validation(format!("File '{name}' is not valid UTF-8")))?;
 
-        if let Some(label) = label_as_in {
+        if let Some(label) = label_as_input {
             let key = label.to_string();
             if in_files.contains_key(&key) {
                 return Err(AppError::Validation(format!(
@@ -1103,7 +1182,10 @@ fn parse_zip_test_cases(
                 )));
             }
             in_files.insert(key, (content, is_sample));
-        } else if let Some(label) = label_as_out {
+            continue;
+        }
+
+        if let Some(label) = label_as_output {
             let key = label.to_string();
             if ans_files.contains_key(&key) {
                 return Err(AppError::Validation(format!(
@@ -1119,11 +1201,10 @@ fn parse_zip_test_cases(
 
     for (key, (input, is_sample)) in in_files {
         if let Some(output) = ans_files.remove(&key) {
-            let label = key.clone();
             let sort_priority = if is_sample { 0u8 } else { 1u8 };
-            let sort_key = (sort_priority, key);
+            let sort_key = (sort_priority, key.clone());
             entries.push(ZipTestEntry {
-                label,
+                label: key,
                 input,
                 expected_output: output,
                 is_sample,

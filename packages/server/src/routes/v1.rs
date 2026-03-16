@@ -14,6 +14,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/plugins", plugin_routes())
         .nest("/p", proxy_routes())
         .nest("/i18n", i18n_routes())
+        .nest("/config/upload", config_upload_routes())
         .nest("/problems", problem_routes(submission_max_size))
         .nest("/contests", contest_routes(submission_max_size))
         .nest("/submissions", submission_routes())
@@ -25,6 +26,9 @@ fn auth_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::auth::register))
         .routes(routes!(handlers::auth::login))
         .routes(routes!(handlers::auth::me))
+        .routes(routes!(handlers::auth::request_device_code))
+        .routes(routes!(handlers::auth::authorize_device))
+        .routes(routes!(handlers::auth::poll_device_token))
 }
 
 fn user_routes() -> OpenApiRouter<AppState> {
@@ -34,21 +38,54 @@ fn user_routes() -> OpenApiRouter<AppState> {
 }
 
 fn admin_routes() -> OpenApiRouter<AppState> {
+    let upload = OpenApiRouter::new()
+        .routes(routes!(handlers::admin::upload_plugin))
+        .layer(handlers::admin::upload_body_limit());
+
     OpenApiRouter::new()
         .routes(routes!(handlers::admin::list_all_plugins))
         .routes(routes!(handlers::admin::get_plugin_details))
         .routes(routes!(handlers::admin::enable_plugin))
         .routes(routes!(handlers::admin::disable_plugin))
+        .routes(routes!(handlers::admin::reload_plugin))
+        .routes(routes!(handlers::admin::reload_all_plugins))
+        .merge(upload)
+        .nest("/plugins/{id}/config", plugin_global_config_routes())
+}
+
+fn plugin_global_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::plugin_config::list_plugin_global_config))
+        .routes(routes!(
+            handlers::plugin_config::get_plugin_global_config,
+            handlers::plugin_config::upsert_plugin_global_config,
+            handlers::plugin_config::delete_plugin_global_config,
+        ))
+}
+
+fn config_upload_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::config_upload::upload_config_blob))
+        .layer(handlers::config_upload::config_upload_body_limit())
 }
 
 fn plugin_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(handlers::plugin::call_plugin_func))
+        .routes(routes!(handlers::plugin::list_registries))
         .routes(routes!(handlers::plugin::list_active_plugins))
 }
 
 fn proxy_routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(handlers::proxy::handle_plugin_request))
+    OpenApiRouter::new().routes(routes!(
+        handlers::proxy::get_plugin_request,
+        handlers::proxy::post_plugin_request,
+        handlers::proxy::put_plugin_request,
+        handlers::proxy::delete_plugin_request,
+        handlers::proxy::patch_plugin_request,
+        handlers::proxy::options_plugin_request,
+        handlers::proxy::head_plugin_request,
+        handlers::proxy::trace_plugin_request,
+    ))
 }
 
 fn i18n_routes() -> OpenApiRouter<AppState> {
@@ -70,6 +107,8 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         ))
         .nest("/{id}/test-cases", test_case_routes())
         .nest("/{id}/attachments", attachment_routes())
+        .nest("/{id}/additional-files", additional_file_routes())
+        .nest("/{id}/config", problem_config_routes())
         .nest(
             "/{id}/submissions",
             problem_submission_routes(submission_max_size),
@@ -121,6 +160,21 @@ fn attachment_routes() -> OpenApiRouter<AppState> {
     read_delete.merge(upload)
 }
 
+fn additional_file_routes() -> OpenApiRouter<AppState> {
+    let read_delete = OpenApiRouter::new()
+        .routes(routes!(handlers::additional_file::list_additional_files))
+        .routes(routes!(
+            handlers::additional_file::download_additional_file,
+            handlers::additional_file::delete_additional_file,
+        ));
+
+    let upload = OpenApiRouter::new()
+        .routes(routes!(handlers::additional_file::upload_additional_file))
+        .layer(handlers::additional_file::additional_file_upload_body_limit());
+
+    read_delete.merge(upload)
+}
+
 fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(
@@ -139,6 +193,7 @@ fn contest_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         )
         .nest("/{id}/participants", contest_participant_routes())
         .nest("/{id}/submissions", contest_submission_routes())
+        .nest("/{id}/config", contest_config_routes())
         .nest("/{id}/clarifications", clarification_routes())
         .routes(routes!(
             handlers::contest::register_for_contest,
@@ -171,6 +226,7 @@ fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState>
             handlers::contest::update_contest_problem,
             handlers::contest::remove_contest_problem,
         ))
+        .nest("/{problem_id}/config", contest_problem_config_routes())
         .nest(
             "/{problem_id}/submissions",
             contest_problem_submission_routes(submission_max_size),
@@ -201,6 +257,38 @@ fn submission_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::submission::bulk_rejudge_submissions))
         .routes(routes!(handlers::submission::get_submission))
         .routes(routes!(handlers::submission::rejudge_submission))
+}
+
+fn problem_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::plugin_config::list_problem_config))
+        .routes(routes!(
+            handlers::plugin_config::get_problem_config,
+            handlers::plugin_config::upsert_problem_config,
+            handlers::plugin_config::delete_problem_config,
+        ))
+}
+
+fn contest_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::plugin_config::list_contest_config))
+        .routes(routes!(
+            handlers::plugin_config::get_contest_config,
+            handlers::plugin_config::upsert_contest_config,
+            handlers::plugin_config::delete_contest_config,
+        ))
+}
+
+fn contest_problem_config_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(
+            handlers::plugin_config::list_contest_problem_config
+        ))
+        .routes(routes!(
+            handlers::plugin_config::get_contest_problem_config,
+            handlers::plugin_config::upsert_contest_problem_config,
+            handlers::plugin_config::delete_contest_problem_config,
+        ))
 }
 
 fn dlq_routes() -> OpenApiRouter<AppState> {

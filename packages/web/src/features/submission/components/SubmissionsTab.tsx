@@ -15,15 +15,9 @@ import { ListSkeleton } from '@/components/ListSkeleton';
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
 import { useContest } from '@/features/contest/contexts/contest-context';
+import { fetchSupportedLanguages } from '@/features/problem/api/fetch-supported-languages';
 import { fetchContestSubmissions } from '@/features/submission/api/fetch-contest-submissions';
 import { useSubmissionColumns } from '@/features/submission/hooks/use-submission-columns';
-
-const LANGUAGE_OPTIONS = [
-  { label: 'C++', value: 'cpp' },
-  { label: 'C', value: 'c' },
-  { label: 'Java', value: 'java' },
-  { label: 'Python', value: 'python' },
-] as const;
 
 export function SubmissionsTab({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
@@ -49,6 +43,11 @@ export function SubmissionsTab({ contestId }: { contestId: number }) {
     queryKey: ['contest-problems', contestId],
     queryFn: () => fetchContestProblemList(apiClient, contestId),
   });
+  const { data: supportedLanguages = [] } = useQuery({
+    queryKey: ['supported-languages'],
+    queryFn: () => fetchSupportedLanguages(apiClient),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const problemOptions = useMemo(
     () => [
@@ -73,9 +72,12 @@ export function SubmissionsTab({ contestId }: { contestId: number }) {
   const languageDropdownOptions = useMemo(
     () => [
       { value: 'all', label: t('submissions.filters.allLanguages') },
-      ...LANGUAGE_OPTIONS,
+      ...supportedLanguages.map((language) => ({
+        value: language.id,
+        label: language.name,
+      })),
     ],
-    [t],
+    [supportedLanguages, t],
   );
 
   if (isProblemsLoading) {

@@ -1,30 +1,61 @@
 use super::error::SandboxError;
-use super::{
-    DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions, SandboxManager,
-    SandboxOptions,
-};
+use super::{DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions, SandboxManager};
 use crate::config::WorkerAppConfig;
 use async_trait::async_trait;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::fs;
 use tokio::process::Command;
+use tokio::sync::RwLock;
 
-#[derive(Debug, Default)]
-pub struct IsolateSandboxManager;
-
-fn isolate_bin() -> String {
-    WorkerAppConfig::load()
-        .map(|cfg| cfg.worker.isolate_bin)
-        .unwrap_or_else(|_| "isolate".to_string())
+#[derive(Debug)]
+pub struct IsolateSandboxManager {
+    isolate_bin: String,
+    enable_cgroups: bool,
+    /// Maps box_id -> working directory path (the `/box` subdirectory inside isolate's sandbox root).
+    sandboxes: Arc<RwLock<HashMap<String, PathBuf>>>,
 }
 
-fn should_enable_cgroups() -> bool {
-    WorkerAppConfig::load()
-        .map(|cfg| cfg.worker.enable_cgroups)
-        .unwrap_or(false)
+impl IsolateSandboxManager {
+    pub fn new(isolate_bin: String, enable_cgroups: bool) -> Self {
+        Self {
+            isolate_bin,
+            enable_cgroups,
+            sandboxes: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+}
+
+impl Default for IsolateSandboxManager {
+    fn default() -> Self {
+        let cfg = WorkerAppConfig::load().ok();
+        Self {
+            isolate_bin: cfg
+                .as_ref()
+                .map(|c| c.worker.isolate_bin.clone())
+                .unwrap_or_else(|| "isolate".to_string()),
+            enable_cgroups: cfg.map(|c| c.worker.enable_cgroups).unwrap_or(false),
+            sandboxes: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+}
+
+fn is_fifo(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        std::fs::metadata(path)
+            .map(|m| m.file_type().is_fifo())
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 fn parse_box_id(id: Option<&str>) -> Result<String, SandboxError> {
@@ -94,9 +125,8 @@ fn add_env_rule_args(command: &mut Command, rule: &EnvRule) {
 fn add_resource_limit_args(
     command: &mut Command,
     limits: &ResourceLimits,
+    cgroups_enabled: bool,
 ) -> Result<(), SandboxError> {
-    let cgroups_enabled = should_enable_cgroups();
-
     if let Some(time_limit) = limits.time_limit {
         command.arg(format!("--time={time_limit}"));
     }
@@ -174,16 +204,12 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
 
 #[async_trait]
 impl SandboxManager for IsolateSandboxManager {
-    async fn create_sandbox(
-        &mut self,
-        id: Option<&str>,
-        _options: &SandboxOptions,
-    ) -> Result<PathBuf, SandboxError> {
-        let mut command = Command::new(isolate_bin());
+    async fn create_sandbox(&self, id: Option<&str>) -> Result<PathBuf, SandboxError> {
+        let mut command = Command::new(&self.isolate_bin);
         if let Some(box_id) = id {
             command.arg(format!("--box-id={box_id}"));
         }
-        if should_enable_cgroups() {
+        if self.enable_cgroups {
             command.arg("--cg");
         }
         command.arg("--init");
@@ -206,15 +232,23 @@ impl SandboxManager for IsolateSandboxManager {
             ));
         }
 
-        Ok(PathBuf::from(path_text))
+        let working_dir = PathBuf::from(&path_text).join("box");
+        let box_id = id.unwrap_or("0").to_string();
+        self.sandboxes
+            .write()
+            .await
+            .insert(box_id, working_dir.clone());
+
+        Ok(working_dir)
     }
 
-    async fn remove_sandbox(&mut self, id: &str) -> Result<(), SandboxError> {
+    async fn remove_sandbox(&self, id: &str) -> Result<(), SandboxError> {
         let box_id = parse_box_id(Some(id))?;
+        self.sandboxes.write().await.remove(&box_id);
 
-        let mut command = Command::new(isolate_bin());
+        let mut command = Command::new(&self.isolate_bin);
         command.arg(format!("--box-id={box_id}"));
-        if should_enable_cgroups() {
+        if self.enable_cgroups {
             command.arg("--cg");
         }
         command.arg("--cleanup");
@@ -247,11 +281,14 @@ impl SandboxManager for IsolateSandboxManager {
         }
 
         let box_id = parse_box_id(Some(box_id))?;
-        let meta_path = std::env::temp_dir().join(format!("broccoli-isolate-{box_id}.meta"));
+        let meta_path = std::env::temp_dir().join(format!(
+            "broccoli-isolate-{box_id}-{}.meta",
+            uuid::Uuid::new_v4()
+        ));
 
-        let mut command = Command::new(isolate_bin());
+        let mut command = Command::new(&self.isolate_bin);
         command.arg(format!("--box-id={box_id}"));
-        if should_enable_cgroups() {
+        if self.enable_cgroups {
             command.arg("--cg");
         }
         command.arg(format!("--meta={}", meta_path.to_string_lossy()));
@@ -266,7 +303,11 @@ impl SandboxManager for IsolateSandboxManager {
             command.arg(format!("--as-gid={gid}"));
         }
 
-        add_resource_limit_args(&mut command, &run_options.resource_limits)?;
+        add_resource_limit_args(
+            &mut command,
+            &run_options.resource_limits,
+            self.enable_cgroups,
+        )?;
 
         if let Some(stdin) = &run_options.stdin {
             command.arg(format!("--stdin={}", stdin.to_string_lossy()));
@@ -293,14 +334,53 @@ impl SandboxManager for IsolateSandboxManager {
         match output.status.code() {
             Some(0) | Some(1) => {
                 let mut result = parse_meta_file(&meta_path).await?;
-                result.stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                result.stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let _ = fs::remove_file(&meta_path).await;
+                let box_dir = self
+                    .sandboxes
+                    .read()
+                    .await
+                    .get(&box_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        SandboxError::Execution(format!(
+                            "sandbox working directory not found for box id: {box_id}"
+                        ))
+                    })?;
+                result.stdout = if let Some(stdout_path) = &run_options.stdout {
+                    let resolved = box_dir.join(stdout_path);
+                    // FIFOs must not be re-read after process exit: the write
+                    // end is closed, so open(O_RDONLY) would block forever.
+                    if is_fifo(&resolved) {
+                        String::new()
+                    } else {
+                        tokio::fs::read_to_string(&resolved)
+                            .await
+                            .unwrap_or_default()
+                    }
+                } else {
+                    String::from_utf8_lossy(&output.stdout).to_string()
+                };
+                result.stderr = if let Some(stderr_path) = &run_options.stderr {
+                    let resolved = box_dir.join(stderr_path);
+                    if is_fifo(&resolved) {
+                        String::new()
+                    } else {
+                        tokio::fs::read_to_string(&resolved)
+                            .await
+                            .unwrap_or_default()
+                    }
+                } else {
+                    String::from_utf8_lossy(&output.stderr).to_string()
+                };
                 Ok(result)
             }
-            _ => Err(SandboxError::Unknown(format!(
-                "isolate internal error: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ))),
+            _ => {
+                let _ = fs::remove_file(&meta_path).await;
+                Err(SandboxError::Unknown(format!(
+                    "isolate internal error: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )))
+            }
         }
     }
 }

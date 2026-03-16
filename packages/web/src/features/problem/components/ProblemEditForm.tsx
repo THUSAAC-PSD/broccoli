@@ -30,6 +30,9 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     content: '',
     timeLimit: 1000,
     memoryLimit: 262144,
+    problemType: 'standard',
+    checkerFormat: 'exact',
+    defaultContestType: 'standard',
     showTestDetails: false,
     submissionFormat: {},
   });
@@ -64,6 +67,9 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
         content: data.content,
         timeLimit: data.time_limit,
         memoryLimit: data.memory_limit,
+        problemType: data.problem_type,
+        checkerFormat: data.checker_format,
+        defaultContestType: data.default_contest_type,
         showTestDetails: data.show_test_details,
         submissionFormat: data.submission_format ?? {},
       });
@@ -130,6 +136,9 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       content: formData.content,
       time_limit: formData.timeLimit,
       memory_limit: formData.memoryLimit,
+      problem_type: formData.problemType,
+      checker_format: formData.checkerFormat,
+      default_contest_type: formData.defaultContestType,
       show_test_details: formData.showTestDetails,
       submission_format:
         Object.keys(formData.submissionFormat).length > 0

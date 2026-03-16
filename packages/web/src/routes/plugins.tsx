@@ -2,9 +2,15 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
-import { Card, CardContent, CardHeader, Skeleton } from '@broccoli/web-sdk/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Skeleton,
+} from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Puzzle } from 'lucide-react';
+import { AlertCircle, Loader2, Puzzle, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -21,8 +27,12 @@ export default function PluginsPage() {
   const queryClient = useQueryClient();
 
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
+  const [reloadingIds, setReloadingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [isReloadingAll, setIsReloadingAll] = useState(false);
   const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
-  const { unloadPlugin } = usePluginRegistry();
+  const { unloadPlugin, reloadPlugin, reloadAllPlugins } = usePluginRegistry();
 
   const {
     data: plugins,
@@ -61,7 +71,7 @@ export default function PluginsPage() {
 
           // Unnecessary to load the plugin immediately, as it will be lazily
           // loaded when the user navigates to a page that uses it.
-          if (!enable) {
+          if (!enable && plugin.has_web) {
             unloadPlugin(plugin.id);
           }
         }
@@ -76,6 +86,45 @@ export default function PluginsPage() {
     [apiClient, queryClient, unloadPlugin, t],
   );
 
+  const handleReload = useCallback(
+    async (plugin: PluginDetail) => {
+      setReloadingIds((prev) => new Set(prev).add(plugin.id));
+      try {
+        const { error } = await apiClient.POST('/admin/plugins/{id}/reload', {
+          params: { path: { id: plugin.id } },
+        });
+
+        if (!error) {
+          await reloadPlugin(plugin.id);
+          queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
+          queryClient.invalidateQueries({ queryKey: ['i18n'] });
+        }
+      } finally {
+        setReloadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(plugin.id);
+          return next;
+        });
+      }
+    },
+    [apiClient, queryClient, reloadPlugin],
+  );
+
+  const handleReloadAll = useCallback(async () => {
+    setIsReloadingAll(true);
+    try {
+      const { error } = await apiClient.POST('/admin/plugins/reload-all', {});
+
+      if (!error) {
+        await reloadAllPlugins();
+        queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
+        queryClient.invalidateQueries({ queryKey: ['i18n'] });
+      }
+    } finally {
+      setIsReloadingAll(false);
+    }
+  }, [apiClient, queryClient, reloadAllPlugins]);
+
   if (!user || !user.permissions.includes('plugin:manage')) {
     return <Unauthorized />;
   }
@@ -86,6 +135,21 @@ export default function PluginsPage() {
       icon={<Puzzle className="h-6 w-6 text-primary" />}
       title={t('plugins.title')}
       subtitle={t('plugins.subtitle')}
+      actions={
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReloadAll}
+          disabled={isReloadingAll || isLoading}
+        >
+          {isReloadingAll ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
+          {t('plugins.reloadAll')}
+        </Button>
+      }
     >
       {isLoading && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -129,7 +193,9 @@ export default function PluginsPage() {
               key={plugin.id}
               plugin={plugin}
               toggling={togglingIds.has(plugin.id)}
+              reloading={reloadingIds.has(plugin.id)}
               onToggle={handleToggle}
+              onReload={handleReload}
               onClick={(p) => setDetailPluginId(p.id)}
             />
           ))}

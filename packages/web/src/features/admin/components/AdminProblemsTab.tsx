@@ -2,6 +2,7 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 import {
+  Badge,
   Button,
   DataTable,
   type DataTableColumn,
@@ -19,11 +20,19 @@ import {
 } from '@broccoli/web-sdk/ui';
 import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQueryClient } from '@tanstack/react-query';
-import { List, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  List,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Settings,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 
+import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
 import {
   ProblemForm,
   type ProblemFormData,
@@ -52,6 +61,9 @@ export function ProblemFormDialog({
   const [content, setContent] = useState('');
   const [timeLimit, setTimeLimit] = useState(1000);
   const [memoryLimit, setMemoryLimit] = useState(262144);
+  const [problemType, setProblemType] = useState('standard');
+  const [checkerFormat, setCheckerFormat] = useState('exact');
+  const [defaultContestType, setDefaultContestType] = useState('standard');
   const [showTestDetails, setShowTestDetails] = useState(false);
   const [submissionFormat, setSubmissionFormat] = useState<
     Record<string, string[]>
@@ -65,6 +77,9 @@ export function ProblemFormDialog({
     content,
     timeLimit,
     memoryLimit,
+    problemType,
+    checkerFormat,
+    defaultContestType,
     showTestDetails,
     submissionFormat,
   };
@@ -74,6 +89,9 @@ export function ProblemFormDialog({
     setContent(data.content);
     setTimeLimit(data.timeLimit);
     setMemoryLimit(data.memoryLimit);
+    setProblemType(data.problemType);
+    setCheckerFormat(data.checkerFormat);
+    setDefaultContestType(data.defaultContestType);
     setShowTestDetails(data.showTestDetails);
     setSubmissionFormat(data.submissionFormat);
   };
@@ -91,6 +109,9 @@ export function ProblemFormDialog({
           setContent(data.content);
           setTimeLimit(data.time_limit);
           setMemoryLimit(data.memory_limit);
+          setProblemType(data.problem_type);
+          setCheckerFormat(data.checker_format);
+          setDefaultContestType(data.default_contest_type);
           setShowTestDetails(data.show_test_details);
           setSubmissionFormat(data.submission_format ?? {});
         });
@@ -99,6 +120,9 @@ export function ProblemFormDialog({
       setContent('');
       setTimeLimit(1000);
       setMemoryLimit(262144);
+      setProblemType('standard');
+      setCheckerFormat('exact');
+      setDefaultContestType('standard');
       setShowTestDetails(false);
       setSubmissionFormat({});
     }
@@ -123,6 +147,9 @@ export function ProblemFormDialog({
       content,
       time_limit: timeLimit,
       memory_limit: memoryLimit,
+      problem_type: problemType,
+      checker_format: checkerFormat,
+      default_contest_type: defaultContestType,
       show_test_details: showTestDetails,
       submission_format:
         Object.keys(submissionFormat).length > 0 ? submissionFormat : null,
@@ -193,10 +220,12 @@ function useProblemColumns({
   onEdit,
   onDelete,
   onManageTestCases,
+  onConfigure,
 }: {
   onEdit: (problem: ProblemSummary) => void;
   onDelete: (problem: ProblemSummary) => void;
   onManageTestCases: (problem: ProblemSummary) => void;
+  onConfigure?: (problem: ProblemSummary) => void;
 }): DataTableColumn<ProblemSummary>[] {
   const { t, locale } = useTranslation();
   return [
@@ -235,6 +264,24 @@ function useProblemColumns({
       ),
     },
     {
+      accessorKey: 'problem_type',
+      header: t('admin.field.problemType'),
+      size: 120,
+      cell: ({ row }) => (
+        <Badge variant="outline">{row.original.problem_type}</Badge>
+      ),
+    },
+    {
+      accessorKey: 'checker_format',
+      header: t('admin.field.checkerFormat'),
+      size: 120,
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {row.original.checker_format}
+        </span>
+      ),
+    },
+    {
       accessorKey: 'created_at',
       header: t('admin.field.createdAt'),
       size: 180,
@@ -261,6 +308,12 @@ function useProblemColumns({
               <List className="h-4 w-4" />
               {t('admin.manageTestCases')}
             </DropdownMenuItem>
+            {onConfigure && (
+              <DropdownMenuItem onClick={() => onConfigure(row.original)}>
+                <Settings className="h-4 w-4" />
+                {t('admin.configure')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -286,6 +339,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const hasProblemConfig = useHasConfigSchemas('problem');
 
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<
@@ -293,6 +347,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   >();
   const [testCasesDialogOpen, setTestCasesDialogOpen] = useState(false);
   const [managingProblem, setManagingProblem] = useState<
+    ProblemSummary | undefined
+  >();
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [configProblem, setConfigProblem] = useState<
     ProblemSummary | undefined
   >();
 
@@ -309,6 +367,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   function handleManageTestCases(problem: ProblemSummary) {
     setManagingProblem(problem);
     setTestCasesDialogOpen(true);
+  }
+
+  function handleConfigure(problem: ProblemSummary) {
+    setConfigProblem(problem);
+    setConfigDialogOpen(true);
   }
 
   async function handleDeleteProblem(problem: ProblemSummary) {
@@ -328,6 +391,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onEdit: handleEditProblem,
     onDelete: handleDeleteProblem,
     onManageTestCases: handleManageTestCases,
+    onConfigure: hasProblemConfig ? handleConfigure : undefined,
   });
 
   return (
@@ -364,6 +428,14 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
           problem={managingProblem}
           open={testCasesDialogOpen}
           onOpenChange={setTestCasesDialogOpen}
+        />
+      )}
+      {configProblem && (
+        <ResourceConfigDialog
+          scope={{ scope: 'problem', problemId: configProblem.id }}
+          resourceLabel={configProblem.title}
+          open={configDialogOpen}
+          onOpenChange={setConfigDialogOpen}
         />
       )}
     </>

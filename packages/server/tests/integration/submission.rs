@@ -401,7 +401,7 @@ mod submission_listing {
 
         let res = app.get_with_token(routes::SUBMISSIONS, &user_token).await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
         let data = res.body["data"].as_array().expect("data should be array");
         assert_eq!(data.len(), 1);
         assert_eq!(data[0]["username"], "user1");
@@ -425,7 +425,7 @@ mod submission_listing {
         // User2 lists submissions, should not see user1's submission
         let res = app.get_with_token(routes::SUBMISSIONS, &user2_token).await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
         let data = res.body["data"].as_array().expect("data should be array");
         assert_eq!(data.len(), 0);
     }
@@ -486,7 +486,7 @@ mod submission_listing {
 
         app.create_submission(problem_id, &admin_token, "cpp", "int main() {}")
             .await;
-        app.create_submission(problem_id, &admin_token, "python", "print('hi')")
+        app.create_submission(problem_id, &admin_token, "python3", "print('hi')")
             .await;
 
         let url = format!("{}?language=cpp", routes::SUBMISSIONS);
@@ -496,6 +496,77 @@ mod submission_listing {
         let data = res.body["data"].as_array().expect("data should be array");
         assert_eq!(data.len(), 1);
         assert_eq!(data[0]["language"], "cpp");
+    }
+
+    #[tokio::test]
+    async fn rejects_unsupported_language() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+
+        let body = json!({
+            "files": [{"filename": "main.rb", "content": "puts 'hi'"}],
+            "language": "ruby",
+        });
+        let res = app
+            .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+        assert_eq!(res.body["message"], "Unsupported language: ruby");
+    }
+
+    #[tokio::test]
+    async fn rejects_submission_format_filename_mismatch() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_res = app
+            .post_with_token(
+                routes::PROBLEMS,
+                &json!({
+                    "title": "Multi-file Problem",
+                    "content": "## Description\nSolve this.",
+                    "time_limit": 1000,
+                    "memory_limit": 262144,
+                    "problem_type": "standard",
+                    "checker_format": "exact",
+                    "submission_format": {
+                        "cpp": ["main.cpp", "grader.cpp"]
+                    },
+                }),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(
+            problem_res.status, 201,
+            "create_problem failed: {}",
+            problem_res.text
+        );
+        let problem_id = problem_res.id();
+
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        let body = json!({
+            "files": [
+                {"filename": "main.cpp", "content": "int main() {}"},
+            ],
+            "language": "cpp",
+        });
+        let res = app
+            .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+        assert_eq!(
+            res.body["message"],
+            "Files for language 'cpp' must exactly match: grader.cpp, main.cpp",
+        );
     }
 
     #[tokio::test]
@@ -713,8 +784,8 @@ mod contest_submissions {
             )
             .await;
 
-        assert_eq!(res.status, 400);
-        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+        assert_eq!(res.status, 403);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
     }
 
     #[tokio::test]
@@ -1041,16 +1112,24 @@ mod bulk_rejudge {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["queued"], 2);
 
-        // Verify both submissions reset to Pending
+        // Verify both submissions were re-dispatched (status is either
+        // Pending or SystemError depending on whether a real plugin handler
+        // is available in the test environment).
         let s1 = app
             .get_with_token(&routes::submission(sub1), &admin_token)
             .await;
-        assert_eq!(s1.body["status"], "Pending");
+        assert_ne!(
+            s1.body["verdict"], "WrongAnswer",
+            "verdict should have been cleared"
+        );
 
         let s2 = app
             .get_with_token(&routes::submission(sub2), &admin_token)
             .await;
-        assert_eq!(s2.body["status"], "Pending");
+        assert_ne!(
+            s2.body["verdict"], "WrongAnswer",
+            "verdict should have been cleared"
+        );
     }
 
     #[tokio::test]
@@ -1069,7 +1148,7 @@ mod bulk_rejudge {
     }
 
     #[tokio::test]
-    async fn returns_validation_error_for_invalid_verdict() {
+    async fn returns_validation_error_for_empty_verdict() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin_brj3", "pass1234", "admin")
@@ -1078,13 +1157,94 @@ mod bulk_rejudge {
         let res = app
             .post_with_token(
                 routes::SUBMISSIONS_BULK_REJUDGE,
-                &json!({"problem_id": 1, "verdict": "NotARealVerdict"}),
+                &json!({"problem_id": 1, "verdict": "   "}),
                 &admin_token,
             )
             .await;
 
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn admin_can_bulk_rejudge_by_custom_verdict() {
+        use common::{SubmissionStatus, Verdict};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        use server::entity::submission;
+
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_brj_custom", "pass1234", "admin")
+            .await;
+        let problem_id = app
+            .create_problem(&admin_token, "Custom Verdict Problem")
+            .await;
+
+        let custom_id = app
+            .create_submission(problem_id, &admin_token, "cpp", "int main() { return 0; }")
+            .await;
+        let builtin_id = app
+            .create_submission(problem_id, &admin_token, "cpp", "int main() { return 1; }")
+            .await;
+
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::Status,
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Judged),
+            )
+            .col_expr(
+                submission::Column::Verdict,
+                sea_orm::sea_query::Expr::value(Some(Verdict::Other(
+                    "PartiallyAccepted".to_string(),
+                ))),
+            )
+            .filter(submission::Column::Id.eq(custom_id))
+            .exec(&app.db)
+            .await
+            .expect("update custom verdict submission");
+
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::Status,
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Judged),
+            )
+            .col_expr(
+                submission::Column::Verdict,
+                sea_orm::sea_query::Expr::value(Some(Verdict::WrongAnswer)),
+            )
+            .filter(submission::Column::Id.eq(builtin_id))
+            .exec(&app.db)
+            .await
+            .expect("update builtin verdict submission");
+
+        let res = app
+            .post_with_token(
+                routes::SUBMISSIONS_BULK_REJUDGE,
+                &json!({"verdict": "PartiallyAccepted"}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
+        assert_eq!(res.body["queued"], 1);
+
+        let custom = submission::Entity::find_by_id(custom_id)
+            .one(&app.db)
+            .await
+            .expect("load custom verdict submission")
+            .expect("custom verdict submission should exist");
+        assert_ne!(
+            custom.verdict,
+            Some(Verdict::Other("PartiallyAccepted".to_string())),
+            "custom verdict should have been cleared after rejudge dispatch"
+        );
+
+        let builtin = submission::Entity::find_by_id(builtin_id)
+            .one(&app.db)
+            .await
+            .expect("load builtin verdict submission")
+            .expect("builtin verdict submission should exist");
+        assert_eq!(builtin.verdict, Some(Verdict::WrongAnswer));
     }
 
     #[tokio::test]

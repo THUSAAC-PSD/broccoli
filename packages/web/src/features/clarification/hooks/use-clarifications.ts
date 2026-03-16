@@ -1,7 +1,6 @@
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-
-import { useTranslation } from '@broccoli/web-sdk/i18n';
 
 import {
   createClarification,

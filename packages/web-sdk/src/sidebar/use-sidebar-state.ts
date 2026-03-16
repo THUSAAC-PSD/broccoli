@@ -5,7 +5,7 @@ import { SidebarStateContext } from '@/sidebar/sidebar-state-context';
 export function useSidebarState() {
   const context = use(SidebarStateContext);
   if (!context) {
-    throw new Error('useState must be used within a StateProvider');
+    throw new Error('useSidebarState must be used within a SidebarProvider');
   }
   return context;
 }

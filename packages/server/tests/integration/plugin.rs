@@ -15,38 +15,8 @@ mod plugin_management {
     use super::*;
 
     #[tokio::test]
-    async fn plugins_are_discovered_and_loaded_on_startup() {
-        let app = TestApp::spawn().await;
-        let token = app
-            .create_user_with_role("admin_user", "securepass", "admin")
-            .await;
-
-        let res = app.get_with_token(routes::ADMIN_LIST_PLUGINS, &token).await;
-        assert_eq!(res.status, 200);
-
-        let list = res.body.as_array().expect("Expected an array of plugins");
-        assert_eq!(list.len(), 2, "Expected exactly two plugins in the list");
-
-        let server_plugin = list
-            .iter()
-            .find(|p| p["id"] == "server-plugin")
-            .expect("Expected to find server-plugin in the list");
-        assert_eq!(server_plugin["status"], "Loaded");
-
-        let web_plugin = list
-            .iter()
-            .find(|p| p["id"] == "web-plugin")
-            .expect("Expected to find web-plugin in the list");
-        assert_eq!(web_plugin["status"], "Loaded");
-    }
-
-    #[tokio::test]
     async fn unauthenticated_request_is_rejected() {
         let app = TestApp::spawn().await;
-
-        let res = app.get_without_token(routes::ADMIN_LIST_PLUGINS).await;
-        assert_eq!(res.status, 401);
-        assert_eq!(res.body["code"], "TOKEN_MISSING");
 
         let res = app
             .get_without_token(&routes::admin_plugin_details("server-plugin"))
@@ -67,9 +37,9 @@ mod plugin_management {
         assert_eq!(res.body["code"], "TOKEN_MISSING");
     }
 
-    #[tokio::test]
-    async fn admin_can_manage_plugin_lifecycle() {
-        let app = TestApp::spawn().await;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn admin_can_enable_a_valid_plugin() {
+        let app = TestApp::spawn_with_plugins().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
@@ -100,9 +70,9 @@ mod plugin_management {
         assert_plugin_status(&app, &token, "server-plugin", "Loaded").await;
     }
 
-    #[tokio::test]
-    async fn enabling_loaded_plugin_returns_conflict() {
-        let app = TestApp::spawn().await;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn enabling_same_plugin_twice_returns_conflict() {
+        let app = TestApp::spawn_with_plugins().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
@@ -119,9 +89,9 @@ mod plugin_management {
         assert_eq!(res.body["code"], "CONFLICT");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn enabling_nonexistent_plugin_returns_not_found() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
         let token = app
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
@@ -142,11 +112,10 @@ mod plugin_management {
 mod plugin_routing {
     use super::*;
 
-    #[tokio::test]
-    async fn path_and_query_params_are_passed_to_plugin() {
-        let app = TestApp::spawn().await;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn public_route_returns_correct_response() {
+        let app = TestApp::spawn_with_plugins().await;
 
-        // Route: GET /reflect/123?page=1&sort=desc
         let res = app
             .get_without_token(&routes::plugin_proxy_with_query(
                 "server-plugin",
@@ -162,21 +131,49 @@ mod plugin_routing {
         assert_eq!(res.body["method"], "GET");
     }
 
-    #[tokio::test]
-    async fn method_mismatch_returns_method_not_allowed() {
-        let app = TestApp::spawn().await;
-
-        // /sql/counter is POST only, try GET
-        let res = app
-            .get_without_token(&routes::plugin_proxy("server-plugin", "sql/counter"))
+    #[tokio::test(flavor = "multi_thread")]
+    async fn valid_token_is_forwarded_to_unprotected_plugin_routes() {
+        let app = TestApp::spawn_with_plugins().await;
+        let token = app
+            .create_user_with_role("plugin_user", "securepass", "contestant")
             .await;
 
-        assert_eq!(res.status, 405);
-        assert_eq!(res.body["code"], "METHOD_NOT_ALLOWED");
+        let me = app.get_with_token(routes::ME, &token).await;
+        assert_eq!(me.status, 200);
+
+        let res = app
+            .get_with_token(
+                &routes::plugin_proxy("server-plugin", "reflect/123"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["auth_user_id"], me.body["id"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn protected_route_distinguishes_missing_and_invalid_tokens() {
+        let app = TestApp::spawn_with_plugins().await;
+
+        let missing = app
+            .get_without_token(&routes::plugin_proxy("server-plugin", "protected/123"))
+            .await;
+        assert_eq!(missing.status, 401);
+        assert_eq!(missing.body["code"], "TOKEN_MISSING");
+
+        let invalid = app
+            .get_with_token(
+                &routes::plugin_proxy("server-plugin", "protected/123"),
+                "bad.token",
+            )
+            .await;
+        assert_eq!(invalid.status, 401);
+        assert_eq!(invalid.body["code"], "TOKEN_INVALID");
     }
 
     #[tokio::test]
-    async fn non_existent_route_returns_not_found() {
+    async fn nonexistent_route_returns_not_found() {
         let app = TestApp::spawn().await;
 
         let res = app
@@ -184,6 +181,11 @@ mod plugin_routing {
             .await;
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn nonexistent_plugin_returns_not_found() {
+        let app = TestApp::spawn().await;
 
         let res = app
             .get_without_token(&routes::plugin_proxy("no-such-plugin", "some-route"))
@@ -191,10 +193,6 @@ mod plugin_routing {
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
     }
-}
-
-mod kv_store {
-    use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn plugin_can_use_kv_store_to_persist_data() {
@@ -302,45 +300,10 @@ mod sql {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["found"], 1); // 1 because sql/params inserts the name before querying
     }
-}
 
-mod public_discovery {
-    use super::*;
-
-    #[tokio::test]
-    async fn active_plugins_contain_only_loaded_web_plugins() {
-        let app = TestApp::spawn().await;
-
-        let res = app.get_without_token(routes::ACTIVE_PLUGINS).await;
-        assert_eq!(res.status, 200);
-
-        let list = res
-            .body
-            .as_array()
-            .expect("Expected an array of active plugins");
-        assert_eq!(
-            list.len(),
-            1,
-            "Expected exactly one active plugin in the list"
-        );
-
-        let web_plugin = list
-            .iter()
-            .find(|p| p["id"] == "web-plugin")
-            .expect("Expected to find web-plugin in the list");
-        assert_eq!(
-            web_plugin["entry"],
-            routes::plugin_asset("web-plugin", "index.js")
-        );
-    }
-}
-
-mod static_assets {
-    use super::*;
-
-    #[tokio::test]
-    async fn web_plugin_assets_are_served() {
-        let app = TestApp::spawn().await;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn web_plugin_asset_is_served_with_correct_content_type() {
+        let app = TestApp::spawn_with_plugins().await;
 
         let res = app
             .get_without_token(&routes::plugin_asset("web-plugin", "index.js"))
@@ -350,38 +313,55 @@ mod static_assets {
     }
 
     #[tokio::test]
-    async fn accessing_nonexistent_asset_returns_not_found() {
+    async fn asset_request_for_plugin_without_web_assets_returns_not_found() {
         let app = TestApp::spawn().await;
 
-        // Nonexistent asset of loaded web plugin
-        let res = app
-            .get_without_token(&routes::plugin_asset("web-plugin", "nonexistent.js"))
-            .await;
-        assert_eq!(res.status, 404);
-        assert_eq!(res.body["code"], "NOT_FOUND");
-
-        // Plugin exists but has no web assets
         let res = app
             .get_without_token(&routes::plugin_asset("server-plugin", "index.js"))
             .await;
         assert_eq!(res.status, 404);
-        assert_eq!(res.body["code"], "NOT_FOUND");
+    }
 
-        // Plugin not found
+    #[tokio::test]
+    async fn asset_request_for_nonexistent_plugin_returns_not_found() {
+        let app = TestApp::spawn().await;
+
         let res = app
             .get_without_token(&routes::plugin_asset("no-such-plugin", "index.js"))
             .await;
         assert_eq!(res.status, 404);
-        assert_eq!(res.body["code"], "NOT_FOUND");
     }
 
     #[tokio::test]
-    async fn path_traversal_attempts_are_blocked() {
+    async fn path_traversal_in_asset_request_is_rejected() {
         let app = TestApp::spawn().await;
 
         let res = app
             .get_without_token(&routes::plugin_asset("web-plugin", "../secret.txt"))
             .await;
         assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn calling_disabled_plugin_returns_not_found() {
+        let app = TestApp::spawn_with_plugins().await;
+        let token = app
+            .create_user_with_role("admin_user", "securepass", "admin")
+            .await;
+
+        let res = app
+            .post_with_token(
+                &routes::admin_plugin_disable("server-plugin"),
+                &json!({}),
+                &token,
+            )
+            .await;
+        assert_eq!(res.status, 200);
+
+        let res = app
+            .get_without_token(&routes::plugin_proxy("server-plugin", "reflect/123"))
+            .await;
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
     }
 }

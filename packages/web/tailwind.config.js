@@ -1,4 +1,4 @@
-import broccoliPreset from '@broccoli/web-sdk/tailwind-preset';
+import { broccoliPreset } from '@broccoli/web-sdk/tailwind-preset';
 import path from 'path';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);

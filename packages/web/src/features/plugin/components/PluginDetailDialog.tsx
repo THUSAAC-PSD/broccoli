@@ -232,13 +232,13 @@ function PluginDetailContent({ plugin }: { plugin: PluginFullDetail }) {
       )}
 
       {/* Translations section */}
-      {plugin.translations.length > 0 && (
+      {plugin.translations && plugin.translations.length > 0 && (
         <Section
           title={t('plugins.detail.translations')}
           icon={<Globe className="h-4 w-4" />}
         >
           <div className="flex flex-wrap gap-1">
-            {plugin.translations.map((locale) => (
+            {plugin.translations?.map((locale) => (
               <Badge key={locale} variant="secondary" className="text-xs">
                 {locale}
               </Badge>
@@ -287,17 +287,19 @@ export function PluginDetailDialog({
           <DialogTitle>
             {plugin ? plugin.name : t('plugins.detail.title')}
           </DialogTitle>
-          <DialogDescription>
-            {plugin && (
-              <span className="font-mono text-xs">
-                {plugin.id} · v{plugin.version}
-                {plugin.status !== 'Loaded' && (
-                  <Badge variant="outline" className="ml-2 text-xs">
-                    {plugin.status}
-                  </Badge>
-                )}
-              </span>
-            )}
+          <DialogDescription asChild>
+            <div className="text-sm text-muted-foreground">
+              {plugin && (
+                <span className="font-mono text-xs">
+                  {plugin.id} · v{plugin.version}
+                  {plugin.status !== 'Loaded' && (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      {plugin.status}
+                    </Badge>
+                  )}
+                </span>
+              )}
+            </div>
           </DialogDescription>
         </DialogHeader>
 

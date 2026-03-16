@@ -11,6 +11,29 @@ import { useApiClient } from '@/api';
 import { I18nContext } from '@/i18n/i18n-context';
 import type { TranslationMap } from '@/i18n/types';
 
+const PLACEHOLDER_PATTERN =
+  /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}|\{\s*([a-zA-Z0-9_]+)\s*\}/g;
+
+function interpolateTranslation(
+  value: string,
+  params?: Record<string, string | number>,
+) {
+  if (!params) {
+    return value;
+  }
+
+  return value.replaceAll(
+    PLACEHOLDER_PATTERN,
+    (match, doubleKey, singleKey) => {
+      const key = doubleKey || singleKey;
+      if (!Object.hasOwn(params, key)) {
+        return match;
+      }
+      return String(params[key]);
+    },
+  );
+}
+
 interface I18nProviderProps {
   children: ReactNode;
   localeKey?: string;
@@ -69,7 +92,6 @@ export function I18nProvider({
       const { data } = await apiClient.GET('/i18n/translations/{locale}', {
         params: { path: { locale } },
       });
-      console.log('Fetched plugin translations for locale', locale, data);
       return data ?? {};
     },
     // Keep previous translations while loading new ones to prevent UI flickering
@@ -77,18 +99,13 @@ export function I18nProvider({
   });
 
   const t = useCallback(
-    (key: string, params?: Record<string, string>) => {
-      let value =
+    (key: string, params?: Record<string, string | number>) => {
+      const value =
         pluginTranslations[key] ??
         coreI18n[locale]?.[key] ??
         coreI18n['en']?.[key] ??
         key;
-      if (params) {
-        for (const [param, replacement] of Object.entries(params)) {
-          value = value.replace(`{${param}}`, replacement);
-        }
-      }
-      return value;
+      return interpolateTranslation(value, params);
     },
     [locale, pluginTranslations, coreI18n],
   );

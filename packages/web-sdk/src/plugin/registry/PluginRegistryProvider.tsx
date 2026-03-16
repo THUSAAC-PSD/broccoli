@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import {
   type ReactNode,
   useCallback,
@@ -58,21 +59,48 @@ export function PluginRegistryProvider({
   const [errors, setErrors] = useState<Map<string, Error>>(() => new Map());
 
   const apiClient = useApiClient();
+  const queryClient = useQueryClient();
+
+  const resolvePluginEntryUrl = useCallback(
+    (entry: string, bustCache = false) => {
+      const url = new URL(entry, backendUrl);
+      if (bustCache) {
+        url.searchParams.set('_ts', `${Date.now()}`);
+      }
+      return url.toString();
+    },
+    [backendUrl],
+  );
+
+  const refreshI18n = useCallback(async () => {
+    await Promise.all([
+      queryClient.refetchQueries({
+        queryKey: ['i18n', 'locales'],
+        type: 'active',
+      }),
+      queryClient.refetchQueries({
+        queryKey: ['i18n', 'translations'],
+        type: 'active',
+      }),
+    ]);
+  }, [queryClient]);
 
   const unloadPlugin = useCallback(async (pluginId: string) => {
     const manifest = activeManifests.current.get(pluginId);
     const module = activeModules.current.get(pluginId);
 
     if (!manifest || !module) {
-      console.warn(
-        `Plugin with id '${pluginId}' is not loaded. Cannot unload.`,
-      );
       return;
     }
 
     try {
       // Call onDestroy if provided
       await module.onDestroy?.();
+
+      // Remove plugin CSS
+      document
+        .querySelectorAll(`link[data-plugin-id="${pluginId}"]`)
+        .forEach((el) => el.remove());
 
       // Remove plugin components
       if (manifest.components) {
@@ -173,30 +201,163 @@ export function PluginRegistryProvider({
     [unloadPlugin],
   );
 
-  const loadAllPlugins = useCallback(async () => {
-    const { data: pluginList, error } = await apiClient.GET('/plugins/active');
+  const loadRemotePlugins = useCallback(
+    async (bustCache = false) => {
+      const { data: pluginList, error } =
+        await apiClient.GET('/plugins/active');
 
-    if (error) {
-      console.warn(`Failed to fetch active plugins:`, error);
-      return;
-    }
+      if (error) {
+        console.warn(`Failed to fetch active plugins:`, error);
+        return;
+      }
 
-    const results = await Promise.allSettled(
-      pluginList.map(async (pluginInfo) => {
-        const pluginModule: PluginModule = pluginInfo.entry
-          ? await import(/* @vite-ignore */ `${backendUrl}${pluginInfo.entry}`)
-          : {}; // For translation-only plugins without an entry point
-        await loadPlugin(pluginInfo, pluginModule);
-      }),
-    );
+      const results = await Promise.allSettled(
+        pluginList.map(async (pluginInfo) => {
+          // Load CSS files declared by the plugin
+          if (pluginInfo.css && pluginInfo.css.length > 0) {
+            for (const cssUrl of pluginInfo.css) {
+              const href = resolvePluginEntryUrl(cssUrl, bustCache);
+              // Avoid duplicate <link> tags — match by plugin ID, not href
+              // (href includes cache-buster query params that change on reload)
+              const existing = document.querySelector(
+                `link[data-plugin-id="${pluginInfo.id}"][data-css-file="${cssUrl}"]`,
+              );
+              if (!existing) {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                link.dataset.pluginId = pluginInfo.id;
+                link.dataset.cssFile = cssUrl;
+                document.head.appendChild(link);
+              } else {
+                // Update href to pick up new cache buster on reload
+                existing.setAttribute('href', href);
+              }
+            }
+          }
 
-    const failed = results.filter((r) => r.status === 'rejected');
-    if (failed.length > 0) {
-      console.warn(
-        `${failed.length}/${pluginList.length} plugins failed to load.`,
+          const pluginModule: PluginModule = pluginInfo.entry
+            ? await import(
+                /* @vite-ignore */ resolvePluginEntryUrl(
+                  pluginInfo.entry,
+                  bustCache,
+                )
+              )
+            : {}; // For translation-only plugins without an entry point
+          await loadPlugin(pluginInfo, pluginModule);
+        }),
       );
+
+      const failed = results.filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected',
+      );
+      await refreshI18n();
+      if (failed.length > 0) {
+        console.warn(
+          `${failed.length}/${pluginList.length} plugins failed to load.`,
+        );
+        for (const r of failed) {
+          console.error('Plugin load error:', r.reason);
+        }
+      }
+    },
+    [apiClient, loadPlugin, refreshI18n, resolvePluginEntryUrl],
+  );
+
+  const loadAllPlugins = useCallback(
+    async () => loadRemotePlugins(false),
+    [loadRemotePlugins],
+  );
+
+  const reloadPlugin = useCallback(
+    async (pluginId: string) => {
+      await unloadPlugin(pluginId);
+
+      setErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(pluginId);
+        return next;
+      });
+
+      const { data: pluginList, error } =
+        await apiClient.GET('/plugins/active');
+      if (error) {
+        console.warn(`Failed to fetch active plugins for reload:`, error);
+        return;
+      }
+
+      const pluginInfo = pluginList.find((p) => p.id === pluginId);
+      if (!pluginInfo) {
+        console.warn(
+          `Plugin '${pluginId}' not found in active plugins after reload`,
+        );
+        return;
+      }
+
+      // Dynamic import with new URL (cache buster ensures fresh module)
+      try {
+        // Load CSS files declared by the plugin
+        if (pluginInfo.css && pluginInfo.css.length > 0) {
+          for (const cssUrl of pluginInfo.css) {
+            const href = resolvePluginEntryUrl(cssUrl, true);
+            const existing = document.querySelector(
+              `link[data-plugin-id="${pluginInfo.id}"][data-css-file="${cssUrl}"]`,
+            );
+            if (!existing) {
+              const link = document.createElement('link');
+              link.rel = 'stylesheet';
+              link.href = href;
+              link.dataset.pluginId = pluginInfo.id;
+              link.dataset.cssFile = cssUrl;
+              document.head.appendChild(link);
+            } else {
+              existing.setAttribute('href', href);
+            }
+          }
+        }
+
+        const pluginModule: PluginModule = pluginInfo.entry
+          ? await import(
+              /* @vite-ignore */ resolvePluginEntryUrl(pluginInfo.entry, true)
+            )
+          : {};
+        await loadPlugin(pluginInfo, pluginModule);
+        await refreshI18n();
+      } catch (err) {
+        console.error(`Failed to reload plugin '${pluginId}':`, err);
+        setErrors((prev) =>
+          new Map(prev).set(
+            pluginId,
+            err instanceof Error ? err : new Error(String(err)),
+          ),
+        );
+      }
+    },
+    [apiClient, loadPlugin, refreshI18n, resolvePluginEntryUrl, unloadPlugin],
+  );
+
+  const reloadAllPlugins = useCallback(async () => {
+    const remotePluginIds: string[] = [];
+    activeManifests.current.forEach((manifest, id) => {
+      if (manifest.entry) {
+        remotePluginIds.push(id);
+      }
+    });
+
+    for (const id of remotePluginIds) {
+      await unloadPlugin(id);
     }
-  }, [apiClient, backendUrl, loadPlugin]);
+
+    setErrors((prev) => {
+      const next = new Map(prev);
+      for (const id of remotePluginIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+
+    await loadRemotePlugins(true);
+  }, [loadRemotePlugins, unloadPlugin]);
 
   const getSlots = useCallback(
     (slotName: string): SlotConfig[] => {
@@ -246,6 +407,7 @@ export function PluginRegistryProvider({
     const load = async () => {
       await loadAllPlugins();
       setRemoteLoaded(true);
+      await refreshI18n();
     };
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,6 +423,8 @@ export function PluginRegistryProvider({
         loadPlugin,
         loadAllPlugins,
         unloadPlugin,
+        reloadPlugin,
+        reloadAllPlugins,
         getSlots,
         errors,
       }}
