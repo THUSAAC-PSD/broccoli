@@ -200,15 +200,15 @@ impl MockSandboxManager {
                         // Concurrent steps in the same layer may race to
                         // create the same symlink.  If the symlink already
                         // points to the correct target, treat it as success.
-                        if let Ok(target) = std::fs::read_link(&inside_path) {
-                            if target != *outside_path {
-                                return Err(SandboxError::Initialization(format!(
-                                    "mock directory mapping {} exists but points to {}, expected {}",
-                                    inside_path.display(),
-                                    target.display(),
-                                    outside_path.display()
-                                )));
-                            }
+                        if let Ok(target) = std::fs::read_link(&inside_path)
+                            && target != *outside_path
+                        {
+                            return Err(SandboxError::Initialization(format!(
+                                "mock directory mapping {} exists but points to {}, expected {}",
+                                inside_path.display(),
+                                target.display(),
+                                outside_path.display()
+                            )));
                         }
                     }
                     Err(err) => {

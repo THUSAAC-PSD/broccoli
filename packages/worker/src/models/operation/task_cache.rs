@@ -101,6 +101,7 @@ impl TaskCacheStore for NoopTaskCacheStore {
     }
 }
 
+#[allow(clippy::module_inception)]
 pub mod task_cache {
     use sea_orm::entity::prelude::*;
     use serde::{Deserialize, Serialize};
