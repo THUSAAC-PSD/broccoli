@@ -606,6 +606,24 @@ export const en: Record<string, string> = {
   'clarification.replySuccess': 'Reply sent.',
   'clarification.replyError': 'Failed to send reply.',
 
+  // Dock layout
+  'dock.empty': 'No panels open',
+  'dock.emptyHint': 'Reopen panels from the bar above, or reset the layout',
+  'dock.resetLayout': 'Reset Layout',
+  'dock.reopen': 'Reopen',
+
+  // Submissions panel
+  'result.submitting': 'Submitting...',
+  'result.noSubmissions': 'No submissions yet',
+  'result.sessionSubmissions': 'This Session',
+  'result.pastSubmissions': 'History',
+  'result.loadMore': 'Load more',
+  'result.score': 'Score: {value}',
+  'result.timeHeader': 'Time',
+  'result.memoryHeader': 'Mem',
+  'result.justNow': 'just now',
+  'result.secondsAgo': '{count}s ago',
+
   // Common
   'common.cancel': 'Cancel',
 };

@@ -4,10 +4,6 @@ import { Slot } from '@broccoli/web-sdk/slot';
 import { useTheme } from '@broccoli/web-sdk/theme';
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -620,6 +616,8 @@ export function CodeEditor({
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
+      // Only intercept file drops — let dockview panel drags pass through
+      if (!e.dataTransfer.types.includes('Files')) return;
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer.files.length > 0) {
@@ -630,170 +628,184 @@ export function CodeEditor({
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     e.stopPropagation();
   }, []);
 
+  const toolbar = (
+    <div className="flex items-center gap-2">
+      <Slot
+        name="problem-detail.editor.toolbar"
+        as="div"
+        className="flex items-center gap-2"
+      />
+      {contestTypes && contestTypes.length > 0 && onContestTypeChange && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              {contestType ?? 'standard'}
+              <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {contestTypes.map((ct) => (
+              <DropdownMenuItem
+                key={ct}
+                onClick={() => onContestTypeChange(ct)}
+              >
+                {ct}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleUploadClick}
+        title={t('editor.upload')}
+      >
+        <Upload className="h-4 w-4" />
+      </Button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".c,.cpp,.cc,.cxx,.h,.hpp,.py,.java,.js,.ts,.txt,.json,.xml,.md,.sh,.yml,.yaml,.zip"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+      {onToggleFullscreen && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggleFullscreen}
+          aria-label={t('editor.toggleFullscreen')}
+        >
+          {isFullscreen ? (
+            <Minimize2 className="h-4 w-4" />
+          ) : (
+            <Maximize2 className="h-4 w-4" />
+          )}
+        </Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            {selectedLanguage.name}
+            <ChevronDown className="ml-2 h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {availableLanguages.map((lang) => (
+            <DropdownMenuItem
+              key={lang.id}
+              onClick={() => handleLanguageChange(lang)}
+            >
+              {lang.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const fileTabs = (
+    <div className="flex items-center gap-0 overflow-x-auto border-b">
+      {files.map((file) => (
+        <button
+          key={file.id}
+          type="button"
+          onClick={() => setActiveFileId(file.id)}
+          className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+            file.id === activeFileId
+              ? 'border-primary text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
+          }`}
+        >
+          <span>{file.filename.split('/').pop()}</span>
+          {files.length > 1 && !isSubmissionFormatLocked && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                closeFile(file.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  closeFile(file.id);
+                }
+              }}
+              className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          )}
+        </button>
+      ))}
+      {!isSubmissionFormatLocked && (
+        <button
+          type="button"
+          onClick={addNewFile}
+          title={t('editor.addFile')}
+          className="flex items-center px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors border-b-2 border-transparent"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+
+  const editorArea = (
+    <div className="flex-1 min-h-0 border rounded-lg overflow-hidden">
+      <Editor
+        height="100%"
+        language={getMonacoLanguage(activeFile.filename)}
+        value={activeFile.content}
+        onChange={(value) => updateFileContent(activeFile.id, value || '')}
+        onMount={handleEditorDidMount}
+        theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+        options={{
+          minimap: { enabled: false },
+          fontSize: 14,
+          lineNumbers: 'on',
+          roundedSelection: false,
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          tabSize: 4,
+          wordWrap: 'on',
+        }}
+      />
+    </div>
+  );
+
+  const actionButtons = (
+    <div className="flex gap-2 justify-end">
+      <Button variant="outline" onClick={handleRun}>
+        <Play className="mr-2 h-4 w-4" />
+        {t('editor.run')}
+      </Button>
+      <Button onClick={handleSubmit}>{t('editor.submit')}</Button>
+    </div>
+  );
+
   return (
-    <Card
+    <div
       className="h-full flex flex-col"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle>{t('editor.title')}</CardTitle>
-        <div className="flex items-center gap-2">
-          <Slot
-            name="problem-detail.editor.toolbar"
-            as="div"
-            className="flex items-center gap-2"
-          />
-          {contestTypes && contestTypes.length > 0 && onContestTypeChange && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  {contestType ?? 'standard'}
-                  <ChevronDown className="ml-2 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {contestTypes.map((ct) => (
-                  <DropdownMenuItem
-                    key={ct}
-                    onClick={() => onContestTypeChange(ct)}
-                  >
-                    {ct}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleUploadClick}
-            title={t('editor.upload')}
-          >
-            <Upload className="h-4 w-4" />
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".c,.cpp,.cc,.cxx,.h,.hpp,.py,.java,.js,.ts,.txt,.json,.xml,.md,.sh,.yml,.yaml,.zip"
-            className="hidden"
-            onChange={handleFileInputChange}
-          />
-          {onToggleFullscreen && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggleFullscreen}
-              aria-label={t('editor.toggleFullscreen')}
-            >
-              {isFullscreen ? (
-                <Minimize2 className="h-4 w-4" />
-              ) : (
-                <Maximize2 className="h-4 w-4" />
-              )}
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                {selectedLanguage.name}
-                <ChevronDown className="ml-2 h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {availableLanguages.map((lang) => (
-                <DropdownMenuItem
-                  key={lang.id}
-                  onClick={() => handleLanguageChange(lang)}
-                >
-                  {lang.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 flex flex-col gap-4 p-0 px-6 pb-6">
-        {/* File tabs */}
-        <div className="flex items-center gap-0 overflow-x-auto border-b -mt-2">
-          {files.map((file) => (
-            <button
-              key={file.id}
-              type="button"
-              onClick={() => setActiveFileId(file.id)}
-              className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
-                file.id === activeFileId
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
-              }`}
-            >
-              <span>{file.filename.split('/').pop()}</span>
-              {files.length > 1 && !isSubmissionFormatLocked && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeFile(file.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.stopPropagation();
-                      closeFile(file.id);
-                    }
-                  }}
-                  className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
-                >
-                  <X className="h-3 w-3" />
-                </span>
-              )}
-            </button>
-          ))}
-          {!isSubmissionFormatLocked && (
-            <button
-              type="button"
-              onClick={addNewFile}
-              title={t('editor.addFile')}
-              className="flex items-center px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors border-b-2 border-transparent"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1 min-h-[400px] border rounded-lg overflow-hidden">
-          <Editor
-            height="100%"
-            language={getMonacoLanguage(activeFile.filename)}
-            value={activeFile.content}
-            onChange={(value) => updateFileContent(activeFile.id, value || '')}
-            onMount={handleEditorDidMount}
-            theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: 'on',
-              roundedSelection: false,
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              tabSize: 4,
-              wordWrap: 'on',
-            }}
-          />
-        </div>
-        <div className="flex gap-2 justify-end">
-          <Button variant="outline" onClick={handleRun}>
-            <Play className="mr-2 h-4 w-4" />
-            {t('editor.run')}
-          </Button>
-          <Button onClick={handleSubmit}>{t('editor.submit')}</Button>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
+        {toolbar}
+      </div>
+      {fileTabs}
+      <div className="flex-1 flex flex-col gap-3 p-3 min-h-0">
+        {editorArea}
+        {actionButtons}
+      </div>
+    </div>
   );
 }
