@@ -432,6 +432,8 @@ export const en: Record<string, string> = {
     'Drag & drop images, paste screenshots, or type ![ for autocomplete',
   'admin.attachments.insertImage': 'Insert image',
   'admin.attachments.insertFile': 'Insert file',
+  'admin.attachments.pickerTitle': 'Attachments',
+  'admin.attachments.pickerHint': 'Click or drag into editor to insert',
   'admin.manageAttachments': 'Manage Attachments',
 
   // Test Cases (admin)
