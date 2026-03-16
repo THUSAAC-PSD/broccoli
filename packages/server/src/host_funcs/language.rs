@@ -8,6 +8,8 @@ use serde::Deserialize;
 struct GetLanguageConfigInput {
     language: String,
     submitted_filename: String,
+    #[serde(default)]
+    extra_sources: Vec<String>,
 }
 
 type LanguageUserData = (String, HashMap<String, LanguageDefinition>);
@@ -43,8 +45,13 @@ fn get_language_config_fn(
         .map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, languages) = &*user_data;
 
-    let resolved = resolve_language(&input.language, &input.submitted_filename, languages)
-        .map_err(|e| extism::Error::msg(format!("Language config error: {}", e)))?;
+    let resolved = resolve_language(
+        &input.language,
+        &input.submitted_filename,
+        languages,
+        &input.extra_sources,
+    )
+    .map_err(|e| extism::Error::msg(format!("Language config error: {}", e)))?;
 
     tracing::debug!(
         plugin_id = %plugin_id,

@@ -318,14 +318,46 @@ impl SandboxManager for IsolateSandboxManager {
         if let Some(stderr) = &run_options.stderr {
             command.arg(format!("--stderr={}", stderr.to_string_lossy()));
         }
-        for rule in &run_options.env_rules {
-            add_env_rule_args(&mut command, rule);
+        if run_options.env_rules.is_empty() {
+            // Default to inheriting the full environment so that tools like
+            // g++ can locate sub-programs (ld, as, etc.) via PATH.
+            command.arg("--full-env");
+        } else {
+            for rule in &run_options.env_rules {
+                add_env_rule_args(&mut command, rule);
+            }
         }
         for rule in &run_options.directory_rules {
             add_directory_rule_args(&mut command, rule);
         }
 
-        command.arg("--run").arg("--").args(argv);
+        // Isolate resolves relative paths from `/box/` (the working directory
+        // inside the chroot).  Directory mounts via `--dir` are placed at the
+        // sandbox root, e.g. `--dir=/channels=<host>:rw` mounts at `/channels`,
+        // NOT at `/box/channels`.  Plugins produce relative argv paths like
+        // `channels/c0_to_m` (which resolves to `/box/channels/c0_to_m` inside
+        // the chroot — not the mount point).
+        //
+        // To bridge this gap, rewrite argv elements whose leading segment
+        // matches an absolute directory-rule inside_path.  For example, if a
+        // rule has inside_path `/channels` and an argv element is
+        // `channels/c0_to_m`, rewrite it to `/channels/c0_to_m`.
+        let rewritten_argv: Vec<String> = argv
+            .into_iter()
+            .map(|arg| {
+                for rule in &run_options.directory_rules {
+                    let inside = rule.inside_path.to_string_lossy();
+                    if let Some(rel) = inside.strip_prefix('/') {
+                        if arg == rel || arg.starts_with(&format!("{rel}/")) {
+                            return format!("/{arg}");
+                        }
+                    }
+                }
+                arg
+            })
+            .collect();
+
+        command.arg("--run").arg("--").args(&rewritten_argv);
 
         let output = command.output().await.map_err(|err| {
             SandboxError::Execution(format!("failed to execute isolate --run: {err}"))
@@ -353,9 +385,17 @@ impl SandboxManager for IsolateSandboxManager {
                     if is_fifo(&resolved) {
                         String::new()
                     } else {
-                        tokio::fs::read_to_string(&resolved)
-                            .await
-                            .unwrap_or_default()
+                        match tokio::fs::read_to_string(&resolved).await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::warn!(
+                                    path = %resolved.display(),
+                                    error = %e,
+                                    "Failed to read stdout file after execution"
+                                );
+                                String::new()
+                            }
+                        }
                     }
                 } else {
                     String::from_utf8_lossy(&output.stdout).to_string()
@@ -365,9 +405,17 @@ impl SandboxManager for IsolateSandboxManager {
                     if is_fifo(&resolved) {
                         String::new()
                     } else {
-                        tokio::fs::read_to_string(&resolved)
-                            .await
-                            .unwrap_or_default()
+                        match tokio::fs::read_to_string(&resolved).await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::warn!(
+                                    path = %resolved.display(),
+                                    error = %e,
+                                    "Failed to read stderr file after execution"
+                                );
+                                String::new()
+                            }
+                        }
                     }
                 } else {
                     String::from_utf8_lossy(&output.stderr).to_string()

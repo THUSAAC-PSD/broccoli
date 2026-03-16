@@ -71,7 +71,7 @@ pub async fn list_registries(
         .languages
         .keys()
         .map(|id| {
-            let default_filename = resolve_language(id, "", &state.config.languages)
+            let default_filename = resolve_language(id, "", &state.config.languages, &[])
                 .map(|resolved| resolved.source_filename)
                 .unwrap_or_else(|_| "solution.txt".to_string());
             LanguageRegistryItem {

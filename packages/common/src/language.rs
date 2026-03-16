@@ -57,12 +57,18 @@ pub struct ResolvedLanguage {
 
 /// Resolve a `LanguageDefinition` to concrete commands and filenames for one submission.
 ///
+/// `extra_sources` lists additional source filenames (e.g. grader stubs) that
+/// should be compiled together with the primary source. When `{source}` appears
+/// as an entire argument in `compile_cmd`, it expands to the primary source
+/// filename followed by all extra sources.
+///
 /// Returns `Err` if the language ID is unknown or if any required field
 /// is empty after expansion.
 pub fn resolve_language(
     lang_id: &str,
     submitted_filename: &str,
     definitions: &HashMap<String, LanguageDefinition>,
+    extra_sources: &[String],
 ) -> Result<ResolvedLanguage, String> {
     let def = definitions
         .get(lang_id)
@@ -101,7 +107,19 @@ pub fn resolve_language(
             .replace("{source}", &source_filename)
             .replace("{binary}", &binary_name)
     };
-    let expand_cmd = |cmd: &[String]| cmd.iter().map(|a| expand(a)).collect::<Vec<_>>();
+    let expand_cmd = |cmd: &[String]| {
+        let mut result = Vec::new();
+        for arg in cmd {
+            if arg == "{source}" {
+                // Expand to primary source + all extra sources
+                result.push(source_filename.clone());
+                result.extend(extra_sources.iter().cloned());
+            } else {
+                result.push(expand(arg));
+            }
+        }
+        result
+    };
 
     Ok(ResolvedLanguage {
         compile_cmd: def.compile_cmd.as_deref().map(expand_cmd),
@@ -136,7 +154,7 @@ mod tests {
     }
 
     fn resolve(lang_id: &str, submitted: &str, def: LanguageDefinition) -> ResolvedLanguage {
-        resolve_language(lang_id, submitted, &one(lang_id, def)).unwrap()
+        resolve_language(lang_id, submitted, &one(lang_id, def), &[]).unwrap()
     }
 
     #[test]
@@ -236,7 +254,7 @@ mod tests {
 
     #[test]
     fn unknown_language_id_returns_err() {
-        let err = resolve_language("brainfuck", "", &HashMap::new()).unwrap_err();
+        let err = resolve_language("brainfuck", "", &HashMap::new(), &[]).unwrap_err();
         assert!(err.contains("brainfuck"), "error = {err}");
     }
 
@@ -246,7 +264,7 @@ mod tests {
             source_filename: String::new(),
             ..base()
         };
-        let err = resolve_language("x", "", &one("x", def)).unwrap_err();
+        let err = resolve_language("x", "", &one("x", def), &[]).unwrap_err();
         assert!(err.contains("source_filename"), "error = {err}");
     }
 
@@ -256,7 +274,7 @@ mod tests {
             binary_name: String::new(),
             ..base()
         };
-        let err = resolve_language("x", "", &one("x", def)).unwrap_err();
+        let err = resolve_language("x", "", &one("x", def), &[]).unwrap_err();
         assert!(err.contains("binary_name"), "error = {err}");
     }
 
@@ -266,7 +284,7 @@ mod tests {
             run_cmd: vec![],
             ..base()
         };
-        let err = resolve_language("x", "", &one("x", def)).unwrap_err();
+        let err = resolve_language("x", "", &one("x", def), &[]).unwrap_err();
         assert!(err.contains("run_cmd"), "error = {err}");
     }
 }

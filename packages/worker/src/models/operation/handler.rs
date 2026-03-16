@@ -180,7 +180,9 @@ impl OperationHandler {
                     .context("Failed to execute mkfifo for channel")?;
                 if !output.status.success() {
                     // Clean up on failure
-                    let _ = tokio::fs::remove_dir_all(&dir).await;
+                    if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
+                        warn!(error = %e, "Failed to clean up shared channels directory after mkfifo failure");
+                    }
                     self.cleanup_environments(&environments).await.ok();
                     return Err(anyhow!(
                         "mkfifo failed for channel {}: {}",
@@ -188,7 +190,28 @@ impl OperationHandler {
                         String::from_utf8_lossy(&output.stderr).trim()
                     ));
                 }
+                // Make FIFO accessible to sandbox UIDs (isolate runs
+                // processes as a different user).
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Err(e) =
+                        std::fs::set_permissions(&fifo_path, std::fs::Permissions::from_mode(0o666))
+                    {
+                        warn!(path = %fifo_path.display(), error = %e, "Failed to set permissions on channel FIFO");
+                    }
+                }
                 debug!(channel = %channel.name, "Created shared channel FIFO");
+            }
+            // Make channels directory accessible to sandbox UIDs.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Err(e) =
+                    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777))
+                {
+                    warn!(path = %dir.display(), error = %e, "Failed to set permissions on channels directory");
+                }
             }
 
             Some(dir)
@@ -315,8 +338,11 @@ impl OperationHandler {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        let _ =
-                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
+                        if let Err(e) =
+                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700))
+                        {
+                            warn!(path = %dest.display(), error = %e, "Failed to set permissions on blob file");
+                        }
                     }
                 }
             }
@@ -514,7 +540,11 @@ impl OperationHandler {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
+                if let Err(e) =
+                    std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700))
+                {
+                    warn!(path = %dest.display(), error = %e, "Failed to set permissions on cached output file");
+                }
             }
         }
 
@@ -638,7 +668,7 @@ impl OperationHandler {
         let mut directory_rules = step.conf.directory_rules.clone();
         if let Some(channels_dir) = shared_channels_dir {
             directory_rules.push(DirectoryRule {
-                inside_path: PathBuf::from("channels"),
+                inside_path: PathBuf::from("/channels"),
                 outside_path: Some(channels_dir.to_path_buf()),
                 options: DirectoryOptions {
                     read_write: true,
@@ -741,13 +771,16 @@ impl OperationHandler {
                 validate_pipe_name(name)?;
 
                 if channel_names.contains(name) {
-                    let channels_dir = shared_channels_dir.ok_or_else(|| {
+                    shared_channels_dir.ok_or_else(|| {
                         anyhow!(
                             "Pipe '{}' references a channel but no channels directory exists",
                             name
                         )
                     })?;
-                    let fifo_path = channels_dir.join(name);
+                    // Return the in-sandbox absolute path. The channels directory
+                    // is mounted at "/channels" inside each sandbox via --dir,
+                    // so the FIFO is accessible at "/channels/{name}".
+                    let fifo_path = PathBuf::from("/channels").join(name);
                     return Ok(Some(fifo_path));
                 }
 

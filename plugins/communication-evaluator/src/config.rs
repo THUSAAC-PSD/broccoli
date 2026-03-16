@@ -5,6 +5,14 @@ fn default_num_processes() -> u32 {
     1
 }
 
+fn default_max_processes() -> u32 {
+    64
+}
+
+fn default_fifo_buffer_size() -> u32 {
+    8192
+}
+
 fn deserialize_nonzero_u32<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
     let v = u32::deserialize(deserializer)?;
     if v == 0 {
@@ -29,6 +37,10 @@ pub struct CommConfig {
         default = "default_num_processes"
     )]
     pub num_processes: u32,
+    #[serde(default = "default_max_processes")]
+    pub max_processes: u32,
+    #[serde(default = "default_fifo_buffer_size")]
+    pub fifo_buffer_size: u32,
     pub communication_mode: CommunicationMode,
     pub manager_language: String,
     /// Manager source files. Each entry maps a filename to a blob hash.
@@ -43,6 +55,8 @@ impl Default for CommConfig {
     fn default() -> Self {
         Self {
             num_processes: 1,
+            max_processes: 64,
+            fifo_buffer_size: 8192,
             communication_mode: CommunicationMode::Redirect,
             manager_language: "cpp".to_string(),
             manager_sources: vec![],
@@ -99,7 +113,7 @@ impl Default for SandboxConfig {
             exec_process_limit: 1,
             exec_open_files_limit: 64,
             exec_file_size_limit_kb: 65_536,
-            result_timeout_ms: 60_000,
+            result_timeout_ms: 120_000,
         }
     }
 }

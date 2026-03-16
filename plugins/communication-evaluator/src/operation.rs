@@ -18,6 +18,12 @@ pub fn build_operation(
     if n == 0 {
         return Err("num_processes must be >= 1".to_string());
     }
+    if comm_config.num_processes > comm_config.max_processes {
+        return Err(format!(
+            "num_processes ({}) exceeds max_processes ({})",
+            comm_config.num_processes, comm_config.max_processes
+        ));
+    }
 
     let time_limit_ms = u32::try_from(req.time_limit_ms)
         .map_err(|_| format!("Invalid time_limit_ms: {}", req.time_limit_ms))?;
@@ -25,15 +31,16 @@ pub fn build_operation(
     let memory_limit_kb = u32::try_from(req.memory_limit_kb)
         .map_err(|_| format!("Invalid memory_limit_kb: {}", req.memory_limit_kb))?;
 
+    let buffer_size = comm_config.fifo_buffer_size as usize;
     let mut channels = Vec::new();
     for i in 0..n {
         channels.push(Channel {
             name: format!("c{i}_to_m"),
-            buffer_size: Some(8192),
+            buffer_size: Some(buffer_size),
         });
         channels.push(Channel {
             name: format!("m_to_c{i}"),
-            buffer_size: Some(8192),
+            buffer_size: Some(buffer_size),
         });
     }
 
@@ -190,8 +197,12 @@ pub fn build_operation(
 
     let mut manager_argv = manager_lang.run_cmd.clone();
     for i in 0..n {
-        manager_argv.push(format!("channels/c{i}_to_m"));
-        manager_argv.push(format!("channels/m_to_c{i}"));
+        // argv order: write-to-contestant pipe first, read-from-contestant pipe second.
+        // Manager code opens argv[1+2*i] for writing and argv[2+2*i] for reading.
+        let write_pipe = format!("channels/m_to_c{i}");
+        let read_pipe = format!("channels/c{i}_to_m");
+        manager_argv.push(write_pipe);
+        manager_argv.push(read_pipe);
     }
 
     steps.push(Step {
@@ -466,8 +477,8 @@ mod tests {
     fn manager_argv_includes_channel_paths() {
         let ops = build(&make_req(), &default_comm());
         let run_mgr = ops[0].tasks.iter().find(|s| s.id == "run_manager").unwrap();
-        assert!(run_mgr.argv.contains(&"channels/c0_to_m".to_string()));
         assert!(run_mgr.argv.contains(&"channels/m_to_c0".to_string()));
+        assert!(run_mgr.argv.contains(&"channels/c0_to_m".to_string()));
     }
 
     #[test]
