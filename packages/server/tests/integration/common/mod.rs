@@ -205,9 +205,6 @@ pub mod routes {
     pub const ME: &str = "/api/v1/auth/me";
     pub const USERS: &str = "/api/v1/users";
     pub const PROBLEMS: &str = "/api/v1/problems";
-    pub const ACTIVE_PLUGINS: &str = "/api/v1/plugins/active";
-    pub const ADMIN_LIST_PLUGINS: &str = "/api/v1/admin/plugins";
-
     pub fn admin_plugin_details(id: &str) -> String {
         format!("/api/v1/admin/plugins/{id}")
     }
@@ -702,6 +699,7 @@ impl TestApp {
         TestResponse::from_response(res).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn upload_with_token(
         &self,
         path: &str,
