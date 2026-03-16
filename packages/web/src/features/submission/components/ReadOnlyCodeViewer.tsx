@@ -140,7 +140,7 @@ export function ReadOnlyCodeViewer({
                   selectionHighlight: false,
                   occurrencesHighlight: 'off',
                   folding: false,
-                  lineDecorationsWidth: 0,
+                  lineDecorationsWidth: 8,
                   padding: { top: 8, bottom: 8 },
                 }}
               />
