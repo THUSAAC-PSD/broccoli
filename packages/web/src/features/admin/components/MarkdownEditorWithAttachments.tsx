@@ -3,7 +3,7 @@ import { Button } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
 import type { Monaco } from '@monaco-editor/react';
 import { ImagePlus, Paperclip } from 'lucide-react';
-import type { editor, IDisposable } from 'monaco-editor';
+import type { editor, IDisposable, Position } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -360,7 +360,7 @@ export function MarkdownEditorWithAttachments({
       const completionProvider =
         monaco.languages.registerCompletionItemProvider('markdown', {
           triggerCharacters: ['[', '('],
-          provideCompletionItems(model, position) {
+          provideCompletionItems(model: editor.ITextModel, position: Position) {
             const lineContent = model.getLineContent(position.lineNumber);
             const textBefore = lineContent.substring(0, position.column - 1);
 
@@ -431,7 +431,7 @@ export function MarkdownEditorWithAttachments({
 
       // Hover provider
       const hoverProvider = monaco.languages.registerHoverProvider('markdown', {
-        provideHover(model, position) {
+        provideHover(model: editor.ITextModel, position: Position) {
           const line = model.getLineContent(position.lineNumber);
           const pattern =
             /\/api\/v1\/problems\/\d+\/attachments\/([a-f0-9-]+)/g;
