@@ -1,3 +1,4 @@
+import { useApiClient } from '@broccoli/web-sdk/api';
 import {
   Button,
   Dialog,
@@ -13,14 +14,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, Mail, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { appConfig } from '@/config';
-
-interface Participant {
-  user_id: number;
-  username: string;
-  is_deleted: boolean;
-}
-
 interface SendDirectMessageDialogProps {
   contestId: number;
   onSubmit: (content: string, recipientId: number) => void;
@@ -30,23 +23,23 @@ export function SendDirectMessageDialog({
   contestId,
   onSubmit,
 }: SendDirectMessageDialogProps) {
+  const apiClient = useApiClient();
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
   const [search, setSearch] = useState('');
-  const [selectedUser, setSelectedUser] = useState<Participant | null>(null);
+  const [selectedUser, setSelectedUser] = useState<{
+    user_id: number;
+    username: string;
+    is_deleted: boolean;
+  } | null>(null);
 
   const { data: participants = [] } = useQuery({
     queryKey: ['contest-participants', contestId],
     queryFn: async () => {
-      // FIX: use api client from context instead of direct fetch to ensure auth
-      // headers are included and token refresh is handled
-      const token = localStorage.getItem(appConfig.api.sessionStatusKey);
-      const res = await fetch(
-        `${appConfig.api.baseUrl}/contests/${contestId}/participants`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-      );
-      if (!res.ok) return [];
-      return (await res.json()) as Participant[];
+      const { data } = await apiClient.GET('/contests/{id}/participants', {
+        params: { path: { id: contestId } },
+      });
+      return data ?? [];
     },
     enabled: open,
   });
