@@ -18,6 +18,8 @@ pub struct TaskResult {
     pub task_id: String,
     pub success: bool,
     pub output: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Task lifecycle events for hooks

@@ -97,14 +97,17 @@ impl Worker {
                         task_id: task.id,
                         success: false,
                         output: serde_json::json!({ "error": error_msg }),
+                        error: Some(error_msg),
                     }
                 }
             }
         } else {
+            let error_msg = format!("No executor found for '{}'", task.executor_name);
             return Ok(TaskResult {
                 task_id: task.id,
                 success: false,
-                output: serde_json::json!({ "error": format!("No executor found for '{}'", task.executor_name) }),
+                output: serde_json::json!({ "error": &error_msg }),
+                error: Some(error_msg),
             });
         };
 

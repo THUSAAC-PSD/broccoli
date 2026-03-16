@@ -5,7 +5,7 @@ use extism::{Function, UserData, Val, ValType};
 use mq::MqQueue;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -129,6 +129,7 @@ fn start_operation_batch_fn(
             pending_count: pending_count.clone(),
             created_at: Instant::now(),
             cleanup_keys: cleanup_keys.clone(),
+            poisoned: AtomicBool::new(false),
         },
     );
 
@@ -155,8 +156,13 @@ fn start_operation_batch_fn(
                     pending_count.fetch_sub(1, Ordering::SeqCst);
                 }
                 Err(_) => {
-                    // Oneshot sender dropped (batch cancelled)
-                    tracing::debug!(correlation_id = %correlation_id_clone, "Operation waiter dropped");
+                    let error_result = TaskResult {
+                        task_id: correlation_id_clone.clone(),
+                        success: false,
+                        output: serde_json::json!({}),
+                        error: Some("Operation cancelled or timed out".into()),
+                    };
+                    let _ = batch_tx.send(error_result);
                     pending_count.fetch_sub(1, Ordering::SeqCst);
                 }
             }

@@ -94,6 +94,9 @@ pub struct MqAppConfig {
     /// Queue for operation results (worker -> server). Default: "operation_results".
     #[serde(default = "default_operation_result_queue_name")]
     pub operation_result_queue_name: String,
+    /// Queue name for dead letter messages from operation tasks. Default: "operation_tasks_dlq".
+    #[serde(default = "default_operation_dlq_queue_name")]
+    pub operation_dlq_queue_name: String,
     /// Dead letter queue and retry configuration.
     #[serde(default)]
     pub dlq: DlqConfig,
@@ -123,6 +126,9 @@ fn default_operation_queue_name() -> String {
 fn default_operation_result_queue_name() -> String {
     "operation_results".into()
 }
+fn default_operation_dlq_queue_name() -> String {
+    "operation_tasks_dlq".into()
+}
 
 impl Default for MqAppConfig {
     fn default() -> Self {
@@ -135,6 +141,7 @@ impl Default for MqAppConfig {
             dlq_queue_name: default_mq_dlq_queue_name(),
             operation_queue_name: default_operation_queue_name(),
             operation_result_queue_name: default_operation_result_queue_name(),
+            operation_dlq_queue_name: default_operation_dlq_queue_name(),
             dlq: DlqConfig::default(),
         }
     }

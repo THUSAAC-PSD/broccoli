@@ -96,6 +96,7 @@ impl AppConfig {
             .set_default("mq.result_queue_name", "judge_results")?
             .set_default("mq.operation_queue_name", "operation_tasks")?
             .set_default("mq.operation_result_queue_name", "operation_results")?
+            .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
             // Load from config/config.toml
             .add_source(File::with_name("config/config").required(false))
             // Override from environment (e.g., BROCCOLI__AUTH__JWT_SECRET)

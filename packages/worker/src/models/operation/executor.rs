@@ -256,13 +256,24 @@ impl Executor for OperationTaskExecutor {
             Ok(result) => Ok(TaskResult {
                 task_id: task.id,
                 success: result.success,
-                output: serde_json::to_value(result)
+                output: serde_json::to_value(&result)
                     .map_err(|e| anyhow::anyhow!("Failed to serialize result: {}", e))?,
+                error: if result.success {
+                    None
+                } else {
+                    Some(
+                        result
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| "Operation failed".into()),
+                    )
+                },
             }),
             Err(e) => Ok(TaskResult {
                 task_id: task.id,
                 success: false,
                 output: serde_json::json!({ "error": format!("{e:#}") }),
+                error: Some(format!("{e:#}")),
             }),
         }
     }

@@ -3,6 +3,7 @@ use common::worker::TaskResult;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, oneshot};
 
@@ -24,6 +25,10 @@ pub struct BatchState<T> {
     pub created_at: Instant,
     /// Related waiter/task IDs that should be cleaned up when the batch is cancelled or reaped.
     pub cleanup_keys: Arc<Vec<String>>,
+    /// Set by reaper on first expiry; batch is removed on the next cycle.
+    /// This two-phase approach gives bridge tasks time to deliver error results
+    /// through the still-alive channel before the batch is dropped.
+    pub poisoned: AtomicBool,
 }
 
 /// contest_type -> handler registry
@@ -42,35 +47,40 @@ pub type OperationBatches = Arc<DashMap<String, BatchState<TaskResult>>>;
 pub type EvaluateBatches = Arc<DashMap<String, BatchState<TestCaseVerdict>>>;
 
 /// Spawns a background task that periodically removes stale batches.
-///
-/// This prevents unbounded memory growth when a plugin crashes after
-/// starting a batch but before cancelling it.
-pub fn spawn_batch_reaper<T: Send + 'static, F>(
+pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
     label: &'static str,
     batches: Arc<DashMap<String, BatchState<T>>>,
     max_age: Duration,
-    cleanup: F,
+    on_expire: F,
 ) where
-    F: Fn(&BatchState<T>) + Send + Sync + 'static,
+    F: Fn(&str, &BatchState<T>) + Send + Sync + 'static,
 {
-    let cleanup = Arc::new(cleanup);
+    let on_expire = Arc::new(on_expire);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            let mut reaped = 0u32;
-            let cleanup = cleanup.clone();
-            batches.retain(|_batch_id, state| {
-                if state.created_at.elapsed() > max_age {
-                    cleanup(state);
-                    reaped += 1;
-                    false // remove
+            let mut poisoned_count = 0u32;
+            let mut reaped_count = 0u32;
+            let on_expire = on_expire.clone();
+            batches.retain(|batch_id, state| {
+                if state.created_at.elapsed() <= max_age {
+                    return true; // keep, not expired
+                }
+                if state.poisoned.load(Ordering::Relaxed) {
+                    // Was poisoned last cycle, now remove
+                    reaped_count += 1;
+                    false
                 } else {
-                    true // keep
+                    // First time expired: run cleanup, poison, keep
+                    on_expire(batch_id, state);
+                    state.poisoned.store(true, Ordering::Relaxed);
+                    poisoned_count += 1;
+                    true
                 }
             });
-            if reaped > 0 {
-                tracing::warn!(reaped, label, "Reaped stale batches");
+            if poisoned_count > 0 || reaped_count > 0 {
+                tracing::warn!(poisoned_count, reaped_count, label, "Batch reaper cycle");
             }
         }
     });

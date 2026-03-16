@@ -22,6 +22,9 @@ pool_size = 5
 queue_name = "judge_jobs"
 result_queue_name = "judge_results"
 dlq_queue_name = "judge_jobs_dlq"
+operation_queue_name = "operation_tasks"
+operation_result_queue_name = "operation_results"
+operation_dlq_queue_name = "operation_tasks_dlq"
 
 [mq.dlq]
 max_retries = 3

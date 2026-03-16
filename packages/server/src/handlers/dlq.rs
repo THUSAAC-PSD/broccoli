@@ -175,7 +175,7 @@ pub async fn retry_dlq_message(
 
     if message.message_type != DlqMessageType::JudgeJob.as_str() {
         return Err(AppError::Validation(
-            "Only judge_job messages can be retried. judge_result messages require manual intervention.".into(),
+            "Only judge_job messages can be retried. judge_result and operation_task messages require manual intervention.".into(),
         ));
     }
 

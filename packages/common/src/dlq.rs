@@ -51,6 +51,8 @@ pub enum DlqMessageType {
     JudgeJob,
     /// Failed judge result (worker -> server message)
     JudgeResult,
+    /// Failed operation task (server -> worker message)
+    OperationTask,
 }
 
 impl DlqMessageType {
@@ -58,6 +60,7 @@ impl DlqMessageType {
         match self {
             Self::JudgeJob => "judge_job",
             Self::JudgeResult => "judge_result",
+            Self::OperationTask => "operation_task",
         }
     }
 }
@@ -75,8 +78,9 @@ impl std::str::FromStr for DlqMessageType {
         match s {
             "judge_job" => Ok(Self::JudgeJob),
             "judge_result" => Ok(Self::JudgeResult),
+            "operation_task" => Ok(Self::OperationTask),
             _ => Err(format!(
-                "Invalid message_type '{}'. Must be 'judge_job' or 'judge_result'",
+                "Invalid message_type '{}'. Must be 'judge_job', 'judge_result', or 'operation_task'",
                 s
             )),
         }
