@@ -347,10 +347,10 @@ impl SandboxManager for IsolateSandboxManager {
             .map(|arg| {
                 for rule in &run_options.directory_rules {
                     let inside = rule.inside_path.to_string_lossy();
-                    if let Some(rel) = inside.strip_prefix('/') {
-                        if arg == rel || arg.starts_with(&format!("{rel}/")) {
-                            return format!("/{arg}");
-                        }
+                    if let Some(rel) = inside.strip_prefix('/')
+                        && (arg == rel || arg.starts_with(&format!("{rel}/")))
+                    {
+                        return format!("/{arg}");
                     }
                 }
                 arg

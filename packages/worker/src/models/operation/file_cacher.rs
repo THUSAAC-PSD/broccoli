@@ -11,10 +11,10 @@ fn ensure_readable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     if let Ok(meta) = std::fs::metadata(path) {
         let mode = meta.permissions().mode();
-        if mode & 0o044 != 0o044 {
-            if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)) {
-                tracing::warn!(path = %path.display(), error = %e, "Failed to set readable permissions on cached file");
-            }
+        if mode & 0o044 != 0o044
+            && let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))
+        {
+            tracing::warn!(path = %path.display(), error = %e, "Failed to set readable permissions on cached file");
         }
     }
 }
