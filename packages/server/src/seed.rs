@@ -3,7 +3,8 @@ use sea_query::{Expr, Index, PostgresQueryBuilder};
 use tracing::info;
 
 use crate::entity::{
-    blob_ref, clarification, dead_letter_message, role, role_permission, submission, user,
+    additional_file, clarification, dead_letter_message, problem_attachment, role, role_permission,
+    submission, user,
 };
 
 /// Default roles seeded on startup.
@@ -159,46 +160,92 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         Err(e) => tracing::warn!("Failed to create idx_user_username_active: {}", e),
     }
 
-    // Composite index for blob_ref upsert.
+    // Unique composite index for problem_attachment upsert: (problem_id, path).
     let stmt = Index::create()
         .if_not_exists()
         .unique()
-        .name("idx_blob_ref_owner_path_unique")
-        .table(blob_ref::Entity)
-        .col(blob_ref::Column::OwnerType)
-        .col(blob_ref::Column::OwnerId)
-        .col(blob_ref::Column::Path)
+        .name("idx_problem_attachment_problem_path_unique")
+        .table(problem_attachment::Entity)
+        .col(problem_attachment::Column::ProblemId)
+        .col(problem_attachment::Column::Path)
         .to_string(PostgresQueryBuilder);
 
     let result = db.execute_unprepared(&stmt).await;
     match result {
         Ok(_) => {
-            info!("Ensured index idx_blob_ref_owner_path_unique exists");
+            info!("Ensured index idx_problem_attachment_problem_path_unique exists");
         }
         Err(e) => {
             tracing::warn!(
-                "Failed to create index idx_blob_ref_owner_path_unique: {}",
+                "Failed to create index idx_problem_attachment_problem_path_unique: {}",
                 e
             );
         }
     }
 
-    // Composite index for listing blobs by owner.
+    // Non-unique index for listing attachments by problem.
     let stmt = Index::create()
         .if_not_exists()
-        .name("idx_blob_ref_owner")
-        .table(blob_ref::Entity)
-        .col(blob_ref::Column::OwnerType)
-        .col(blob_ref::Column::OwnerId)
+        .name("idx_problem_attachment_problem_id")
+        .table(problem_attachment::Entity)
+        .col(problem_attachment::Column::ProblemId)
         .to_string(PostgresQueryBuilder);
 
     let result = db.execute_unprepared(&stmt).await;
     match result {
         Ok(_) => {
-            info!("Ensured index idx_blob_ref_owner exists");
+            info!("Ensured index idx_problem_attachment_problem_id exists");
         }
         Err(e) => {
-            tracing::warn!("Failed to create index idx_blob_ref_owner: {}", e);
+            tracing::warn!(
+                "Failed to create index idx_problem_attachment_problem_id: {}",
+                e
+            );
+        }
+    }
+
+    // Unique composite index for additional_file upsert: (problem_id, language, path).
+    let stmt = Index::create()
+        .if_not_exists()
+        .unique()
+        .name("idx_additional_file_problem_lang_path_unique")
+        .table(additional_file::Entity)
+        .col(additional_file::Column::ProblemId)
+        .col(additional_file::Column::Language)
+        .col(additional_file::Column::Path)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => {
+            info!("Ensured index idx_additional_file_problem_lang_path_unique exists");
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create index idx_additional_file_problem_lang_path_unique: {}",
+                e
+            );
+        }
+    }
+
+    // Non-unique index for listing additional files by problem.
+    let stmt = Index::create()
+        .if_not_exists()
+        .name("idx_additional_file_problem_id")
+        .table(additional_file::Entity)
+        .col(additional_file::Column::ProblemId)
+        .to_string(PostgresQueryBuilder);
+
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => {
+            info!("Ensured index idx_additional_file_problem_id exists");
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create index idx_additional_file_problem_id: {}",
+                e
+            );
         }
     }
 

@@ -1,4 +1,4 @@
-pub mod blob_ref;
+pub mod additional_file;
 pub mod clarification;
 pub mod contest;
 pub mod contest_problem;
@@ -8,6 +8,7 @@ pub mod plugin;
 pub mod plugin_config;
 pub mod plugin_storage;
 pub mod problem;
+pub mod problem_attachment;
 pub mod role;
 pub mod role_permission;
 pub mod submission;
