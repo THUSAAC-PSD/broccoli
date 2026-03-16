@@ -10,7 +10,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -315,6 +315,7 @@ fn start_evaluate_batch_fn(
             pending_count: pending_count.clone(),
             created_at: Instant::now(),
             cleanup_keys: Arc::new(Vec::new()),
+            poisoned: AtomicBool::new(false),
         },
     );
 

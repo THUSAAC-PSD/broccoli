@@ -145,6 +145,9 @@ pub struct MessageTypeCounts {
     /// Number of unresolved judge_result messages.
     #[schema(example = 2)]
     pub judge_result: u64,
+    /// Number of unresolved operation_task messages.
+    #[schema(example = 1)]
+    pub operation_task: u64,
 }
 
 /// DLQ statistics.
@@ -170,6 +173,7 @@ impl From<DlqStats> for DlqStatsResponse {
             unresolved_by_message_type: MessageTypeCounts {
                 judge_job: s.judge_job_count,
                 judge_result: s.judge_result_count,
+                operation_task: s.operation_task_count,
             },
             unresolved_by_error_code: s.unresolved_by_error_code,
         }

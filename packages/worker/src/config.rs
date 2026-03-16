@@ -130,6 +130,7 @@ impl WorkerAppConfig {
             .set_default("mq.operation_queue_name", "operation_tasks")?
             .set_default("mq.operation_result_queue_name", "operation_results")?
             .set_default("mq.dlq_queue_name", "judge_jobs_dlq")?
+            .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
             .set_default("database.url", "postgres://localhost/broccoli")?
             .set_default("storage.backend", "database")?
             .set_default("storage.data_dir", "./data")?

@@ -50,11 +50,13 @@ impl Executor for NativeExecutor {
                     task_id: task.id,
                     success: true,
                     output,
+                    error: None,
                 }),
                 Err(e) => Ok(TaskResult {
                     task_id: task.id,
                     success: false,
                     output: serde_json::json!({ "error": e.to_string() }),
+                    error: Some(e.to_string()),
                 }),
             }
         } else {
@@ -62,6 +64,7 @@ impl Executor for NativeExecutor {
                 task_id: task.id,
                 success: false,
                 output: serde_json::json!({ "error": "Unknown task type" }),
+                error: Some("Unknown task type".into()),
             })
         }
     }
@@ -111,6 +114,7 @@ impl<M: PluginManager + Send + Sync> Executor for WasmExecutor<M> {
                 task_id,
                 success: false,
                 output: serde_json::json!({ "error": e.to_string() }),
+                error: Some(e.to_string()),
             }),
         }
     }

@@ -14,7 +14,9 @@ use tracing::{Level, info, warn};
 
 use server::build_router;
 use server::config::AppConfig;
-use server::consumers::{consume_judge_results, consume_operation_results, consume_worker_dlq};
+use server::consumers::{
+    consume_judge_results, consume_operation_dlq, consume_operation_results, consume_worker_dlq,
+};
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
 use server::registry;
@@ -72,6 +74,14 @@ async fn main() -> anyhow::Result<()> {
             consume_worker_dlq(dlq_consumer_db, dlq_consumer_mq, dlq_queue).await;
         });
         info!("Worker DLQ consumer started");
+
+        let op_dlq_consumer_db = db.clone();
+        let op_dlq_consumer_mq = Arc::clone(mq_arc);
+        let op_dlq_queue = app_config.mq.operation_dlq_queue_name.clone();
+        tokio::spawn(async move {
+            consume_operation_dlq(op_dlq_consumer_db, op_dlq_consumer_mq, op_dlq_queue).await;
+        });
+        info!("Operation DLQ consumer started");
     }
 
     {
@@ -99,14 +109,38 @@ async fn main() -> anyhow::Result<()> {
     let evaluate_batches = Arc::new(DashMap::new());
 
     let batch_max_age = Duration::from_secs(app_config.batch_max_age_secs);
+    let reaper_mq = mq.clone();
+    let reaper_op_dlq_queue = app_config.mq.operation_dlq_queue_name.clone();
     let operation_waiters_for_reaper = operation_waiters.clone();
     registry::spawn_batch_reaper(
         "operation",
         operation_batches.clone(),
         batch_max_age,
-        move |batch| {
+        move |_batch_id, batch| {
             for key in batch.cleanup_keys.iter() {
                 operation_waiters_for_reaper.remove(key);
+
+                // Publish DLQ envelope for admin visibility
+                if let Some(ref mq) = reaper_mq {
+                    // MQ None only in dev (disabled config)
+                    let mq = Arc::clone(mq);
+                    let queue = reaper_op_dlq_queue.clone();
+                    let key = key.clone();
+                    tokio::spawn(async move {
+                        let envelope = common::DlqEnvelope {
+                            message_id: key.clone(),
+                            message_type: common::DlqMessageType::OperationTask,
+                            submission_id: None,
+                            payload: serde_json::json!({ "task_id": key }),
+                            error_code: common::DlqErrorCode::StuckJob,
+                            error_message: "Operation batch timed out".into(),
+                            retry_history: vec![],
+                        };
+                        if let Err(e) = mq.publish(&queue, None, &envelope, None).await {
+                            tracing::error!(%key, error = %e, "Failed to publish stale op to DLQ");
+                        }
+                    });
+                }
             }
         },
     );
@@ -114,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
         "evaluate",
         evaluate_batches.clone(),
         batch_max_age,
-        |_batch| {},
+        |_batch_id, _batch| {},
     );
 
     if let Some(ref mq_arc) = mq {
