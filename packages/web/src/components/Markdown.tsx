@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
 import { AuthImage } from '@/components/AuthImage';
+import { AuthLink } from '@/components/AuthLink';
 
 interface MarkdownProps {
   children: string;
@@ -57,14 +58,12 @@ export function Markdown({ children, className }: MarkdownProps) {
           ),
           hr: () => <hr className="my-6 border-border" />,
           a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => (
-            <a
+            <AuthLink
               href={href}
               className="text-primary underline underline-offset-2 decoration-primary/40 hover:decoration-primary/80 transition-colors"
-              target="_blank"
-              rel="noopener noreferrer"
             >
               {children}
-            </a>
+            </AuthLink>
           ),
           strong: ({ children }: ComponentPropsWithoutRef<'strong'>) => (
             <strong className="font-semibold text-foreground">

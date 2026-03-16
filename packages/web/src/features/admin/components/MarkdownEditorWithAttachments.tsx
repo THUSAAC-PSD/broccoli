@@ -11,6 +11,10 @@ import {
   type MarkdownEditorProps,
 } from '@/components/MarkdownEditor';
 import {
+  ATTACHMENT_DRAG_MIME,
+  AttachmentPicker,
+} from '@/features/admin/components/AttachmentPicker';
+import {
   type Attachment,
   attachmentMarkdownRef,
   attachmentUrl,
@@ -206,6 +210,25 @@ export function MarkdownEditorWithAttachments({
     }
   }, []);
 
+  const insertAtCursor = useCallback((text: string) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const position = ed.getPosition();
+    if (!position) return;
+    ed.executeEdits('attachment-insert', [
+      {
+        range: {
+          startLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        },
+        text: text + '\n',
+      },
+    ]);
+    ed.focus();
+  }, []);
+
   const uploadAndInsert = useCallback(
     async (file: File) => {
       const isImage = file.type.startsWith('image/');
@@ -264,14 +287,22 @@ export function MarkdownEditorWithAttachments({
       dragCounter.current = 0;
       setIsDragOver(false);
 
+      // Check for internal attachment drag from picker (no upload needed)
+      const attachmentMd = e.dataTransfer.getData(ATTACHMENT_DRAG_MIME);
+      if (attachmentMd) {
+        insertAtCursor(attachmentMd);
+        return;
+      }
+
       const files = Array.from(e.dataTransfer.files);
       if (files.length === 0) return;
 
+      // Intentionally parallel — each file gets its own placeholder and uploads concurrently
       for (const file of files) {
         uploadAndInsert(file);
       }
     },
-    [uploadAndInsert],
+    [uploadAndInsert, insertAtCursor],
   );
 
   const handleImageInputChange = useCallback(
@@ -484,6 +515,14 @@ export function MarkdownEditorWithAttachments({
           <Paperclip className="h-3.5 w-3.5 mr-1" />
           {t('admin.attachments.insertFile')}
         </Button>
+
+        <div className="h-4 w-px bg-border mx-0.5" />
+
+        <AttachmentPicker
+          problemId={problemId}
+          attachments={attachments}
+          onInsert={insertAtCursor}
+        />
       </div>
 
       {/* Hidden file inputs */}
