@@ -11,10 +11,8 @@ pub enum StorageError {
     InvalidHash(String),
     /// The blob exceeds the configured size limit.
     SizeLimitExceeded { actual: u64, limit: u64 },
-    /// A database error occurred.
-    Database(String),
-    /// An object storage (S3-compatible) error occurred.
-    ObjectStorage(String),
+    /// A storage backend error (database, S3, etc.).
+    Backend(String),
 }
 
 impl fmt::Display for StorageError {
@@ -26,8 +24,7 @@ impl fmt::Display for StorageError {
             Self::SizeLimitExceeded { actual, limit } => {
                 write!(f, "blob exceeds size limit ({actual} > {limit} bytes)")
             }
-            Self::Database(msg) => write!(f, "database error: {msg}"),
-            Self::ObjectStorage(msg) => write!(f, "object storage error: {msg}"),
+            Self::Backend(msg) => write!(f, "storage backend error: {msg}"),
         }
     }
 }

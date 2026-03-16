@@ -1,21 +1,23 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use axum::http::{HeaderName, HeaderValue, Method};
-use common::storage::BlobStore;
-use common::storage::filesystem::FilesystemBlobStore;
+use common::storage::config::create_blob_store;
+use dashmap::DashMap;
 use mq::{MqConfig as MqConnConfig, init_mq};
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{Level, info, warn};
 
 use server::build_router;
 use server::config::AppConfig;
-use server::consumers::{consume_judge_results, consume_worker_dlq};
+use server::consumers::{consume_judge_results, consume_operation_results, consume_worker_dlq};
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
+use server::registry;
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
 
@@ -81,26 +83,98 @@ async fn main() -> anyhow::Result<()> {
         info!("Stuck job detector started");
     }
 
-    let blob_store: Arc<dyn BlobStore> = {
-        let blob_path = PathBuf::from(&app_config.storage.data_dir).join("blobs");
-        Arc::new(
-            FilesystemBlobStore::new(blob_path, app_config.storage.max_blob_size)
-                .await
-                .context("Failed to initialize blob storage")?,
-        )
-    };
+    let blob_store = create_blob_store(&app_config.storage, db.clone())
+        .await
+        .context("Failed to initialize blob storage")?;
     info!(
-        "Blob storage initialized at {}/blobs",
-        app_config.storage.data_dir
+        "Blob storage initialized (backend: {})",
+        app_config.storage.backend
     );
 
+    let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
+    let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
+    let checker_format_registry = Arc::new(RwLock::new(HashMap::new()));
+    let operation_batches = Arc::new(DashMap::new());
+    let operation_waiters = Arc::new(DashMap::new());
+    let evaluate_batches = Arc::new(DashMap::new());
+
+    let batch_max_age = Duration::from_secs(app_config.batch_max_age_secs);
+    let operation_waiters_for_reaper = operation_waiters.clone();
+    registry::spawn_batch_reaper(
+        "operation",
+        operation_batches.clone(),
+        batch_max_age,
+        move |batch| {
+            for key in batch.cleanup_keys.iter() {
+                operation_waiters_for_reaper.remove(key);
+            }
+        },
+    );
+    registry::spawn_batch_reaper(
+        "evaluate",
+        evaluate_batches.clone(),
+        batch_max_age,
+        |_batch| {},
+    );
+
+    if let Some(ref mq_arc) = mq {
+        let op_consumer_mq = Arc::clone(mq_arc);
+        let op_result_queue = app_config.mq.operation_result_queue_name.clone();
+        let op_waiters = operation_waiters.clone();
+        tokio::spawn(async move {
+            consume_operation_results(op_consumer_mq, op_waiters, op_result_queue).await;
+        });
+        info!("Operation result consumer started");
+    }
+
+    let manager = ServerManager::new(
+        app_config.plugin.clone(),
+        db.clone(),
+        mq.clone(),
+        operation_batches.clone(),
+        operation_waiters.clone(),
+        contest_type_registry.clone(),
+        evaluator_registry.clone(),
+        checker_format_registry.clone(),
+        evaluate_batches.clone(),
+        app_config.clone(),
+        blob_store.clone(),
+    )
+    .context("Failed to initialize plugin manager")?;
+
+    let device_codes: server::state::DeviceCodeStore = Arc::new(DashMap::new());
+
+    // Spawn reaper for expired device codes (runs every 60s, removes entries older than 15min)
+    {
+        let codes = device_codes.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let now = std::time::Instant::now();
+                codes.retain(|_code, entry| entry.expires_at > now);
+            }
+        });
+    }
+
     let state = AppState {
-        plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
-        db,
+        plugins: manager,
+        db: db.clone(),
         config: app_config.clone(),
-        mq,
+        mq: mq.clone(),
         blob_store,
+        registries: server::state::RegistryState {
+            contest_type_registry: contest_type_registry.clone(),
+            evaluator_registry: evaluator_registry.clone(),
+            checker_format_registry: checker_format_registry.clone(),
+            operation_batches: operation_batches.clone(),
+            operation_waiters: operation_waiters.clone(),
+            evaluate_batches: evaluate_batches.clone(),
+            hook_registry: server::hooks::new_shared_registry(),
+        },
+        device_codes,
     };
+
     sync_plugins(&state).await?;
 
     let mut allow_origins = Vec::new();

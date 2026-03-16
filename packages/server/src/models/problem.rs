@@ -3,10 +3,13 @@ use std::str::FromStr;
 use axum::body::Bytes;
 use axum_typed_multipart::{TryFromField, TryFromMultipart};
 use chrono::{DateTime, Utc};
+use common::language::LanguageDefinition;
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::error::AppError;
+use crate::utils::filename::validate_flat_filename;
 
 pub use super::shared::{Pagination, escape_like};
 use super::shared::{
@@ -29,12 +32,26 @@ pub struct CreateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 262144)]
     pub memory_limit: i32,
+    /// Problem type for evaluator dispatch, e.g. "batch" or "interactive".
+    /// If omitted, defaults to the first registered evaluator type.
+    #[serde(default)]
+    #[schema(example = "batch")]
+    pub problem_type: String,
+    /// Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
+    #[serde(default = "default_checker_format")]
+    #[schema(example = "exact")]
+    pub checker_format: String,
+    /// Default contest type for standalone submissions, e.g. "ioi", "icpc".
+    /// If omitted, defaults to the first registered contest type.
+    #[serde(default)]
+    #[schema(example = "ioi")]
+    pub default_contest_type: String,
     /// Whether contestants see full input/output for all test cases.
     /// If omitted, defaults to false.
     #[schema(example = false)]
     pub show_test_details: Option<bool>,
     /// Expected submission file names per language.
-    /// Keys are language ids (e.g. "cpp", "java", "python"), values are arrays of filenames.
+    /// Keys are language ids (e.g. "cpp", "java", "python3"), values are arrays of filenames.
     /// Null or omitted means use client-side defaults.
     #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
@@ -55,6 +72,15 @@ pub struct UpdateProblemRequest {
     /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 524288)]
     pub memory_limit: Option<i32>,
+    /// Problem type for evaluator dispatch: "batch" or "interactive".
+    #[schema(example = "batch")]
+    pub problem_type: Option<String>,
+    /// Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
+    #[schema(example = "ignore_case")]
+    pub checker_format: Option<String>,
+    /// Default contest type for standalone submissions.
+    #[schema(example = "ioi")]
+    pub default_contest_type: Option<String>,
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = true)]
     pub show_test_details: Option<bool>,
@@ -78,6 +104,17 @@ pub struct ProblemResponse {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
+    /// Problem type for evaluator dispatch.
+    #[schema(example = "batch")]
+    pub problem_type: String,
+    /// Custom checker source files (read-only, uploaded via separate endpoint).
+    pub checker_source: Option<serde_json::Value>,
+    /// Checker format for output comparison.
+    #[schema(example = "exact")]
+    pub checker_format: String,
+    /// Default contest type for standalone submissions.
+    #[schema(example = "ioi")]
+    pub default_contest_type: String,
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
@@ -117,6 +154,15 @@ pub struct ProblemListItem {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
+    /// Problem type for evaluator dispatch.
+    #[schema(example = "batch")]
+    pub problem_type: String,
+    /// Checker format for output comparison.
+    #[schema(example = "exact")]
+    pub checker_format: String,
+    /// Default contest type for standalone submissions.
+    #[schema(example = "ioi")]
+    pub default_contest_type: String,
     /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
@@ -172,7 +218,9 @@ pub struct CreateTestCaseRequest {
     /// Optional human-readable description (max 256 chars).
     #[schema(example = "Basic case")]
     pub description: Option<String>,
-    #[schema(example = "sample01")]
+    /// Optional short identifier (unique within problem, max 64 chars).
+    /// Defaults to the test-case position when omitted.
+    #[schema(value_type = Option<String>, example = "sample_01")]
     pub label: Option<String>,
 }
 
@@ -198,9 +246,9 @@ pub struct UpdateTestCaseRequest {
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<String>, example = "Updated edge case")]
     pub description: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    #[schema(example = "sample01")]
-    pub label: Option<Option<String>>,
+    /// Display label for this test case (e.g. "sample_01"). Must be unique within the problem.
+    #[schema(example = "sample_01")]
+    pub label: Option<String>,
 }
 
 /// Merge strategy for handling test case label conflicts during ZIP upload.
@@ -260,10 +308,11 @@ pub struct TestCaseResponse {
     pub expected_output: String,
     #[schema(example = 10)]
     pub score: i32,
-    #[schema(example = "sample01")]
-    pub label: String,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
+    /// Short identifier (unique within problem).
+    #[schema(example = "sample_01")]
+    pub label: String,
     #[schema(example = true)]
     pub is_sample: bool,
     #[schema(example = 0)]
@@ -283,7 +332,8 @@ pub struct TestCaseListItem {
     pub score: i32,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
-    #[schema(example = "sample01")]
+    /// Short identifier (unique within problem).
+    #[schema(example = "sample_01")]
     pub label: String,
     #[schema(example = true)]
     pub is_sample: bool,
@@ -322,6 +372,10 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             content: m.content,
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
+            problem_type: m.problem_type,
+            checker_source: m.checker_source,
+            checker_format: m.checker_format,
+            default_contest_type: m.default_contest_type,
             show_test_details: m.show_test_details,
             submission_format,
             samples: vec![],
@@ -373,6 +427,74 @@ pub fn truncate_preview(s: &str) -> String {
     }
 }
 
+fn default_checker_format() -> String {
+    "exact".into()
+}
+
+use crate::registry::{CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry};
+
+/// Returns the first registered key from a registry, or an empty string if none.
+pub async fn first_registered_evaluator(registry: &EvaluatorRegistry) -> String {
+    let reg = registry.read().await;
+    reg.keys().min().cloned().unwrap_or_default()
+}
+
+/// Returns the first registered key from a registry, or an empty string if none.
+pub async fn first_registered_contest_type(registry: &ContestTypeRegistry) -> String {
+    let reg = registry.read().await;
+    reg.keys().min().cloned().unwrap_or_default()
+}
+
+/// Validates checker_format against the registry of registered checker format handlers.
+pub async fn validate_checker_format(
+    format: &str,
+    registry: &CheckerFormatRegistry,
+) -> Result<(), AppError> {
+    let reg = registry.read().await;
+    if !reg.contains_key(format) {
+        let mut valid: Vec<_> = reg.keys().cloned().collect();
+        valid.sort();
+        return Err(AppError::Validation(format!(
+            "checker_format must be one of: {}",
+            valid.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+/// Validates problem_type against the registry of registered evaluator handlers.
+pub async fn validate_problem_type(
+    problem_type: &str,
+    registry: &EvaluatorRegistry,
+) -> Result<(), AppError> {
+    let reg = registry.read().await;
+    if !reg.contains_key(problem_type) {
+        let mut valid: Vec<_> = reg.keys().cloned().collect();
+        valid.sort();
+        return Err(AppError::Validation(format!(
+            "problem_type must be one of: {}",
+            valid.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+pub async fn validate_contest_type(
+    contest_type: &str,
+    registry: &ContestTypeRegistry,
+) -> Result<(), AppError> {
+    let reg = registry.read().await;
+    if !reg.contains_key(contest_type) {
+        let mut valid: Vec<_> = reg.keys().cloned().collect();
+        valid.sort();
+        return Err(AppError::Validation(format!(
+            "default_contest_type must be one of: {}",
+            valid.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppError> {
     validate_title(&req.title)?;
     if req.content.trim().is_empty() || req.content.len() > 1_000_000 {
@@ -388,6 +510,8 @@ pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppErro
             "Memory limit must be 1-1048576 KB".into(),
         ));
     }
+    // problem_type and checker_format are validated async in the handler
+    // via validate_problem_type() and validate_checker_format() with registries.
     Ok(())
 }
 
@@ -414,6 +538,55 @@ pub fn validate_update_problem(req: &UpdateProblemRequest) -> Result<(), AppErro
             "Memory limit must be 1-1048576 KB".into(),
         ));
     }
+
+    Ok(())
+}
+
+pub fn validate_submission_format(
+    submission_format: Option<&HashMap<String, Vec<String>>>,
+    valid_languages: &HashMap<String, LanguageDefinition>,
+) -> Result<(), AppError> {
+    let Some(submission_format) = submission_format else {
+        return Ok(());
+    };
+
+    if submission_format.is_empty() {
+        return Ok(());
+    }
+
+    for (language_id, filenames) in submission_format {
+        let trimmed_language_id = language_id.trim();
+        if trimmed_language_id.is_empty() {
+            return Err(AppError::Validation(
+                "submission_format language ids must be non-empty".into(),
+            ));
+        }
+        if !valid_languages.is_empty() && !valid_languages.contains_key(trimmed_language_id) {
+            return Err(AppError::Validation(format!(
+                "submission_format contains unsupported language '{}'",
+                trimmed_language_id
+            )));
+        }
+        if filenames.is_empty() {
+            return Err(AppError::Validation(format!(
+                "submission_format for '{}' must include at least one filename",
+                trimmed_language_id
+            )));
+        }
+
+        let mut seen = HashSet::with_capacity(filenames.len());
+        for filename in filenames {
+            let normalized = validate_flat_filename(filename)
+                .map_err(|e| AppError::Validation(e.message().into()))?;
+            if !seen.insert(normalized.to_string()) {
+                return Err(AppError::Validation(format!(
+                    "submission_format for '{}' contains duplicate filename '{}'",
+                    trimmed_language_id, normalized
+                )));
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -427,6 +600,22 @@ pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppE
     {
         return Err(AppError::Validation(
             "Description must be at most 256 characters".into(),
+        ));
+    }
+    if let Some(ref label) = req.label {
+        validate_label(label)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_label(label: &str) -> Result<(), AppError> {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Label must be non-empty".into()));
+    }
+    if trimmed.chars().count() > 64 {
+        return Err(AppError::Validation(
+            "Label must be at most 64 characters".into(),
         ));
     }
     Ok(())
@@ -469,6 +658,9 @@ pub fn validate_update_test_case(req: &UpdateTestCaseRequest) -> Result<(), AppE
         return Err(AppError::Validation(
             "Description must be at most 256 characters".into(),
         ));
+    }
+    if let Some(ref label) = req.label {
+        validate_label(label)?;
     }
     Ok(())
 }

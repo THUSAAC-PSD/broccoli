@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import { Button, Skeleton } from '@broccoli/web-sdk/ui';
@@ -38,7 +39,9 @@ export default function ProblemView({
   const [showEditPage, setShowEditPage] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
+  const [contestType, setContestType] = useState<string | undefined>(undefined);
   const apiClient = useApiClient();
+  const { data: registries } = useRegistries();
 
   const handleBackToDescription = () => {
     setShowCodingPanel(false);
@@ -51,6 +54,7 @@ export default function ProblemView({
     setIsCodeFullscreen(false);
     setCopiedKey(null);
     setCopiedNotice(null);
+    setContestType(undefined);
   }, [problemId]);
 
   const {
@@ -140,6 +144,7 @@ export default function ProblemView({
     rawSubmit(
       files.map(({ filename, content }) => ({ filename, content })),
       language,
+      contestType,
     );
   };
 
@@ -390,16 +395,19 @@ export default function ProblemView({
             <ProblemHeader
               id={headerId}
               title={problem?.title ?? t('problem.title')}
-              type="Default"
+              type={problem?.problem_type ?? '—'}
               io="Standard Input / Output"
               timeLimit={timeLimit}
               memoryLimit={memoryLimit}
             />
           </div>
-          <div className="hidden lg:flex items-center gap-4">
-            <ContestCountdownMini />
-          </div>
+          {contestId && (
+            <div className="hidden lg:flex items-center gap-4">
+              <ContestCountdownMini />
+            </div>
+          )}
         </div>
+        <Slot name="problem-detail.header" as="div" className="relative mt-3" />
       </div>
 
       {/* ── Fixed action bar (never scrolls) ── */}
@@ -471,18 +479,29 @@ export default function ProblemView({
                   ? `contest-${contestId}-problem-${problemId}`
                   : `problem-${problemId}`
               }
+              contestType={
+                contestType ?? problem?.default_contest_type ?? 'standard'
+              }
+              onContestTypeChange={!contestId ? setContestType : undefined}
+              contestTypes={
+                !contestId ? (registries?.contest_types ?? []) : undefined
+              }
               submissionFormat={problem?.submission_format}
             />
           </div>
 
           {!isCodeFullscreen && (
-            <div className="flex flex-col gap-6 overflow-y-auto">
+            <div className="flex flex-col gap-2 overflow-y-auto">
               <SubmissionResult
                 submission={submission}
                 isSubmitting={isSubmitting}
                 error={submitError}
               />
-              <Slot name="problem-detail.sidebar" as="div" />
+              <Slot
+                name="problem-detail.sidebar"
+                as="div"
+                slotProps={{ submission, contestId, problemId }}
+              />
             </div>
           )}
         </div>

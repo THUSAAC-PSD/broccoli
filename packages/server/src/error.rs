@@ -15,12 +15,16 @@ pub struct ErrorBody {
     /// Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
     /// `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
     /// `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
-    /// `INTERNAL_ERROR`.
+    /// `PLUGIN_REJECTED`, `INTERNAL_ERROR`, or a custom plugin-defined code.
     #[schema(example = "VALIDATION_ERROR")]
-    pub code: &'static str,
+    pub code: String,
     /// Human-readable error description.
     #[schema(example = "Title must be 1-256 characters")]
     pub message: String,
+    /// Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
+    /// Only present for `PluginRejection` errors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 /// Application-level error type.
@@ -41,104 +45,96 @@ pub enum AppError {
     RateLimited {
         retry_after: u64,
     },
+    /// A plugin hook rejected the request.
+    PluginRejection {
+        code: String,
+        message: String,
+        /// HTTP status code (validated to 4xx range).
+        status_code: u16,
+        /// Optional structured data from the plugin.
+        details: Option<serde_json::Value>,
+    },
     Internal(String),
 }
 
 impl AppError {
     fn status_and_body(self) -> (StatusCode, ErrorBody) {
+        let simple = |code: &str, message: String| ErrorBody {
+            code: code.into(),
+            message,
+            details: None,
+        };
+
         match self {
-            AppError::Validation(msg) => (
-                StatusCode::BAD_REQUEST,
-                ErrorBody {
-                    code: "VALIDATION_ERROR",
-                    message: msg,
-                },
-            ),
+            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, simple("VALIDATION_ERROR", msg)),
             AppError::PayloadTooLarge(msg) => (
                 StatusCode::PAYLOAD_TOO_LARGE,
-                ErrorBody {
-                    code: "PAYLOAD_TOO_LARGE",
-                    message: msg,
-                },
+                simple("PAYLOAD_TOO_LARGE", msg),
             ),
             AppError::TokenMissing => (
                 StatusCode::UNAUTHORIZED,
-                ErrorBody {
-                    code: "TOKEN_MISSING",
-                    message: "Authentication required".into(),
-                },
+                simple("TOKEN_MISSING", "Authentication required".into()),
             ),
             AppError::TokenInvalid => (
                 StatusCode::UNAUTHORIZED,
-                ErrorBody {
-                    code: "TOKEN_INVALID",
-                    message: "Invalid or expired token".into(),
-                },
+                simple("TOKEN_INVALID", "Invalid or expired token".into()),
             ),
             AppError::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
-                ErrorBody {
-                    code: "INVALID_CREDENTIALS",
-                    message: "Invalid username or password".into(),
-                },
+                simple("INVALID_CREDENTIALS", "Invalid username or password".into()),
             ),
             AppError::PermissionDenied => (
                 StatusCode::FORBIDDEN,
-                ErrorBody {
-                    code: "PERMISSION_DENIED",
-                    message: "Insufficient permissions".into(),
-                },
+                simple("PERMISSION_DENIED", "Insufficient permissions".into()),
             ),
-            AppError::NotFound(msg) => (
-                StatusCode::NOT_FOUND,
-                ErrorBody {
-                    code: "NOT_FOUND",
-                    message: msg,
-                },
-            ),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, simple("NOT_FOUND", msg)),
             AppError::MethodNotAllowed => (
                 StatusCode::METHOD_NOT_ALLOWED,
-                ErrorBody {
-                    code: "METHOD_NOT_ALLOWED",
-                    message: "HTTP method not allowed for this endpoint".into(),
-                },
+                simple(
+                    "METHOD_NOT_ALLOWED",
+                    "HTTP method not allowed for this endpoint".into(),
+                ),
             ),
-            AppError::Conflict(msg) => (
-                StatusCode::CONFLICT,
-                ErrorBody {
-                    code: "CONFLICT",
-                    message: msg,
-                },
-            ),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, simple("CONFLICT", msg)),
             AppError::UsernameTaken => (
                 StatusCode::CONFLICT,
-                ErrorBody {
-                    code: "USERNAME_TAKEN",
-                    message: "Username is already taken".into(),
-                },
+                simple("USERNAME_TAKEN", "Username is already taken".into()),
             ),
-            AppError::PluginNotReady(msg) => (
-                StatusCode::BAD_REQUEST,
-                ErrorBody {
-                    code: "PLUGIN_NOT_READY",
-                    message: msg,
-                },
-            ),
+            AppError::PluginNotReady(msg) => {
+                (StatusCode::BAD_REQUEST, simple("PLUGIN_NOT_READY", msg))
+            }
             AppError::RateLimited { retry_after } => (
                 StatusCode::TOO_MANY_REQUESTS,
-                ErrorBody {
-                    code: "RATE_LIMITED",
-                    message: format!("Rate limit exceeded. Try again in {} seconds", retry_after),
-                },
+                simple(
+                    "RATE_LIMITED",
+                    format!("Rate limit exceeded. Try again in {} seconds", retry_after),
+                ),
             ),
+            AppError::PluginRejection {
+                code,
+                message,
+                status_code,
+                details,
+            } => {
+                // Validate status_code to 4xx range; default to 400 if invalid
+                let status = StatusCode::from_u16(status_code)
+                    .ok()
+                    .filter(|s| s.is_client_error())
+                    .unwrap_or(StatusCode::BAD_REQUEST);
+                (
+                    status,
+                    ErrorBody {
+                        code,
+                        message,
+                        details,
+                    },
+                )
+            }
             AppError::Internal(detail) => {
                 tracing::error!("Internal error: {}", detail);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorBody {
-                        code: "INTERNAL_ERROR",
-                        message: "An unexpected error occurred".into(),
-                    },
+                    simple("INTERNAL_ERROR", "An unexpected error occurred".into()),
                 )
             }
         }
@@ -176,8 +172,7 @@ impl From<StorageError> for AppError {
             StorageError::SizeLimitExceeded { .. } => AppError::Validation(err.to_string()),
             StorageError::InvalidHash(_) => AppError::Validation(err.to_string()),
             StorageError::Io(_) => AppError::Internal(err.to_string()),
-            StorageError::Database(_) => AppError::Internal(err.to_string()),
-            StorageError::ObjectStorage(_) => AppError::Internal(err.to_string()),
+            StorageError::Backend(_) => AppError::Internal(err.to_string()),
         }
     }
 }
@@ -189,7 +184,11 @@ impl From<PluginError> for AppError {
                 tracing::warn!("Plugin not found: {detail}");
                 AppError::NotFound(format!("Plugin '{detail}' not found"))
             }
-            PluginError::NotLoaded(_) | PluginError::NoRuntime(_) => {
+            PluginError::NotLoaded(detail) => {
+                tracing::warn!("Plugin not loaded: {detail}");
+                AppError::NotFound(format!("Plugin '{detail}' not found"))
+            }
+            PluginError::NoRuntime(_) => {
                 tracing::warn!("Plugin not ready: {err}");
                 AppError::PluginNotReady(err.to_string())
             }

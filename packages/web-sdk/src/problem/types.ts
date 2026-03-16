@@ -6,8 +6,8 @@ export type ProblemSummary = components['schemas']['ProblemListItem'];
 export type TestCase = components['schemas']['TestCaseResponse'];
 export type TestCaseSummary = components['schemas']['TestCaseListItem'];
 
-export type TestCaseMergeStrategy =
-  components['schemas']['UploadTestCasesMergeStrategy'];
+// UploadTestCasesMergeStrategy may not appear as a named schema (multipart enum).
+export type TestCaseMergeStrategy = 'abort' | 'skip' | 'overwrite' | 'replace';
 
 export const TEST_CASE_MERGE_STRATEGIES: TestCaseMergeStrategy[] = [
   'abort',

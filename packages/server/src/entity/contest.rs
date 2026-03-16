@@ -37,6 +37,9 @@ pub struct Model {
     #[sea_orm(default_value = true)]
     pub show_participants_list: bool,
 
+    /// Contest type (e.g., "ioi", "icpc", "pvp"). Plugin dispatcher uses this to route submissions.
+    pub contest_type: Option<String>,
+
     #[sea_orm(has_many, via = "contest_user")]
     pub users: HasMany<super::user::Entity>,
 

@@ -1,0 +1,123 @@
+name = "batch-evaluator"
+version = "0.1.0"
+description = "Batch problem evaluator for Broccoli judge — compile, run, check"
+
+[server]
+entry = "batch_evaluator.wasm"
+permissions = ["logger", "plugin:register", "operations:dispatch", "checker:run", "language:config", "config:read"]
+
+[config.sandbox]
+description = "Sandbox resource limits for compilation and execution steps"
+scopes = ["plugin"]
+
+[config.sandbox.properties.compile_time_limit_s]
+type = "number"
+title = "Compile Time Limit"
+description = "Maximum compilation time in seconds"
+default = 30.0
+min = 1.0
+step = 1.0
+precision = 1
+unit = "s"
+
+[config.sandbox.properties.compile_wall_time_multiplier]
+type = "number"
+title = "Compile Wall Time Multiplier"
+description = "Multiplier applied to compile time limit for wall clock limit"
+default = 2.0
+min = 1.0
+step = 0.5
+precision = 1
+
+[config.sandbox.properties.compile_extra_time_s]
+type = "number"
+title = "Compile Extra Time"
+description = "Additional compile grace time in seconds after the CPU limit"
+default = 0.0
+min = 0.0
+step = 0.5
+precision = 1
+unit = "s"
+
+[config.sandbox.properties.compile_memory_limit_kb]
+type = "integer"
+title = "Compile Memory Limit"
+description = "Maximum compilation memory in KB"
+default = 524288
+min = 1024
+step = 1024
+unit = "KB"
+
+[config.sandbox.properties.compile_process_limit]
+type = "integer"
+title = "Compile Process Limit"
+description = "Maximum number of processes during compilation (compilers may fork)"
+default = 32
+min = 1
+
+[config.sandbox.properties.compile_open_files_limit]
+type = "integer"
+title = "Compile Open Files Limit"
+description = "Maximum open file descriptors during compilation"
+default = 256
+min = 16
+
+[config.sandbox.properties.compile_file_size_limit_kb]
+type = "integer"
+title = "Compile File Size Limit"
+description = "Maximum output file size during compilation in KB"
+default = 524288
+min = 1024
+step = 1024
+unit = "KB"
+
+[config.sandbox.properties.exec_extra_time_s]
+type = "number"
+title = "Exec Extra Time"
+description = "Additional execution grace time in seconds after the CPU limit"
+default = 0.0
+min = 0.0
+step = 0.5
+precision = 1
+unit = "s"
+
+[config.sandbox.properties.exec_process_limit]
+type = "integer"
+title = "Exec Process Limit"
+description = "Maximum number of processes during execution (1 = no forking)"
+default = 1
+min = 1
+
+[config.sandbox.properties.exec_open_files_limit]
+type = "integer"
+title = "Exec Open Files Limit"
+description = "Maximum open file descriptors during execution"
+default = 64
+min = 4
+
+[config.sandbox.properties.exec_file_size_limit_kb]
+type = "integer"
+title = "Exec File Size Limit"
+description = "Maximum output file size during execution in KB"
+default = 65536
+min = 64
+step = 1024
+unit = "KB"
+
+[config.sandbox.properties.exec_wall_time_multiplier]
+type = "number"
+title = "Wall Time Multiplier"
+description = "Multiplier applied to problem time limit for wall clock limit (accounts for I/O and system overhead)"
+default = 3.0
+min = 1.0
+step = 0.5
+precision = 1
+
+[config.sandbox.properties.result_timeout_ms]
+type = "integer"
+title = "Result Timeout"
+description = "Maximum time in milliseconds to wait for the sandbox to return a result"
+default = 30000
+min = 1000
+step = 1000
+unit = "ms"

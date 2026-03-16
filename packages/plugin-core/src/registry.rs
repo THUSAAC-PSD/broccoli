@@ -46,6 +46,8 @@ pub type PluginRegistry = Arc<RwLock<HashMap<String, PluginEntry>>>;
 #[derive(Debug, Clone, Serialize)]
 pub struct PluginInfo {
     pub id: String,
+    #[serde(skip)]
+    pub root_dir: PathBuf,
     #[serde(flatten)]
     pub manifest: PluginManifest,
     pub status: PluginStatus,
@@ -55,6 +57,7 @@ impl From<&PluginEntry> for PluginInfo {
     fn from(entry: &PluginEntry) -> Self {
         Self {
             id: entry.id.clone(),
+            root_dir: entry.root_dir.clone(),
             manifest: entry.manifest.clone(),
             status: entry.status.clone(),
         }
@@ -62,7 +65,11 @@ impl From<&PluginEntry> for PluginInfo {
 }
 
 impl PluginEntry {
-    pub fn new(id: String, root_dir: PathBuf, manifest: PluginManifest) -> Self {
+    pub fn new(
+        id: String,
+        root_dir: PathBuf,
+        manifest: PluginManifest,
+    ) -> Result<Self, PluginError> {
         let mut router = Router::new();
 
         if let Some(server_config) = &manifest.server {
@@ -82,20 +89,23 @@ impl PluginEntry {
                 );
             }
             for (path, info) in path_map {
-                router.insert(&path, info).unwrap_or_else(|e| {
-                    panic!("Failed to insert route '{}' into router: {}", path, e)
-                });
+                router.insert(&path, info).map_err(|e| {
+                    PluginError::LoadFailed(format!(
+                        "Invalid route '{}' in plugin '{}': {}",
+                        path, id, e
+                    ))
+                })?;
             }
         }
 
-        Self {
+        Ok(Self {
             id,
             root_dir,
             manifest,
             status: PluginStatus::Unloaded,
             runtime: None,
             router,
-        }
+        })
     }
 
     /// Loads a plugin from a directory by parsing the plugin.toml.
@@ -117,10 +127,12 @@ impl PluginEntry {
         let toml_content = std::fs::read_to_string(&toml_path)
             .map_err(|e| PluginError::LoadFailed(format!("Failed to read manifest: {}", e)))?;
 
-        let manifest: PluginManifest = toml::from_str(&toml_content)
+        let mut manifest: PluginManifest = toml::from_str(&toml_content)
             .map_err(|e| PluginError::LoadFailed(format!("Invalid manifest syntax: {}", e)))?;
 
-        Ok(Self::new(id, plugin_dir.to_path_buf(), manifest))
+        manifest.resolve_schema_includes(plugin_dir)?;
+
+        Self::new(id, plugin_dir.to_path_buf(), manifest)
     }
 
     /// Resolves a web asset path based on the plugin's manifest configuration.

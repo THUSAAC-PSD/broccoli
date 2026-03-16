@@ -649,7 +649,8 @@ mod problem_deletion {
                     "input": "1 2",
                     "expected_output": "3",
                     "score": 10,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_soft_deleted"
                 }),
                 &token,
             )
@@ -679,7 +680,8 @@ mod test_case_creation {
                     "input": "3\n1 2 3",
                     "expected_output": "6",
                     "score": 10,
-                    "is_sample": true
+                    "is_sample": true,
+                    "label": "sample_01"
                 }),
                 &token,
             )
@@ -689,6 +691,33 @@ mod test_case_creation {
         assert_eq!(res.body["score"], 10);
         assert_eq!(res.body["is_sample"], true);
         assert_eq!(res.body["problem_id"], pid);
+    }
+
+    #[tokio::test]
+    async fn create_defaults_label_to_position_when_omitted() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_default_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Default Label Problem").await;
+
+        let res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "3\n1 2 3",
+                    "expected_output": "6",
+                    "score": 10,
+                    "is_sample": true
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 201);
+        assert_eq!(res.body["position"], 0);
+        assert_eq!(res.body["label"], "0");
     }
 
     #[tokio::test]
@@ -705,7 +734,8 @@ mod test_case_creation {
                     "input": "1",
                     "expected_output": "1",
                     "score": 0,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_01"
                 }),
                 &token,
             )
@@ -730,7 +760,8 @@ mod test_case_creation {
                     "input": "1",
                     "expected_output": "1",
                     "score": -1,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_neg"
                 }),
                 &token,
             )
@@ -757,7 +788,8 @@ mod test_case_creation {
                     "expected_output": "1",
                     "score": 5,
                     "is_sample": false,
-                    "position": -1
+                    "position": -1,
+                    "label": "tc_pos"
                 }),
                 &token,
             )
@@ -783,7 +815,8 @@ mod test_case_creation {
                     "input": "1",
                     "expected_output": "1",
                     "score": 5,
-                    "is_sample": true
+                    "is_sample": true,
+                    "label": "tc_01"
                 }),
                 &token,
             )
@@ -795,7 +828,8 @@ mod test_case_creation {
                     "input": "2",
                     "expected_output": "2",
                     "score": 5,
-                    "is_sample": false
+                    "is_sample": false,
+                    "label": "tc_02"
                 }),
                 &token,
             )
@@ -807,6 +841,48 @@ mod test_case_creation {
             pos2 > pos1,
             "Second test case should have a higher position"
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_label_within_problem() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_dup_create", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Duplicate Label Problem").await;
+
+        let first = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1",
+                    "expected_output": "1",
+                    "score": 10,
+                    "is_sample": false,
+                    "label": "dup_label"
+                }),
+                &token,
+            )
+            .await;
+        assert_eq!(first.status, 201);
+
+        let second = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "2",
+                    "expected_output": "2",
+                    "score": 10,
+                    "is_sample": false,
+                    "label": "dup_label"
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(second.status, 409);
+        assert_eq!(second.body["code"], "CONFLICT");
     }
 }
 
@@ -871,7 +947,8 @@ mod test_case_listing {
                 "input": long_input,
                 "expected_output": "result",
                 "score": 5,
-                "is_sample": false
+                "is_sample": false,
+                "label": "tc_long"
             }),
             &token,
         )
@@ -903,7 +980,8 @@ mod test_case_listing {
                 "input": unicode_input,
                 "expected_output": "ok",
                 "score": 5,
-                "is_sample": false
+                "is_sample": false,
+                "label": "tc_unicode"
             }),
             &token,
         )
@@ -981,6 +1059,7 @@ mod test_case_detail {
                     "expected_output": "3",
                     "score": 10,
                     "is_sample": true,
+                    "label": "sample_01",
                 }),
                 &admin,
             )
@@ -1021,6 +1100,7 @@ mod test_case_detail {
                     "expected_output": "answer",
                     "score": 90,
                     "is_sample": false,
+                    "label": "hidden_01",
                 }),
                 &admin,
             )
@@ -1069,6 +1149,42 @@ mod test_case_update {
     }
 
     #[tokio::test]
+    async fn null_label_in_patch_leaves_label_unchanged() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_reset_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Reset Label Problem").await;
+        let tc_id = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1",
+                    "expected_output": "1",
+                    "score": 10,
+                    "is_sample": false,
+                    "position": 7,
+                    "label": "custom_label"
+                }),
+                &token,
+            )
+            .await
+            .id();
+
+        let res = app
+            .patch_with_token(
+                &routes::test_case(pid, tc_id),
+                &json!({ "label": null }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["label"], "custom_label");
+    }
+
+    #[tokio::test]
     async fn cannot_update_a_nonexistent_test_case() {
         let app = TestApp::spawn().await;
         let token = app
@@ -1107,7 +1223,8 @@ mod test_case_update {
                     "expected_output": "1",
                     "score": 5,
                     "is_sample": false,
-                    "description": "original desc"
+                    "description": "original desc",
+                    "label": "tc_desc"
                 }),
                 &token,
             )
@@ -1127,6 +1244,61 @@ mod test_case_update {
 
         assert_eq!(res.status, 200);
         assert!(res.body["description"].is_null());
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_label_on_update() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_tc_dup_update", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Duplicate Update Problem").await;
+        let tc_a = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "1",
+                    "expected_output": "1",
+                    "score": 5,
+                    "is_sample": false,
+                    "label": "tc_a"
+                }),
+                &token,
+            )
+            .await
+            .id();
+        let tc_b = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "2",
+                    "expected_output": "2",
+                    "score": 5,
+                    "is_sample": false,
+                    "label": "tc_b"
+                }),
+                &token,
+            )
+            .await
+            .id();
+
+        let res = app
+            .patch_with_token(
+                &routes::test_case(pid, tc_b),
+                &json!({ "label": " tc_a " }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+
+        let unchanged = app
+            .get_with_token(&routes::test_case(pid, tc_a), &token)
+            .await;
+        assert_eq!(unchanged.status, 200);
+        assert_eq!(unchanged.body["label"], "tc_a");
     }
 }
 
@@ -1182,7 +1354,7 @@ mod test_case_deletion {
             language: Set("rust".into()),
             status: Set(SubmissionStatus::Judged),
             verdict: Set(Some(Verdict::Accepted)),
-            score: Set(Some(100)),
+            score: Set(Some(100.0)),
             time_used: Set(Some(50)),
             memory_used: Set(Some(1024)),
             user_id: Set(user_id),
@@ -1201,7 +1373,7 @@ mod test_case_deletion {
             submission_id: Set(sub_model.id),
             test_case_id: Set(tc_id),
             verdict: Set(Verdict::Accepted),
-            score: Set(10),
+            score: Set(10.0),
             time_used: Set(Some(50)),
             memory_used: Set(Some(1024)),
             created_at: Set(now),
@@ -1526,7 +1698,6 @@ mod test_case_zip_upload {
 
         assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 1);
-
         let tcs = res.body["test_cases"].as_array().unwrap();
         // Verify that the label "01" was correctly extracted from the wildcard position
         assert_eq!(tcs[0]["label"], "01");
@@ -1656,6 +1827,73 @@ mod test_case_zip_upload {
                 Some("*.in"),
                 Some("*.ans"),
                 None, // Missing merge strategy
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_conflicting_existing_label() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_upload_dup_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Upload Label Conflict").await;
+        let existing = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": "seed",
+                    "expected_output": "seed",
+                    "score": 1,
+                    "is_sample": false,
+                    "label": "01"
+                }),
+                &token,
+            )
+            .await;
+        assert_eq!(existing.status, 201);
+
+        let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("*.in"),
+                Some("*.ans"),
+                Some("abort"),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409);
+        assert_eq!(res.body["code"], "CONFLICT");
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_empty_extracted_label() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_upload_empty_label", "password123", "admin")
+            .await;
+
+        let pid = app.create_problem(&token, "Upload Empty Label").await;
+        let zip_data = build_zip(&[("input_.txt", "1\n"), ("output_.txt", "2\n")]);
+
+        let res = app
+            .upload_with_token(
+                &routes::test_cases_upload(pid),
+                "tests.zip",
+                zip_data,
+                Some("input_*.txt"),
+                Some("output_*.txt"),
+                Some("replace"),
                 &token,
             )
             .await;
@@ -1955,7 +2193,7 @@ mod bulk_delete_test_cases {
             language: Set("rust".into()),
             status: Set(SubmissionStatus::Judged),
             verdict: Set(Some(Verdict::Accepted)),
-            score: Set(Some(100)),
+            score: Set(Some(100.0)),
             time_used: Set(Some(50)),
             memory_used: Set(Some(1024)),
             user_id: Set(user_id),
@@ -1971,7 +2209,7 @@ mod bulk_delete_test_cases {
             submission_id: Set(sub_model.id),
             test_case_id: Set(tc1),
             verdict: Set(Verdict::Accepted),
-            score: Set(10),
+            score: Set(10.0),
             time_used: Set(Some(50)),
             memory_used: Set(Some(1024)),
             created_at: Set(now),
@@ -2119,6 +2357,7 @@ mod problem_contest_access {
                     "expected_output": "sample output",
                     "score": 10,
                     "is_sample": true,
+                    "label": "sample_01",
                 }),
                 &admin,
             )
@@ -2134,6 +2373,7 @@ mod problem_contest_access {
                     "expected_output": "hidden output",
                     "score": 90,
                     "is_sample": false,
+                    "label": "hidden_01",
                 }),
                 &admin,
             )

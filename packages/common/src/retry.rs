@@ -216,36 +216,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_calculate_backoff_basic() {
-        // Attempt 1: base * 2^0 = base
-        let d1 = calculate_backoff(1, 1000, 60000);
-        assert!(d1.as_millis() >= 1000 && d1.as_millis() <= 1250);
-
-        // Attempt 2: base * 2^1 = 2*base
-        let d2 = calculate_backoff(2, 1000, 60000);
-        assert!(d2.as_millis() >= 2000 && d2.as_millis() <= 2500);
-
-        // Attempt 3: base * 2^2 = 4*base
-        let d3 = calculate_backoff(3, 1000, 60000);
-        assert!(d3.as_millis() >= 4000 && d3.as_millis() <= 5000);
+    fn backoff_attempt_1_is_base_delay() {
+        // base * 2^0 = base; jitter adds at most 25%
+        let d = calculate_backoff(1, 1000, 60000);
+        assert!(d.as_millis() >= 1000 && d.as_millis() <= 1250, "d={d:?}");
     }
 
     #[test]
-    fn test_calculate_backoff_respects_max() {
-        // With base=10000 and attempt=10, uncapped would be 10000*512 = 5,120,000
-        // Should be capped at max_ms
+    fn backoff_attempt_2_doubles_delay() {
+        // base * 2^1 = 2*base
+        let d = calculate_backoff(2, 1000, 60000);
+        assert!(d.as_millis() >= 2000 && d.as_millis() <= 2500, "d={d:?}");
+    }
+
+    #[test]
+    fn backoff_attempt_3_quadruples_delay() {
+        // base * 2^2 = 4*base
+        let d = calculate_backoff(3, 1000, 60000);
+        assert!(d.as_millis() >= 4000 && d.as_millis() <= 5000, "d={d:?}");
+    }
+
+    #[test]
+    fn backoff_is_capped_at_max_ms() {
+        // uncapped would be 10000 * 2^9 = 5,120,000ms
         let d = calculate_backoff(10, 10000, 60000);
-        assert!(d.as_millis() <= 60000);
+        assert!(d.as_millis() <= 60000, "d={d:?}");
     }
 
     #[test]
-    fn test_calculate_backoff_zero_attempt() {
-        let d = calculate_backoff(0, 1000, 60000);
-        assert_eq!(d, Duration::ZERO);
+    fn backoff_attempt_zero_returns_zero() {
+        assert_eq!(calculate_backoff(0, 1000, 60000), Duration::ZERO);
     }
 
     #[test]
-    fn test_retry_tracker_exhaustion() {
+    fn retry_tracker_exhaustion() {
         let mut tracker = RetryTracker::new(3);
 
         match tracker.record_failure("msg1", "error 1") {
@@ -277,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_tracker_clear_on_success() {
+    fn retry_tracker_cleared_after_success() {
         let mut tracker = RetryTracker::new(3);
 
         tracker.record_failure("msg1", "error");
@@ -288,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_tracker_independent_messages() {
+    fn retry_tracker_tracks_messages_independently() {
         let mut tracker = RetryTracker::new(3);
 
         tracker.record_failure("msg1", "error");
@@ -303,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_tracker_cleanup_stale() {
+    fn cleanup_stale_removes_old_entries() {
         let mut tracker = RetryTracker::new(3);
 
         tracker.record_failure("msg1", "error");
@@ -316,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_tracker_cleanup_preserves_recent() {
+    fn cleanup_stale_preserves_recent_entries() {
         let mut tracker = RetryTracker::new(3);
 
         tracker.record_failure("msg1", "error");
@@ -328,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_tracker_len_and_is_empty() {
+    fn tracker_len_and_is_empty_reflect_state() {
         let mut tracker = RetryTracker::new(3);
         assert!(tracker.is_empty());
         assert_eq!(tracker.len(), 0);

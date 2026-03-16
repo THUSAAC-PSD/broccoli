@@ -300,7 +300,7 @@ function PluginManager() {
 Toggle plugins without unloading:
 
 ```tsx
-import { usePluginRegistry } from '@broccoli/web-sdk/react';
+import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
 
 function PluginToggle({ pluginName }) {
   const { enablePlugin, disablePlugin, isPluginEnabled } = usePluginRegistry();

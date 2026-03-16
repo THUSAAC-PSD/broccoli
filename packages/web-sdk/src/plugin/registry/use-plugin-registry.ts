@@ -14,9 +14,9 @@ export function usePluginRegistry() {
 }
 
 // Hook to check if a plugin is enabled
-export function usePluginEnabled(_pluginId: string) {
-  // TODO: fetch plugin state from backend
-  throw new Error('usePluginEnabled is not implemented yet');
+export function usePluginEnabled(pluginId: string) {
+  const { plugins } = usePluginRegistry();
+  return plugins.has(pluginId);
 }
 
 // Hook to get all active plugins

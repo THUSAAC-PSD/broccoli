@@ -108,15 +108,17 @@ export function TestCaseBulkUploadDialog({
     try {
       const result = await apiClient.POST('/problems/{id}/test-cases/upload', {
         params: { path: { id: problemId } },
+        // File is typed as string in the OpenAPI schema (binary format),
+        // but we pass a File object and handle serialization in bodySerializer.
         body: {
-          file: selectedFile,
+          file: selectedFile as unknown as string,
           input_format: inputFormat,
           output_format: outputFormat,
-          strategy,
+          strategy: strategy as 'abort' | 'skip' | 'overwrite' | 'replace',
         },
         bodySerializer: (body) => {
           const formData = new FormData();
-          formData.append('file', body.file);
+          formData.append('file', selectedFile);
           formData.append('input_format', body.input_format);
           formData.append('output_format', body.output_format);
           formData.append('strategy', body.strategy);
@@ -125,7 +127,9 @@ export function TestCaseBulkUploadDialog({
       });
 
       if (result.error) {
-        throw new Error(t('admin.testCases.bulkUpload.uploadError'));
+        throw new Error(
+          result.error.message || t('admin.testCases.bulkUpload.uploadError'),
+        );
       }
 
       toast.success(t('admin.testCases.bulkUpload.uploadSuccess'));

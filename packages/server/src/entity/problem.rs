@@ -16,8 +16,24 @@ pub struct Model {
     pub time_limit: i32,   // in milliseconds
     pub memory_limit: i32, // in kilobytes
 
-    /// When true, contestants see full input/output for all test cases.
-    /// When false, contestants see only verdict/score for non-sample tests.
+    /// Problem type for evaluator dispatch (e.g., "batch", "interactive").
+    #[sea_orm(default_value = "batch")]
+    pub problem_type: String,
+
+    /// Source files for custom checker (if any)
+    /// Stored as JSON: [{"filename": "checker.cpp", "content": "..."}]
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub checker_source: Option<serde_json::Value>,
+
+    /// Checker format for output comparison: "exact", "ignore_case", "ignore_whitespace", "floating_point".
+    #[sea_orm(column_type = "Text", default_value = "exact")]
+    pub checker_format: String,
+
+    /// Default contest type for standalone submissions (e.g., "ioi", "icpc").
+    #[sea_orm(default_value = "ioi")]
+    pub default_contest_type: String,
+
+    /// Whether contestants see full input/output for all test cases.
     #[sea_orm(default_value = false)]
     pub show_test_details: bool,
 

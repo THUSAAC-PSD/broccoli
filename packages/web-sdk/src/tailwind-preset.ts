@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 import tailwindAnimate from 'tailwindcss-animate';
 
-export default {
+export const broccoliPreset = {
   darkMode: ['class'],
   theme: {
     extend: {

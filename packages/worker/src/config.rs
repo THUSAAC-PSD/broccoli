@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
@@ -63,9 +65,12 @@ impl Default for WorkerConfig {
     }
 }
 
-/// Storage configuration for database-backed blob store and local cache.
+/// Storage configuration.
 #[derive(Debug, Deserialize, Clone)]
 pub struct StorageConfig {
+    /// Blob store backend configuration.
+    #[serde(flatten)]
+    pub blob_store: common::storage::config::BlobStoreConfig,
     /// Local directory for the file cache. Default: "./data/cache".
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
@@ -84,6 +89,7 @@ fn default_max_cache_size() -> u64 {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
+            blob_store: common::storage::config::BlobStoreConfig::default(),
             cache_dir: default_cache_dir(),
             max_cache_size: default_max_cache_size(),
         }
@@ -101,6 +107,9 @@ pub struct WorkerAppConfig {
     pub mq: MqAppConfig,
     #[serde(default)]
     pub storage: StorageConfig,
+    /// Language definitions. Overrides built-in defaults; built-ins fill any gaps.
+    #[serde(default)]
+    pub languages: HashMap<String, common::language::LanguageDefinition>,
 }
 
 impl WorkerAppConfig {
@@ -110,7 +119,6 @@ impl WorkerAppConfig {
 
         let s = Config::builder()
             .set_default("worker.id", "worker-1")?
-            .set_default("worker.batch_size", 4_i64)?
             .set_default("worker.isolate_bin", "isolate")?
             .set_default("worker.enable_cgroups", true)?
             .set_default("worker.sandbox_backend", "isolate")?
@@ -119,7 +127,13 @@ impl WorkerAppConfig {
             .set_default("mq.pool_size", 5_i64)?
             .set_default("mq.queue_name", "judge_jobs")?
             .set_default("mq.result_queue_name", "judge_results")?
+            .set_default("mq.operation_queue_name", "operation_tasks")?
+            .set_default("mq.operation_result_queue_name", "operation_results")?
+            .set_default("mq.dlq_queue_name", "judge_jobs_dlq")?
             .set_default("database.url", "postgres://localhost/broccoli")?
+            .set_default("storage.backend", "database")?
+            .set_default("storage.data_dir", "./data")?
+            .set_default("storage.max_blob_size", 128 * 1024 * 1024_i64)?
             .set_default("storage.cache_dir", "./data/cache")?
             .set_default("storage.max_cache_size", 512 * 1024 * 1024_i64)?
             .add_source(File::with_name(&config_path).required(false))

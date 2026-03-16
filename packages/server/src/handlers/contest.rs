@@ -11,7 +11,9 @@ use crate::entity::{contest, contest_problem, contest_user, problem, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::contest::*;
+use crate::models::plugin_config::config_key;
 use crate::models::shared::{Pagination, escape_like};
 use crate::state::AppState;
 use crate::utils::contest::{
@@ -56,6 +58,7 @@ pub async fn create_contest(
         submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
         show_compile_output: Set(payload.show_compile_output.unwrap_or(true)),
         show_participants_list: Set(payload.show_participants_list.unwrap_or(true)),
+        contest_type: Set(payload.contest_type),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -330,6 +333,9 @@ pub async fn update_contest(
     if let Some(show_participants_list) = payload.show_participants_list {
         active.show_participants_list = Set(show_participants_list);
     }
+    if let Some(contest_type) = payload.contest_type {
+        active.contest_type = Set(Some(contest_type));
+    }
     active.updated_at = Set(chrono::Utc::now());
 
     let model = active.update(&txn).await?;
@@ -368,6 +374,14 @@ pub async fn delete_contest(
     let mut active: contest::ActiveModel = contest.into();
     active.deleted_at = Set(Some(chrono::Utc::now()));
     active.update(&txn).await?;
+
+    delete_config_by_scope(&txn, "contest", &config_key::contest(id)).await?;
+    delete_config_by_scope_like(
+        &txn,
+        "contest_problem",
+        &config_key::contest_problem_by_contest_like(id),
+    )
+    .await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -609,6 +623,14 @@ pub async fn remove_contest_problem(
     let cp = find_contest_problem(&txn, contest_id, problem_id).await?;
     let active: contest_problem::ActiveModel = cp.into();
     active.delete(&txn).await?;
+
+    delete_config_by_scope(
+        &txn,
+        "contest_problem",
+        &crate::models::plugin_config::config_key::contest_problem(contest_id, problem_id),
+    )
+    .await?;
+
     txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)

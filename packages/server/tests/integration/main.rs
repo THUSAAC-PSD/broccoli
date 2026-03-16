@@ -4,5 +4,6 @@ mod common;
 mod contest;
 mod dlq;
 mod plugin;
+mod plugin_config;
 mod problem;
 mod submission;

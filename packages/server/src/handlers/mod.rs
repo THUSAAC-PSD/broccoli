@@ -1,12 +1,15 @@
+pub mod additional_file;
 pub mod admin;
 pub mod assets;
 pub mod attachment;
 pub mod auth;
 pub mod clarification;
+pub mod config_upload;
 pub mod contest;
 pub mod dlq;
 pub mod i18n;
 pub mod plugin;
+pub mod plugin_config;
 pub mod problem;
 pub mod proxy;
 pub mod submission;

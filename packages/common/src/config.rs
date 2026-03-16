@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Dead letter queue configuration for retry and failure handling.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DlqConfig {
     /// Maximum retry attempts before moving to DLQ. Default: 3.
     #[serde(default = "default_dlq_max_retries")]
@@ -63,7 +63,7 @@ impl Default for DlqConfig {
 }
 
 /// App-level MQ configuration.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MqAppConfig {
     /// Whether MQ is enabled. Default: true.
     /// Note: Worker ignores this field (always requires MQ).
@@ -88,6 +88,12 @@ pub struct MqAppConfig {
     /// Note: Server-side judge_result DLQ is handled in-process (no separate queue needed).
     #[serde(default = "default_mq_dlq_queue_name")]
     pub dlq_queue_name: String,
+    /// Queue for operation/worker tasks (server -> worker). Default: "operation_tasks".
+    #[serde(default = "default_operation_queue_name")]
+    pub operation_queue_name: String,
+    /// Queue for operation results (worker -> server). Default: "operation_results".
+    #[serde(default = "default_operation_result_queue_name")]
+    pub operation_result_queue_name: String,
     /// Dead letter queue and retry configuration.
     #[serde(default)]
     pub dlq: DlqConfig,
@@ -111,6 +117,12 @@ fn default_mq_result_queue_name() -> String {
 fn default_mq_dlq_queue_name() -> String {
     "judge_jobs_dlq".into()
 }
+fn default_operation_queue_name() -> String {
+    "operation_tasks".into()
+}
+fn default_operation_result_queue_name() -> String {
+    "operation_results".into()
+}
 
 impl Default for MqAppConfig {
     fn default() -> Self {
@@ -121,6 +133,8 @@ impl Default for MqAppConfig {
             queue_name: default_mq_queue_name(),
             result_queue_name: default_mq_result_queue_name(),
             dlq_queue_name: default_mq_dlq_queue_name(),
+            operation_queue_name: default_operation_queue_name(),
+            operation_result_queue_name: default_operation_result_queue_name(),
             dlq: DlqConfig::default(),
         }
     }

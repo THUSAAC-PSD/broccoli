@@ -1,48 +1,94 @@
-use axum::{
-    Json,
-    extract::{Path, State},
-};
-use plugin_core::{registry::PluginStatus, traits::PluginManagerExt};
-use serde_json::Value;
+use axum::{Json, extract::State};
+use common::language::resolve_language;
+use plugin_core::registry::PluginStatus;
 use tracing::instrument;
 
-use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
-use crate::extractors::json::AppJson;
-use crate::models::plugin::ActivePluginResponse;
+use crate::error::AppError;
+use crate::models::plugin::{ActivePluginResponse, LanguageRegistryItem, RegistriesResponse};
 use crate::state::AppState;
 
-#[utoipa::path(
-    post,
-    path = "/{id}/call/{func}",
-    tag = "Plugins",
-    operation_id = "callPluginFunction",
-    summary = "Call a function on a loaded plugin",
-    description = "Invokes a named function on a previously loaded plugin. The plugin must be loaded first via the load endpoint. Returns 404 if the plugin is not loaded.",
-    params(
-        ("id" = String, Path, description = "Plugin ID"),
-        ("func" = String, Path, description = "Function name to call"),
-    ),
-    request_body = serde_json::Value,
-    responses(
-        (status = 200, description = "Plugin function result", body = serde_json::Value),
-        (status = 400, description = "Invalid input (VALIDATION_ERROR)", body = ErrorBody),
-        (status = 400, description = "Plugin not ready (PLUGIN_NOT_READY)", body = ErrorBody),
-        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 404, description = "Plugin not found (NOT_FOUND)", body = ErrorBody),
-    ),
-    security(("jwt" = [])),
-)]
-#[instrument(skip(state, _auth_user, input), fields(plugin_id, func_name))]
-pub async fn call_plugin_func(
-    _auth_user: AuthUser,
-    State(state): State<AppState>,
-    Path((plugin_id, func_name)): Path<(String, String)>,
-    AppJson(input): AppJson<Value>,
-) -> Result<Json<Value>, AppError> {
-    let result: Value = state.plugins.call(&plugin_id, &func_name, input).await?;
+fn display_name_for_language(id: &str) -> String {
+    match id {
+        "cpp" => "C++".to_string(),
+        "c" => "C".to_string(),
+        "python3" => "Python 3".to_string(),
+        "javascript" => "JavaScript".to_string(),
+        "typescript" => "TypeScript".to_string(),
+        "rust" => "Rust".to_string(),
+        "go" => "Go".to_string(),
+        "java" => "Java".to_string(),
+        _ => id.to_string(),
+    }
+}
 
-    Ok(Json(result))
+#[utoipa::path(
+    get,
+    path = "/registries",
+    tag = "Plugins",
+    operation_id = "listRegistries",
+    summary = "List available registry values",
+    description = "Returns the currently registered problem types, checker formats, and contest types. These values are populated by loaded plugins.",
+    responses(
+        (status = 200, description = "Available registry values", body = RegistriesResponse),
+    ),
+)]
+#[instrument(skip(state))]
+pub async fn list_registries(
+    State(state): State<AppState>,
+) -> Result<Json<RegistriesResponse>, AppError> {
+    let mut problem_types: Vec<String> = state
+        .registries
+        .evaluator_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    problem_types.sort();
+
+    let mut checker_formats: Vec<String> = state
+        .registries
+        .checker_format_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    checker_formats.sort();
+
+    let mut contest_types: Vec<String> = state
+        .registries
+        .contest_type_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    contest_types.sort();
+
+    let mut languages: Vec<LanguageRegistryItem> = state
+        .config
+        .languages
+        .keys()
+        .map(|id| {
+            let default_filename = resolve_language(id, "", &state.config.languages)
+                .map(|resolved| resolved.source_filename)
+                .unwrap_or_else(|_| "solution.txt".to_string());
+            LanguageRegistryItem {
+                id: id.clone(),
+                name: display_name_for_language(id),
+                default_filename,
+            }
+        })
+        .collect();
+    languages.sort_by(|a, b| a.id.cmp(&b.id));
+
+    Ok(Json(RegistriesResponse {
+        problem_types,
+        checker_formats,
+        contest_types,
+        languages,
+    }))
 }
 
 #[utoipa::path(

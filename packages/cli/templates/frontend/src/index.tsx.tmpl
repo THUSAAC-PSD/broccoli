@@ -1,0 +1,16 @@
+// Plugin components. Export names must match keys in plugin.toml [web.components].
+// The manifest (slots, routes) is defined in plugin.toml and served by the backend;
+// this file only exports the React components and optional lifecycle hooks.
+
+export function HelloPage() {
+  return (
+    <div className="p-4">
+      <h2 className="text-lg font-semibold">{{plugin_name_pascal}}</h2>
+      <p className="text-sm text-muted-foreground">Hello from the {{plugin_name_pascal}} plugin.</p>
+    </div>
+  );
+}
+
+export function onInit() {
+  console.log("{{plugin_name_pascal}} plugin loaded");
+}

@@ -1,9 +1,11 @@
 pub mod attachment;
 pub mod auth;
 pub mod clarification;
+pub mod config_upload;
 pub mod contest;
 pub mod dlq;
 pub mod plugin;
+pub mod plugin_config;
 pub mod problem;
 pub mod shared;
 pub mod submission;

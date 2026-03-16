@@ -1,11 +1,13 @@
 import { Toaster as SonnerToaster } from 'sonner';
 
-import { useTheme } from '@/theme/use-theme';
+import type { Theme } from '@/theme/types';
 
-type ToasterProps = React.ComponentProps<typeof SonnerToaster>;
+export type ToasterProps = React.ComponentProps<typeof SonnerToaster> & {
+  theme?: Theme;
+};
 
 function Toaster(props: ToasterProps) {
-  const { theme } = useTheme();
+  const { theme, ...rest } = props;
 
   return (
     <SonnerToaster
@@ -22,7 +24,7 @@ function Toaster(props: ToasterProps) {
             'group-[.toast]:bg-muted group-[.toast]:text-muted-foreground',
         },
       }}
-      {...props}
+      {...rest}
     />
   );
 }

@@ -22,7 +22,8 @@ export interface PluginRegistryContextValue {
   ) => Promise<void>;
   loadAllPlugins: () => Promise<void>;
   unloadPlugin: (pluginId: string) => Promise<void>;
-  // TODO: reloadPlugin & reloadAllPlugins
+  reloadPlugin: (pluginId: string) => Promise<void>;
+  reloadAllPlugins: () => Promise<void>;
   getSlots: (slotName: string) => SlotConfig[];
   errors: Map<string, Error>;
 }

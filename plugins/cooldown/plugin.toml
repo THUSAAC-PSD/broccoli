@@ -1,0 +1,67 @@
+name = "cooldown"
+version = "0.1.0"
+description = "Submission cooldown timer — enforces a minimum delay between submissions"
+
+[server]
+entry = "cooldown_plugin.wasm"
+permissions = [
+    "logger",
+    "sql",
+    "config:read",
+]
+
+[[server.hooks]]
+topic = "before_submission"
+function = "check_cooldown"
+scope = "resource"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status"
+handler = "get_cooldown_status"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/cooldown/problems/{problem_id}/status"
+handler = "get_cooldown_status_standalone"
+
+[web]
+root = "frontend/dist"
+entry = "index.js"
+css = ["styles.css"]
+
+[web.components]
+CooldownConfigInfo = "CooldownConfigInfo"
+CooldownRejection = "CooldownRejection"
+CooldownStatus = "CooldownStatus"
+
+[[web.slots]]
+name = "config.form.cooldown.cooldown"
+position = "before"
+component = "CooldownConfigInfo"
+
+[[web.slots]]
+name = "submission-result.rejection"
+position = "wrap"
+component = "CooldownRejection"
+
+[[web.slots]]
+name = "problem-detail.sidebar"
+position = "prepend"
+component = "CooldownStatus"
+
+[translations]
+en = "i18n/en.toml"
+
+[config.cooldown]
+description = "Cooldown timer settings"
+scopes = ["problem", "contest", "contest_problem"]
+
+[config.cooldown.properties.cooldown_seconds]
+type = "integer"
+title = "Cooldown (seconds)"
+description = "Minimum seconds between submissions. Set to 0 to disable."
+default = 60
+min = 0
+max = 3600
+unit = "s"

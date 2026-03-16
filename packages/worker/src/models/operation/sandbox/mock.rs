@@ -1,5 +1,5 @@
 use super::error::SandboxError;
-use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager, SandboxOptions};
+use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -10,6 +10,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::fs;
 use tokio::process::Command;
 use tokio::sync::RwLock;
@@ -193,13 +194,31 @@ impl MockSandboxManager {
                 Self::remove_existing_target(&inside_path).await?;
 
                 #[cfg(unix)]
-                std::os::unix::fs::symlink(outside_path, &inside_path).map_err(|err| {
-                    SandboxError::Initialization(format!(
-                        "failed to create mock directory mapping {} -> {}: {err}",
-                        inside_path.display(),
-                        outside_path.display()
-                    ))
-                })?;
+                match std::os::unix::fs::symlink(outside_path, &inside_path) {
+                    Ok(()) => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                        // Concurrent steps in the same layer may race to
+                        // create the same symlink.  If the symlink already
+                        // points to the correct target, treat it as success.
+                        if let Ok(target) = std::fs::read_link(&inside_path)
+                            && target != *outside_path
+                        {
+                            return Err(SandboxError::Initialization(format!(
+                                "mock directory mapping {} exists but points to {}, expected {}",
+                                inside_path.display(),
+                                target.display(),
+                                outside_path.display()
+                            )));
+                        }
+                    }
+                    Err(err) => {
+                        return Err(SandboxError::Initialization(format!(
+                            "failed to create mock directory mapping {} -> {}: {err}",
+                            inside_path.display(),
+                            outside_path.display()
+                        )));
+                    }
+                }
                 #[cfg(not(unix))]
                 std::os::windows::fs::symlink_dir(outside_path, &inside_path).map_err(|err| {
                     SandboxError::Initialization(format!(
@@ -235,11 +254,7 @@ impl MockSandboxManager {
 
 #[async_trait]
 impl SandboxManager for MockSandboxManager {
-    async fn create_sandbox(
-        &mut self,
-        id: Option<&str>,
-        _options: &SandboxOptions,
-    ) -> Result<PathBuf, SandboxError> {
+    async fn create_sandbox(&self, id: Option<&str>) -> Result<PathBuf, SandboxError> {
         let box_id = id.unwrap_or("0").to_string();
         if box_id.is_empty() {
             return Err(SandboxError::Initialization(
@@ -278,7 +293,7 @@ impl SandboxManager for MockSandboxManager {
         Ok(sandbox_path)
     }
 
-    async fn remove_sandbox(&mut self, id: &str) -> Result<(), SandboxError> {
+    async fn remove_sandbox(&self, id: &str) -> Result<(), SandboxError> {
         let known_path = self.sandboxes.write().await.remove(id);
         let sandbox_path = known_path.unwrap_or_else(|| self.base_dir.join(id));
         debug!(box_id = %id, path = %sandbox_path.display(), "Removing mock sandbox");
@@ -311,8 +326,24 @@ impl SandboxManager for MockSandboxManager {
         let sandbox_path = self.get_sandbox_path(box_id).await?;
         debug!(box_id = %box_id, argv = ?argv, cwd = %sandbox_path.display(), "Executing command in mock sandbox");
 
-        let mut command = Command::new(&argv[0]);
-        command.args(argv.iter().skip(1));
+        // Rewrite /box/ paths in argv to use the actual sandbox directory.
+        // Plugins designed for isolate use /box/ as the sandbox root; the
+        // mock sandbox replicates this by mapping /box/X → sandbox_path/X.
+        let rewritten_argv: Vec<String> = argv
+            .iter()
+            .map(|arg| {
+                if let Some(rest) = arg.strip_prefix("/box/") {
+                    sandbox_path.join(rest).to_string_lossy().into_owned()
+                } else if arg == "/box" {
+                    sandbox_path.to_string_lossy().into_owned()
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect();
+
+        let mut command = Command::new(&rewritten_argv[0]);
+        command.args(rewritten_argv.iter().skip(1));
         command.current_dir(&sandbox_path);
 
         if let Some(stdin_path) = &run_options.stdin {
@@ -355,46 +386,117 @@ impl SandboxManager for MockSandboxManager {
 
         Self::apply_directory_rules(&sandbox_path, &run_options.directory_rules).await?;
         let start = Instant::now();
-        let child = command.spawn().map_err(|err| {
+        let mut child = command.spawn().map_err(|err| {
             SandboxError::Execution(format!("failed to spawn mock sandbox process: {err}"))
         })?;
-        let output = child.wait_with_output().await.map_err(|err| {
-            SandboxError::Execution(format!("failed to wait mock sandbox process: {err}"))
-        })?;
+
+        // If stdout/stderr are piped (not redirected to file), we must drain them
+        // concurrently with wait() to prevent the child from blocking on a full pipe.
+        use tokio::io::AsyncReadExt;
+        let piped_stdout_handle = child.stdout.take();
+        let piped_stderr_handle = child.stderr.take();
+
+        let stdout_task = piped_stdout_handle.map(|mut s| {
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let _ = s.read_to_end(&mut buf).await;
+                buf
+            })
+        });
+        let stderr_task = piped_stderr_handle.map(|mut s| {
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let _ = s.read_to_end(&mut buf).await;
+                buf
+            })
+        });
+
+        // Enforce wall-time limit. The mock sandbox doesn't run inside a cgroup,
+        // so we apply an explicit timeout using the wall_time_limit if provided,
+        // or the time_limit with a 1.5x multiplier as a fallback.
+        let time_limit_secs = run_options.resource_limits.wall_time_limit.or_else(|| {
+            run_options
+                .resource_limits
+                .time_limit
+                .map(|t| (t * 1.5).max(t + 5.0))
+        });
+
+        let (timed_out, exit_status) = if let Some(limit) = time_limit_secs {
+            let timeout_dur = Duration::from_secs_f64(limit);
+            tokio::select! {
+                result = child.wait() => {
+                    let status = result.map_err(|err| {
+                        SandboxError::Execution(format!("failed to wait mock sandbox process: {err}"))
+                    })?;
+                    (false, status)
+                }
+                _ = tokio::time::sleep(timeout_dur) => {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                    (true, std::process::ExitStatus::default())
+                }
+            }
+        } else {
+            let status = child.wait().await.map_err(|err| {
+                SandboxError::Execution(format!("failed to wait mock sandbox process: {err}"))
+            })?;
+            (false, status)
+        };
+
         let elapsed = start.elapsed().as_secs_f64();
 
+        // Collect piped output (empty if timed out — tasks aborted or finished)
+        let piped_stdout_bytes = if let Some(task) = stdout_task {
+            task.await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let piped_stderr_bytes = if let Some(task) = stderr_task {
+            task.await.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         let stdout = if let Some(path) = &run_options.stdout {
-            if Self::is_fifo(path) {
+            let resolved = sandbox_path.join(path);
+            if Self::is_fifo(&resolved) {
                 String::new()
             } else {
-                tokio::fs::read_to_string(path)
+                tokio::fs::read_to_string(&resolved)
                     .await
                     .unwrap_or_else(|_| String::new())
             }
         } else {
-            String::from_utf8_lossy(&output.stdout).to_string()
+            String::from_utf8_lossy(&piped_stdout_bytes).to_string()
         };
 
         let stderr = if let Some(path) = &run_options.stderr {
-            if Self::is_fifo(path) {
+            let resolved = sandbox_path.join(path);
+            if Self::is_fifo(&resolved) {
                 String::new()
             } else {
-                tokio::fs::read_to_string(path)
+                tokio::fs::read_to_string(&resolved)
                     .await
                     .unwrap_or_else(|_| String::new())
             }
         } else {
-            String::from_utf8_lossy(&output.stderr).to_string()
+            String::from_utf8_lossy(&piped_stderr_bytes).to_string()
         };
 
-        let exit_code = output.status.code();
+        let exit_code = if timed_out { None } else { exit_status.code() };
         #[cfg(unix)]
-        let signal = output.status.signal();
+        let signal = if timed_out {
+            None
+        } else {
+            exit_status.signal()
+        };
         #[cfg(not(unix))]
         let signal: Option<i32> = None;
-        let success = output.status.success();
+        let success = !timed_out && exit_status.success();
 
-        if success {
+        if timed_out {
+            warn!(box_id = %box_id, time_used = elapsed, "Mock sandbox process killed (wall-time limit exceeded)");
+        } else if success {
             debug!(box_id = %box_id, exit_code = ?exit_code, time_used = elapsed, "Mock sandbox command finished");
         } else {
             warn!(box_id = %box_id, exit_code = ?exit_code, signal = ?signal, time_used = elapsed, "Mock sandbox command failed");
@@ -406,19 +508,23 @@ impl SandboxManager for MockSandboxManager {
             time_used: elapsed,
             wall_time_used: elapsed,
             memory_used: None,
-            killed: signal.is_some(),
+            killed: timed_out || signal.is_some(),
             cg_oom_killed: false,
-            status: if success {
+            status: if timed_out {
+                "TO".to_string()
+            } else if success {
                 "OK".to_string()
             } else if signal.is_some() {
                 "SG".to_string()
             } else {
                 "RE".to_string()
             },
-            message: if success {
+            message: if timed_out {
+                "wall-time limit exceeded".to_string()
+            } else if success {
                 String::new()
             } else {
-                format!("mock sandbox process exited with status: {}", output.status)
+                format!("mock sandbox process exited with status: {}", exit_status)
             },
             stdout,
             stderr,

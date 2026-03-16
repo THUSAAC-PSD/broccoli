@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect, Schema, Set};
@@ -30,17 +31,6 @@ mod blob_data {
     impl ActiveModelBehavior for ActiveModel {}
 }
 
-/// A [`BlobStore`] backed by a PostgreSQL `blob_data` table.
-///
-/// Table schema:
-/// ```sql
-/// CREATE TABLE IF NOT EXISTS blob_data (
-///     content_hash TEXT PRIMARY KEY,
-///     data         BYTEA NOT NULL,
-///     size         BIGINT NOT NULL,
-///     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-/// );
-/// ```
 pub struct DatabaseBlobStore {
     db: DatabaseConnection,
     max_size: u64,
@@ -49,7 +39,7 @@ pub struct DatabaseBlobStore {
 impl DatabaseBlobStore {
     /// Create a new `DatabaseBlobStore`.
     ///
-    /// Call [`ensure_table`](Self::ensure_table) once during startup to create
+    /// Call ensure_table() once during startup to create
     /// the `blob_data` table if it does not exist.
     pub fn new(db: DatabaseConnection, max_size: u64) -> Self {
         Self { db, max_size }
@@ -62,9 +52,9 @@ impl DatabaseBlobStore {
         let mut create_stmt = schema.create_table_from_entity(blob_data::Entity);
         create_stmt.if_not_exists();
 
-        db.execute(&create_stmt).await.map_err(|e| {
-            StorageError::Database(format!("Failed to create blob_data table: {e}"))
-        })?;
+        db.execute(&create_stmt)
+            .await
+            .map_err(|e| StorageError::Backend(format!("Failed to create blob_data table: {e}")))?;
         Ok(())
     }
 
@@ -107,13 +97,13 @@ impl BlobStore for DatabaseBlobStore {
         let hash_hex = hash.to_hex();
 
         let size = i64::try_from(total_bytes)
-            .map_err(|_| StorageError::Database(format!("blob size overflow: {total_bytes}")))?;
+            .map_err(|_| StorageError::Backend(format!("blob size overflow: {total_bytes}")))?;
 
         let model = blob_data::ActiveModel {
             content_hash: Set(hash_hex),
             data: Set(buf),
             size: Set(size),
-            ..Default::default()
+            created_at: Set(Utc::now()),
         };
 
         blob_data::Entity::insert(model)
@@ -124,7 +114,7 @@ impl BlobStore for DatabaseBlobStore {
             )
             .exec_without_returning(&self.db)
             .await
-            .map_err(|e| StorageError::Database(format!("put_stream failed: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("put_stream failed: {e}")))?;
 
         Ok(hash)
     }
@@ -135,7 +125,7 @@ impl BlobStore for DatabaseBlobStore {
         let model = blob_data::Entity::find_by_id(hash_hex.clone())
             .one(&self.db)
             .await
-            .map_err(|e| StorageError::Database(format!("get_stream query failed: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("get_stream query failed: {e}")))?;
 
         let model = model.ok_or(StorageError::NotFound(hash_hex))?;
 
@@ -151,7 +141,7 @@ impl BlobStore for DatabaseBlobStore {
             .into_tuple::<(String,)>()
             .one(&self.db)
             .await
-            .map_err(|e| StorageError::Database(format!("exists query failed: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("exists query failed: {e}")))?;
 
         Ok(row.is_some())
     }
@@ -162,7 +152,7 @@ impl BlobStore for DatabaseBlobStore {
         let result = blob_data::Entity::delete_by_id(hash_hex)
             .exec(&self.db)
             .await
-            .map_err(|e| StorageError::Database(format!("delete failed: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("delete failed: {e}")))?;
 
         Ok(result.rows_affected > 0)
     }
@@ -176,12 +166,12 @@ impl BlobStore for DatabaseBlobStore {
             .into_tuple::<(i64,)>()
             .one(&self.db)
             .await
-            .map_err(|e| StorageError::Database(format!("size query failed: {e}")))?;
+            .map_err(|e| StorageError::Backend(format!("size query failed: {e}")))?;
 
         let (size,) = row.ok_or(StorageError::NotFound(hash_hex))?;
 
         if size < 0 {
-            return Err(StorageError::Database(format!(
+            return Err(StorageError::Backend(format!(
                 "size decode failed: negative size {size}"
             )));
         }

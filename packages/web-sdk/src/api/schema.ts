@@ -24,6 +24,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/plugins/reload-all': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reload all plugins and discover new ones
+     * @description Reloads all currently loaded plugins and discovers any new plugins in the plugins directory. Requires `plugin:manage` permission.
+     */
+    post: operations['reloadAllPlugins'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/upload': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Upload a plugin archive
+     * @description Uploads a tar.gz plugin archive. Files are merged into the plugins directory (existing files not in the archive are preserved). The plugin is automatically loaded after upload. Requires `plugin:manage` permission.
+     */
+    post: operations['uploadPlugin'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/plugins/{id}': {
     parameters: {
       query?: never;
@@ -39,6 +79,42 @@ export interface paths {
     put?: never;
     post?: never;
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/{id}/config': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List all config namespaces for a plugin */
+    get: operations['listPluginGlobalConfig'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/{id}/config/{namespace}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get config for a specific namespace on a plugin */
+    get: operations['getPluginGlobalConfig'];
+    /** Create or update config for a namespace on a plugin */
+    put: operations['upsertPluginGlobalConfig'];
+    post?: never;
+    /** Delete config for a namespace on a plugin */
+    delete: operations['deletePluginGlobalConfig'];
     options?: never;
     head?: never;
     patch?: never;
@@ -78,6 +154,86 @@ export interface paths {
      * @description Enables a plugin by its ID. Requires `plugin:manage` permission.
      */
     post: operations['enablePlugin'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/plugins/{id}/reload': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reload a plugin
+     * @description Reloads a plugin by re-reading its manifest from disk and re-creating the WASM runtime. The plugin must be currently loaded. Requires `plugin:manage` permission.
+     */
+    post: operations['reloadPlugin'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/device-authorize': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Authorize a device code
+     * @description Authorizes a pending device code by entering the user code. Requires the user to be logged in via JWT. The CLI will receive a fresh JWT on its next poll.
+     */
+    post: operations['authorizeDevice'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/device-code': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Request a device authorization code
+     * @description Initiates the device authorization flow (RFC 8628). Returns a device code for polling and a user code for the user to enter in the browser.
+     */
+    post: operations['requestDeviceCode'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/device-token': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Poll for device authorization token
+     * @description Polling endpoint for the device code flow. Returns the JWT token once the user has authorized the device. Returns 400 with 'authorization_pending' while waiting.
+     */
+    post: operations['pollDeviceToken'];
     delete?: never;
     options?: never;
     head?: never;
@@ -138,6 +294,26 @@ export interface paths {
      * @description Creates a new user account with the provided credentials. No authentication required. Returns 409 USERNAME_TAKEN if the username is already in use.
      */
     post: operations['registerUser'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/config/upload': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Upload a blob for use in plugin config fields
+     * @description Uploads a file to the blob store and returns its content hash. The returned `{ filename, content_hash }` pair can be stored in plugin config fields that use `format: "blob-ref"`. No ownership record is created — the config value itself is the reference.
+     */
+    post: operations['uploadConfigBlob'];
     delete?: never;
     options?: never;
     head?: never;
@@ -235,6 +411,42 @@ export interface paths {
      */
     post: operations['replyClarification'];
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/config': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List all config namespaces for a contest */
+    get: operations['listContestConfig'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/config/{plugin_id}/{namespace}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get config for a specific namespace on a contest */
+    get: operations['getContestConfig'];
+    /** Create or update config for a namespace on a contest */
+    put: operations['upsertContestConfig'];
+    post?: never;
+    /** Delete config for a namespace on a contest */
+    delete: operations['deleteContestConfig'];
     options?: never;
     head?: never;
     patch?: never;
@@ -410,6 +622,42 @@ export interface paths {
      * @description Updates the label or position of a problem within a contest. Requires `contest:manage` permission. Returns 409 CONFLICT on duplicate labels.
      */
     patch: operations['updateContestProblem'];
+    trace?: never;
+  };
+  '/contests/{id}/problems/{problem_id}/config': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List all config namespaces for a contest-problem */
+    get: operations['listContestProblemConfig'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/problems/{problem_id}/config/{plugin_id}/{namespace}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get config for a specific namespace on a contest-problem */
+    get: operations['getContestProblemConfig'];
+    /** Create or update config for a namespace on a contest-problem */
+    put: operations['upsertContestProblemConfig'];
+    post?: never;
+    /** Delete config for a namespace on a contest-problem */
+    delete: operations['deleteContestProblemConfig'];
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   '/contests/{id}/problems/{problem_id}/submissions': {
@@ -648,45 +896,45 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Proxy request to plugin-defined route
+     * GET proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    get: operations['handlePluginRequest'];
+    get: operations['getPluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * PUT proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    put: operations['handlePluginRequest'];
+    put: operations['putPluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * POST proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    post: operations['handlePluginRequest'];
+    post: operations['postPluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * DELETE proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    delete: operations['handlePluginRequest'];
+    delete: operations['deletePluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * OPTIONS proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    options: operations['handlePluginRequest'];
+    options: operations['optionsPluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * HEAD proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    head: operations['handlePluginRequest'];
+    head: operations['headPluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * PATCH proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    patch: operations['handlePluginRequest'];
+    patch: operations['patchPluginRequest'];
     /**
-     * Proxy request to plugin-defined route
+     * TRACE proxy to plugin route
      * @description Handles HTTP requests for plugin-defined routes. The plugin and route are determined by the path parameters. The request is forwarded to the plugin's Wasm handler, and the response is returned to the client. Authorization is checked based on the permissions defined in the plugin manifest.
      */
-    trace: operations['handlePluginRequest'];
+    trace: operations['tracePluginRequest'];
   };
   '/plugins/active': {
     parameters: {
@@ -708,20 +956,20 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/plugins/{id}/call/{func}': {
+  '/plugins/registries': {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get?: never;
-    put?: never;
     /**
-     * Call a function on a loaded plugin
-     * @description Invokes a named function on a previously loaded plugin. The plugin must be loaded first via the load endpoint. Returns 404 if the plugin is not loaded.
+     * List available registry values
+     * @description Returns the currently registered problem types, checker formats, and contest types. These values are populated by loaded plugins.
      */
-    post: operations['callPluginFunction'];
+    get: operations['listRegistries'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -780,6 +1028,54 @@ export interface paths {
     patch: operations['updateProblem'];
     trace?: never;
   };
+  '/problems/{id}/additional-files': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List judge-private additional files for a problem
+     * @description Returns all additional files (stubs, graders) for a problem, across all languages. Requires problem:edit permission.
+     */
+    get: operations['listAdditionalFiles'];
+    put?: never;
+    /**
+     * Upload a judge-private additional file
+     * @description Uploads a file that will be compiled alongside contestant submissions for the specified language. The `file` multipart field is required, and the `language` field specifies which language submissions receive this file. An optional `path` field sets the virtual subpath (e.g. `include/grader.h`); defaults to the upload filename. Re-uploading the same language+path replaces the previous version.
+     */
+    post: operations['uploadAdditionalFile'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/additional-files/{ref_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Download a judge-private additional file
+     * @description Streams the additional file content. Requires problem:edit permission.
+     */
+    get: operations['downloadAdditionalFile'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a judge-private additional file
+     * @description Removes the additional file reference. Requires problem:edit permission.
+     */
+    delete: operations['deleteAdditionalFile'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/problems/{id}/attachments': {
     parameters: {
       query?: never;
@@ -823,6 +1119,42 @@ export interface paths {
      * @description Removes the attachment reference. The underlying blob is preserved for GC.
      */
     delete: operations['deleteAttachment'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/config': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List all config namespaces for a problem */
+    get: operations['listProblemConfig'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/config/{plugin_id}/{namespace}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get config for a specific namespace on a problem */
+    get: operations['getProblemConfig'];
+    /** Create or update config for a namespace on a problem */
+    put: operations['upsertProblemConfig'];
+    post?: never;
+    /** Delete config for a namespace on a problem */
+    delete: operations['deleteProblemConfig'];
     options?: never;
     head?: never;
     patch?: never;
@@ -1094,6 +1426,13 @@ export interface components {
        */
       components: components['schemas']['ComponentMap'];
       /**
+       * @description CSS files to load alongside the JS entry point.
+       * @example [
+       *       "style.css"
+       *     ]
+       */
+      css: string[];
+      /**
        * @description Public URL to the plugin's frontend ESM entry point.
        * @example /assets/plugin-123/index.js
        */
@@ -1333,7 +1672,8 @@ export interface components {
       /**
        * @description Filter by verdict string.
        *     Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
-       *     Custom verdicts must use `other:<custom>`, e.g. `other:PartiallyAccepted`.
+       *     Custom verdicts may use the raw custom label (e.g. PartiallyAccepted).
+       *     `Other(<custom>)` is also accepted.
        * @example WrongAnswer
        */
       verdict?: string | null;
@@ -1441,6 +1781,42 @@ export interface components {
     ComponentMap: {
       [key: string]: string;
     };
+    /** @description Response from uploading a config blob. */
+    ConfigBlobUploadResponse: {
+      /**
+       * @description SHA-256 content hash (hex).
+       * @example a1b2c3d4e5f6...
+       */
+      content_hash: string;
+      /**
+       * @description Original filename.
+       * @example manager.cpp
+       */
+      filename: string;
+      /**
+       * Format: int64
+       * @description File size in bytes.
+       * @example 4096
+       */
+      size: number;
+    };
+    /** @description Config schema for a single namespace declared by a plugin. */
+    ConfigSchemaResponse: {
+      /**
+       * @description Human-readable description of what this config controls.
+       * @example Testlib checker compiler settings
+       */
+      description?: string | null;
+      /** @description JSON Schema generated from the plugin's TOML schema definition. */
+      json_schema: unknown;
+      /**
+       * @description Namespace name, e.g. "testlib".
+       * @example testlib
+       */
+      namespace: string;
+      /** @description Scopes where this config applies. */
+      scopes: string[];
+    };
     /** @description Contest summary for list views (description omitted). */
     ContestListItem: {
       /**
@@ -1448,6 +1824,11 @@ export interface components {
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
+      /**
+       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+       * @example ioi
+       */
+      contest_type?: string | null;
       /**
        * Format: date-time
        * @example 2025-09-25T10:00:00Z
@@ -1558,6 +1939,11 @@ export interface components {
        */
       activate_time?: string | null;
       /**
+       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+       * @example ioi
+       */
+      contest_type?: string | null;
+      /**
        * Format: date-time
        * @example 2025-09-25T10:00:00Z
        */
@@ -1663,6 +2049,11 @@ export interface components {
        */
       activate_time?: string | null;
       /**
+       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+       * @example ioi
+       */
+      contest_type?: string | null;
+      /**
        * Format: date-time
        * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
        *     never).
@@ -1715,16 +2106,33 @@ export interface components {
     /** @description Request body for creating a problem. */
     CreateProblemRequest: {
       /**
+       * @description Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
+       * @example exact
+       */
+      checker_format?: string;
+      /**
        * @description Problem statement in Markdown (non-empty, max 1 MB).
        * @example Given an array of integers `nums` and an integer `target`...
        */
       content: string;
+      /**
+       * @description Default contest type for standalone submissions, e.g. "ioi", "icpc".
+       *     If omitted, defaults to the first registered contest type.
+       * @example ioi
+       */
+      default_contest_type?: string;
       /**
        * Format: int32
        * @description Memory limit in kilobytes (1-1048576).
        * @example 262144
        */
       memory_limit: number;
+      /**
+       * @description Problem type for evaluator dispatch, e.g. "batch" or "interactive".
+       *     If omitted, defaults to the first registered evaluator type.
+       * @example batch
+       */
+      problem_type?: string;
       /**
        * @description Whether contestants see full input/output for all test cases.
        *     If omitted, defaults to false.
@@ -1733,7 +2141,7 @@ export interface components {
       show_test_details?: boolean | null;
       /**
        * @description Expected submission file names per language.
-       *     Keys are language ids (e.g. "cpp", "java", "python"), values are arrays of filenames.
+       *     Keys are language ids (e.g. "cpp", "java", "python3"), values are arrays of filenames.
        *     Null or omitted means use client-side defaults.
        * @example {
        *       "cpp": [
@@ -1761,10 +2169,16 @@ export interface components {
     };
     /** @description Request body for creating a submission. */
     CreateSubmissionRequest: {
+      /**
+       * @description Optional contest type override for standalone submissions (e.g., "ioi", "icpc").
+       *     If omitted, uses the problem's default_contest_type.
+       * @example ioi
+       */
+      contest_type?: string | null;
       /** @description Source files. At least one file required. */
       files: components['schemas']['SubmissionFileDto'][];
       /**
-       * @description Programming language (e.g., "cpp", "java", "python").
+       * @description Programming language (e.g., "cpp", "java", "python3").
        * @example cpp
        */
       language: string;
@@ -1793,7 +2207,11 @@ export interface components {
        * @example true
        */
       is_sample: boolean;
-      /** @example sample01 */
+      /**
+       * @description Optional short identifier (unique within problem, max 64 chars).
+       *     Defaults to the test-case position when omitted.
+       * @example sample_01
+       */
       label?: string | null;
       /**
        * Format: int32
@@ -1820,6 +2238,48 @@ export interface components {
        * @example charlie
        */
       username: string;
+    };
+    /** @description Request body for authorizing a device code. */
+    DeviceAuthorizeRequest: {
+      /**
+       * @description The user code displayed in the CLI (case-insensitive, hyphens optional).
+       * @example BCDF-GHJK
+       */
+      user_code: string;
+    };
+    /** @description Request body for device code generation (can be empty). */
+    DeviceCodeRequest: Record<string, never>;
+    /** @description Response for device code generation. */
+    DeviceCodeResponse: {
+      /** @description Secret device code for polling (never shown to user). */
+      device_code: string;
+      /**
+       * Format: int64
+       * @description Seconds until the codes expire.
+       * @example 900
+       */
+      expires_in: number;
+      /**
+       * Format: int64
+       * @description Minimum polling interval in seconds.
+       * @example 5
+       */
+      interval: number;
+      /**
+       * @description User-visible code to enter in the browser, formatted as XXXX-XXXX.
+       * @example BCDF-GHJK
+       */
+      user_code: string;
+      /**
+       * @description URL where the user should go to enter the user code.
+       * @example http://localhost:5173/auth/device
+       */
+      verification_url: string;
+    };
+    /** @description Request body for polling the device token endpoint. */
+    DeviceTokenRequest: {
+      /** @description The device code received from the device-code endpoint. */
+      device_code: string;
     };
     /** @description Paginated list of DLQ messages. */
     DlqListResponse: {
@@ -1957,10 +2417,15 @@ export interface components {
        * @description Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
        *     `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
        *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
-       *     `INTERNAL_ERROR`.
+       *     `PLUGIN_REJECTED`, `INTERNAL_ERROR`, or a custom plugin-defined code.
        * @example VALIDATION_ERROR
        */
       code: string;
+      /**
+       * @description Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
+       *     Only present for `PluginRejection` errors.
+       */
+      details?: unknown;
       /**
        * @description Human-readable error description.
        * @example Title must be 1-256 characters
@@ -1985,7 +2450,7 @@ export interface components {
        */
       memory_used?: number | null;
       /**
-       * Format: int32
+       * Format: double
        * @description Total score across all test cases.
        * @example 100
        */
@@ -1998,7 +2463,28 @@ export interface components {
        * @example 50
        */
       time_used?: number | null;
-      verdict?: null | components['schemas']['Verdict'];
+      /**
+       * @description Execution verdict (null if compilation failed or system error).
+       * @example Accepted
+       */
+      verdict?: string | null;
+    };
+    LanguageRegistryItem: {
+      /**
+       * @description Default source filename derived from the language config.
+       * @example solution.cpp
+       */
+      default_filename: string;
+      /**
+       * @description Language identifier used in submission payloads.
+       * @example cpp
+       */
+      id: string;
+      /**
+       * @description Human-friendly display name.
+       * @example C++
+       */
+      name: string;
     };
     /** @description Request body for user login. */
     LoginRequest: {
@@ -2112,8 +2598,37 @@ export interface components {
        */
       total_pages: number;
     };
+    /** @description Response for a single plugin config entry. */
+    PluginConfigResponse: {
+      /** @description Config JSON blob */
+      config: unknown;
+      /** @description Whether this plugin is enabled for the given scope. */
+      enabled: boolean;
+      /**
+       * @description Plugin namespace (e.g., "checker", "ioi")
+       * @example checker
+       */
+      namespace: string;
+      /**
+       * @description The plugin that owns this config entry.
+       * @example cooldown
+       */
+      plugin_id: string;
+      /**
+       * Format: int32
+       * @description Hook execution order (lower runs first).
+       */
+      position: number;
+      /**
+       * Format: date-time
+       * @description Last update timestamp. `null` when no config has been saved yet (using defaults).
+       */
+      updated_at?: string | null;
+    };
     /** @description Detailed information about a plugin (used in list endpoint). */
     PluginDetailResponse: {
+      /** @description Config schemas declared by this plugin. */
+      config_schemas: components['schemas']['ConfigSchemaResponse'][];
       /**
        * @description Plugin description.
        * @example This plugin does awesome things!
@@ -2184,65 +2699,41 @@ export interface components {
        * @example An Awesome Plugin
        */
       name: string;
+      server?: null | components['schemas']['ServerDetailResponse'];
       /** @description Plugin status. */
       status: components['schemas']['PluginStatusResponse'];
+      /** @description Available translation locales. */
+      translations: string[];
       /**
        * @description Plugin version.
        * @example 1.0.0
        */
       version: string;
-      /** @description Server component details (if present). */
-      server?: components['schemas']['ServerDetailResponse'] | null;
-      /** @description Worker component details (if present). */
-      worker?: components['schemas']['WorkerDetailResponse'] | null;
-      /** @description Web component details (if present). */
-      web?: components['schemas']['WebDetailResponse'] | null;
-      /** @description Available translation locales. */
-      translations: string[];
+      web?: null | components['schemas']['WebDetailResponse'];
+      worker?: null | components['schemas']['WorkerDetailResponse'];
     };
     /**
      * @description Plugin status for API responses, abstracting away error details.
      * @enum {string}
      */
     PluginStatusResponse: 'Unloaded' | 'Loaded' | 'Failed';
-    /** @description Server component details. */
-    ServerDetailResponse: {
-      /** @description Permissions requested by the server component. */
-      permissions: string[];
-      /** @description HTTP routes exposed by the server component. */
-      routes: components['schemas']['ServerRouteConfig'][];
-    };
-    ServerRouteConfig: {
-      /** @description The HTTP method for the route. */
-      method: string;
-      /** @description The URL path for the route. */
-      path: string;
-      /** @description The handler function for this route. */
-      handler: string;
-      /** @description The permission required to access this route. */
-      permission?: string | null;
-    };
-    /** @description Worker component details. */
-    WorkerDetailResponse: {
-      /** @description Permissions requested by the worker component. */
-      permissions: string[];
-    };
-    /** @description Web (frontend) component details. */
-    WebDetailResponse: {
-      /** @description Components exposed by the plugin. */
-      components: components['schemas']['ComponentMap'];
-      /** @description Slots for UI extension. */
-      slots: components['schemas']['WebSlotConfig'][];
-      /** @description Routes for client-side navigation. */
-      routes: components['schemas']['WebRouteConfig'][];
-    };
     /** @description Problem summary for list views (content omitted). */
     ProblemListItem: {
+      /**
+       * @description Checker format for output comparison.
+       * @example exact
+       */
+      checker_format: string;
       /**
        * Format: date-time
        * @example 2025-09-01T08:00:00Z
        */
       created_at: string;
+      /**
+       * @description Default contest type for standalone submissions.
+       * @example ioi
+       */
+      default_contest_type: string;
       /**
        * Format: int32
        * @example 1
@@ -2253,6 +2744,11 @@ export interface components {
        * @example 262144
        */
       memory_limit: number;
+      /**
+       * @description Problem type for evaluator dispatch.
+       * @example batch
+       */
+      problem_type: string;
       /**
        * @description Whether contestants see full input/output for all test cases.
        * @example false
@@ -2278,6 +2774,13 @@ export interface components {
     };
     /** @description Full problem details. */
     ProblemResponse: {
+      /**
+       * @description Checker format for output comparison.
+       * @example exact
+       */
+      checker_format: string;
+      /** @description Custom checker source files (read-only, uploaded via separate endpoint). */
+      checker_source?: unknown;
       /** @example Given an array of integers... */
       content: string;
       /**
@@ -2285,6 +2788,11 @@ export interface components {
        * @example 2025-09-01T08:00:00Z
        */
       created_at: string;
+      /**
+       * @description Default contest type for standalone submissions.
+       * @example ioi
+       */
+      default_contest_type: string;
       /**
        * Format: int32
        * @example 1
@@ -2295,6 +2803,11 @@ export interface components {
        * @example 262144
        */
       memory_limit: number;
+      /**
+       * @description Problem type for evaluator dispatch.
+       * @example batch
+       */
+      problem_type: string;
       /** @description Sample test case metadata (is_sample = true). */
       samples: components['schemas']['SampleTestCaseMeta'][];
       /**
@@ -2357,6 +2870,51 @@ export interface components {
        */
       username: string;
     };
+    /** @description Available registry values for problem types, checker formats, and contest types. */
+    RegistriesResponse: {
+      /**
+       * @description Available checker formats (e.g. "exact", "tokens").
+       * @example [
+       *       "exact",
+       *       "tokens"
+       *     ]
+       */
+      checker_formats: string[];
+      /**
+       * @description Available contest types (e.g. "icpc", "ioi").
+       * @example [
+       *       "icpc",
+       *       "ioi"
+       *     ]
+       */
+      contest_types: string[];
+      /** @description Configured submission languages from the server config. */
+      languages: components['schemas']['LanguageRegistryItem'][];
+      /**
+       * @description Available problem types (e.g. "batch", "interactive").
+       * @example [
+       *       "batch",
+       *       "interactive"
+       *     ]
+       */
+      problem_types: string[];
+    };
+    /** @description Response for the reload-all endpoint. */
+    ReloadAllResponse: {
+      /** @description Plugins that failed to reload. */
+      failed: components['schemas']['ReloadFailure'][];
+      /** @description Plugin IDs that were newly discovered and loaded. */
+      new: string[];
+      /** @description Plugin IDs that were successfully reloaded. */
+      reloaded: string[];
+    };
+    /** @description A plugin that failed to reload. */
+    ReloadFailure: {
+      /** @description The error message. */
+      error: string;
+      /** @description The plugin ID. */
+      id: string;
+    };
     /** @description Request body for reordering problems in a contest. */
     ReorderContestProblemsRequest: {
       /**
@@ -2413,6 +2971,26 @@ export interface components {
        */
       output_size: number;
     };
+    /** @description Server component details. */
+    ServerDetailResponse: {
+      /** @description Permissions requested by the server component. */
+      permissions: string[];
+      /** @description HTTP routes exposed by the server component. */
+      routes: components['schemas']['ServerRouteConfig'][];
+    };
+    ServerRouteConfig: {
+      /** @description The handler function for this route. */
+      handler: string;
+      /** @description The HTTP method for the route, e.g., "GET", "POST", etc. */
+      method: string;
+      /** @description The URL path for the route, e.g., "/problems/{id}/export". */
+      path: string;
+      /**
+       * @description The permission required to access this route, e.g., "problems:export".
+       *     If not specified, the route is public.
+       */
+      permission?: string | null;
+    };
     /** @description A single file in a submission. */
     SubmissionFileDto: {
       /**
@@ -2434,6 +3012,11 @@ export interface components {
        * @description Contest ID if this is a contest submission, null otherwise.
        */
       contest_id?: number | null;
+      /**
+       * @description Contest type used for judging.
+       * @example ioi
+       */
+      contest_type: string;
       /**
        * Format: date-time
        * @example 2025-10-01T14:30:00Z
@@ -2460,7 +3043,7 @@ export interface components {
       /** @example Two Sum */
       problem_title: string;
       /**
-       * Format: int32
+       * Format: double
        * @description Total score if judged, null otherwise.
        * @example 100
        */
@@ -2479,7 +3062,11 @@ export interface components {
       user_id: number;
       /** @example alice */
       username: string;
-      verdict?: null | components['schemas']['Verdict'];
+      /**
+       * @description Execution verdict if judged, null otherwise.
+       * @example Accepted
+       */
+      verdict?: string | null;
     };
     /** @description Paginated list of submissions. */
     SubmissionListResponse: {
@@ -2494,6 +3081,11 @@ export interface components {
        * @example 1
        */
       contest_id?: number | null;
+      /**
+       * @description Contest type used for judging this submission.
+       * @example ioi
+       */
+      contest_type: string;
       /**
        * Format: date-time
        * @example 2025-10-01T14:30:00Z
@@ -2557,7 +3149,10 @@ export interface components {
       input_preview: string;
       /** @example true */
       is_sample: boolean;
-      /** @example sample01 */
+      /**
+       * @description Short identifier (unique within problem).
+       * @example sample_01
+       */
       label: string;
       /** @example 0 1 */
       output_preview: string;
@@ -2601,7 +3196,10 @@ export interface components {
       input: string;
       /** @example true */
       is_sample: boolean;
-      /** @example sample01 */
+      /**
+       * @description Short identifier (unique within problem).
+       * @example sample_01
+       */
       label: string;
       /**
        * Format: int32
@@ -2639,7 +3237,7 @@ export interface components {
        */
       memory_used?: number | null;
       /**
-       * Format: int32
+       * Format: double
        * @example 10
        */
       score: number;
@@ -2658,7 +3256,8 @@ export interface components {
        * @example 5
        */
       time_used?: number | null;
-      verdict: components['schemas']['Verdict'];
+      /** @example Accepted */
+      verdict: string;
     };
     /**
      * @example {
@@ -2692,6 +3291,11 @@ export interface components {
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
+      /**
+       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
+       * @example icpc
+       */
+      contest_type?: string | null;
       /**
        * Format: date-time
        * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
@@ -2745,16 +3349,31 @@ export interface components {
     /** @description PATCH body for updating a problem. Only provided fields are modified. */
     UpdateProblemRequest: {
       /**
+       * @description Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
+       * @example ignore_case
+       */
+      checker_format?: string | null;
+      /**
        * @description Problem statement in Markdown (non-empty, max 1 MB).
        * @example Updated problem statement...
        */
       content?: string | null;
+      /**
+       * @description Default contest type for standalone submissions.
+       * @example ioi
+       */
+      default_contest_type?: string | null;
       /**
        * Format: int32
        * @description Memory limit in kilobytes (1-1048576).
        * @example 524288
        */
       memory_limit?: number | null;
+      /**
+       * @description Problem type for evaluator dispatch: "batch" or "interactive".
+       * @example batch
+       */
+      problem_type?: string | null;
       /**
        * @description Whether contestants see full input/output for all test cases.
        * @example true
@@ -2811,7 +3430,10 @@ export interface components {
        * @example false
        */
       is_sample?: boolean | null;
-      /** @example sample01 */
+      /**
+       * @description Display label for this test case (e.g. "sample_01"). Must be unique within the problem.
+       * @example sample_01
+       */
       label?: string | null;
       /**
        * Format: int32
@@ -2841,7 +3463,7 @@ export interface components {
        * @description ZIP file containing test cases. Each test case consists of an input file and an output
        *     file.
        */
-      file: File;
+      file: string;
       /**
        * @description Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
        *     `input_01.txt` with label `01`.
@@ -2874,6 +3496,18 @@ export interface components {
        */
       updated: number;
     };
+    /** @description Request body for upserting config (raw JSON value). */
+    UpsertPluginConfigRequest: {
+      /** @description Config JSON blob to store */
+      config: unknown;
+      /** @description Whether this plugin is enabled. Defaults to true if omitted (backward compat). */
+      enabled?: boolean;
+      /**
+       * Format: int32
+       * @description Hook execution order (lower runs first). Defaults to 0 if omitted.
+       */
+      position?: number;
+    };
     /** @description User details returned by admin listing endpoint. */
     UserResponse: {
       /**
@@ -2896,17 +3530,15 @@ export interface components {
       /** @example alice */
       username: string;
     };
-    /** @description Execution verdict for a test case or submission. */
-    Verdict:
-      | 'Accepted'
-      | 'WrongAnswer'
-      | 'TimeLimitExceeded'
-      | 'MemoryLimitExceeded'
-      | 'RuntimeError'
-      | 'SystemError'
-      | {
-          Other: string;
-        };
+    /** @description Web (frontend) component details. */
+    WebDetailResponse: {
+      /** @description Components exposed by the plugin. */
+      components: components['schemas']['ComponentMap'];
+      /** @description Routes for client-side navigation. */
+      routes: components['schemas']['WebRouteConfig'][];
+      /** @description Slots for UI extension. */
+      slots: components['schemas']['WebSlotConfig'][];
+    };
     WebRouteConfig: {
       /**
        * @description Component to render for this route, which must match a key in the
@@ -2952,6 +3584,11 @@ export interface components {
       | 'before'
       | 'after'
       | 'wrap';
+    /** @description Worker component details. */
+    WorkerDetailResponse: {
+      /** @description Permissions requested by the worker component. */
+      permissions: string[];
+    };
   };
   responses: never;
   parameters: never;
@@ -2977,6 +3614,96 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['PluginDetailResponse'][];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  reloadAllPlugins: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Reload results */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReloadAllResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  uploadPlugin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description tar.gz archive with a single top-level directory containing plugin.toml */
+    requestBody: {
+      content: {
+        'multipart/form-data': number[];
+      };
+    };
+    responses: {
+      /** @description Plugin uploaded and loaded successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Invalid archive (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
         };
       };
       /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
@@ -3039,6 +3766,232 @@ export interface operations {
         };
       };
       /** @description Plugin not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listPluginGlobalConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'][];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getPluginGlobalConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config found */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Config not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  upsertPluginGlobalConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpsertPluginConfigRequest'];
+      };
+    };
+    responses: {
+      /** @description Config upserted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deletePluginGlobalConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Config not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -3167,6 +4120,182 @@ export interface operations {
       };
     };
   };
+  reloadPlugin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Plugin ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Plugin reloaded successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin not currently loaded (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  authorizeDevice: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DeviceAuthorizeRequest'];
+      };
+    };
+    responses: {
+      /** @description Device authorized */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Code not found or expired (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Code already used (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  requestDeviceCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DeviceCodeRequest'];
+      };
+    };
+    responses: {
+      /** @description Device code generated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeviceCodeResponse'];
+        };
+      };
+      /** @description Too many pending device codes (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  pollDeviceToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DeviceTokenRequest'];
+      };
+    };
+    responses: {
+      /** @description Token granted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Authorization pending or expired */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+    };
+  };
   loginUser: {
     parameters: {
       query?: never;
@@ -3271,6 +4400,58 @@ export interface operations {
       };
       /** @description Username taken (USERNAME_TAKEN) */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  uploadConfigBlob: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description File upload */
+    requestBody?: {
+      content: {
+        'multipart/form-data': unknown;
+      };
+    };
+    responses: {
+      /** @description Blob stored */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConfigBlobUploadResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -3693,6 +4874,220 @@ export interface operations {
       };
       /** @description Already replied */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listContestConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'][];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getContestConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config found */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  upsertContestConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpsertPluginConfigRequest'];
+      };
+    };
+    responses: {
+      /** @description Config upserted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteContestConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Config not found (NOT_FOUND) */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -4339,6 +5734,228 @@ export interface operations {
       };
     };
   };
+  listContestProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'][];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getContestProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config found */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  upsertContestProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpsertPluginConfigRequest'];
+      };
+    };
+    responses: {
+      /** @description Config upserted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteContestProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Config not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   createContestSubmission: {
     parameters: {
       query?: never;
@@ -4402,7 +6019,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Rate limit exceeded (RATE_LIMITED) */
+      /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
       429: {
         headers: {
           [name: string]: unknown;
@@ -5020,7 +6637,68 @@ export interface operations {
       };
     };
   };
-  handlePluginRequest: {
+  getPluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  putPluginRequest: {
     parameters: {
       query?: never;
       header?: never;
@@ -5037,6 +6715,384 @@ export interface operations {
         'application/json': unknown;
       };
     };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  postPluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': unknown;
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deletePluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': unknown;
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  optionsPluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  headPluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  patchPluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': unknown;
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Plugin or Route not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Method Not Allowed */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  tracePluginRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The unique identifier of the plugin */
+        plugin_id: string;
+        /** @description The sub-path defined in plugin's manifest */
+        path: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description Success */
       200: {
@@ -5105,58 +7161,22 @@ export interface operations {
       };
     };
   };
-  callPluginFunction: {
+  listRegistries: {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        /** @description Plugin ID */
-        id: string;
-        /** @description Function name to call */
-        func: string;
-      };
+      path?: never;
       cookie?: never;
     };
-    requestBody: {
-      content: {
-        'application/json': unknown;
-      };
-    };
+    requestBody?: never;
     responses: {
-      /** @description Plugin function result */
+      /** @description Available registry values */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': unknown;
-        };
-      };
-      /** @description Plugin not ready (PLUGIN_NOT_READY) */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Plugin not found (NOT_FOUND) */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
+          'application/json': components['schemas']['RegistriesResponse'];
         };
       };
     };
@@ -5428,6 +7448,227 @@ export interface operations {
       };
     };
   };
+  listAdditionalFiles: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Additional file list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AttachmentListResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  uploadAdditionalFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /** @description File upload with language code */
+    requestBody?: {
+      content: {
+        'multipart/form-data': unknown;
+      };
+    };
+    responses: {
+      /** @description Additional file created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AttachmentResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  downloadAdditionalFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Attachment reference ID (UUID) */
+        ref_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description File content */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Modified (ETag match) */
+      304: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteAdditionalFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Attachment reference ID (UUID) */
+        ref_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Additional file deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   listAttachments: {
     parameters: {
       query?: never;
@@ -5631,6 +7872,220 @@ export interface operations {
       };
     };
   };
+  listProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'][];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config found */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  upsertProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpsertPluginConfigRequest'];
+      };
+    };
+    responses: {
+      /** @description Config upserted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PluginConfigResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteProblemConfig: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+        /** @description Plugin ID */
+        plugin_id: string;
+        /** @description Config namespace */
+        namespace: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Config deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Config not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   createSubmission: {
     parameters: {
       query?: never;
@@ -5692,7 +8147,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Rate limit exceeded (RATE_LIMITED) */
+      /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
       429: {
         headers: {
           [name: string]: unknown;
@@ -5807,6 +8262,15 @@ export interface operations {
       };
       /** @description Problem not found (NOT_FOUND) */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Duplicate label in problem (CONFLICT) */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -6010,6 +8474,15 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Duplicate label in problem (CONFLICT) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
   };
   getTestCase: {
@@ -6179,6 +8652,15 @@ export interface operations {
       };
       /** @description Test case not found (NOT_FOUND) */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Duplicate label in problem (CONFLICT) */
+      409: {
         headers: {
           [name: string]: unknown;
         };

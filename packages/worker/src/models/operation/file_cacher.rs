@@ -27,6 +27,16 @@ impl FileCacher for NoopFileCacher {
     }
 }
 
+/// RAII guard that removes a fetch lock entry on drop, preventing HashMap leaks
+/// when a download fails partway through.
+struct FetchLockCleanup<'a>(&'a BlobStoreFileCacher, String);
+
+impl Drop for FetchLockCleanup<'_> {
+    fn drop(&mut self) {
+        self.0.remove_fetch_lock(&self.1);
+    }
+}
+
 /// File cacher backed by a [`BlobStore`] with LRU disk cache.
 pub struct BlobStoreFileCacher {
     store: Arc<dyn BlobStore>,
@@ -109,7 +119,7 @@ impl BlobStoreFileCacher {
     }
 
     fn get_fetch_lock(&self, hash_hex: &str) -> Arc<tokio::sync::Mutex<()>> {
-        let mut locks = self.fetch_locks.lock().unwrap();
+        let mut locks = self.fetch_locks.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(lock) = locks.get(hash_hex) {
             lock.clone()
         } else {
@@ -120,8 +130,9 @@ impl BlobStoreFileCacher {
     }
 
     fn remove_fetch_lock(&self, hash_hex: &str) {
-        let mut locks = self.fetch_locks.lock().unwrap();
-        locks.remove(hash_hex);
+        if let Ok(mut locks) = self.fetch_locks.lock() {
+            locks.remove(hash_hex);
+        }
     }
 
     #[cfg(test)]
@@ -175,13 +186,17 @@ impl FileCacher for BlobStoreFileCacher {
             return Ok(());
         }
 
-        // Acquire lock for this specific hash to prevent concurrent downloads
+        // Acquire lock for this specific hash to prevent concurrent downloads.
+        // Declare _cleanup BEFORE _guard so it drops AFTER the mutex releases
+        // (Rust drops in reverse declaration order). This ensures the HashMap
+        // entry outlives the lock, so concurrent waiters don't see a missing
+        // entry between mutex release and entry removal.
         let lock = self.get_fetch_lock(&hash_hex);
+        let _cleanup = FetchLockCleanup(self, hash_hex.clone());
         let _guard = lock.lock().await;
 
         // Check again in case another task downloaded it while we were waiting
         if cached.exists() {
-            self.remove_fetch_lock(&hash_hex);
             self.touch(&hash_hex).await;
             tokio::fs::copy(&cached, dest)
                 .await
@@ -228,10 +243,6 @@ impl FileCacher for BlobStoreFileCacher {
         // Successfully downloaded, update cache state
         self.record_cache_entry(hash_hex.clone(), file_size).await;
 
-        // Remove the lock since we're done
-        drop(_guard);
-        self.remove_fetch_lock(&hash_hex);
-
         // Copy to destination (or attempt a hard link if possible, falling back to copy)
         if std::fs::hard_link(&cached, dest).is_err() {
             tokio::fs::copy(&cached, dest)
@@ -265,11 +276,15 @@ impl FileCacher for BlobStoreFileCacher {
 
         if !cached.exists() {
             // Attempt to hardlink from source to cache to avoid data copy
-            if std::fs::hard_link(src, &cached).is_err() {
+            let cached_ok = if std::fs::hard_link(src, &cached).is_err() {
                 // Fall back to copying if hard link fails (e.g. across mount points)
-                let _ = tokio::fs::copy(src, &cached).await;
+                tokio::fs::copy(src, &cached).await.is_ok()
+            } else {
+                true
+            };
+            if cached_ok {
+                self.record_cache_entry(hash_hex.clone(), file_size).await;
             }
-            self.record_cache_entry(hash_hex.clone(), file_size).await;
         } else {
             self.touch(&hash_hex).await;
         }

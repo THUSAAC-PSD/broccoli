@@ -27,6 +27,12 @@ method = "POST"
 handler = "sql_parameterized"
 
 [[server.routes]]
+path = "/protected/{id}"
+method = "GET"
+handler = "reflect"
+permission = "submission:view_all"
+
+[[server.routes]]
 path = "/sql/transaction"
 method = "POST"
 handler = "sql_transaction"

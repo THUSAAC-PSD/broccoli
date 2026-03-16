@@ -7,53 +7,55 @@ export interface SupportedLanguage {
   defaultFilename: string;
 }
 
-/**
- * Mock API: fetch supported programming languages.
- * Replace with a real endpoint call when backend is ready.
- */
-export async function fetchSupportedLanguages(
-  _apiClient: ApiClient,
-): Promise<SupportedLanguage[]> {
-  return [
-    {
-      id: 'cpp',
-      name: 'C++',
-      defaultFilename: 'solution.cpp',
-      template: `#include <iostream>
+const TEMPLATE_BY_LANGUAGE_ID: Record<string, string> = {
+  cpp: `#include <iostream>
 using namespace std;
 
 int main() {
     // Your code here
     return 0;
 }`,
-    },
-    {
-      id: 'python',
-      name: 'Python',
-      defaultFilename: 'solution.py',
-      template: `# Your code here
-`,
-    },
-    {
-      id: 'java',
-      name: 'Java',
-      defaultFilename: 'Main.java',
-      template: `public class Main {
-    public static void main(String[] args) {
-        // Your code here
-    }
-}`,
-    },
-    {
-      id: 'c',
-      name: 'C',
-      defaultFilename: 'solution.c',
-      template: `#include <stdio.h>
+  c: `#include <stdio.h>
 
 int main() {
     // Your code here
     return 0;
 }`,
-    },
-  ];
+  java: `public class Main {
+    public static void main(String[] args) {
+        // Your code here
+    }
+}`,
+  python3: `# Your code here
+`,
+  javascript: `// Your code here
+`,
+  rust: `fn main() {
+    // Your code here
+}
+`,
+  go: `package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Your code here")
+}
+`,
+  typescript: `// Your code here
+`,
+};
+
+export async function fetchSupportedLanguages(
+  apiClient: ApiClient,
+): Promise<SupportedLanguage[]> {
+  const { data, error } = await apiClient.GET('/plugins/registries');
+  if (error) throw error;
+
+  return (data.languages ?? []).map((language) => ({
+    id: language.id,
+    name: language.name,
+    defaultFilename: language.default_filename,
+    template: TEMPLATE_BY_LANGUAGE_ID[language.id] ?? '',
+  }));
 }

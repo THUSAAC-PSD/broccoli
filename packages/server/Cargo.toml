@@ -6,7 +6,11 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
-common = { workspace = true, features = ["sea-orm"] }
+broccoli-server-sdk.workspace = true
+worker = { path = "../worker" }
+common = { workspace = true, features = ["sea-orm", "object-storage"] }
+crossbeam.workspace = true
+dashmap.workspace = true
 mq.workspace = true
 axum = { workspace = true, features = ["multipart"] }
 chrono.workspace = true
@@ -40,11 +44,16 @@ uuid.workspace = true
 zip.workspace = true
 mime_guess.workspace = true
 matchit.workspace = true
+flate2.workspace = true
+tar.workspace = true
+hex.workspace = true
 axum_typed_multipart.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 libc = "0.2"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
+sea-orm = { workspace = true, features = ["mock"] }
 tempfile = "3"
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["postgres"] }

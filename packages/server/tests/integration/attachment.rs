@@ -502,7 +502,7 @@ mod attachment_delete {
     }
 
     #[tokio::test]
-    async fn delete_preserves_blob_object_for_other_refs() {
+    async fn delete_preserves_blob_for_other_refs() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin22", "pass1234", "admin")

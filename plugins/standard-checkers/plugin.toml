@@ -1,0 +1,81 @@
+name = "standard-checkers"
+version = "0.1.0"
+description = "Standard output comparison checkers for Broccoli judge"
+
+[server]
+entry = "standard_checkers.wasm"
+permissions = ["logger", "plugin:register", "operations:dispatch", "config:read"]
+
+[config.testlib]
+description = "Testlib checker compiler settings and resource limits"
+scopes = ["plugin"]
+
+[config.testlib.properties.compile_time_limit_s]
+type = "number"
+title = "Compile Time Limit"
+description = "Maximum compilation time in seconds"
+default = 10.0
+min = 0.0
+step = 0.5
+precision = 1
+unit = "s"
+
+[config.testlib.properties.compile_memory_limit_kb]
+type = "integer"
+title = "Compile Memory Limit"
+description = "Maximum compilation memory in KB"
+default = 524288
+min = 0
+step = 1024
+unit = "KB"
+
+[config.testlib.properties.run_time_limit_s]
+type = "number"
+title = "Run Time Limit"
+description = "Maximum checker run time in seconds"
+default = 5.0
+min = 0.0
+step = 0.5
+precision = 1
+unit = "s"
+
+[config.testlib.properties.run_memory_limit_kb]
+type = "integer"
+title = "Run Memory Limit"
+description = "Maximum checker run memory in KB"
+default = 262144
+min = 0
+step = 1024
+unit = "KB"
+
+[config.testlib.properties.cpp]
+type = "object"
+title = "C++ Compiler"
+description = "C++ compiler configuration"
+
+[config.testlib.properties.cpp.properties.compiler]
+type = "string"
+title = "Compiler Path"
+default = "/usr/bin/g++"
+
+[config.testlib.properties.cpp.properties.flags]
+type = "array"
+title = "Compiler Flags"
+default = ["-O2", "-std=c++17"]
+items = { type = "string" }
+
+[config.testlib.properties.c]
+type = "object"
+title = "C Compiler"
+description = "C compiler configuration"
+
+[config.testlib.properties.c.properties.compiler]
+type = "string"
+title = "Compiler Path"
+default = "/usr/bin/gcc"
+
+[config.testlib.properties.c.properties.flags]
+type = "array"
+title = "Compiler Flags"
+default = ["-O2", "-std=c11"]
+items = { type = "string" }

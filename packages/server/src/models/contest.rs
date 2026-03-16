@@ -43,6 +43,9 @@ pub struct CreateContestRequest {
     /// Whether participants list is visible (default: true).
     #[schema(example = true)]
     pub show_participants_list: Option<bool>,
+    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
+    #[schema(example = "ioi")]
+    pub contest_type: Option<String>,
 }
 
 /// PATCH body for updating a contest. Only provided fields are modified.
@@ -82,6 +85,9 @@ pub struct UpdateContestRequest {
     /// Whether participants list is visible.
     #[schema(example = true)]
     pub show_participants_list: Option<bool>,
+    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
+    #[schema(example = "icpc")]
+    pub contest_type: Option<String>,
 }
 
 /// Request body for adding a problem to a contest.
@@ -144,10 +150,6 @@ pub struct ContestListQuery {
     pub sort_order: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Response DTOs
-// ---------------------------------------------------------------------------
-
 /// Full contest details.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ContestResponse {
@@ -176,6 +178,9 @@ pub struct ContestResponse {
     /// Whether participants list is visible.
     #[schema(example = true)]
     pub show_participants_list: bool,
+    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
+    #[schema(example = "ioi")]
+    pub contest_type: Option<String>,
     #[schema(example = "2025-09-25T10:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-25T10:30:00Z")]
@@ -208,6 +213,9 @@ pub struct ContestListItem {
     /// Whether participants list is visible.
     #[schema(example = true)]
     pub show_participants_list: bool,
+    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
+    #[schema(example = "ioi")]
+    pub contest_type: Option<String>,
     #[schema(example = "2025-09-25T10:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-25T10:30:00Z")]
@@ -279,6 +287,7 @@ impl From<crate::entity::contest::Model> for ContestResponse {
             submissions_visible: m.submissions_visible,
             show_compile_output: m.show_compile_output,
             show_participants_list: m.show_participants_list,
+            contest_type: m.contest_type,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }

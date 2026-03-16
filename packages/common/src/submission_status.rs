@@ -6,9 +6,7 @@ use std::str::FromStr;
 use sea_orm::entity::prelude::*;
 
 /// Status of a submission during the judging lifecycle.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, utoipa::ToSchema,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, utoipa::ToSchema)]
 #[cfg_attr(
     feature = "sea-orm",
     derive(DeriveValueType),
@@ -141,6 +139,9 @@ pub enum Verdict {
     /// Internal judge error during test execution.
     #[default]
     SystemError,
+    /// Test case deliberately skipped (e.g., ICPC stop-on-failure).
+    Skipped,
+    /// Plugin-defined custom verdict.
     Other(String),
 }
 
@@ -148,6 +149,11 @@ impl Verdict {
     /// Returns true if this is an accepted verdict.
     pub fn is_accepted(&self) -> bool {
         matches!(self, Self::Accepted)
+    }
+
+    /// Returns true if this is a skipped verdict.
+    pub fn is_skipped(&self) -> bool {
+        matches!(self, Self::Skipped)
     }
 
     /// All possible verdict values.
@@ -158,6 +164,7 @@ impl Verdict {
         Self::MemoryLimitExceeded,
         Self::RuntimeError,
         Self::SystemError,
+        Self::Skipped,
     ];
 
     /// Returns the string representation.
@@ -169,6 +176,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => "MemoryLimitExceeded",
             Self::RuntimeError => "RuntimeError",
             Self::SystemError => "SystemError",
+            Self::Skipped => "Skipped",
             Self::Other(custom) => custom.as_str(),
         }
     }
@@ -177,6 +185,7 @@ impl Verdict {
     pub fn severity(&self) -> u8 {
         match self {
             Self::Accepted => 0,
+            Self::Skipped => 0,
             Self::WrongAnswer => 1,
             Self::TimeLimitExceeded => 2,
             Self::MemoryLimitExceeded => 3,
@@ -220,6 +229,13 @@ impl FromStr for Verdict {
     type Err = ParseVerdictError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(ParseVerdictError {
+                invalid: s.to_string(),
+            });
+        }
+
         match s {
             "Accepted" => Ok(Self::Accepted),
             "WrongAnswer" => Ok(Self::WrongAnswer),
@@ -227,6 +243,7 @@ impl FromStr for Verdict {
             "MemoryLimitExceeded" => Ok(Self::MemoryLimitExceeded),
             "RuntimeError" => Ok(Self::RuntimeError),
             "SystemError" => Ok(Self::SystemError),
+            "Skipped" => Ok(Self::Skipped),
             _ => {
                 if let Some(custom) = s
                     .strip_prefix("Other(")
@@ -236,9 +253,7 @@ impl FromStr for Verdict {
                     return Ok(Self::Other(custom.to_string()));
                 }
 
-                Err(ParseVerdictError {
-                    invalid: s.to_string(),
-                })
+                Ok(Self::Other(s.to_string()))
             }
         }
     }
@@ -263,6 +278,22 @@ impl<'de> Deserialize<'de> for Verdict {
     }
 }
 
+impl From<broccoli_server_sdk::types::Verdict> for Verdict {
+    fn from(v: broccoli_server_sdk::types::Verdict) -> Self {
+        use broccoli_server_sdk::types::Verdict as Sdk;
+        match v {
+            Sdk::Accepted => Self::Accepted,
+            Sdk::WrongAnswer => Self::WrongAnswer,
+            Sdk::TimeLimitExceeded => Self::TimeLimitExceeded,
+            Sdk::MemoryLimitExceeded => Self::MemoryLimitExceeded,
+            Sdk::RuntimeError => Self::RuntimeError,
+            Sdk::SystemError | Sdk::CompileError => Self::SystemError,
+            Sdk::Skipped => Self::Skipped,
+            Sdk::Other(custom) => Self::Other(custom),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Verdict;
@@ -270,14 +301,19 @@ mod tests {
 
     #[test]
     fn parse_tagged_other_verdict() {
-        let v = Verdict::from_str("Other(PluginCustomStatus)").expect("parse verdict");
-        assert_eq!(v, Verdict::Other("PluginCustomStatus".to_string()));
+        let verdict = Verdict::from_str("Other(PluginCustomStatus)").expect("parse verdict");
+        assert_eq!(verdict, Verdict::Other("PluginCustomStatus".to_string()));
     }
 
     #[test]
-    fn reject_unknown_unwrapped_verdict() {
-        let err =
-            Verdict::from_str("PluginCustomStatus").expect_err("should reject unknown verdict");
+    fn parse_plain_custom_verdict() {
+        let verdict = Verdict::from_str("PluginCustomStatus").expect("parse custom verdict");
+        assert_eq!(verdict, Verdict::Other("PluginCustomStatus".to_string()));
+    }
+
+    #[test]
+    fn reject_empty_verdict() {
+        let err = Verdict::from_str("   ").expect_err("should reject empty verdict");
         assert!(err.to_string().contains("Invalid verdict"));
     }
 
@@ -290,7 +326,8 @@ mod tests {
 
     #[test]
     fn deserialize_unknown_verdict_from_plain_string() {
-        let v: Verdict = serde_json::from_str("\"PluginStatus\"").expect("deserialize verdict");
-        assert_eq!(v, Verdict::Other("PluginStatus".to_string()));
+        let verdict: Verdict =
+            serde_json::from_str("\"PluginStatus\"").expect("deserialize verdict");
+        assert_eq!(verdict, Verdict::Other("PluginStatus".to_string()));
     }
 }

@@ -11,6 +11,8 @@ import {
   YAxis,
 } from 'recharts';
 
+import { buildAxisScale } from './chart-axis';
+
 const COLORS = [
   '#3b82f6', // blue
   '#ef4444', // red
@@ -35,6 +37,16 @@ interface RankChartProps {
 export function RankChart({ data, teams }: RankChartProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const maxScore = data.reduce((highest, snapshot) => {
+    const snapshotMax = teams.reduce((teamHighest, team) => {
+      const score = snapshot[team];
+      return typeof score === 'number' && Number.isFinite(score)
+        ? Math.max(teamHighest, score)
+        : teamHighest;
+    }, 0);
+    return Math.max(highest, snapshotMax);
+  }, 0);
+  const yAxis = buildAxisScale(maxScore, { maxTicks: 6 });
 
   return (
     <Card>
@@ -55,6 +67,8 @@ export function RankChart({ data, teams }: RankChartProps) {
               stroke={isDark ? '#4b5563' : '#d1d5db'}
             />
             <YAxis
+              domain={[0, yAxis.domainMax]}
+              ticks={yAxis.ticks}
               tick={{ fontSize: 12, fill: isDark ? '#9ca3af' : '#6b7280' }}
               stroke={isDark ? '#4b5563' : '#d1d5db'}
             />

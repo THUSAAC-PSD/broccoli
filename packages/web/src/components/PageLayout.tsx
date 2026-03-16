@@ -5,6 +5,7 @@ interface PageLayoutProps {
   icon?: React.ReactNode;
   title: string;
   subtitle?: string;
+  actions?: React.ReactNode;
   contentClassName?: string;
   children: React.ReactNode;
 }
@@ -14,13 +15,13 @@ export function PageLayout({
   icon,
   title,
   subtitle,
+  actions,
   contentClassName,
   children,
 }: PageLayoutProps) {
   return (
     <Slot name={`${pageId}.page`} as="div" className="p-6">
       <div className="sticky top-0 z-10 bg-background -mx-6 px-6 pt-6 -mt-6 pb-4 mb-4 border-b">
-        {/* Row 1: title + countdown (via slot) */}
         <Slot
           name={`${pageId}.header`}
           as="div"
@@ -32,8 +33,8 @@ export function PageLayout({
               <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
             </Slot>
           </div>
+          {actions && <div className="sm:ml-auto">{actions}</div>}
         </Slot>
-        {/* Row 2: description */}
         {subtitle && (
           <p className="text-sm text-muted-foreground mt-3 max-h-16 overflow-y-auto">
             {subtitle}

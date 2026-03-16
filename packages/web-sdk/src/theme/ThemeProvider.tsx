@@ -36,8 +36,8 @@ export function ThemeProvider({
     root.classList.add(theme);
 
     // Persist to localStorage
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    localStorage.setItem(storageKey, theme);
+  }, [storageKey, theme]);
 
   const value = {
     theme,

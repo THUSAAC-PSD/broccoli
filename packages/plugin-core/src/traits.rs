@@ -230,6 +230,80 @@ pub trait PluginManager: Send + Sync {
         Ok(())
     }
 
+    /// Reloads a plugin by re-reading its manifest from disk and re-creating the WASM runtime.
+    /// The plugin must already exist in the registry. After reload, the entry starts as Unloaded
+    /// and is then loaded via `load_plugin()`.
+    fn reload_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let root_dir = {
+            let registry = self.get_registry().read().map_err(|_| {
+                PluginError::Internal("Failed to acquire registry read lock".into())
+            })?;
+            let entry = registry
+                .get(plugin_id)
+                .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+            entry.root_dir.clone()
+        };
+
+        let new_entry = PluginEntry::from_dir(&root_dir)?;
+
+        {
+            let mut registry = self.get_registry().write().map_err(|_| {
+                PluginError::Internal("Failed to acquire registry write lock".into())
+            })?;
+            registry.insert(plugin_id.to_string(), new_entry);
+        }
+
+        self.load_plugin(plugin_id)?;
+        Ok(())
+    }
+
+    /// Scans the plugins directory for new plugins that aren't already in the registry.
+    /// Unlike `discover_plugins()`, this does not overwrite existing entries.
+    /// Returns the IDs of newly discovered plugins.
+    fn rediscover_plugins(&self) -> Result<Vec<String>, PluginError> {
+        let plugins_dir = &self.get_config().plugins_dir;
+
+        if !plugins_dir.exists() || !plugins_dir.is_dir() {
+            return Err(PluginError::DiscoveryFailed(format!(
+                "Plugins directory '{}' does not exist or is not a directory",
+                plugins_dir.display()
+            )));
+        }
+
+        let entries = std::fs::read_dir(plugins_dir).map_err(PluginError::Io)?;
+        let mut registry = self
+            .get_registry()
+            .write()
+            .map_err(|_| PluginError::Internal("Failed to acquire registry write lock".into()))?;
+        let mut new_ids = Vec::new();
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                PluginError::LoadFailed(format!("Failed to read plugin entry: {}", e))
+            })?;
+            if let Ok(file_type) = entry.file_type()
+                && file_type.is_dir()
+            {
+                let id = entry.file_name().to_string_lossy().to_string();
+                if registry.contains_key(&id) {
+                    continue;
+                }
+                match PluginEntry::from_dir(&entry.path()) {
+                    Ok(plugin_entry) => {
+                        info!("Discovered new plugin: {}", plugin_entry.manifest);
+                        registry.insert(id.clone(), plugin_entry);
+                        new_ids.push(id);
+                    }
+                    Err(e) => {
+                        error!("Failed to parse plugin '{}': {}", id, e);
+                    }
+                }
+            }
+        }
+
+        Ok(new_ids)
+    }
+
     /// Low-level execution using raw bytes.
     async fn call_raw(
         &self,
@@ -237,6 +311,7 @@ pub trait PluginManager: Send + Sync {
         func_name: &str,
         input: Vec<u8>,
     ) -> Result<Vec<u8>, PluginError> {
+        let timeout = Duration::from_secs(self.get_config().call_timeout_secs);
         let registry = self
             .get_registry()
             .read()
@@ -253,30 +328,42 @@ pub trait PluginManager: Send + Sync {
         let pool = plugin_entry
             .runtime
             .as_ref()
-            .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?;
+            .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?
+            .clone();
 
-        let plugin = pool
-            .get(Duration::new(1, 0))
-            .map_err(|_| {
-                PluginError::Internal(format!(
-                    "Failed to acquire runtime instance for plugin '{}'",
-                    plugin_id
-                ))
-            })?
-            .ok_or_else(|| {
-                PluginError::Internal(format!(
-                    "Timeout while acquiring runtime instance for plugin '{}'",
-                    plugin_id
-                ))
-            })?;
+        drop(registry);
 
-        let result = plugin
-            .call(func_name, input)
-            .map_err(|e| PluginError::ExecutionFailed {
-                plugin_id: plugin_id.to_string(),
-                func_name: func_name.to_string(),
-                message: e.to_string(),
-            })?;
+        let result = tokio::task::block_in_place(|| {
+            let plugin = pool
+                .get(timeout)
+                .map_err(|e| {
+                    PluginError::Internal(format!(
+                        "Failed to acquire runtime instance for plugin '{}': {}",
+                        plugin_id, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    PluginError::Internal(format!(
+                        "Timeout while acquiring runtime instance for plugin '{}'",
+                        plugin_id
+                    ))
+                })?;
+
+            if !plugin.plugin().function_exists(func_name) {
+                return Err(PluginError::FunctionNotFound {
+                    plugin_id: plugin_id.to_string(),
+                    func_name: func_name.to_string(),
+                });
+            }
+
+            plugin
+                .call(func_name, input)
+                .map_err(|e| PluginError::ExecutionFailed {
+                    plugin_id: plugin_id.to_string(),
+                    func_name: func_name.to_string(),
+                    message: e.to_string(),
+                })
+        })?;
 
         Ok(result)
     }

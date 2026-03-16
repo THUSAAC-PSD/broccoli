@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Button,
@@ -26,6 +27,9 @@ export interface ProblemFormData {
   content: string;
   timeLimit: number;
   memoryLimit: number;
+  problemType: string;
+  checkerFormat: string;
+  defaultContestType: string;
   showTestDetails: boolean;
   submissionFormat: Record<string, string[]>;
 }
@@ -36,14 +40,17 @@ interface ProblemFormProps {
 }
 
 function fallbackDefaultFilename(languageId: string): string {
-  const extMap: Record<string, string> = {
-    cpp: 'cpp',
-    c: 'c',
-    python: 'py',
-    java: 'java',
+  const filenameMap: Record<string, string> = {
+    cpp: 'solution.cpp',
+    c: 'solution.c',
+    python3: 'solution.py',
+    java: 'Main.java',
+    javascript: 'solution.js',
+    typescript: 'solution.ts',
+    rust: 'solution.rs',
+    go: 'solution.go',
   };
-  const ext = extMap[languageId] ?? 'txt';
-  return `solution.${ext}`;
+  return filenameMap[languageId] ?? 'solution.txt';
 }
 
 function getDefaultFilename(language: SupportedLanguage): string {
@@ -53,6 +60,7 @@ function getDefaultFilename(language: SupportedLanguage): string {
 export function ProblemForm({ data, onChange }: ProblemFormProps) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
+  const { data: registries } = useRegistries();
   const { data: supportedLanguages = [] } = useQuery({
     queryKey: ['supported-languages'],
     queryFn: () => fetchSupportedLanguages(apiClient),
@@ -77,6 +85,18 @@ export function ProblemForm({ data, onChange }: ProblemFormProps) {
 
   const handleMemoryLimitChange = (memoryLimit: number) => {
     onChange({ ...data, memoryLimit });
+  };
+
+  const handleProblemTypeChange = (problemType: string) => {
+    onChange({ ...data, problemType });
+  };
+
+  const handleCheckerFormatChange = (checkerFormat: string) => {
+    onChange({ ...data, checkerFormat });
+  };
+
+  const handleDefaultContestTypeChange = (defaultContestType: string) => {
+    onChange({ ...data, defaultContestType });
   };
 
   const handleShowTestDetailsChange = (showTestDetails: boolean) => {
@@ -206,6 +226,60 @@ export function ProblemForm({ data, onChange }: ProblemFormProps) {
             onChange={(e) => handleMemoryLimitChange(Number(e.target.value))}
             required
           />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="space-y-2">
+          <Label htmlFor="problem-type">{t('admin.field.problemType')}</Label>
+          <select
+            id="problem-type"
+            value={data.problemType}
+            onChange={(e) => handleProblemTypeChange(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {(registries?.problem_types ?? ['standard']).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="checker-format">
+            {t('admin.field.checkerFormat')}
+          </Label>
+          <select
+            id="checker-format"
+            value={data.checkerFormat}
+            onChange={(e) => handleCheckerFormatChange(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {(registries?.checker_formats ?? ['exact']).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="default-contest-type">
+            {t('admin.field.contestType')}
+          </Label>
+          <select
+            id="default-contest-type"
+            value={data.defaultContestType}
+            onChange={(e) => handleDefaultContestTypeChange(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {(registries?.contest_types ?? ['standard']).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

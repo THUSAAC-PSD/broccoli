@@ -35,6 +35,10 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
       return t('result.memoryLimit');
     case 'RuntimeError':
       return t('result.runtimeError');
+    case 'SystemError':
+      return t('result.systemError');
+    case 'Skipped':
+      return t('result.skipped');
     default:
       return verdictText;
   }
@@ -53,6 +57,9 @@ function getVerdictVariant(verdict: Verdict): BadgeVariant {
       return 'memorylimitexceeded';
     case 'RuntimeError':
       return 'runtimeerror';
+    case 'SystemError':
+    case 'Skipped':
+      return 'secondary';
     default:
       return 'outline';
   }
@@ -92,5 +99,7 @@ export function verdictToString(
   verdict: Verdict | null | undefined,
 ): string | null {
   if (!verdict) return null;
-  return typeof verdict === 'string' ? verdict : verdict.Other;
+  // Verdict is always serialized as a plain string by the server
+  // (including Other variants like custom plugin verdicts).
+  return String(verdict);
 }

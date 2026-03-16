@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -11,18 +12,23 @@ use sea_orm::{
 };
 use serde_json::Value;
 use testcontainers::ContainerAsync;
+use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell, RwLock};
 
-use common::storage::BlobStore;
-use common::storage::filesystem::FilesystemBlobStore;
+use common::language::LanguageDefinition;
+use common::storage::config::create_blob_store;
 use server::config::{
-    AppConfig, AuthConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig, StorageConfig,
+    AppConfig, AuthConfig, BlobStoreConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig,
     SubmissionConfig,
 };
 use server::entity::user;
 use server::manager::ServerManager;
+use server::registry::{
+    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    OperationBatches, OperationWaiters,
+};
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
 
@@ -32,9 +38,13 @@ static SHARED_PG: OnceCell<(ContainerAsync<Postgres>, u16)> = OnceCell::const_ne
 /// Monotonic counter for unique database names.
 static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Serializes CREATE DATABASE operations to prevent connection exhaustion.
+static CREATE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 /// Container ID for atexit cleanup.
 static CONTAINER_ID: OnceLock<String> = OnceLock::new();
 
+/// Shared admin connection pool for CREATE DATABASE operations.
 extern "C" fn cleanup_container() {
     if let Some(id) = CONTAINER_ID.get() {
         let _ = std::process::Command::new("docker")
@@ -43,12 +53,88 @@ extern "C" fn cleanup_container() {
     }
 }
 
+fn test_languages() -> HashMap<String, LanguageDefinition> {
+    HashMap::from([
+        (
+            "cpp".to_string(),
+            LanguageDefinition {
+                compile_cmd: Some(vec![
+                    "g++".to_string(),
+                    "{source}".to_string(),
+                    "-O2".to_string(),
+                    "-std=c++17".to_string(),
+                    "-o".to_string(),
+                    "{binary}".to_string(),
+                ]),
+                run_cmd: vec!["./{binary}".to_string()],
+                source_filename: "solution.cpp".to_string(),
+                binary_name: "solution".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+        (
+            "c".to_string(),
+            LanguageDefinition {
+                compile_cmd: Some(vec![
+                    "gcc".to_string(),
+                    "{source}".to_string(),
+                    "-O2".to_string(),
+                    "-std=c11".to_string(),
+                    "-o".to_string(),
+                    "{binary}".to_string(),
+                ]),
+                run_cmd: vec!["./{binary}".to_string()],
+                source_filename: "solution.c".to_string(),
+                binary_name: "solution".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+        (
+            "java".to_string(),
+            LanguageDefinition {
+                compile_cmd: Some(vec!["javac".to_string(), "{source}".to_string()]),
+                run_cmd: vec!["java".to_string(), "{basename}".to_string()],
+                source_filename: "{basename}.java".to_string(),
+                binary_name: "{basename}.class".to_string(),
+                version_cmd: None,
+                basename_fallback: "Main".to_string(),
+            },
+        ),
+        (
+            "python3".to_string(),
+            LanguageDefinition {
+                compile_cmd: None,
+                run_cmd: vec!["python3".to_string(), "{source}".to_string()],
+                source_filename: "solution.py".to_string(),
+                binary_name: "solution.py".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+        (
+            "javascript".to_string(),
+            LanguageDefinition {
+                compile_cmd: None,
+                run_cmd: vec!["node".to_string(), "{source}".to_string()],
+                source_filename: "solution.js".to_string(),
+                binary_name: "solution.js".to_string(),
+                version_cmd: None,
+                basename_fallback: "solution".to_string(),
+            },
+        ),
+    ])
+}
+
 /// Start (or reuse) the shared PostgreSQL container, create and initialize a
 /// template database, and return the host port.
 async fn shared_pg_port() -> u16 {
     let (_, port) = SHARED_PG
         .get_or_init(|| async {
             let container = Postgres::default()
+                .with_tag("17-alpine")
+                .with_cmd(["postgres", "-c", "max_connections=500"])
                 .start()
                 .await
                 .expect("Failed to start PostgreSQL container");
@@ -58,17 +144,35 @@ async fn shared_pg_port() -> u16 {
                 .expect("Failed to get PostgreSQL port");
 
             let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
-            let admin_db = Database::connect(ConnectOptions::new(&admin_url))
-                .await
-                .expect("Failed to connect to admin database for template setup");
-            admin_db
-                .execute_raw(Statement::from_string(
-                    DbBackend::Postgres,
-                    "CREATE DATABASE \"template_test\"".to_string(),
-                ))
-                .await
-                .expect("Failed to create template database");
-            drop(admin_db);
+            let mut template_created = false;
+            for attempt in 0..15u32 {
+                if attempt > 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        500 * u64::from(attempt),
+                    ))
+                    .await;
+                }
+                let Ok(admin_db) = Database::connect(ConnectOptions::new(&admin_url)).await else {
+                    continue;
+                };
+                if admin_db
+                    .execute_raw(Statement::from_string(
+                        DbBackend::Postgres,
+                        "CREATE DATABASE \"template_test\"".to_string(),
+                    ))
+                    .await
+                    .is_ok()
+                {
+                    drop(admin_db);
+                    template_created = true;
+                    break;
+                }
+                drop(admin_db);
+            }
+            assert!(
+                template_created,
+                "Failed to create template_test database after 15 attempts"
+            );
 
             let _ = CONTAINER_ID.set(container.id().to_string());
 
@@ -101,9 +205,6 @@ pub mod routes {
     pub const ME: &str = "/api/v1/auth/me";
     pub const USERS: &str = "/api/v1/users";
     pub const PROBLEMS: &str = "/api/v1/problems";
-    pub const ACTIVE_PLUGINS: &str = "/api/v1/plugins/active";
-    pub const ADMIN_LIST_PLUGINS: &str = "/api/v1/admin/plugins";
-
     pub fn admin_plugin_details(id: &str) -> String {
         format!("/api/v1/admin/plugins/{id}")
     }
@@ -241,6 +342,45 @@ pub mod routes {
     pub fn attachment(problem_id: i32, ref_id: &str) -> String {
         format!("/api/v1/problems/{problem_id}/attachments/{ref_id}")
     }
+
+    pub fn problem_config(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/config")
+    }
+
+    pub fn problem_config_ns(problem_id: i32, plugin_id: &str, namespace: &str) -> String {
+        format!("/api/v1/problems/{problem_id}/config/{plugin_id}/{namespace}")
+    }
+
+    pub fn contest_config(contest_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/config")
+    }
+
+    pub fn contest_config_ns(contest_id: i32, plugin_id: &str, namespace: &str) -> String {
+        format!("/api/v1/contests/{contest_id}/config/{plugin_id}/{namespace}")
+    }
+
+    pub fn plugin_global_config(plugin_id: &str) -> String {
+        format!("/api/v1/admin/plugins/{plugin_id}/config")
+    }
+
+    pub fn plugin_global_config_ns(plugin_id: &str, namespace: &str) -> String {
+        format!("/api/v1/admin/plugins/{plugin_id}/config/{namespace}")
+    }
+
+    pub fn contest_problem_config(contest_id: i32, problem_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/problems/{problem_id}/config")
+    }
+
+    pub fn contest_problem_config_ns(
+        contest_id: i32,
+        problem_id: i32,
+        plugin_id: &str,
+        namespace: &str,
+    ) -> String {
+        format!(
+            "/api/v1/contests/{contest_id}/problems/{problem_id}/config/{plugin_id}/{namespace}"
+        )
+    }
 }
 
 /// A running test server.
@@ -248,8 +388,17 @@ pub struct TestApp {
     pub addr: SocketAddr,
     pub client: Client,
     pub db: DatabaseConnection,
-    /// Kept alive to prevent temp dir deletion during the test.
-    _blob_dir: tempfile::TempDir,
+    /// Handle to the spawned axum server task. Aborted on Drop to free connections.
+    server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        // Abort the server task immediately (non-blocking).
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+        }
+    }
 }
 
 /// Path to the test fixtures directory.
@@ -269,38 +418,55 @@ pub struct TestResponse {
 }
 
 impl TestApp {
+    /// Spawn a test server WITHOUT loading plugins (fast path for most tests).
     pub async fn spawn() -> Self {
+        Self::spawn_internal(false).await
+    }
+
+    /// Spawn a test server WITH plugins loaded (slow, only for plugin-specific tests).
+    pub async fn spawn_with_plugins() -> Self {
+        Self::spawn_internal(true).await
+    }
+
+    async fn spawn_internal(load_plugins: bool) -> Self {
         let port = shared_pg_port().await;
         let db_name = format!("test_{}", DB_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-        let admin_opts = ConnectOptions::new(format!(
-            "postgres://postgres:postgres@127.0.0.1:{port}/postgres"
-        ));
-        let admin_db = Database::connect(admin_opts)
+        let _lock = CREATE_DB_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+
+        let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+        let mut admin_opts = ConnectOptions::new(&admin_url);
+        admin_opts
+            .max_connections(1) // Only need 1 connection for CREATE DATABASE
+            .min_connections(0); // Don't maintain idle connections
+        let admin_conn = Database::connect(admin_opts)
             .await
             .expect("Failed to connect to admin database");
-        admin_db
+
+        admin_conn
             .execute_raw(Statement::from_string(
                 DbBackend::Postgres,
                 format!("CREATE DATABASE \"{db_name}\" TEMPLATE template_test"),
             ))
             .await
             .expect("Failed to create test database from template");
-        drop(admin_db);
+
+        admin_conn.close().await.ok();
+
+        drop(_lock);
 
         let db_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/{db_name}");
         let mut opts = ConnectOptions::new(&db_url);
-        opts.max_connections(5).min_connections(1);
+        opts.max_connections(2)
+            .min_connections(0)
+            .idle_timeout(std::time::Duration::from_secs(2));
         let db = Database::connect(opts)
             .await
             .expect("Failed to connect to test database");
 
-        let blob_dir = tempfile::tempdir().expect("Failed to create temp dir for blob storage");
-        let blob_store: Arc<dyn BlobStore> = Arc::new(
-            FilesystemBlobStore::new(blob_dir.path().join("blobs"), 128 * 1024 * 1024)
-                .await
-                .expect("Failed to init blob store"),
-        );
+        let blob_store = create_blob_store(&BlobStoreConfig::default(), db.clone())
+            .await
+            .expect("Failed to initialize blob store");
 
         let app_config = AppConfig {
             server: ServerConfig {
@@ -322,21 +488,83 @@ impl TestApp {
                 ..Default::default()
             },
             submission: SubmissionConfig::default(),
-            storage: StorageConfig::default(),
+            storage: BlobStoreConfig::default(),
             mq: MqAppConfig {
                 enabled: false,
                 ..Default::default()
             },
+            languages: test_languages(),
+            batch_max_age_secs: 600,
         };
 
+        let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let evaluator_registry: EvaluatorRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let checker_format_registry: CheckerFormatRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
+        let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
+        let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
+
+        let plugins = ServerManager::new(
+            app_config.plugin.clone(),
+            db.clone(),
+            None, // mq
+            operation_batches.clone(),
+            operation_waiters.clone(),
+            contest_type_registry.clone(),
+            evaluator_registry.clone(),
+            checker_format_registry.clone(),
+            evaluate_batches.clone(),
+            app_config.clone(),
+            blob_store.clone(),
+        )
+        .expect("Failed to initialize plugin manager");
+
+        if !load_plugins {
+            // Register built-in defaults so create_problem validation passes
+            // without needing actual plugins loaded.
+            evaluator_registry.write().await.insert(
+                "standard".into(),
+                server::registry::PluginHandler {
+                    plugin_id: "__test__".into(),
+                    function_name: "noop".into(),
+                },
+            );
+            checker_format_registry.write().await.insert(
+                "exact".into(),
+                server::registry::PluginHandler {
+                    plugin_id: "__test__".into(),
+                    function_name: "noop".into(),
+                },
+            );
+            contest_type_registry.write().await.insert(
+                "standard".into(),
+                server::registry::PluginHandler {
+                    plugin_id: "__test__".into(),
+                    function_name: "noop".into(),
+                },
+            );
+        }
+
         let state = AppState {
-            plugins: Arc::new(ServerManager::new(app_config.plugin.clone(), db.clone())),
+            plugins,
             db: db.clone(),
             config: app_config,
             mq: None,
             blob_store,
+            registries: server::state::RegistryState {
+                contest_type_registry,
+                evaluator_registry,
+                checker_format_registry,
+                operation_batches,
+                operation_waiters,
+                evaluate_batches,
+                hook_registry: server::hooks::new_shared_registry(),
+            },
+            device_codes: std::sync::Arc::new(dashmap::DashMap::new()),
         };
-        sync_plugins(&state).await.expect("Failed to sync plugins");
+        if load_plugins {
+            sync_plugins(&state).await.expect("Failed to sync plugins");
+        }
 
         let app = server::build_router(state);
 
@@ -345,7 +573,7 @@ impl TestApp {
             .expect("Failed to bind to random port");
         let addr = listener.local_addr().unwrap();
 
-        tokio::spawn(async move {
+        let server_handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
 
@@ -359,7 +587,7 @@ impl TestApp {
                 .build()
                 .expect("Failed to build reqwest client"),
             db,
-            _blob_dir: blob_dir,
+            server_handle: Some(server_handle),
         }
     }
 
@@ -471,6 +699,7 @@ impl TestApp {
         TestResponse::from_response(res).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn upload_with_token(
         &self,
         path: &str,
@@ -486,12 +715,11 @@ impl TestApp {
             .mime_str("application/zip")
             .expect("Failed to set MIME type");
         let mut form = reqwest::multipart::Form::new().part("file", part);
-
-        if let Some(fmt) = input_format {
-            form = form.text("input_format", fmt.to_string());
+        if let Some(input_format) = input_format {
+            form = form.text("input_format", input_format.to_string());
         }
-        if let Some(fmt) = output_format {
-            form = form.text("output_format", fmt.to_string());
+        if let Some(output_format) = output_format {
+            form = form.text("output_format", output_format.to_string());
         }
         if let Some(s) = strategy {
             form = form.text("strategy", s.to_string());
@@ -538,6 +766,8 @@ impl TestApp {
                     "content": "## Description\nSolve this.",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
+                    "checker_format": "exact",
                 }),
                 token,
             )
@@ -599,11 +829,19 @@ impl TestApp {
         language: &str,
         code: &str,
     ) -> i32 {
+        let filename = match language {
+            "cpp" => "main.cpp",
+            "c" => "main.c",
+            "java" => "Main.java",
+            "python3" => "solution.py",
+            "javascript" => "solution.js",
+            _ => "main.txt",
+        };
         let res = self
             .post_with_token(
                 &routes::problem_submissions(problem_id),
                 &serde_json::json!({
-                    "files": [{"filename": "main.cpp", "content": code}],
+                    "files": [{"filename": filename, "content": code}],
                     "language": language,
                 }),
                 token,

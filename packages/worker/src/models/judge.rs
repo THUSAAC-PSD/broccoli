@@ -70,7 +70,7 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
     let mut test_results = Vec::new();
     let mut max_time: i32 = 0;
     let mut max_memory: i32 = 0;
-    let mut total_score: i32 = 0;
+    let mut total_score: f64 = 0.0;
     let mut worst_verdict = Verdict::Accepted;
 
     for tc in &job.test_cases {
@@ -82,9 +82,10 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
             wall_timeout,
             time_limit,
         );
+        let verdict = tc_result.verdict.clone();
         let tc_judge = TestCaseJudgeResult {
             test_case_id: tc.id,
-            verdict: tc_result.verdict.clone(),
+            verdict: verdict.clone(),
             score: tc_result.score,
             time_used: Some(tc_result.time_ms),
             memory_used: Some(tc_result.memory_kb),
@@ -101,8 +102,8 @@ fn execute_judge(job: &JudgeJob) -> JudgeResult {
         }
         total_score += tc_result.score;
 
-        if tc_result.verdict.severity() > worst_verdict.severity() {
-            worst_verdict = tc_result.verdict.clone();
+        if verdict.severity() > worst_verdict.severity() {
+            worst_verdict = verdict;
         }
 
         test_results.push(tc_judge);
@@ -201,7 +202,7 @@ fn compile(job: &JudgeJob, tmp_dir: &str) -> Result<String, CompileError> {
             // For Java, the "executable" is the class name
             Ok(format!("{}/Main", tmp_dir))
         }
-        "python" => {
+        "python3" => {
             // No compilation needed; syntax check
             let output = Command::new("python3")
                 .args(["-m", "py_compile", &source_path])
@@ -222,7 +223,7 @@ fn compile(job: &JudgeJob, tmp_dir: &str) -> Result<String, CompileError> {
 
 struct TestCaseResult {
     verdict: Verdict,
-    score: i32,
+    score: f64,
     time_ms: i32,
     memory_kb: i32,
     stdout: Option<String>,
@@ -233,7 +234,7 @@ fn run_test_case(
     executable: &str,
     input: &str,
     expected_output: &str,
-    max_score: i32,
+    max_score: f64,
     wall_timeout: Duration,
     _time_limit: Duration,
 ) -> TestCaseResult {
@@ -293,7 +294,7 @@ fn run_test_case(
             if elapsed > wall_timeout {
                 return TestCaseResult {
                     verdict: Verdict::TimeLimitExceeded,
-                    score: 0,
+                    score: 0.0,
                     time_ms,
                     memory_kb: 0,
                     stdout: Some(stdout_str),
@@ -308,7 +309,7 @@ fn run_test_case(
                 );
                 return TestCaseResult {
                     verdict: Verdict::RuntimeError,
-                    score: 0,
+                    score: 0.0,
                     time_ms,
                     memory_kb: 0,
                     stdout: Some(stdout_str),
@@ -333,7 +334,7 @@ fn run_test_case(
             } else {
                 TestCaseResult {
                     verdict: Verdict::WrongAnswer,
-                    score: 0,
+                    score: 0.0,
                     time_ms,
                     memory_kb: 0,
                     stdout: Some(stdout_str),
@@ -349,7 +350,7 @@ fn run_test_case(
             warn!(error = %e, "Failed to execute program");
             TestCaseResult {
                 verdict: Verdict::SystemError,
-                score: 0,
+                score: 0.0,
                 time_ms,
                 memory_kb: 0,
                 stdout: None,
@@ -378,22 +379,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compare_output_exact() {
+    fn exact_match_is_accepted() {
         assert!(compare_output("3\n", "3\n"));
     }
 
     #[test]
-    fn test_compare_output_trailing_whitespace() {
+    fn trailing_whitespace_per_line_is_ignored() {
         assert!(compare_output("3  \n", "3\n"));
     }
 
     #[test]
-    fn test_compare_output_trailing_newlines() {
+    fn trailing_empty_lines_are_ignored() {
         assert!(compare_output("3\n\n\n", "3\n"));
     }
 
     #[test]
-    fn test_compare_output_mismatch() {
+    fn different_content_is_rejected() {
         assert!(!compare_output("4\n", "3\n"));
+    }
+
+    #[test]
+    fn both_empty_is_accepted() {
+        assert!(compare_output("", ""));
+    }
+
+    #[test]
+    fn nonempty_actual_vs_empty_expected_is_rejected() {
+        assert!(!compare_output("3\n", ""));
+    }
+
+    #[test]
+    fn multiline_exact_match_is_accepted() {
+        assert!(compare_output("1\n2\n3\n", "1\n2\n3\n"));
+    }
+
+    #[test]
+    fn multiline_trailing_whitespace_is_ignored() {
+        assert!(compare_output("1  \n2  \n", "1\n2\n"));
+    }
+
+    #[test]
+    fn multiline_mismatch_in_middle_is_rejected() {
+        assert!(!compare_output("1\n9\n3\n", "1\n2\n3\n"));
     }
 }

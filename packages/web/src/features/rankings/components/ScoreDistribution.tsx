@@ -11,6 +11,8 @@ import {
   YAxis,
 } from 'recharts';
 
+import { buildAxisScale } from './chart-axis';
+
 export interface DistributionEntry {
   solved: string; // e.g. "0", "1", "2"
   count: number;
@@ -31,6 +33,12 @@ function generateBarColor(index: number, total: number): string {
 export function ScoreDistribution({ data }: ScoreDistributionProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const maxCount = data.reduce(
+    (highest, entry) =>
+      Number.isFinite(entry.count) ? Math.max(highest, entry.count) : highest,
+    0,
+  );
+  const yAxis = buildAxisScale(maxCount, { maxTicks: 6, integerOnly: true });
 
   return (
     <Card>
@@ -60,6 +68,8 @@ export function ScoreDistribution({ data }: ScoreDistributionProps) {
               }}
             />
             <YAxis
+              domain={[0, yAxis.domainMax]}
+              ticks={yAxis.ticks}
               tick={{ fontSize: 12, fill: isDark ? '#9ca3af' : '#6b7280' }}
               stroke={isDark ? '#4b5563' : '#d1d5db'}
               allowDecimals={false}
@@ -85,9 +95,9 @@ export function ScoreDistribution({ data }: ScoreDistributionProps) {
               }
             />
             <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={48}>
-              {data.map((_, index) => (
+              {data.map((entry, index) => (
                 <Cell
-                  key={`cell-${index}`}
+                  key={entry.solved}
                   fill={generateBarColor(index, data.length)}
                   opacity={0.85}
                 />

@@ -4,9 +4,11 @@ pub mod event;
 pub mod hook;
 pub mod judge_job;
 pub mod judge_result;
+pub mod language;
 pub mod mq;
 pub mod retry;
 pub mod storage;
+pub mod submission_dispatch;
 pub mod submission_status;
 pub mod worker;
 

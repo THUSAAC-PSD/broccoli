@@ -15,7 +15,7 @@ pub trait Hook<E: Event>: Send + Sync {
     /// Hook identifier
     fn id(&self) -> &str;
     /// Get the topics this hook is interested in
-    fn topics(&self) -> &[&str];
+    fn topics(&self) -> &[String];
 
     fn on_register(&self, _ctx: Self::Context) -> Result<()> {
         Ok(())
@@ -46,7 +46,7 @@ pub trait GenericHook: Send + Sync {
     /// Hook identifier
     fn id(&self) -> &str;
     /// Get the topics this hook is interested in
-    fn topics(&self) -> &[&str];
+    fn topics(&self) -> &[String];
 
     fn on_register(&self, _ctx: Self::Context) -> Result<()> {
         Ok(())
@@ -70,7 +70,7 @@ impl<E: Event, H: Hook<E>> GenericHook for HookAdapter<E, H> {
     fn id(&self) -> &str {
         self.hook.id()
     }
-    fn topics(&self) -> &[&str] {
+    fn topics(&self) -> &[String] {
         self.hook.topics()
     }
     async fn on_event(
@@ -129,9 +129,9 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         });
         adapter.on_register(self.ctx)?;
 
-        for &topic in adapter.topics() {
+        for topic in adapter.topics() {
             self.hooks
-                .entry(topic.to_string())
+                .entry(topic.clone())
                 .or_default()
                 .push(adapter.clone());
         }
@@ -141,16 +141,16 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
     /// Add a generic hook to the registry
     pub fn add_generic_hook(&mut self, hook: Arc<dyn GenericHook<Context = C>>) -> Result<()> {
         hook.on_register(self.ctx)?;
-        for &topic in hook.topics() {
+        for topic in hook.topics() {
             self.hooks
-                .entry(topic.to_string())
+                .entry(topic.clone())
                 .or_default()
                 .push(hook.clone());
         }
         Ok(())
     }
 
-    /// Remove a hook by its ID, only removes the first
+    /// Remove the first hook matching `hook_id`.
     pub fn remove_hook(&mut self, hook_id: &str) -> Result<()> {
         let hooks = &mut self.hooks;
 
@@ -163,6 +163,15 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         }
 
         Err(anyhow::anyhow!("Hook not found: {}", hook_id))
+    }
+
+    /// Remove ALL hooks whose `id()` matches `hook_id` across all topics.
+    ///
+    /// Used when unloading a plugin that registered multiple hooks.
+    pub fn remove_hooks_by_id(&mut self, hook_id: &str) {
+        for hooks_list in self.hooks.values_mut() {
+            hooks_list.retain(|h| h.id() != hook_id);
+        }
     }
 
     /// Trigger all hooks for an event
@@ -187,11 +196,7 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
                     return Ok(HookAction::Stop);
                 }
                 HookAction::Reject(reason) => {
-                    return Err(anyhow::anyhow!(
-                        "Event rejected by hook {}: {}",
-                        hook.id(),
-                        reason
-                    ));
+                    return Ok(HookAction::Reject(reason));
                 }
                 HookAction::Chain(events) => {
                     // TODO: whether to auto trigger these chained events
@@ -206,5 +211,108 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         }
 
         Ok(HookAction::Modified(E::from_generic_event(&generic_event)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A test hook that always returns a configurable action.
+    struct FixedActionHook {
+        id: String,
+        topics: Vec<String>,
+        action: GenericHookAction,
+    }
+
+    #[async_trait]
+    impl GenericHook for FixedActionHook {
+        type Context = ();
+
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn topics(&self) -> &[String] {
+            &self.topics
+        }
+        async fn on_event(&self, _ctx: (), _e: &GenericEvent) -> Result<GenericHookAction> {
+            Ok(match &self.action {
+                HookAction::Pass => HookAction::Pass,
+                HookAction::Stop => HookAction::Stop,
+                HookAction::Reject(r) => HookAction::Reject(r.clone()),
+                HookAction::Modified(e) => HookAction::Modified(e.clone()),
+                HookAction::Chain(v) => HookAction::Chain(v.clone()),
+            })
+        }
+    }
+
+    fn make_event(topic: &str) -> GenericEvent {
+        GenericEvent {
+            topic: topic.to_string(),
+            payload: serde_json::json!({}),
+        }
+    }
+
+    #[tokio::test]
+    async fn reject_action_is_returned_as_ok_not_err() {
+        let mut registry = HookRegistry::new(());
+        let hook = FixedActionHook {
+            id: "rejector".into(),
+            topics: vec!["test".into()],
+            action: HookAction::Reject("cooldown active".into()),
+        };
+        registry.add_generic_hook(Arc::new(hook)).unwrap();
+
+        let event = make_event("test");
+        let result = registry.trigger(&event).await;
+
+        // The bug was: Reject was returned as Err. After fix, it's Ok(Reject).
+        assert!(result.is_ok(), "Reject should be Ok, not Err");
+        match result.unwrap() {
+            HookAction::Reject(reason) => assert_eq!(reason, "cooldown active"),
+            other => panic!("Expected Reject, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_action_halts_hook_chain() {
+        let mut registry = HookRegistry::new(());
+        let hook = FixedActionHook {
+            id: "stopper".into(),
+            topics: vec!["test".into()],
+            action: HookAction::Stop,
+        };
+        registry.add_generic_hook(Arc::new(hook)).unwrap();
+
+        let event = make_event("test");
+        let result = registry.trigger(&event).await.unwrap();
+        assert!(matches!(result, HookAction::Stop));
+    }
+
+    #[tokio::test]
+    async fn topic_with_no_hooks_returns_pass() {
+        let registry = HookRegistry::new(());
+        let event = make_event("no_hooks");
+        let result = registry.trigger(&event).await.unwrap();
+        assert!(matches!(result, HookAction::Pass));
+    }
+
+    #[tokio::test]
+    async fn remove_hooks_by_id_clears_all_topics_for_that_hook() {
+        let mut registry = HookRegistry::new(());
+        let hook = FixedActionHook {
+            id: "multi".into(),
+            topics: vec!["topic_a".into(), "topic_b".into()],
+            action: HookAction::Pass,
+        };
+        registry.add_generic_hook(Arc::new(hook)).unwrap();
+
+        assert!(registry.hooks.get("topic_a").is_some_and(|v| !v.is_empty()));
+        assert!(registry.hooks.get("topic_b").is_some_and(|v| !v.is_empty()));
+
+        registry.remove_hooks_by_id("multi");
+
+        assert!(registry.hooks.get("topic_a").is_none_or(|v| v.is_empty()));
+        assert!(registry.hooks.get("topic_b").is_none_or(|v| v.is_empty()));
     }
 }
