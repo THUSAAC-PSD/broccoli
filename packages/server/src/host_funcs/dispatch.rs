@@ -139,7 +139,7 @@ fn start_operation_batch_fn(
         "Starting operation batch"
     );
 
-    for (correlation_id, op) in cleanup_keys.iter().cloned().zip(operations.into_iter()) {
+    for (correlation_id, op) in cleanup_keys.iter().cloned().zip(operations) {
         let (op_tx, op_rx) = tokio::sync::oneshot::channel();
 
         waiters.insert(correlation_id.clone(), op_tx);

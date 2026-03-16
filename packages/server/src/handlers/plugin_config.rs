@@ -140,6 +140,7 @@ async fn get_config_inner<C: ConnectionTrait>(
 
 /// Upsert a config row. Response is constructed optimistically from input values
 /// (not re-read from DB), so `updated_at` reflects app-side `Utc::now()`.
+#[allow(clippy::too_many_arguments)]
 async fn upsert_config_inner<C: ConnectionTrait>(
     db: &C,
     scope: &str,

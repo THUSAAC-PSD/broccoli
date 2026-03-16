@@ -250,9 +250,8 @@ pub async fn update_problem(
     if let Some(ref cf) = payload.checker_format {
         validate_checker_format(cf, &state.registries.checker_format_registry).await?;
     }
-    match payload.submission_format {
-        Some(Some(ref sf)) => validate_submission_format(Some(sf), &state.config.languages)?,
-        Some(None) | None => {}
+    if let Some(Some(ref sf)) = payload.submission_format {
+        validate_submission_format(Some(sf), &state.config.languages)?;
     }
     if let Some(ref ct) = payload.default_contest_type {
         validate_contest_type(ct, &state.registries.contest_type_registry).await?;

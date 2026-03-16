@@ -10,6 +10,12 @@ pub struct LoggerHook {
     topics: Vec<String>,
 }
 
+impl Default for LoggerHook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoggerHook {
     pub fn new() -> Self {
         Self {
