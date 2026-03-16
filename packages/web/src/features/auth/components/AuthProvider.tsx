@@ -52,7 +52,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     const { data, error } = await apiClient.POST('/auth/refresh');
-    console.log('Refresh response:', { data, error });
 
     if (error) {
       clearSession();
