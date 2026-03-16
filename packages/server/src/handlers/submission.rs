@@ -6,13 +6,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::{Duration, Utc};
-use common::judge_job::{JudgeFile, JudgeJob, TestCaseData};
 use common::language::{LanguageDefinition, resolve_language};
-use common::worker::Task;
 use common::{SubmissionStatus, Verdict};
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::entity::submission::SubmissionFile;
 use crate::entity::{
@@ -278,109 +276,9 @@ async fn is_problem_in_contest<C: ConnectionTrait>(
     Ok(exists)
 }
 
-/// Enqueue a judge job for a submission.
-///
-/// DEPRECATED: This is the legacy judge path, replaced by dispatch_to_plugin.
-#[allow(dead_code)]
-#[instrument(skip(state, files), fields(submission_id = submission.id))]
-async fn enqueue_judge_job(
-    state: &AppState,
-    submission: &submission::Model,
-    files: Vec<JudgeFile>,
-) {
-    let Some(ref mq) = state.mq else {
-        debug!("MQ unavailable, skipping enqueue");
-        return;
-    };
-
-    let problem = match problem::Entity::find_by_id(submission.problem_id)
-        .one(&state.db)
-        .await
-    {
-        Ok(Some(p)) => p,
-        Ok(None) => {
-            error!(
-                problem_id = submission.problem_id,
-                "Problem not found for judge job"
-            );
-            return;
-        }
-        Err(e) => {
-            error!(error = %e, "DB error fetching problem for judge job");
-            return;
-        }
-    };
-
-    let test_cases: Vec<TestCaseData> = match test_case::Entity::find()
-        .filter(test_case::Column::ProblemId.eq(submission.problem_id))
-        .order_by_asc(test_case::Column::Position)
-        .all(&state.db)
-        .await
-    {
-        Ok(tcs) => tcs
-            .into_iter()
-            .map(|tc| TestCaseData {
-                id: tc.id,
-                input: tc.input,
-                expected_output: tc.expected_output,
-                score: tc.score as f64,
-            })
-            .collect(),
-        Err(e) => {
-            error!(error = %e, "DB error fetching test cases for judge job");
-            return;
-        }
-    };
-
-    let test_case_count = test_cases.len();
-
-    let job = JudgeJob::new(
-        submission.id,
-        submission.problem_id,
-        files,
-        submission.language.clone(),
-        problem.time_limit,
-        problem.memory_limit,
-        submission.contest_id,
-        test_cases,
-    );
-
-    let job_id = job.job_id.clone();
-
-    let task = Task {
-        id: job.job_id.clone(),
-        task_type: "judge".into(),
-        executor_name: "native".into(),
-        payload: match serde_json::to_value(&job) {
-            Ok(v) => v,
-            Err(e) => {
-                error!(error = %e, "Failed to serialize JudgeJob");
-                return;
-            }
-        },
-        result_queue: state.config.mq.result_queue_name.clone(),
-    };
-
-    match mq
-        .publish(&state.config.mq.queue_name, None, &task, None)
-        .await
-    {
-        Ok(_) => {
-            info!(
-                job_id = %job_id,
-                test_cases = test_case_count,
-                "Judge job enqueued"
-            );
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to enqueue judge job");
-        }
-    }
-}
-
 /// Dispatch submission to plugin-based judging system.
 #[instrument(skip(state), fields(submission_id = submission.id))]
-async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
+pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
     use common::submission_dispatch::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
 
     // Use the persisted contest_type — it was resolved at submission creation time

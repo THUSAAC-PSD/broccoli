@@ -122,7 +122,7 @@ async fn handle_stuck_submission(
     let dlq = DlqService::new(&txn);
     dlq.create_entry(
         format!("stuck-submission-{}", submission.id),
-        DlqMessageType::JudgeJob,
+        DlqMessageType::StuckSubmission,
         Some(submission.id),
         payload,
         DlqErrorCode::StuckJob,

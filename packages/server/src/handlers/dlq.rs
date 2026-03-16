@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use common::{DlqMessageType, SubmissionStatus, judge_job::JudgeJob, worker::Task};
+use common::{DlqMessageType, SubmissionStatus};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
     TransactionTrait,
@@ -16,6 +16,7 @@ use crate::entity::{dead_letter_message, submission};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::handlers::submission::dispatch_to_plugin;
 use crate::models::dlq::*;
 use crate::models::shared::Pagination;
 use crate::state::AppState;
@@ -134,21 +135,21 @@ pub async fn get_dlq_message(
     Ok(Json(message.into()))
 }
 
-/// Retry a DLQ message by re-enqueuing it.
+/// Retry a DLQ message by re-dispatching the submission to the plugin system.
 #[utoipa::path(
     post,
     path = "/{id}/retry",
     tag = "Dead Letter Queue",
     operation_id = "retryDlqMessage",
     summary = "Retry a DLQ message",
-    description = "Re-enqueues a dead letter message for processing. Only works for judge_job message type. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.",
+    description = "Retries a dead letter message by resetting the submission to Pending and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task messages are coordinated by the plugin and cannot be retried from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.",
     params(("id" = i32, Path, description = "DLQ message ID")),
     responses(
-        (status = 200, description = "Message requeued", body = DlqRetryResponse),
-        (status = 400, description = "Cannot retry judge_result messages (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 200, description = "Submission re-dispatched", body = DlqRetryResponse),
+        (status = 400, description = "Only stuck_submission messages can be retried, or submission is not in a retryable state (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 404, description = "Message not found (NOT_FOUND)", body = ErrorBody),
+        (status = 404, description = "Message or submission not found (NOT_FOUND)", body = ErrorBody),
         (status = 409, description = "Message already resolved (CONFLICT)", body = ErrorBody),
     ),
     security(("jwt" = [])),
@@ -163,7 +164,7 @@ pub async fn retry_dlq_message(
 
     let txn = state.db.begin().await?;
 
-    let dlq = crate::dlq::DlqService::new(&txn);
+    let dlq = DlqService::new(&txn);
     let message = dlq
         .get_by_id_for_update(id)
         .await?
@@ -173,9 +174,9 @@ pub async fn retry_dlq_message(
         return Err(AppError::Conflict("Message already resolved".into()));
     }
 
-    if message.message_type != DlqMessageType::JudgeJob.as_str() {
+    if message.message_type != DlqMessageType::StuckSubmission.as_str() {
         return Err(AppError::Validation(
-            "Only judge_job messages can be retried. judge_result and operation_task messages require manual intervention.".into(),
+            "Only stuck_submission messages can be retried. operation_task messages are coordinated by the plugin system.".into(),
         ));
     }
 
@@ -185,21 +186,20 @@ pub async fn retry_dlq_message(
         ));
     };
 
-    let Some(ref mq) = state.mq else {
-        return Err(AppError::Internal("Message queue not available".into()));
-    };
+    // Load submission and verify it is in a retryable state
+    let sub = submission::Entity::find_by_id(submission_id)
+        .one(&txn)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Submission {} not found", submission_id)))?;
 
-    let job: JudgeJob = serde_json::from_value(message.payload.clone())
-        .map_err(|e| AppError::Internal(format!("Failed to deserialize job payload: {}", e)))?;
+    if sub.status != SubmissionStatus::SystemError && sub.status != SubmissionStatus::Pending {
+        return Err(AppError::Validation(format!(
+            "Submission {} is in '{}' state and cannot be retried. Only SystemError or Pending submissions can be retried.",
+            submission_id, sub.status
+        )));
+    }
 
-    let task = Task {
-        id: job.job_id.clone(),
-        executor_name: "native".into(),
-        task_type: "judge".into(),
-        payload: message.payload.clone(),
-        result_queue: state.config.mq.result_queue_name.clone(),
-    };
-
+    // Reset submission to Pending, clear error fields
     let submission_update = submission::ActiveModel {
         id: Set(submission_id),
         status: Set(SubmissionStatus::Pending),
@@ -212,10 +212,11 @@ pub async fn retry_dlq_message(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to reset submission status: {}", e)))?;
 
+    // Resolve the DLQ entry
     match dlq.resolve(id, Some(auth_user.user_id)).await? {
         ResolveResult::Resolved => {} // Expected
         ResolveResult::AlreadyResolved => {
-            tracing::warn!(id, "DLQ message was resolved concurrently during retry");
+            warn!(id, "DLQ message was resolved concurrently during retry");
         }
         ResolveResult::NotFound => {
             return Err(AppError::Internal(
@@ -224,25 +225,29 @@ pub async fn retry_dlq_message(
         }
     }
 
-    mq.publish(&state.config.mq.queue_name, None, &task, None)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to re-enqueue message: {}", e)))?;
+    txn.commit().await?;
 
-    txn.commit().await.map_err(|e| {
-        tracing::error!(
-            id,
-            submission_id,
-            error = %e,
-            "CRITICAL: MQ message published but DB commit failed. \
-             Message is in worker queue but DLQ entry remains unresolved."
-        );
-        AppError::Internal(format!("DB commit failed after MQ publish: {}", e))
-    })?;
+    // Re-load the submission with the reset status for dispatch
+    let updated_sub = submission::Entity::find_by_id(submission_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| {
+            AppError::Internal(format!(
+                "Submission {} disappeared after commit",
+                submission_id
+            ))
+        })?;
 
-    info!(id, submission_id, "DLQ message retried");
+    // Fire-and-forget dispatch to plugin system (same pattern as create_submission)
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        dispatch_to_plugin(state_clone, updated_sub).await;
+    });
+
+    info!(id, submission_id, "DLQ message retried via plugin dispatch");
 
     Ok(Json(DlqRetryResponse {
-        message: format!("Message requeued for submission {}", submission_id),
+        message: format!("Submission {} re-dispatched for judging", submission_id),
     }))
 }
 
@@ -294,14 +299,13 @@ pub async fn delete_dlq_message(
     tag = "Dead Letter Queue",
     operation_id = "bulkRetryDlq",
     summary = "Bulk-retry DLQ messages",
-    description = "Re-enqueues multiple dead letter messages for processing. Supports either specific message IDs or filter-based selection. Only judge_job messages with a known submission_id are retryable. Requires `dlq:manage` permission.",
+    description = "Retries multiple dead letter messages by resetting their submissions to Pending and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable. Requires `dlq:manage` permission.",
     request_body = BulkRetryDlqRequest,
     responses(
         (status = 200, description = "Bulk retry result", body = BulkRetryDlqResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 500, description = "MQ unavailable (INTERNAL_ERROR)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -313,10 +317,6 @@ pub async fn bulk_retry_dlq(
 ) -> Result<Json<BulkRetryDlqResponse>, AppError> {
     auth_user.require_permission("dlq:manage")?;
     validate_bulk_retry_dlq(&payload)?;
-
-    let Some(ref mq) = state.mq else {
-        return Err(AppError::Internal("Message queue not available".into()));
-    };
 
     let message_ids: Vec<i32> = if let Some(ref ids) = payload.message_ids {
         ids.clone()
@@ -355,7 +355,7 @@ pub async fn bulk_retry_dlq(
     let mut retried = 0usize;
     let mut skipped = 0usize;
     let mut errors = Vec::new();
-    let mut tasks_to_publish: Vec<Task> = Vec::new();
+    let mut submissions_to_dispatch: Vec<i32> = Vec::new();
 
     for id in &message_ids {
         let message = match dlq.get_by_id_for_update(*id).await {
@@ -381,7 +381,7 @@ pub async fn bulk_retry_dlq(
             continue;
         }
 
-        if message.message_type != DlqMessageType::JudgeJob.as_str() {
+        if message.message_type != DlqMessageType::StuckSubmission.as_str() {
             skipped += 1;
             continue;
         }
@@ -391,17 +391,34 @@ pub async fn bulk_retry_dlq(
             continue;
         };
 
-        let job: JudgeJob = match serde_json::from_value(message.payload.clone()) {
-            Ok(j) => j,
+        // Load submission and check it is in a retryable state
+        let sub = match submission::Entity::find_by_id(submission_id)
+            .one(&txn)
+            .await
+        {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: format!("Submission {submission_id} not found"),
+                });
+                continue;
+            }
             Err(e) => {
                 errors.push(BulkRetryError {
                     id: *id,
-                    error: format!("Failed to deserialize payload: {e}"),
+                    error: format!("Failed to load submission: {e}"),
                 });
                 continue;
             }
         };
 
+        if sub.status != SubmissionStatus::SystemError && sub.status != SubmissionStatus::Pending {
+            skipped += 1;
+            continue;
+        }
+
+        // Reset submission to Pending, clear error fields
         let submission_update = submission::ActiveModel {
             id: Set(submission_id),
             status: Set(SubmissionStatus::Pending),
@@ -435,26 +452,36 @@ pub async fn bulk_retry_dlq(
             }
         }
 
-        tasks_to_publish.push(Task {
-            id: job.job_id.clone(),
-            executor_name: "native".into(),
-            task_type: "judge".into(),
-            payload: message.payload.clone(),
-            result_queue: state.config.mq.result_queue_name.clone(),
-        });
-
+        submissions_to_dispatch.push(submission_id);
         retried += 1;
     }
 
     txn.commit().await?;
 
-    for task in &tasks_to_publish {
-        if let Err(e) = mq
-            .publish(&state.config.mq.queue_name, None, task, None)
+    // Fire-and-forget dispatch for each retried submission (same pattern as create_submission)
+    for submission_id in &submissions_to_dispatch {
+        let sub = match submission::Entity::find_by_id(*submission_id)
+            .one(&state.db)
             .await
         {
-            warn!(task_id = %task.id, error = %e, "Failed to publish retried task to MQ");
-        }
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                warn!(
+                    submission_id,
+                    "Submission disappeared after commit during bulk retry dispatch"
+                );
+                continue;
+            }
+            Err(e) => {
+                warn!(submission_id, error = %e, "Failed to reload submission for dispatch");
+                continue;
+            }
+        };
+
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            dispatch_to_plugin(state_clone, sub).await;
+        });
     }
 
     info!(
@@ -462,7 +489,7 @@ pub async fn bulk_retry_dlq(
         skipped,
         errors = errors.len(),
         user_id = auth_user.user_id,
-        "Bulk retried DLQ messages"
+        "Bulk retried DLQ messages via plugin dispatch"
     );
 
     Ok(Json(BulkRetryDlqResponse {

@@ -14,9 +14,7 @@ use tracing::{Level, info, warn};
 
 use server::build_router;
 use server::config::AppConfig;
-use server::consumers::{
-    consume_judge_results, consume_operation_dlq, consume_operation_results, consume_worker_dlq,
-};
+use server::consumers::{consume_operation_dlq, consume_operation_results};
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
 use server::registry;
@@ -58,23 +56,6 @@ async fn main() -> anyhow::Result<()> {
     };
 
     if let Some(ref mq_arc) = mq {
-        let consumer_db = db.clone();
-        let consumer_mq = Arc::clone(mq_arc);
-        let result_queue = app_config.mq.result_queue_name.clone();
-        let dlq_config = app_config.mq.dlq.clone();
-        tokio::spawn(async move {
-            consume_judge_results(consumer_db, consumer_mq, result_queue, dlq_config).await;
-        });
-        info!("Judge result consumer started");
-
-        let dlq_consumer_db = db.clone();
-        let dlq_consumer_mq = Arc::clone(mq_arc);
-        let dlq_queue = app_config.mq.dlq_queue_name.clone();
-        tokio::spawn(async move {
-            consume_worker_dlq(dlq_consumer_db, dlq_consumer_mq, dlq_queue).await;
-        });
-        info!("Worker DLQ consumer started");
-
         let op_dlq_consumer_db = db.clone();
         let op_dlq_consumer_mq = Arc::clone(mq_arc);
         let op_dlq_queue = app_config.mq.operation_dlq_queue_name.clone();

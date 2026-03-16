@@ -14,7 +14,7 @@ use super::shared::{Pagination, validate_bulk_ids};
 #[into_params(parameter_in = Query)]
 pub struct ListDlqParams {
     /// Filter by message type.
-    #[param(example = "judge_job")]
+    #[param(example = "stuck_submission")]
     pub message_type: Option<String>,
     /// Filter by resolved status.
     #[param(example = false)]
@@ -34,7 +34,7 @@ pub struct DlqMessageResponse {
     pub id: i32,
     #[schema(example = "job-abc123")]
     pub message_id: String,
-    #[schema(example = "judge_job")]
+    #[schema(example = "stuck_submission")]
     pub message_type: String,
     /// Submission ID (null if unknown, e.g., deserialization failure).
     #[schema(example = 42)]
@@ -82,7 +82,7 @@ pub struct DlqMessageDetailResponse {
     pub id: i32,
     #[schema(example = "job-abc123")]
     pub message_id: String,
-    #[schema(example = "judge_job")]
+    #[schema(example = "stuck_submission")]
     pub message_type: String,
     /// Submission ID (null if unknown, e.g., deserialization failure).
     #[schema(example = 42)]
@@ -139,15 +139,12 @@ pub struct DlqListResponse {
 /// Unresolved message counts by message type.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct MessageTypeCounts {
-    /// Number of unresolved judge_job messages.
-    #[schema(example = 3)]
-    pub judge_job: u64,
-    /// Number of unresolved judge_result messages.
-    #[schema(example = 2)]
-    pub judge_result: u64,
     /// Number of unresolved operation_task messages.
     #[schema(example = 1)]
     pub operation_task: u64,
+    /// Number of unresolved stuck_submission messages.
+    #[schema(example = 3)]
+    pub stuck_submission: u64,
 }
 
 /// DLQ statistics.
@@ -171,9 +168,8 @@ impl From<DlqStats> for DlqStatsResponse {
             total_unresolved: s.total_unresolved,
             total_resolved: s.total_resolved,
             unresolved_by_message_type: MessageTypeCounts {
-                judge_job: s.judge_job_count,
-                judge_result: s.judge_result_count,
                 operation_task: s.operation_task_count,
+                stuck_submission: s.stuck_submission_count,
             },
             unresolved_by_error_code: s.unresolved_by_error_code,
         }

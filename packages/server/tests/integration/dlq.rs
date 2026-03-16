@@ -1,8 +1,9 @@
 use chrono::Utc;
+use common::SubmissionStatus;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
 
-use server::entity::dead_letter_message;
+use server::entity::{dead_letter_message, submission};
 
 use crate::common::{TestApp, routes};
 
@@ -14,7 +15,7 @@ async fn create_dlq_entry(
 ) -> i32 {
     let now = Utc::now();
     let model = dead_letter_message::ActiveModel {
-        message_id: Set(format!("test-job-{}", submission_id)),
+        message_id: Set(format!("test-msg-{}-{}", message_type, submission_id)),
         message_type: Set(message_type.to_string()),
         submission_id: Set(Some(submission_id)),
         payload: Set(json!({
@@ -43,6 +44,30 @@ async fn create_dlq_entry(
     result.id
 }
 
+/// Insert a submission directly into the DB with a specific status.
+/// Requires a valid problem_id (create the problem via API first).
+async fn insert_submission(
+    app: &TestApp,
+    user_id: i32,
+    problem_id: i32,
+    status: SubmissionStatus,
+) -> i32 {
+    let files = json!([{"filename": "main.cpp", "content": "int main() {}"}]);
+    let sub = submission::ActiveModel {
+        problem_id: Set(problem_id),
+        user_id: Set(user_id),
+        language: Set("cpp".into()),
+        files: Set(files),
+        status: Set(status),
+        error_code: Set(Some("STUCK_JOB".into())),
+        error_message: Set(Some("Job stuck".into())),
+        created_at: Set(Utc::now()),
+        ..Default::default()
+    };
+    let result = sub.insert(&app.db).await.expect("insert submission");
+    result.id
+}
+
 mod dlq_listing {
     use super::*;
 
@@ -53,9 +78,9 @@ mod dlq_listing {
             .create_user_with_role("admin1", "password123", "admin")
             .await;
 
-        create_dlq_entry(&app, 1, "judge_job", false).await;
-        create_dlq_entry(&app, 2, "judge_result", false).await;
-        create_dlq_entry(&app, 3, "judge_job", true).await;
+        create_dlq_entry(&app, 1, "operation_task", false).await;
+        create_dlq_entry(&app, 2, "stuck_submission", false).await;
+        create_dlq_entry(&app, 3, "operation_task", true).await;
 
         let res = app.get_with_token(routes::DLQ, &admin_token).await;
         assert_eq!(res.status, 200);
@@ -72,12 +97,12 @@ mod dlq_listing {
             .create_user_with_role("admin2", "password123", "admin")
             .await;
 
-        create_dlq_entry(&app, 10, "judge_job", false).await;
-        create_dlq_entry(&app, 11, "judge_result", false).await;
+        create_dlq_entry(&app, 10, "operation_task", false).await;
+        create_dlq_entry(&app, 11, "stuck_submission", false).await;
 
         let res = app
             .get_with_token(
-                &format!("{}?message_type=judge_job", routes::DLQ),
+                &format!("{}?message_type=operation_task", routes::DLQ),
                 &admin_token,
             )
             .await;
@@ -85,7 +110,7 @@ mod dlq_listing {
 
         let data = res.body["data"].as_array().expect("data should be array");
         assert_eq!(data.len(), 1);
-        assert_eq!(data[0]["message_type"], "judge_job");
+        assert_eq!(data[0]["message_type"], "operation_task");
     }
 
     #[tokio::test]
@@ -95,8 +120,8 @@ mod dlq_listing {
             .create_user_with_role("admin3", "password123", "admin")
             .await;
 
-        create_dlq_entry(&app, 20, "judge_job", false).await;
-        create_dlq_entry(&app, 21, "judge_job", true).await;
+        create_dlq_entry(&app, 20, "operation_task", false).await;
+        create_dlq_entry(&app, 21, "operation_task", true).await;
 
         // Filter unresolved
         let res = app
@@ -125,7 +150,7 @@ mod dlq_listing {
             .await;
 
         for i in 0..25 {
-            create_dlq_entry(&app, 100 + i, "judge_job", false).await;
+            create_dlq_entry(&app, 100 + i, "operation_task", false).await;
         }
 
         let res = app
@@ -196,16 +221,20 @@ mod dlq_stats {
             .create_user_with_role("admin5", "password123", "admin")
             .await;
 
-        create_dlq_entry(&app, 200, "judge_job", false).await;
-        create_dlq_entry(&app, 201, "judge_result", false).await;
-        create_dlq_entry(&app, 202, "judge_job", true).await;
+        create_dlq_entry(&app, 200, "operation_task", false).await;
+        create_dlq_entry(&app, 201, "stuck_submission", false).await;
+        create_dlq_entry(&app, 202, "operation_task", true).await;
 
         let res = app.get_with_token(routes::DLQ_STATS, &admin_token).await;
         assert_eq!(res.status, 200);
 
         assert!(res.body["total_unresolved"].as_u64().unwrap() >= 2);
         assert!(res.body["total_resolved"].as_u64().unwrap() >= 1);
-        assert!(res.body["unresolved_by_message_type"].is_object());
+
+        let by_type = &res.body["unresolved_by_message_type"];
+        assert!(by_type.is_object());
+        assert!(by_type["operation_task"].as_u64().unwrap() >= 1);
+        assert!(by_type["stuck_submission"].as_u64().unwrap() >= 1);
     }
 
     #[tokio::test]
@@ -240,7 +269,7 @@ mod dlq_detail {
             .create_user_with_role("admin6", "password123", "admin")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 300, "judge_job", false).await;
+        let dlq_id = create_dlq_entry(&app, 300, "operation_task", false).await;
 
         let res = app
             .get_with_token(&routes::dlq_message(dlq_id), &admin_token)
@@ -249,7 +278,7 @@ mod dlq_detail {
 
         assert_eq!(res.body["id"], dlq_id);
         assert_eq!(res.body["submission_id"], 300);
-        assert_eq!(res.body["message_type"], "judge_job");
+        assert_eq!(res.body["message_type"], "operation_task");
         assert!(res.body["payload"].is_object());
         assert!(res.body["retry_history"].is_array());
     }
@@ -278,7 +307,7 @@ mod dlq_detail {
             .create_authenticated_user("contestant3", "password123")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 301, "judge_job", false).await;
+        let dlq_id = create_dlq_entry(&app, 301, "operation_task", false).await;
 
         // Admin can access
         let res = app
@@ -304,7 +333,7 @@ mod dlq_resolve {
             .create_user_with_role("admin9", "password123", "admin")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 400, "judge_job", false).await;
+        let dlq_id = create_dlq_entry(&app, 400, "operation_task", false).await;
 
         let res = app
             .delete_with_token(&routes::dlq_message(dlq_id), &admin_token)
@@ -328,7 +357,7 @@ mod dlq_resolve {
             .create_user_with_role("admin10", "password123", "admin")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 401, "judge_job", true).await;
+        let dlq_id = create_dlq_entry(&app, 401, "operation_task", true).await;
 
         let res = app
             .delete_with_token(&routes::dlq_message(dlq_id), &admin_token)
@@ -356,7 +385,7 @@ mod dlq_resolve {
             .create_authenticated_user("contestant4", "password123")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 402, "judge_job", false).await;
+        let dlq_id = create_dlq_entry(&app, 402, "operation_task", false).await;
 
         let res = app
             .delete_with_token(&routes::dlq_message(dlq_id), &contestant_token)
@@ -369,15 +398,55 @@ mod dlq_retry {
     use super::*;
 
     #[tokio::test]
+    async fn admin_can_retry_stuck_submission() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_retry1", "password123", "admin")
+            .await;
+
+        // Create a problem via API so FK is satisfied
+        let problem_id = app.create_problem(&admin_token, "Retry Test Problem").await;
+
+        // Insert a submission in SystemError state
+        let sub_id = insert_submission(&app, 1, problem_id, SubmissionStatus::SystemError).await;
+
+        // Create a stuck_submission DLQ entry pointing to this submission
+        let dlq_id = create_dlq_entry(&app, sub_id, "stuck_submission", false).await;
+
+        let res = app
+            .post_with_token(&routes::dlq_retry(dlq_id), &json!({}), &admin_token)
+            .await;
+        assert_eq!(res.status, 200);
+
+        // Verify submission status is reset to Pending
+        let sub = submission::Entity::find_by_id(sub_id)
+            .one(&app.db)
+            .await
+            .expect("DB query failed")
+            .expect("Submission should exist");
+        assert_eq!(sub.status, SubmissionStatus::Pending);
+        assert!(sub.error_code.is_none());
+        assert!(sub.error_message.is_none());
+
+        // Verify DLQ entry is resolved
+        let msg = dead_letter_message::Entity::find_by_id(dlq_id)
+            .one(&app.db)
+            .await
+            .expect("DB query failed")
+            .expect("DLQ message should exist");
+        assert!(msg.resolved);
+        assert!(msg.resolved_at.is_some());
+    }
+
+    #[tokio::test]
     async fn cannot_retry_already_resolved_message() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin12", "password123", "admin")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 500, "judge_job", true).await;
+        let dlq_id = create_dlq_entry(&app, 500, "stuck_submission", true).await;
 
-        // Retry handler takes no body; empty JSON is the convention for bodyless POST via post_with_token
         let res = app
             .post_with_token(&routes::dlq_retry(dlq_id), &json!({}), &admin_token)
             .await;
@@ -386,13 +455,13 @@ mod dlq_retry {
     }
 
     #[tokio::test]
-    async fn cannot_retry_judge_result_messages() {
+    async fn cannot_retry_operation_task_messages() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin13", "password123", "admin")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 501, "judge_result", false).await;
+        let dlq_id = create_dlq_entry(&app, 501, "operation_task", false).await;
 
         let res = app
             .post_with_token(&routes::dlq_retry(dlq_id), &json!({}), &admin_token)
@@ -403,7 +472,35 @@ mod dlq_retry {
             res.body["message"]
                 .as_str()
                 .unwrap()
-                .contains("judge_result")
+                .contains("stuck_submission")
+        );
+    }
+
+    #[tokio::test]
+    async fn cannot_retry_submission_in_judged_state() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_retry2", "password123", "admin")
+            .await;
+
+        let problem_id = app
+            .create_problem(&admin_token, "Retry State Problem")
+            .await;
+
+        // Insert a submission in Judged state (not retryable)
+        let sub_id = insert_submission(&app, 1, problem_id, SubmissionStatus::Judged).await;
+        let dlq_id = create_dlq_entry(&app, sub_id, "stuck_submission", false).await;
+
+        let res = app
+            .post_with_token(&routes::dlq_retry(dlq_id), &json!({}), &admin_token)
+            .await;
+        assert_eq!(res.status, 400);
+        assert_eq!(res.body["code"], "VALIDATION_ERROR");
+        assert!(
+            res.body["message"]
+                .as_str()
+                .unwrap()
+                .contains("cannot be retried")
         );
     }
 
@@ -427,7 +524,7 @@ mod dlq_retry {
             .create_authenticated_user("contestant5", "password123")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 502, "judge_job", false).await;
+        let dlq_id = create_dlq_entry(&app, 502, "stuck_submission", false).await;
 
         let res = app
             .post_with_token(&routes::dlq_retry(dlq_id), &json!({}), &contestant_token)
@@ -436,19 +533,20 @@ mod dlq_retry {
     }
 
     #[tokio::test]
-    async fn retry_returns_error_when_mq_not_available() {
+    async fn retry_returns_404_when_submission_not_found() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin15", "password123", "admin")
             .await;
 
-        let dlq_id = create_dlq_entry(&app, 503, "judge_job", false).await;
+        // Create a stuck_submission DLQ entry pointing to a non-existent submission
+        let dlq_id = create_dlq_entry(&app, 99999, "stuck_submission", false).await;
 
         let res = app
             .post_with_token(&routes::dlq_retry(dlq_id), &json!({}), &admin_token)
             .await;
-        assert_eq!(res.status, 500);
-        assert_eq!(res.body["code"], "INTERNAL_ERROR");
+        assert_eq!(res.status, 404);
+        assert_eq!(res.body["code"], "NOT_FOUND");
     }
 }
 
@@ -456,14 +554,19 @@ mod bulk_retry_dlq {
     use super::*;
 
     #[tokio::test]
-    async fn returns_error_when_mq_unavailable() {
+    async fn admin_can_bulk_retry_stuck_submissions() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin_br1", "password123", "admin")
             .await;
 
-        let dlq1 = create_dlq_entry(&app, 600, "judge_job", false).await;
-        let dlq2 = create_dlq_entry(&app, 601, "judge_job", false).await;
+        let problem_id = app.create_problem(&admin_token, "Bulk Retry Problem").await;
+
+        let sub1 = insert_submission(&app, 1, problem_id, SubmissionStatus::SystemError).await;
+        let sub2 = insert_submission(&app, 1, problem_id, SubmissionStatus::SystemError).await;
+
+        let dlq1 = create_dlq_entry(&app, sub1, "stuck_submission", false).await;
+        let dlq2 = create_dlq_entry(&app, sub2, "stuck_submission", false).await;
 
         let res = app
             .post_with_token(
@@ -473,8 +576,48 @@ mod bulk_retry_dlq {
             )
             .await;
 
-        assert_eq!(res.status, 500);
-        assert_eq!(res.body["code"], "INTERNAL_ERROR");
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["retried"], 2);
+        assert_eq!(res.body["skipped"], 0);
+
+        // Verify submissions are reset to Pending
+        let s1 = submission::Entity::find_by_id(sub1)
+            .one(&app.db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s1.status, SubmissionStatus::Pending);
+
+        let s2 = submission::Entity::find_by_id(sub2)
+            .one(&app.db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s2.status, SubmissionStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn bulk_retry_skips_operation_task_messages() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_br1b", "password123", "admin")
+            .await;
+
+        // operation_task entries are skipped (not retryable)
+        let dlq1 = create_dlq_entry(&app, 600, "operation_task", false).await;
+        let dlq2 = create_dlq_entry(&app, 601, "operation_task", false).await;
+
+        let res = app
+            .post_with_token(
+                routes::DLQ_BULK_RETRY,
+                &json!({"message_ids": [dlq1, dlq2]}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["retried"], 0);
+        assert_eq!(res.body["skipped"], 2);
     }
 
     #[tokio::test]
@@ -525,7 +668,7 @@ mod bulk_retry_dlq {
         let res = app
             .post_with_token(
                 routes::DLQ_BULK_RETRY,
-                &json!({"message_ids": [1], "message_type": "judge_job"}),
+                &json!({"message_ids": [1], "message_type": "stuck_submission"}),
                 &admin_token,
             )
             .await;
@@ -569,23 +712,33 @@ mod bulk_retry_dlq {
     }
 
     #[tokio::test]
-    async fn filter_mode_returns_error_when_mq_unavailable() {
+    async fn filter_mode_retries_matching_stuck_submissions() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin_br7", "password123", "admin")
             .await;
 
-        // Even with a valid filter, MQ is unavailable so it returns 500
+        let problem_id = app
+            .create_problem(&admin_token, "Filter Retry Problem")
+            .await;
+
+        let sub1 = insert_submission(&app, 1, problem_id, SubmissionStatus::SystemError).await;
+        create_dlq_entry(&app, sub1, "stuck_submission", false).await;
+
+        // Also create an operation_task entry that should not be retried
+        create_dlq_entry(&app, 9999, "operation_task", false).await;
+
         let res = app
             .post_with_token(
                 routes::DLQ_BULK_RETRY,
-                &json!({"message_type": "judge_job"}),
+                &json!({"message_type": "stuck_submission"}),
                 &admin_token,
             )
             .await;
 
-        assert_eq!(res.status, 500);
-        assert_eq!(res.body["code"], "INTERNAL_ERROR");
+        assert_eq!(res.status, 200);
+        // At least the one stuck_submission should be retried
+        assert!(res.body["retried"].as_u64().unwrap() >= 1);
     }
 }
 
@@ -599,9 +752,9 @@ mod bulk_delete_dlq {
             .create_user_with_role("admin_bd1", "password123", "admin")
             .await;
 
-        let dlq1 = create_dlq_entry(&app, 700, "judge_job", false).await;
-        let dlq2 = create_dlq_entry(&app, 701, "judge_job", false).await;
-        let dlq3 = create_dlq_entry(&app, 702, "judge_job", false).await;
+        let dlq1 = create_dlq_entry(&app, 700, "operation_task", false).await;
+        let dlq2 = create_dlq_entry(&app, 701, "stuck_submission", false).await;
+        let dlq3 = create_dlq_entry(&app, 702, "operation_task", false).await;
 
         let res = app
             .delete_with_body_and_token(
@@ -645,8 +798,8 @@ mod bulk_delete_dlq {
             .create_user_with_role("admin_bd2", "password123", "admin")
             .await;
 
-        let resolved_id = create_dlq_entry(&app, 710, "judge_job", true).await;
-        let unresolved_id = create_dlq_entry(&app, 711, "judge_job", false).await;
+        let resolved_id = create_dlq_entry(&app, 710, "operation_task", true).await;
+        let unresolved_id = create_dlq_entry(&app, 711, "operation_task", false).await;
 
         let res = app
             .delete_with_body_and_token(

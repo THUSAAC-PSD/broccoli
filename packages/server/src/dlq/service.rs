@@ -25,9 +25,8 @@ pub enum ResolveResult {
 pub struct DlqStats {
     pub total_unresolved: u64,
     pub total_resolved: u64,
-    pub judge_job_count: u64,
-    pub judge_result_count: u64,
     pub operation_task_count: u64,
+    pub stuck_submission_count: u64,
     /// Unresolved message count grouped by error code.
     pub unresolved_by_error_code: HashMap<String, u64>,
 }
@@ -227,16 +226,14 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
             .await?;
 
         let total_unresolved = unresolved_data.len() as u64;
-        let mut judge_job_count = 0u64;
-        let mut judge_result_count = 0u64;
         let mut operation_task_count = 0u64;
+        let mut stuck_submission_count = 0u64;
         let mut unresolved_by_error_code: HashMap<String, u64> = HashMap::new();
 
         for (message_type, error_code) in unresolved_data {
             match message_type.as_str() {
-                "judge_job" => judge_job_count += 1,
-                "judge_result" => judge_result_count += 1,
                 "operation_task" => operation_task_count += 1,
+                "stuck_submission" => stuck_submission_count += 1,
                 _ => {}
             }
             *unresolved_by_error_code.entry(error_code).or_insert(0) += 1;
@@ -245,9 +242,8 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         Ok(DlqStats {
             total_unresolved,
             total_resolved,
-            judge_job_count,
-            judge_result_count,
             operation_task_count,
+            stuck_submission_count,
             unresolved_by_error_code,
         })
     }
