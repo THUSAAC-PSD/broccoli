@@ -2,27 +2,27 @@ services:
   db:
     image: postgres:18-alpine
     ports:
-      - "127.0.0.1:5433:5432"
+      - '127.0.0.1:5432:5432'
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: broccoli_pg_secret
-      POSTGRES_DB: broccoli
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 5s
       timeout: 5s
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--requirepass", "broccoli_redis_secret"]
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}']
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "broccoli_redis_secret", "ping"]
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -53,15 +53,15 @@ services:
     image: chrislusf/seaweedfs:4.15
     command:
       [
-        "server",
-        "-dir=/data",
-        "-s3",
-        "-s3.config=/etc/seaweedfs/s3.json",
-        "-ip=seaweedfs",
+        'server',
+        '-dir=/data',
+        '-s3',
+        '-s3.config=/etc/seaweedfs/s3.json',
+        '-ip=seaweedfs',
       ]
     ports:
-      - "9333:9333"
-      - "8333:8333"
+      - '9333:9333'
+      - '8333:8333'
     volumes:
       - seaweed_data:/data
       - ./config/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
