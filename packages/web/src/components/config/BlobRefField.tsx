@@ -1,7 +1,7 @@
 import { useApiFetch } from '@broccoli/web-sdk/api';
-import { Button, Label } from '@broccoli/web-sdk/ui';
+import { Button, FileDropZone, Label } from '@broccoli/web-sdk/ui';
 import { File, Loader2, Upload, X } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 interface BlobRefValue {
   filename: string;
@@ -23,7 +23,6 @@ export function BlobRefField({
   isExplicit: boolean;
 }>) {
   const apiFetch = useApiFetch();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingName, setUploadingName] = useState<string>('');
@@ -56,17 +55,14 @@ export function BlobRefField({
       } finally {
         setUploading(false);
         setUploadingName('');
-        // Reset the input so re-selecting the same file triggers onChange
-        if (inputRef.current) inputRef.current.value = '';
       }
     },
     [apiFetch, onChange],
   );
 
-  const onFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) handleUpload(file);
+  const handleFilesSelected = useCallback(
+    (files: globalThis.File[]) => {
+      if (files[0]) handleUpload(files[0]);
     },
     [handleUpload],
   );
@@ -89,21 +85,12 @@ export function BlobRefField({
         )}
       </div>
 
-      <input
-        ref={inputRef}
-        type="file"
-        className="hidden"
-        onChange={onFileChange}
-      />
-
       {uploading ? (
-        /* Uploading state */
         <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
           <span className="truncate">{uploadingName}</span>
         </div>
       ) : value?.filename ? (
-        /* Populated state */
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
             <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -114,16 +101,22 @@ export function BlobRefField({
               </span>
             )}
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => inputRef.current?.click()}
+          <FileDropZone
+            onFilesSelected={handleFilesSelected}
+            className="border-0 p-0 rounded-none inline-flex"
+            aria-label={`Replace ${value.filename}`}
           >
-            <Upload className="h-3 w-3 mr-1.5" />
-            Replace
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 pointer-events-none"
+              tabIndex={-1}
+            >
+              <Upload className="h-3 w-3 mr-1.5" />
+              Replace
+            </Button>
+          </FileDropZone>
           <Button
             type="button"
             variant="ghost"
@@ -138,30 +131,34 @@ export function BlobRefField({
           </Button>
         </div>
       ) : (
-        /* Empty state */
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => inputRef.current?.click()}
+        <FileDropZone
+          onFilesSelected={handleFilesSelected}
+          className="py-4"
+          aria-label={`Upload ${label}`}
         >
-          <Upload className="h-3 w-3 mr-1.5" />
-          Choose file
-        </Button>
+          <Upload className="h-4 w-4" />
+          <span className="text-xs">Drop file here or click to browse</span>
+        </FileDropZone>
       )}
 
       {error && (
         <div className="flex items-center gap-2 text-sm text-destructive">
           <span>{error}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto py-0.5 px-1.5 text-xs"
-            onClick={() => inputRef.current?.click()}
+          <FileDropZone
+            onFilesSelected={handleFilesSelected}
+            className="border-0 p-0 rounded-none inline-flex"
+            aria-label="Retry upload"
           >
-            Retry
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto py-0.5 px-1.5 text-xs pointer-events-none"
+              tabIndex={-1}
+            >
+              Retry
+            </Button>
+          </FileDropZone>
         </div>
       )}
     </div>

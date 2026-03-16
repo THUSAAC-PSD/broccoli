@@ -23,6 +23,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   List,
   MoreHorizontal,
+  Paperclip,
   Pencil,
   Plus,
   Settings,
@@ -33,6 +34,7 @@ import { Link } from 'react-router';
 import { toast } from 'sonner';
 
 import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
+import { AdditionalFilesDialog } from '@/features/admin/components/AdditionalFilesDialog';
 import {
   ProblemForm,
   type ProblemFormData,
@@ -220,11 +222,13 @@ function useProblemColumns({
   onEdit,
   onDelete,
   onManageTestCases,
+  onManageAdditionalFiles,
   onConfigure,
 }: {
   onEdit: (problem: ProblemSummary) => void;
   onDelete: (problem: ProblemSummary) => void;
   onManageTestCases: (problem: ProblemSummary) => void;
+  onManageAdditionalFiles: (problem: ProblemSummary) => void;
   onConfigure?: (problem: ProblemSummary) => void;
 }): DataTableColumn<ProblemSummary>[] {
   const { t, locale } = useTranslation();
@@ -308,6 +312,12 @@ function useProblemColumns({
               <List className="h-4 w-4" />
               {t('admin.manageTestCases')}
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onManageAdditionalFiles(row.original)}
+            >
+              <Paperclip className="h-4 w-4" />
+              {t('admin.manageAdditionalFiles')}
+            </DropdownMenuItem>
             {onConfigure && (
               <DropdownMenuItem onClick={() => onConfigure(row.original)}>
                 <Settings className="h-4 w-4" />
@@ -349,6 +359,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const [managingProblem, setManagingProblem] = useState<
     ProblemSummary | undefined
   >();
+  const [additionalFilesDialogOpen, setAdditionalFilesDialogOpen] =
+    useState(false);
+  const [additionalFilesProblem, setAdditionalFilesProblem] = useState<
+    ProblemSummary | undefined
+  >();
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [configProblem, setConfigProblem] = useState<
     ProblemSummary | undefined
@@ -367,6 +382,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   function handleManageTestCases(problem: ProblemSummary) {
     setManagingProblem(problem);
     setTestCasesDialogOpen(true);
+  }
+
+  function handleManageAdditionalFiles(problem: ProblemSummary) {
+    setAdditionalFilesProblem(problem);
+    setAdditionalFilesDialogOpen(true);
   }
 
   function handleConfigure(problem: ProblemSummary) {
@@ -391,6 +411,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onEdit: handleEditProblem,
     onDelete: handleDeleteProblem,
     onManageTestCases: handleManageTestCases,
+    onManageAdditionalFiles: handleManageAdditionalFiles,
     onConfigure: hasProblemConfig ? handleConfigure : undefined,
   });
 
@@ -428,6 +449,13 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
           problem={managingProblem}
           open={testCasesDialogOpen}
           onOpenChange={setTestCasesDialogOpen}
+        />
+      )}
+      {additionalFilesProblem && (
+        <AdditionalFilesDialog
+          problem={additionalFilesProblem}
+          open={additionalFilesDialogOpen}
+          onOpenChange={setAdditionalFilesDialogOpen}
         />
       )}
       {configProblem && (

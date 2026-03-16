@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 
+import { AdditionalFilesSection } from '@/features/admin/components/AdditionalFilesSection';
 import {
   ProblemForm,
   type ProblemFormData,
@@ -176,6 +177,14 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             <ProblemForm data={formData} onChange={setFormData} />
+
+            {/* Additional Files Section */}
+            <div className="space-y-4 pt-4">
+              <h2 className="text-lg font-semibold">
+                {t('admin.additionalFiles.title')}
+              </h2>
+              <AdditionalFilesSection problemId={problemIdNum} />
+            </div>
 
             {/* Test Cases Section */}
             <div className="space-y-4 pt-4">
