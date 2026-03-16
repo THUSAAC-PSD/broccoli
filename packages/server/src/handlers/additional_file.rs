@@ -9,12 +9,12 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set, Transactio
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::entity::{blob_ref, problem};
+use crate::entity::{additional_file, problem};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
-use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
+use crate::models::attachment::{AdditionalFileListResponse, AdditionalFileResponse};
 use crate::state::AppState;
-use crate::utils::blob::{build_blob_response, stream_field_to_store};
+use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
@@ -55,7 +55,7 @@ fn validate_language_code(lang: &str) -> Result<(), AppError> {
         description = "File upload with language code"
     ),
     responses(
-        (status = 201, description = "Additional file created", body = AttachmentResponse),
+        (status = 201, description = "Additional file created", body = AdditionalFileResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
@@ -129,13 +129,12 @@ pub async fn upload_additional_file(
     let lang = language.ok_or_else(|| AppError::Validation("Missing 'language' field".into()))?;
     validate_language_code(&lang)?;
 
-    let subpath = match virtual_path {
+    let path = match virtual_path {
         Some(p) if !p.trim().is_empty() => {
             validate_virtual_path(&p).map_err(|e| AppError::Validation(e.into()))?
         }
-        _ => filename.clone(),
+        _ => validate_virtual_path(&filename).map_err(|e| AppError::Validation(e.into()))?,
     };
-    let path = format!("additional_files/{lang}/{subpath}");
 
     let content_type = mime_guess::from_path(&filename)
         .first()
@@ -143,8 +142,6 @@ pub async fn upload_additional_file(
 
     let ref_id = Uuid::now_v7();
     let now = Utc::now();
-    let owner_type = "problem".to_string();
-    let owner_id = problem_id.to_string();
 
     let txn = state.db.begin().await?;
 
@@ -153,10 +150,10 @@ pub async fn upload_additional_file(
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
 
-    let blob_ref_model = blob_ref::ActiveModel {
+    let model = additional_file::ActiveModel {
         id: Set(ref_id),
-        owner_type: Set(owner_type.clone()),
-        owner_id: Set(owner_id.clone()),
+        problem_id: Set(problem_id),
+        language: Set(lang.clone()),
         path: Set(path.clone()),
         content_hash: Set(hash.to_hex()),
         filename: Set(filename.clone()),
@@ -165,38 +162,38 @@ pub async fn upload_additional_file(
         created_at: Set(now),
     };
 
-    blob_ref::Entity::insert(blob_ref_model)
+    additional_file::Entity::insert(model)
         .on_conflict(
             OnConflict::columns([
-                blob_ref::Column::OwnerType,
-                blob_ref::Column::OwnerId,
-                blob_ref::Column::Path,
+                additional_file::Column::ProblemId,
+                additional_file::Column::Language,
+                additional_file::Column::Path,
             ])
             .update_columns([
-                blob_ref::Column::ContentHash,
-                blob_ref::Column::Filename,
-                blob_ref::Column::ContentType,
-                blob_ref::Column::Size,
-                blob_ref::Column::CreatedAt,
+                additional_file::Column::ContentHash,
+                additional_file::Column::Filename,
+                additional_file::Column::ContentType,
+                additional_file::Column::Size,
+                additional_file::Column::CreatedAt,
             ])
             .to_owned(),
         )
         .exec_without_returning(&txn)
         .await?;
 
-    let saved_ref = blob_ref::Entity::find()
-        .filter(blob_ref::Column::OwnerType.eq(&owner_type))
-        .filter(blob_ref::Column::OwnerId.eq(&owner_id))
-        .filter(blob_ref::Column::Path.eq(&path))
+    let saved = additional_file::Entity::find()
+        .filter(additional_file::Column::ProblemId.eq(problem_id))
+        .filter(additional_file::Column::Language.eq(&lang))
+        .filter(additional_file::Column::Path.eq(&path))
         .one(&txn)
         .await?
-        .ok_or_else(|| AppError::Internal("blob_ref missing after upsert".into()))?;
+        .ok_or_else(|| AppError::Internal("additional_file missing after upsert".into()))?;
 
     txn.commit().await?;
 
     Ok((
         StatusCode::CREATED,
-        Json(AttachmentResponse::from(saved_ref)),
+        Json(AdditionalFileResponse::from(saved)),
     ))
 }
 
@@ -210,7 +207,7 @@ pub async fn upload_additional_file(
         across all languages. Requires problem:edit permission.",
     params(("id" = i32, Path, description = "Problem ID")),
     responses(
-        (status = 200, description = "Additional file list", body = AttachmentListResponse),
+        (status = 200, description = "Additional file list", body = AdditionalFileListResponse),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
@@ -222,7 +219,7 @@ pub async fn list_additional_files(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(problem_id): Path<i32>,
-) -> Result<Json<AttachmentListResponse>, AppError> {
+) -> Result<Json<AdditionalFileListResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
 
     problem::Entity::find_active_by_id(problem_id)
@@ -230,21 +227,17 @@ pub async fn list_additional_files(
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
 
-    let refs = blob_ref::Entity::find()
-        .filter(blob_ref::Column::OwnerType.eq("problem"))
-        .filter(blob_ref::Column::OwnerId.eq(problem_id.to_string()))
-        .filter(
-            blob_ref::Column::Path
-                .like(sea_orm::sea_query::LikeExpr::new("additional_files/%").escape('\\')),
-        )
-        .order_by_asc(blob_ref::Column::Path)
+    let refs = additional_file::Entity::find()
+        .filter(additional_file::Column::ProblemId.eq(problem_id))
+        .order_by_asc(additional_file::Column::Language)
+        .order_by_asc(additional_file::Column::Path)
         .all(&state.db)
         .await?;
 
     let total = refs.len() as u64;
-    let attachments = refs.into_iter().map(AttachmentResponse::from).collect();
+    let files = refs.into_iter().map(AdditionalFileResponse::from).collect();
 
-    Ok(Json(AttachmentListResponse { attachments, total }))
+    Ok(Json(AdditionalFileListResponse { files, total }))
 }
 
 #[utoipa::path(
@@ -256,7 +249,7 @@ pub async fn list_additional_files(
     description = "Streams the additional file content. Requires problem:edit permission.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
-        ("ref_id" = String, Path, description = "Attachment reference ID (UUID)"),
+        ("ref_id" = String, Path, description = "Additional file reference ID (UUID)"),
     ),
     responses(
         (status = 200, description = "File content"),
@@ -277,21 +270,18 @@ pub async fn download_additional_file(
     auth_user.require_permission("problem:edit")?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
-        .map_err(|_| AppError::Validation("Invalid attachment ID".into()))?;
+        .map_err(|_| AppError::Validation("Invalid additional file ID".into()))?;
 
-    let blob_ref_model = blob_ref::Entity::find_by_id(ref_uuid)
+    let model = additional_file::Entity::find_by_id(ref_uuid)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Additional file not found".into()))?;
 
-    if blob_ref_model.owner_type != "problem"
-        || blob_ref_model.owner_id != problem_id.to_string()
-        || !blob_ref_model.path.starts_with("additional_files/")
-    {
+    if model.problem_id != problem_id {
         return Err(AppError::NotFound("Additional file not found".into()));
     }
 
-    build_blob_response(&blob_ref_model, &headers, &*state.blob_store).await
+    build_blob_response(&BlobMetadata::from(&model), &headers, &*state.blob_store).await
 }
 
 #[utoipa::path(
@@ -303,7 +293,7 @@ pub async fn download_additional_file(
     description = "Removes the additional file reference. Requires problem:edit permission.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
-        ("ref_id" = String, Path, description = "Attachment reference ID (UUID)"),
+        ("ref_id" = String, Path, description = "Additional file reference ID (UUID)"),
     ),
     responses(
         (status = 204, description = "Additional file deleted"),
@@ -322,21 +312,18 @@ pub async fn delete_additional_file(
     auth_user.require_permission("problem:edit")?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
-        .map_err(|_| AppError::Validation("Invalid attachment ID".into()))?;
+        .map_err(|_| AppError::Validation("Invalid additional file ID".into()))?;
 
-    let blob_ref_model = blob_ref::Entity::find_by_id(ref_uuid)
+    let model = additional_file::Entity::find_by_id(ref_uuid)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Additional file not found".into()))?;
 
-    if blob_ref_model.owner_type != "problem"
-        || blob_ref_model.owner_id != problem_id.to_string()
-        || !blob_ref_model.path.starts_with("additional_files/")
-    {
+    if model.problem_id != problem_id {
         return Err(AppError::NotFound("Additional file not found".into()));
     }
 
-    blob_ref::Entity::delete_by_id(ref_uuid)
+    additional_file::Entity::delete_by_id(ref_uuid)
         .exec(&state.db)
         .await?;
 

@@ -9,12 +9,12 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set, Transactio
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::entity::{blob_ref, problem};
+use crate::entity::{problem, problem_attachment};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
-use crate::utils::blob::{build_blob_response, stream_field_to_store};
+use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
@@ -104,21 +104,12 @@ pub async fn upload_attachment(
         _ => validate_virtual_path(&filename).map_err(|e| AppError::Validation(e.into()))?,
     };
 
-    // additional_files/ is a reserved namespace for judge-private source files
-    if path.starts_with("additional_files/") {
-        return Err(AppError::Validation(
-            "Cannot upload to reserved path prefix 'additional_files/'".into(),
-        ));
-    }
-
     let content_type = mime_guess::from_path(&filename)
         .first()
         .map(|m| m.to_string());
 
     let ref_id = Uuid::now_v7();
     let now = Utc::now();
-    let owner_type = "problem".to_string();
-    let owner_id = problem_id.to_string();
 
     let txn = state.db.begin().await?;
 
@@ -127,10 +118,9 @@ pub async fn upload_attachment(
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
 
-    let blob_ref_model = blob_ref::ActiveModel {
+    let model = problem_attachment::ActiveModel {
         id: Set(ref_id),
-        owner_type: Set(owner_type.clone()),
-        owner_id: Set(owner_id.clone()),
+        problem_id: Set(problem_id),
         path: Set(path.clone()),
         content_hash: Set(hash.to_hex()),
         filename: Set(filename.clone()),
@@ -139,39 +129,34 @@ pub async fn upload_attachment(
         created_at: Set(now),
     };
 
-    blob_ref::Entity::insert(blob_ref_model)
+    problem_attachment::Entity::insert(model)
         .on_conflict(
             OnConflict::columns([
-                blob_ref::Column::OwnerType,
-                blob_ref::Column::OwnerId,
-                blob_ref::Column::Path,
+                problem_attachment::Column::ProblemId,
+                problem_attachment::Column::Path,
             ])
             .update_columns([
-                blob_ref::Column::ContentHash,
-                blob_ref::Column::Filename,
-                blob_ref::Column::ContentType,
-                blob_ref::Column::Size,
-                blob_ref::Column::CreatedAt,
+                problem_attachment::Column::ContentHash,
+                problem_attachment::Column::Filename,
+                problem_attachment::Column::ContentType,
+                problem_attachment::Column::Size,
+                problem_attachment::Column::CreatedAt,
             ])
             .to_owned(),
         )
         .exec_without_returning(&txn)
         .await?;
 
-    let saved_ref = blob_ref::Entity::find()
-        .filter(blob_ref::Column::OwnerType.eq(&owner_type))
-        .filter(blob_ref::Column::OwnerId.eq(&owner_id))
-        .filter(blob_ref::Column::Path.eq(&path))
+    let saved = problem_attachment::Entity::find()
+        .filter(problem_attachment::Column::ProblemId.eq(problem_id))
+        .filter(problem_attachment::Column::Path.eq(&path))
         .one(&txn)
         .await?
-        .ok_or_else(|| AppError::Internal("blob_ref missing after upsert".into()))?;
+        .ok_or_else(|| AppError::Internal("problem_attachment missing after upsert".into()))?;
 
     txn.commit().await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(AttachmentResponse::from(saved_ref)),
-    ))
+    Ok((StatusCode::CREATED, Json(AttachmentResponse::from(saved))))
 }
 
 #[utoipa::path(
@@ -234,21 +219,16 @@ pub async fn download_attachment(
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid attachment ID".into()))?;
 
-    let blob_ref_model = blob_ref::Entity::find_by_id(ref_uuid)
+    let model = problem_attachment::Entity::find_by_id(ref_uuid)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
 
-    if blob_ref_model.owner_type != "problem" || blob_ref_model.owner_id != problem_id.to_string() {
+    if model.problem_id != problem_id {
         return Err(AppError::NotFound("Attachment not found".into()));
     }
 
-    // additional_files are judge-private; block public download
-    if blob_ref_model.path.starts_with("additional_files/") {
-        return Err(AppError::NotFound("Attachment not found".into()));
-    }
-
-    build_blob_response(&blob_ref_model, &headers, &*state.blob_store).await
+    build_blob_response(&BlobMetadata::from(&model), &headers, &*state.blob_store).await
 }
 
 #[utoipa::path(
@@ -281,39 +261,30 @@ pub async fn delete_attachment(
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid attachment ID".into()))?;
 
-    let blob_ref_model = blob_ref::Entity::find_by_id(ref_uuid)
+    let model = problem_attachment::Entity::find_by_id(ref_uuid)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Attachment not found".into()))?;
 
-    if blob_ref_model.owner_type != "problem" || blob_ref_model.owner_id != problem_id.to_string() {
+    if model.problem_id != problem_id {
         return Err(AppError::NotFound("Attachment not found".into()));
     }
 
-    // additional_files are judge-private; block deletion via public API
-    if blob_ref_model.path.starts_with("additional_files/") {
-        return Err(AppError::NotFound("Attachment not found".into()));
-    }
-
-    blob_ref::Entity::delete_by_id(ref_uuid)
+    problem_attachment::Entity::delete_by_id(ref_uuid)
         .exec(&state.db)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Query all blob_refs for a problem, ordered by creation time.
+/// Query all attachments for a problem, ordered by creation time.
 async fn list_problem_attachments<C: sea_orm::ConnectionTrait>(
     db: &C,
     problem_id: i32,
 ) -> Result<AttachmentListResponse, AppError> {
-    let refs = blob_ref::Entity::find()
-        .filter(blob_ref::Column::OwnerType.eq("problem"))
-        .filter(blob_ref::Column::OwnerId.eq(problem_id.to_string()))
-        // Exclude additional_files — they are judge-private source files
-        // merged into submissions server-side, not public attachments.
-        .filter(blob_ref::Column::Path.not_like("additional_files/%"))
-        .order_by_asc(blob_ref::Column::CreatedAt)
+    let refs = problem_attachment::Entity::find()
+        .filter(problem_attachment::Column::ProblemId.eq(problem_id))
+        .order_by_asc(problem_attachment::Column::CreatedAt)
         .all(db)
         .await?;
 

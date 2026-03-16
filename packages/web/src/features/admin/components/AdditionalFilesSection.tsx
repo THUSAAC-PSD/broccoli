@@ -380,7 +380,7 @@ export function AdditionalFilesSection({
                       className="flex items-center gap-2 px-3 py-2 text-sm"
                     >
                       <span className="flex-1 truncate font-mono text-xs">
-                        {file.relativePath}
+                        {file.path}
                       </span>
                       <span className="text-xs text-muted-foreground shrink-0">
                         {formatBytes(file.size)}

@@ -583,7 +583,7 @@ mod attachment_delete {
     }
 
     #[tokio::test]
-    async fn deleting_problem_cascades_to_blob_refs() {
+    async fn deleting_problem_hides_attachments() {
         let app = TestApp::spawn().await;
         let token = app
             .create_user_with_role("admin21", "pass1234", "admin")

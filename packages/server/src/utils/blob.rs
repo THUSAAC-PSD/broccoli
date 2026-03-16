@@ -6,18 +6,48 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
-use crate::entity::blob_ref;
+use crate::entity::{additional_file, problem_attachment};
 use crate::error::AppError;
 
-/// Build a streaming blob response from a `blob_ref::Model`.
+/// Common blob fields needed to build a streaming download response.
+pub struct BlobMetadata {
+    pub content_hash: String,
+    pub filename: String,
+    pub content_type: Option<String>,
+    pub size: i64,
+}
+
+impl From<&problem_attachment::Model> for BlobMetadata {
+    fn from(m: &problem_attachment::Model) -> Self {
+        Self {
+            content_hash: m.content_hash.clone(),
+            filename: m.filename.clone(),
+            content_type: m.content_type.clone(),
+            size: m.size,
+        }
+    }
+}
+
+impl From<&additional_file::Model> for BlobMetadata {
+    fn from(m: &additional_file::Model) -> Self {
+        Self {
+            content_hash: m.content_hash.clone(),
+            filename: m.filename.clone(),
+            content_type: m.content_type.clone(),
+            size: m.size,
+        }
+    }
+}
+
+/// Build a streaming blob response from `BlobMetadata`.
 ///
 /// Supports ETag-based caching via `If-None-Match`.
 pub async fn build_blob_response(
-    blob_ref_model: &blob_ref::Model,
+    metadata: &BlobMetadata,
     headers: &HeaderMap,
     blob_store: &dyn BlobStore,
 ) -> Result<Response, AppError> {
-    let etag_value = format!("\"{}\"", blob_ref_model.content_hash);
+    let etag_value = format!("\"{}\"", metadata.content_hash);
     if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH)
         && let Ok(val) = if_none_match.to_str()
         && (val == etag_value || val == "*")
@@ -25,12 +55,12 @@ pub async fn build_blob_response(
         return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
-    let hash = ContentHash::from_hex(&blob_ref_model.content_hash)?;
+    let hash = ContentHash::from_hex(&metadata.content_hash)?;
     let reader = blob_store.get_stream(&hash).await?;
     let stream = ReaderStream::new(reader);
     let body = Body::from_stream(stream);
 
-    let content_type = blob_ref_model
+    let content_type = metadata
         .content_type
         .as_deref()
         .unwrap_or("application/octet-stream");
@@ -38,10 +68,10 @@ pub async fn build_blob_response(
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
-        .header(header::CONTENT_LENGTH, blob_ref_model.size.to_string())
+        .header(header::CONTENT_LENGTH, metadata.size.to_string())
         .header(
             header::CONTENT_DISPOSITION,
-            content_disposition_value(&blob_ref_model.filename),
+            content_disposition_value(&metadata.filename),
         )
         .header(header::ETAG, &etag_value)
         .header(header::CACHE_CONTROL, "private, max-age=3600")

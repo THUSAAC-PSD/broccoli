@@ -2,33 +2,19 @@ import type { ApiClient } from '@broccoli/web-sdk/api';
 
 export interface AdditionalFile {
   id: string;
+  language: string;
   path: string;
   filename: string;
   content_type: string | null;
   size: number;
   content_hash: string;
   created_at: string;
-  language: string;
-  relativePath: string;
 }
 
 export const additionalFilesQueryKey = (problemId: number) => [
   'additional-files',
   problemId,
 ];
-
-/** "additional_files/cpp/include/grader.h" → "cpp" */
-export function extractLanguageFromPath(path: string): string {
-  const segments = path.split('/');
-  return segments[1] ?? '';
-}
-
-/** "additional_files/cpp/include/grader.h" → "include/grader.h" */
-export function extractRelativePath(path: string): string {
-  const segments = path.split('/');
-  // Remove "additional_files" and language segment
-  return segments.slice(2).join('/');
-}
 
 export function groupFilesByLanguage(
   files: AdditionalFile[],
@@ -54,10 +40,8 @@ export async function fetchAdditionalFiles(
   );
   if (error) throw error;
 
-  return (data.attachments ?? []).map((att) => ({
-    ...att,
-    content_type: att.content_type ?? null,
-    language: extractLanguageFromPath(att.path),
-    relativePath: extractRelativePath(att.path),
+  return (data.files ?? []).map((f) => ({
+    ...f,
+    content_type: f.content_type ?? null,
   }));
 }

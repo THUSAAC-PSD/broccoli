@@ -1,4 +1,4 @@
-use crate::entity::{blob_ref, plugin_config, problem, test_case};
+use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
 use common::storage::{BlobStore, ContentHash};
 use common::submission_dispatch::{
@@ -199,20 +199,9 @@ fn start_evaluate_batch_fn(
                         extism::Error::msg(format!("Failed to query checker config: {}", e))
                     })?;
 
-                    let lang_prefix = format!(
-                        "additional_files/{}/",
-                        crate::models::shared::escape_like(solution_language)
-                    );
-
-                    let blob_refs = blob_ref::Entity::find()
-                        .filter(blob_ref::Column::OwnerType.eq("problem"))
-                        .filter(blob_ref::Column::OwnerId.eq(problem_id.to_string()))
-                        .filter(
-                            blob_ref::Column::Path.like(
-                                sea_orm::sea_query::LikeExpr::new(format!("{lang_prefix}%"))
-                                    .escape('\\'),
-                            ),
-                        )
+                    let af_models = additional_file::Entity::find()
+                        .filter(additional_file::Column::ProblemId.eq(problem_id))
+                        .filter(additional_file::Column::Language.eq(solution_language.as_str()))
                         .all(&db)
                         .await
                         .map_err(|e| {
@@ -220,7 +209,7 @@ fn start_evaluate_batch_fn(
                         })?;
 
                     let mut additional_source_files: Vec<SourceFile> = Vec::new();
-                    for r in blob_refs {
+                    for r in af_models {
                         let hash = ContentHash::from_hex(&r.content_hash).map_err(|e| {
                             extism::Error::msg(format!(
                                 "Invalid content hash for additional_file '{}': {}",
@@ -239,14 +228,11 @@ fn start_evaluate_batch_fn(
                                 r.path, e
                             ))
                         })?;
-                        // Preserve path structure after the language prefix.
-                        // e.g. "additional_files/cpp/include/grader.h" → "include/grader.h"
-                        let filename = r
-                            .path
-                            .strip_prefix(&lang_prefix)
-                            .unwrap_or(&r.filename)
-                            .to_string();
-                        additional_source_files.push(SourceFile { filename, content });
+
+                        additional_source_files.push(SourceFile {
+                            filename: r.path,
+                            content,
+                        });
                     }
 
                     Ok::<_, extism::Error>((
