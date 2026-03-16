@@ -12,7 +12,7 @@
   "files": ["dist"],
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "build": "tsup src/index.tsx src/styles.css --format esm --dts --external react --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils",
+    "build": "tsup src/index.tsx src/styles.css --format esm --dts --clean --external react --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils",
     "dev": "tsup src/index.tsx src/styles.css --format esm --external react --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --watch --sourcemap"
   },
   "dependencies": {

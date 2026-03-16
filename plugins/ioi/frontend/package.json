@@ -12,7 +12,7 @@
   "files": ["dist"],
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "build": "tsup src/index.tsx src/styles.css --format esm --dts --external react --external react-dom --external react-router --external @tanstack/react-query --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/problem --external @broccoli/web-sdk/slot --external @broccoli/web-sdk/submission --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --external lucide-react --external @monaco-editor/react",
+    "build": "tsup src/index.tsx src/styles.css --format esm --dts --clean --external react --external react-dom --external react-router --external @tanstack/react-query --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/problem --external @broccoli/web-sdk/slot --external @broccoli/web-sdk/submission --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --external lucide-react --external @monaco-editor/react",
     "dev": "tsup src/index.tsx src/styles.css --format esm --external react --external react-dom --external react-router --external @tanstack/react-query --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/problem --external @broccoli/web-sdk/slot --external @broccoli/web-sdk/submission --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --external lucide-react --external @monaco-editor/react --watch --sourcemap"
   },
   "dependencies": {
