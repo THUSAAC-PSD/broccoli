@@ -3,8 +3,8 @@ import { useTheme } from '@broccoli/web-sdk/theme';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 import Editor from '@monaco-editor/react';
-import { ChevronDown, FileText } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronDown, FileText, GripHorizontal } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
 
 const LANG_TO_MONACO: Record<string, string> = {
   cpp: 'cpp',
@@ -41,14 +41,42 @@ export function ReadOnlyCodeViewer({
 }: ReadOnlyCodeViewerProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [userHeight, setUserHeight] = useState<number | null>(null);
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+  const heightRef = useRef(0);
   const { theme } = useTheme();
   const { t } = useTranslation();
+
+  const onPointerMove = useCallback((e: PointerEvent) => {
+    if (!dragRef.current) return;
+    const delta = e.clientY - dragRef.current.startY;
+    setUserHeight(Math.max(80, dragRef.current.startH + delta));
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    dragRef.current = null;
+    document.removeEventListener('pointermove', onPointerMove);
+    document.removeEventListener('pointerup', onPointerUp);
+    document.body.style.userSelect = '';
+  }, [onPointerMove]);
+
+  const onDragStart = useCallback(
+    (e: React.PointerEvent) => {
+      dragRef.current = { startY: e.clientY, startH: heightRef.current };
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+      document.body.style.userSelect = 'none';
+    },
+    [onPointerMove, onPointerUp],
+  );
 
   if (files.length === 0) return null;
 
   const activeFile = files[activeIndex] ?? files[0];
   const lineCount = activeFile.content.split('\n').length;
-  const editorHeight = Math.min(Math.max(lineCount * 19, 80), 400);
+  const autoHeight = Math.min(Math.max(lineCount * 19, 80), 400);
+  const editorHeight = userHeight ?? autoHeight;
+  heightRef.current = editorHeight;
   const monacoLang = language
     ? (LANG_TO_MONACO[language] ?? language)
     : 'plaintext';
@@ -145,6 +173,17 @@ export function ReadOnlyCodeViewer({
                 }}
               />
             )}
+          </div>
+
+          {/* Resize handle */}
+          <div
+            onPointerDown={onDragStart}
+            className={cn(
+              'flex h-5 cursor-row-resize items-center justify-center',
+              'border-t border-border bg-muted/30 hover:bg-muted/60 transition-colors',
+            )}
+          >
+            <GripHorizontal className="h-3 w-3 text-muted-foreground" />
           </div>
         </div>
       </div>
