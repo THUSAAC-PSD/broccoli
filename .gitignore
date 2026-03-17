@@ -22,3 +22,6 @@ config/config.toml
 
 /data
 /vendor
+
+.github/
+!.github/workflows/
