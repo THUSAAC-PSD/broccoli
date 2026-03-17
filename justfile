@@ -38,6 +38,10 @@ build-js:
 build-sdk:
     pnpm --filter @broccoli/web-sdk build
 
+# Preview frontend
+preview:
+    pnpm --filter @broccoli/web preview
+
 # Dev server for frontend
 dev-web:
     pnpm --filter @broccoli/web dev
