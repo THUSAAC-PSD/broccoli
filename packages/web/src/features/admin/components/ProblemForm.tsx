@@ -9,11 +9,16 @@ import {
   DropdownMenuTrigger,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Separator,
 } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Plus, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { MarkdownEditorWithAttachments } from '@/features/admin/components/MarkdownEditorWithAttachments';
@@ -79,6 +84,42 @@ export function ProblemForm({
   const [newFilenameByLanguage, setNewFilenameByLanguage] = useState<
     Record<string, string>
   >({});
+
+  const problemTypes = useMemo(
+    () => registries?.problem_types ?? [],
+    [registries],
+  );
+  const checkerFormats = useMemo(
+    () => registries?.checker_formats ?? [],
+    [registries],
+  );
+  const contestTypes = useMemo(
+    () => registries?.contest_types ?? [],
+    [registries],
+  );
+
+  // Effect to auto-select the first available option if the current value is invalid/empty
+  useEffect(() => {
+    let changed = false;
+    const newData = { ...data };
+
+    if (!problemTypes.includes(data.problemType)) {
+      newData.problemType = problemTypes[0] ?? '';
+      changed = true;
+    }
+    if (!checkerFormats.includes(data.checkerFormat)) {
+      newData.checkerFormat = checkerFormats[0] ?? '';
+      changed = true;
+    }
+    if (!contestTypes.includes(data.defaultContestType)) {
+      newData.defaultContestType = contestTypes[0] ?? '';
+      changed = true;
+    }
+
+    if (changed) {
+      onChange(newData);
+    }
+  }, [data, problemTypes, checkerFormats, contestTypes, onChange]);
 
   const handleTitleChange = (title: string) => {
     onChange({ ...data, title });
@@ -258,54 +299,66 @@ export function ProblemForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="space-y-2">
           <Label htmlFor="problem-type">{t('admin.field.problemType')}</Label>
-          <select
-            id="problem-type"
+          <Select
             value={data.problemType}
-            onChange={(e) => handleProblemTypeChange(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onValueChange={handleProblemTypeChange}
+            disabled={problemTypes.length === 0}
           >
-            {(registries?.problem_types ?? ['standard']).map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="problem-type">
+              <SelectValue placeholder={t('admin.field.selectPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {problemTypes.map((opt) => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="checker-format">
             {t('admin.field.checkerFormat')}
           </Label>
-          <select
-            id="checker-format"
+          <Select
             value={data.checkerFormat}
-            onChange={(e) => handleCheckerFormatChange(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onValueChange={handleCheckerFormatChange}
+            disabled={checkerFormats.length === 0}
           >
-            {(registries?.checker_formats ?? ['exact']).map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="checker-format">
+              <SelectValue placeholder={t('admin.field.selectPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {checkerFormats.map((opt) => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="default-contest-type">
             {t('admin.field.contestType')}
           </Label>
-          <select
-            id="default-contest-type"
+          <Select
             value={data.defaultContestType}
-            onChange={(e) => handleDefaultContestTypeChange(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onValueChange={handleDefaultContestTypeChange}
+            disabled={contestTypes.length === 0}
           >
-            {(registries?.contest_types ?? ['standard']).map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="default-contest-type">
+              <SelectValue placeholder={t('admin.field.selectPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {contestTypes.map((opt) => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

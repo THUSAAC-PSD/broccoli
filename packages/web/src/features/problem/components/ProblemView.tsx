@@ -206,8 +206,11 @@ export default function ProblemView({
     [getSampleCaseData, t],
   );
 
+  // Use the first available registry option as fallback
+  // TODO: handle the case when the registry is empty more gracefully
+  const fallbackContestType = registries?.contest_types?.[0] ?? '';
   const effectiveContestType =
-    contestType ?? problem?.default_contest_type ?? 'standard';
+    contestType ?? problem?.default_contest_type ?? fallbackContestType;
 
   const handleSubmit = useCallback(
     (files: EditorFile[], language: string) => {
