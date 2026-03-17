@@ -39,6 +39,9 @@ export default defineConfig(() => {
 
   return {
     plugins: [sharedDepsPlugin(), reactRouter()],
+    build: {
+      outDir: 'build/client',
+    },
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: [
