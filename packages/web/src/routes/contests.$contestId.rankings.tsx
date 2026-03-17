@@ -1,6 +1,6 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
-import { Trophy } from 'lucide-react';
+import { BarChart3 } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
 
@@ -10,7 +10,9 @@ export default function ContestRankingPage() {
   return (
     <PageLayout
       pageId="ranking"
-      icon={<Trophy className="h-6 w-6 text-amber-500" />}
+      icon={
+        <BarChart3 className="h-6 w-6 text-amber-500 text-sidebar-primary" />
+      }
       title={t('ranking.title')}
       contentClassName="flex flex-col gap-6"
     >
