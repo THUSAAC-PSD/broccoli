@@ -156,8 +156,12 @@ export const en: Record<string, string> = {
   'result.stdout': 'Your Output',
   'result.stderr': 'Stderr',
   'result.checkerOutput': 'Checker Output',
+  'result.scoreLabel': 'Score',
+  'result.pointsUnit': 'pts',
   'result.timeValue': '{value}ms',
   'result.memoryValue': '{value}MB',
+  'result.latestOverviewTitle': 'Recent Submission Overview',
+  'result.latestOverviewEmpty': 'No submissions yet.',
 
   // Submission Detail
   'submissionDetail.sourceCode': 'Source Code',

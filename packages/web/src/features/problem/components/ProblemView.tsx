@@ -1,6 +1,7 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -15,6 +16,7 @@ import { ProblemEditTab } from './ProblemEditTab';
 import { ProblemViewHeader } from './ProblemViewHeader';
 
 const INLINE_SAMPLE_MAX_SIZE = 1024;
+const RECENT_SUBMISSION_OVERVIEW_COUNT = 3;
 type SampleContentMap = Record<number, { input?: string; output?: string }>;
 type CopiedNotice = { text: string; top: number; left: number } | null;
 
@@ -74,6 +76,50 @@ export default function ProblemView({
       });
       if (error || !data) return [];
       return data;
+    },
+  });
+
+  const { data: submissionHistory = [] } = useQuery<SubmissionSummary[]>({
+    queryKey: ['problem-recent-submissions', contestId, problemId, user?.id],
+    enabled: Number.isFinite(problemId) && !!user,
+    queryFn: async () => {
+      if (!user) return [];
+
+      if (contestId) {
+        const { data, error } = await apiClient.GET(
+          '/contests/{id}/submissions',
+          {
+            params: {
+              path: { id: contestId },
+              query: {
+                user_id: user.id,
+                problem_id: problemId,
+                page: 1,
+                per_page: 20,
+                sort_by: 'created_at',
+                sort_order: 'desc',
+              },
+            },
+          },
+        );
+        if (error || !data) return [];
+        return data.data;
+      }
+
+      const { data, error } = await apiClient.GET('/submissions', {
+        params: {
+          query: {
+            user_id: user.id,
+            problem_id: problemId,
+            page: 1,
+            per_page: 20,
+            sort_by: 'created_at',
+            sort_order: 'desc',
+          },
+        },
+      });
+      if (error || !data) return [];
+      return data.data;
     },
   });
 
@@ -229,11 +275,17 @@ export default function ProblemView({
     ? contestProblems.find((item) => item.problem_id === problemId)?.label
     : undefined;
   const headerId = contestProblemLabel ?? (problem ? String(problem.id) : '—');
+  const submissionDetailLinkBuilder = useCallback(
+    (submissionId: number) =>
+      contestId
+        ? `/contests/${contestId}/submissions/${submissionId}`
+        : `/submissions/${submissionId}`,
+    [contestId],
+  );
 
   const latestEntry = submissions.entries[0] ?? null;
   const latestSubmission = latestEntry?.submission ?? null;
   const isSubmitting = submissions.isAnySubmitting;
-  const submitError = latestEntry?.error ?? null;
   const canEdit = !!user && user.permissions.includes('problem:edit');
 
   if (!problemId || Number.isNaN(problemId)) {
@@ -310,9 +362,11 @@ export default function ProblemView({
             }
             submissionFormat={problem?.submission_format}
             latestSubmission={latestSubmission}
+            submissionHistory={submissionHistory}
             submissions={submissions.entries}
             isSubmitting={isSubmitting}
-            submitError={submitError}
+            overviewVisibleCount={RECENT_SUBMISSION_OVERVIEW_COUNT}
+            submissionDetailLinkBuilder={submissionDetailLinkBuilder}
             contestId={contestId}
             problemId={problemId}
           />
