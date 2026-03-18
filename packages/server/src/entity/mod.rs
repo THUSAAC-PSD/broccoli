@@ -1,5 +1,6 @@
 pub mod additional_file;
 pub mod clarification;
+pub mod clarification_reply;
 pub mod contest;
 pub mod contest_problem;
 pub mod contest_user;

@@ -210,6 +210,8 @@ fn clarification_routes() -> OpenApiRouter<AppState> {
             handlers::clarification::create_clarification,
         ))
         .routes(routes!(handlers::clarification::reply_clarification))
+        .routes(routes!(handlers::clarification::toggle_reply_public))
+        .routes(routes!(handlers::clarification::resolve_clarification))
 }
 
 fn contest_submission_routes() -> OpenApiRouter<AppState> {

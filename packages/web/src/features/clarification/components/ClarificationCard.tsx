@@ -2,30 +2,37 @@ import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Textarea,
 } from '@broccoli/web-sdk/ui';
 import { formatTime } from '@broccoli/web-sdk/utils';
 import {
+  Check,
   CheckCircle2,
   Clock,
+  Globe,
   Lock,
   Mail,
   Megaphone,
+  MoreHorizontal,
+  RotateCcw,
   Send,
   User,
 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { Clarification } from '../api/types';
+import type { Clarification, ClarificationReply } from '../api/types';
 
 interface ClarificationCardProps {
   clarification: Clarification;
   isAdmin: boolean;
   currentUserId: number;
-  onReply: (content: string, isPublic: boolean) => void;
+  onReply: (content: string) => void;
+  onResolve: (resolved: boolean) => void;
+  onToggleReplyPublic: (replyId: number, includeQuestion: boolean) => void;
 }
 
 export function ClarificationCard({
@@ -33,151 +40,188 @@ export function ClarificationCard({
   isAdmin,
   currentUserId,
   onReply,
+  onResolve,
+  onToggleReplyPublic,
 }: ClarificationCardProps) {
-  const [answerContent, setAnswerContent] = useState('');
-  const [replyIsPublic, setReplyIsPublic] = useState(false);
-  const { locale } = useTranslation();
+  const [replyContent, setReplyContent] = useState('');
+  const { t, locale } = useTranslation();
 
   const isAnnouncement = clarification.clarification_type === 'announcement';
   const isDirectMessage = clarification.clarification_type === 'direct_message';
-  const isPending = !clarification.reply_content && !isAnnouncement;
+  const replies = clarification.replies ?? [];
+  const hasReplies = replies.length > 0;
   const isOwn = clarification.author_id === currentUserId;
+  const isRecipient = clarification.recipient_id === currentUserId;
+  const canReply = isAdmin || isOwn || isRecipient;
 
   const MAX_REPLY_LENGTH = 10000;
-  const replyTrimmed = answerContent.trim();
+  const replyTrimmed = replyContent.trim();
   const replyValid =
     replyTrimmed.length > 0 && replyTrimmed.length <= MAX_REPLY_LENGTH;
 
   const handleSubmit = () => {
     if (!replyValid) return;
-    onReply(answerContent, replyIsPublic);
-    setAnswerContent('');
+    onReply(replyContent);
+    setReplyContent('');
   };
 
-  const borderClass = isAnnouncement
-    ? 'border-l-4 border-l-blue-500/50'
-    : isPending
-      ? 'border-l-4 border-l-yellow-400/50'
-      : 'border-l-4 border-l-green-500/50';
-
   return (
-    <Card className={`overflow-hidden transition-colors ${borderClass}`}>
-      <CardHeader className="pb-3 bg-muted/20">
-        <div className="flex justify-between items-start">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              {isAnnouncement ? (
-                <Megaphone className="h-4 w-4 text-blue-600" />
-              ) : isDirectMessage ? (
-                <Mail className="h-4 w-4 text-purple-600" />
-              ) : (
-                <User className="h-4 w-4 text-muted-foreground" />
-              )}
-              <span>
-                {clarification.author_name}
-                {isOwn && (
-                  <span className="text-xs text-muted-foreground ml-1">
-                    (you)
-                  </span>
-                )}
+    <div className="rounded-lg border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 bg-muted/30 border-b">
+        <div className="flex items-center gap-2 text-sm">
+          {isAnnouncement ? (
+            <Megaphone className="h-4 w-4 text-blue-600" />
+          ) : isDirectMessage ? (
+            <Mail className="h-4 w-4 text-purple-600" />
+          ) : (
+            <User className="h-4 w-4 text-muted-foreground" />
+          )}
+          <span className="font-medium">
+            {clarification.author_name}
+            {isOwn && (
+              <span className="text-xs text-muted-foreground ml-1">
+                ({t('clarification.you')})
               </span>
-              {isDirectMessage && clarification.recipient_name && (
-                <span className="text-xs text-muted-foreground">
-                  → {clarification.recipient_name}
-                </span>
-              )}
-              <span className="text-muted-foreground text-xs font-normal flex items-center gap-1">
-                <Clock className="h-3 w-3" />{' '}
-                {formatTime(clarification.created_at, locale)}
-              </span>
-            </div>
-          </div>
-          <TypeBadge
-            clarification={clarification}
-            isPending={isPending}
-            isAnnouncement={isAnnouncement}
-            isDirectMessage={isDirectMessage}
-          />
+            )}
+          </span>
+          {isDirectMessage && clarification.recipient_name && (
+            <span className="text-xs text-muted-foreground">
+              → {clarification.recipient_name}
+            </span>
+          )}
+          <span className="text-muted-foreground text-xs flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {formatTime(clarification.created_at, locale)}
+          </span>
         </div>
-      </CardHeader>
+        <StatusBadge
+          clarification={clarification}
+          isAnnouncement={isAnnouncement}
+          isDirectMessage={isDirectMessage}
+        />
+      </div>
 
-      <CardContent className="pt-4 space-y-4">
-        <div className="text-base font-medium whitespace-pre-wrap">
+      {/* Question body */}
+      <div className="px-5 py-4">
+        <div className="text-sm whitespace-pre-wrap">
           {clarification.content}
         </div>
+      </div>
 
-        {clarification.reply_content && (
-          <ReplyDisplay clarification={clarification} />
-        )}
+      {/* Replies thread */}
+      {replies.length > 0 && (
+        <div className="border-t">
+          {replies.map((reply, idx) => (
+            <ReplyMessage
+              key={reply.id}
+              reply={reply}
+              locale={locale}
+              isLast={idx === replies.length - 1}
+              isAdmin={isAdmin}
+              questionIsPublic={clarification.is_public}
+              onTogglePublic={(includeQuestion) =>
+                onToggleReplyPublic(reply.id, includeQuestion)
+              }
+            />
+          ))}
+        </div>
+      )}
 
-        {isAdmin && isPending && !isAnnouncement && (
-          <div className="mt-4 pt-4 border-t space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Reply</div>
-              <Textarea
-                placeholder="Type your answer here..."
-                value={answerContent}
-                onChange={(e) => setAnswerContent(e.target.value)}
-                maxLength={MAX_REPLY_LENGTH}
-                className="min-h-[100px]"
-              />
-              <span
-                className={`text-xs ${replyTrimmed.length > MAX_REPLY_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
-              >
-                {replyTrimmed.length}/{MAX_REPLY_LENGTH}
+      {/* Resolve bar */}
+      {!isAnnouncement && canReply && (
+        <div className="border-t px-5 py-2 flex items-center justify-between bg-muted/10">
+          {clarification.resolved ? (
+            <>
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-green-600" />
+                {t('clarification.resolvedBy', {
+                  name: clarification.resolved_by_name ?? '',
+                })}
               </span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-              <div className="flex items-center gap-2 bg-muted p-1 rounded-md">
-                <Button
-                  size="sm"
-                  variant={!replyIsPublic ? 'default' : 'ghost'}
-                  onClick={() => setReplyIsPublic(false)}
-                  className="h-8 gap-2"
-                >
-                  <Lock className="h-3 w-3" /> Private
-                </Button>
-                <Button
-                  size="sm"
-                  variant={replyIsPublic ? 'default' : 'ghost'}
-                  onClick={() => setReplyIsPublic(true)}
-                  className="h-8 gap-2"
-                >
-                  <Megaphone className="h-3 w-3" /> Reply to all
-                </Button>
-              </div>
-
-              <Button onClick={handleSubmit} disabled={!replyValid} size="sm">
-                <Send className="h-4 w-4 mr-2" />
-                Submit
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => onResolve(false)}
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t('clarification.reopen')}
               </Button>
-            </div>
+            </>
+          ) : (
+            <>
+              <span className="text-xs text-muted-foreground">
+                {hasReplies
+                  ? t('clarification.threadOpen')
+                  : t('clarification.awaitingReply')}
+              </span>
+              {hasReplies && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => onResolve(true)}
+                >
+                  <Check className="h-3 w-3" />
+                  {t('clarification.markResolved')}
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Reply input */}
+      {!isAnnouncement && canReply && !clarification.resolved && (
+        <div className="border-t px-5 py-4 space-y-3">
+          <Textarea
+            placeholder={t('clarification.replyPlaceholder')}
+            value={replyContent}
+            onChange={(e) => setReplyContent(e.target.value)}
+            maxLength={MAX_REPLY_LENGTH}
+            className="min-h-[80px] text-sm"
+          />
+          <div className="flex items-center justify-between">
+            <span
+              className={`text-xs ${replyTrimmed.length > MAX_REPLY_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
+              {replyTrimmed.length}/{MAX_REPLY_LENGTH}
+            </span>
+            <Button
+              onClick={handleSubmit}
+              disabled={!replyValid}
+              size="sm"
+              className="gap-1"
+            >
+              <Send className="h-3.5 w-3.5" />
+              {t('clarification.send')}
+            </Button>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
-function TypeBadge({
-  clarification: _,
-  isPending,
+function StatusBadge({
+  clarification,
   isAnnouncement,
   isDirectMessage,
 }: {
   clarification: Clarification;
-  isPending: boolean;
   isAnnouncement: boolean;
   isDirectMessage: boolean;
 }) {
+  const { t } = useTranslation();
+
   if (isAnnouncement) {
     return (
       <Badge
         variant="outline"
-        className="gap-1 border-blue-200 bg-blue-50 text-blue-700"
+        className="gap-1 border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300"
       >
-        <Megaphone className="h-3 w-3" /> Announcement
+        <Megaphone className="h-3 w-3" /> {t('clarification.announcement')}
       </Badge>
     );
   }
@@ -185,60 +229,123 @@ function TypeBadge({
     return (
       <Badge
         variant="outline"
-        className="gap-1 border-purple-200 bg-purple-50 text-purple-700"
+        className="gap-1 border-purple-200 bg-purple-50 text-purple-700 dark:bg-purple-950 dark:border-purple-800 dark:text-purple-300"
       >
-        <Mail className="h-3 w-3" /> Direct
+        <Mail className="h-3 w-3" /> {t('clarification.direct')}
+      </Badge>
+    );
+  }
+  if (clarification.resolved) {
+    return (
+      <Badge className="gap-1 bg-green-600 hover:bg-green-700 text-white">
+        <CheckCircle2 className="h-3 w-3" /> {t('clarification.statusResolved')}
+      </Badge>
+    );
+  }
+  if (clarification.replies?.length > 0) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300"
+      >
+        {t('clarification.statusInProgress')}
       </Badge>
     );
   }
   return (
     <Badge
-      variant={isPending ? 'secondary' : 'default'}
-      className={
-        isPending
-          ? 'text-yellow-600 bg-yellow-50 hover:bg-yellow-100'
-          : 'bg-green-600 hover:bg-green-700'
-      }
+      variant="secondary"
+      className="text-yellow-600 bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-950 dark:text-yellow-400"
     >
-      {isPending ? 'Pending' : 'Answered'}
+      {t('clarification.statusPending')}
     </Badge>
   );
 }
 
-function ReplyDisplay({ clarification }: { clarification: Clarification }) {
-  const { locale } = useTranslation();
+function ReplyMessage({
+  reply,
+  locale,
+  isLast,
+  isAdmin,
+  questionIsPublic,
+  onTogglePublic,
+}: {
+  reply: ClarificationReply;
+  locale: string;
+  isLast: boolean;
+  isAdmin: boolean;
+  questionIsPublic: boolean;
+  onTogglePublic: (includeQuestion: boolean) => void;
+}) {
+  const { t } = useTranslation();
 
   return (
-    <div className="bg-muted/50 rounded-lg p-4 border relative mt-4">
-      <div className="absolute top-3 right-3">
-        {clarification.reply_is_public ? (
-          <Badge
-            variant="outline"
-            className="gap-1 border-blue-200 bg-blue-50 text-blue-700"
-          >
-            <Megaphone className="h-3 w-3" /> Public
-          </Badge>
-        ) : (
-          <Badge
-            variant="outline"
-            className="gap-1 border-amber-200 bg-amber-50 text-amber-700"
-          >
-            <Lock className="h-3 w-3" /> Private
-          </Badge>
-        )}
+    <div
+      className={`px-5 py-3 flex gap-3 ${!isLast ? 'border-b' : ''} hover:bg-muted/20 transition-colors`}
+    >
+      <div className="flex-shrink-0 mt-0.5">
+        <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center">
+          <User className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
       </div>
-
-      <div className="text-sm font-semibold mb-1 flex items-center gap-2">
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-        {clarification.reply_author_name ?? 'Admin'}
-        {clarification.replied_at && (
-          <span className="text-xs text-muted-foreground font-normal">
-            at {formatTime(clarification.replied_at, locale)}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm font-medium">{reply.author_name}</span>
+          <span className="text-xs text-muted-foreground">
+            {formatTime(reply.created_at, locale)}
           </span>
-        )}
-      </div>
-      <div className="text-sm text-foreground/90 whitespace-pre-wrap pl-6">
-        {clarification.reply_content}
+          {reply.is_public ? (
+            <Badge
+              variant="outline"
+              className="h-5 text-[10px] gap-0.5 border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300"
+            >
+              <Megaphone className="h-2.5 w-2.5" /> {t('clarification.public')}
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="h-5 text-[10px] gap-0.5 border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300"
+            >
+              <Lock className="h-2.5 w-2.5" /> {t('clarification.private')}
+            </Badge>
+          )}
+          {isAdmin && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {reply.is_public ? (
+                  <DropdownMenuItem onClick={() => onTogglePublic(false)}>
+                    <Lock className="h-4 w-4 mr-2" />
+                    {t('clarification.makePrivate')}
+                  </DropdownMenuItem>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={() => onTogglePublic(false)}>
+                      <Globe className="h-4 w-4 mr-2" />
+                      {t('clarification.publishReplyOnly')}
+                    </DropdownMenuItem>
+                    {!questionIsPublic && (
+                      <DropdownMenuItem onClick={() => onTogglePublic(true)}>
+                        <Megaphone className="h-4 w-4 mr-2" />
+                        {t('clarification.publishWithQuestion')}
+                      </DropdownMenuItem>
+                    )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+        <div className="text-sm text-foreground/90 whitespace-pre-wrap">
+          {reply.content}
+        </div>
       </div>
     </div>
   );
