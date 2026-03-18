@@ -127,34 +127,31 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
   return (
     <div className="flex flex-col gap-4">
       {/* Filters */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-wrap items-center gap-3">
-          <FilterDropdown
-            icon={<BookOpen className="h-4 w-4" />}
-            value={draftProblemId}
-            options={problemOptions}
-            onChange={setDraftProblemId}
-            className="w-[260px]"
-          />
-          <FilterDropdown
-            icon={<Code2 className="h-4 w-4" />}
-            value={draftLanguage}
-            options={languageOptions}
-            onChange={setDraftLanguage}
-            className="w-[220px]"
-          />
-          <FilterDropdown
-            icon={<ListFilter className="h-4 w-4" />}
-            value={draftStatus}
-            options={statusOptions}
-            onChange={(next) =>
-              setDraftStatus(next as SubmissionStatusFilterValue)
-            }
-            className="w-[220px]"
-          />
-        </div>
-
-        <Button className="h-9 md:ml-auto" onClick={applyFilters}>
+      <div className="flex flex-wrap items-center gap-3">
+        <FilterDropdown
+          icon={<BookOpen className="h-4 w-4" />}
+          value={draftProblemId}
+          options={problemOptions}
+          onChange={setDraftProblemId}
+          className="w-[260px]"
+        />
+        <FilterDropdown
+          icon={<Code2 className="h-4 w-4" />}
+          value={draftLanguage}
+          options={languageOptions}
+          onChange={setDraftLanguage}
+          className="w-[220px]"
+        />
+        <FilterDropdown
+          icon={<ListFilter className="h-4 w-4" />}
+          value={draftStatus}
+          options={statusOptions}
+          onChange={(next) =>
+            setDraftStatus(next as SubmissionStatusFilterValue)
+          }
+          className="w-[220px]"
+        />
+        <Button className="h-9 shrink-0" onClick={applyFilters}>
           <Search className="mr-1 h-4 w-4" />
           {t('submissions.filters.search')}
         </Button>

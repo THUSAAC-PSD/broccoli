@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import '@broccoli/web-sdk/index.css';
+@import '../../web-sdk/src/index.css';
 
 @source "../node_modules/@broccoli/web-sdk/src";
 

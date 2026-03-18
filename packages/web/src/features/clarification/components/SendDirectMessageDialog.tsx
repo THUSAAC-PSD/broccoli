@@ -113,12 +113,15 @@ export function SendDirectMessageDialog({
             ) : (
               <>
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Search
+                    className="pointer-events-none absolute top-2.5 h-4 w-4 text-muted-foreground"
+                    style={{ insetInlineStart: '0.625rem' }}
+                  />
                   <Input
                     placeholder="Search participants..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
+                    style={{ paddingInlineStart: '2.25rem' }}
                   />
                 </div>
                 <div className="max-h-36 overflow-y-auto border rounded-md">
