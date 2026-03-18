@@ -143,7 +143,7 @@ export function ContestCountdown() {
               <Fragment key={seg.label}>
                 <div className="flex flex-col items-center">
                   <span
-                    className="tabular-nums text-4xl font-bold leading-none tracking-tighter"
+                    className="inline-flex min-w-[2ch] justify-center tabular-nums text-4xl font-bold leading-none tracking-tighter"
                     style={{ color: ACCENT }}
                   >
                     {String(seg.value).padStart(2, '0')}
@@ -153,11 +153,13 @@ export function ContestCountdown() {
                   </span>
                 </div>
                 {i < segments.length - 1 && (
-                  <span
-                    className="mb-4 select-none text-xl font-extralight opacity-30"
-                    style={{ color: ACCENT }}
-                  >
-                    :
+                  <span className="mb-4 inline-flex w-3 select-none justify-center">
+                    <span
+                      className="text-xl font-extralight opacity-30"
+                      style={{ color: ACCENT }}
+                    >
+                      :
+                    </span>
                   </span>
                 )}
               </Fragment>
@@ -249,7 +251,7 @@ export function ContestCountdownMini() {
             <Fragment key={seg.label}>
               <div className="flex flex-col items-center leading-none gap-1">
                 <span
-                  className="tabular-nums text-3xl font-bold tracking-tighter"
+                  className="inline-flex min-w-[2ch] justify-center tabular-nums text-3xl font-bold tracking-tighter"
                   style={{ color: ACCENT }}
                 >
                   {String(seg.value).padStart(2, '0')}
@@ -259,11 +261,13 @@ export function ContestCountdownMini() {
                 </span>
               </div>
               {i < segments.length - 1 && (
-                <span
-                  className="mb-4 select-none text-xl font-light opacity-25"
-                  style={{ color: ACCENT }}
-                >
-                  :
+                <span className="mb-4 inline-flex w-3 select-none justify-center">
+                  <span
+                    className="text-xl font-light opacity-25"
+                    style={{ color: ACCENT }}
+                  >
+                    :
+                  </span>
                 </span>
               )}
             </Fragment>
