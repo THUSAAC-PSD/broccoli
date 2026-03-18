@@ -4,6 +4,7 @@ import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
 import type { EditorFile } from '@/components/CodeEditor';
 import { useAuth } from '@/features/auth/hooks/use-auth';
@@ -19,6 +20,7 @@ const INLINE_SAMPLE_MAX_SIZE = 1024;
 const RECENT_SUBMISSION_OVERVIEW_COUNT = 3;
 type SampleContentMap = Record<number, { input?: string; output?: string }>;
 type CopiedNotice = { text: string; top: number; left: number } | null;
+type ProblemRouteTab = ProblemViewTab | 'edit';
 
 interface ProblemViewProps {
   problemId: number;
@@ -31,19 +33,38 @@ export default function ProblemView({
 }: ProblemViewProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
-  const [activeTab, setActiveTab] = useState<ProblemViewTab>('description');
-  const [showEditPage, setShowEditPage] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
   const [contestType, setContestType] = useState<string | undefined>(undefined);
   const apiClient = useApiClient();
   const { data: registries } = useRegistries();
 
+  const rawTab = searchParams.get('tab');
+  const routeTab: ProblemRouteTab =
+    rawTab === 'coding' || rawTab === 'edit' || rawTab === 'description'
+      ? rawTab
+      : 'description';
+  const showEditPage = routeTab === 'edit';
+  const activeTab: ProblemViewTab =
+    routeTab === 'coding' ? 'coding' : 'description';
+
+  const setRouteTab = useCallback(
+    (tab: ProblemRouteTab) => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (tab === 'description') {
+        nextParams.delete('tab');
+      } else {
+        nextParams.set('tab', tab);
+      }
+      setSearchParams(nextParams);
+    },
+    [searchParams, setSearchParams],
+  );
+
   useEffect(() => {
-    setActiveTab('description');
-    setShowEditPage(false);
     setIsCodeFullscreen(false);
     setCopiedKey(null);
     setCopiedNotice(null);
@@ -288,6 +309,12 @@ export default function ProblemView({
   const isSubmitting = submissions.isAnySubmitting;
   const canEdit = !!user && user.permissions.includes('problem:edit');
 
+  useEffect(() => {
+    if (routeTab === 'edit' && !canEdit) {
+      setRouteTab('description');
+    }
+  }, [routeTab, canEdit, setRouteTab]);
+
   if (!problemId || Number.isNaN(problemId)) {
     return (
       <div className="flex flex-col gap-4 p-6">
@@ -306,7 +333,7 @@ export default function ProblemView({
         />
         <ProblemEditTab
           problemId={problemId}
-          onBack={() => setShowEditPage(false)}
+          onBack={() => setRouteTab('description')}
         />
       </div>
     );
@@ -331,9 +358,9 @@ export default function ProblemView({
 
       <ProblemContentTabs
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={setRouteTab}
         canEdit={canEdit}
-        onEdit={() => setShowEditPage(true)}
+        onEdit={() => setRouteTab('edit')}
         descriptionContent={
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-4xl">
