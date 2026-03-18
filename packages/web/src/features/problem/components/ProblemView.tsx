@@ -2,20 +2,16 @@ import { useApiClient } from '@broccoli/web-sdk/api';
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
-import type { DockviewApi } from 'dockview-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { EditorFile } from '@/components/CodeEditor';
+import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useSubmissions } from '@/features/submission/hooks/use-submissions';
 
-import {
-  type ProblemDockContextValue,
-  ProblemDockProvider,
-} from './dock/ProblemDockContext';
-import { ProblemDockLayout } from './dock/ProblemDockLayout';
-import { ProblemMobileLayout } from './dock/ProblemMobileLayout';
-import { useBreakpoint } from './dock/use-breakpoint';
-import { ProblemEditForm } from './ProblemEditForm';
+import { ProblemCodingTab } from './ProblemCodingTab';
+import { ProblemContentTabs, type ProblemViewTab } from './ProblemContentTabs';
+import { ProblemDescriptionTab } from './ProblemDescriptionTab';
+import { ProblemEditTab } from './ProblemEditTab';
 import { ProblemViewHeader } from './ProblemViewHeader';
 
 const INLINE_SAMPLE_MAX_SIZE = 1024;
@@ -32,10 +28,10 @@ export default function ProblemView({
   contestId,
 }: ProblemViewProps) {
   const { t } = useTranslation();
-  const breakpoint = useBreakpoint();
-  const isDesktop = breakpoint === 'desktop';
-  const dockApiRef = useRef<DockviewApi | null>(null);
+  const { user } = useAuth();
 
+  const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ProblemViewTab>('description');
   const [showEditPage, setShowEditPage] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
@@ -44,7 +40,9 @@ export default function ProblemView({
   const { data: registries } = useRegistries();
 
   useEffect(() => {
+    setActiveTab('description');
     setShowEditPage(false);
+    setIsCodeFullscreen(false);
     setCopiedKey(null);
     setCopiedNotice(null);
     setContestType(undefined);
@@ -234,48 +232,9 @@ export default function ProblemView({
 
   const latestEntry = submissions.entries[0] ?? null;
   const latestSubmission = latestEntry?.submission ?? null;
-
-  const contextValue = useMemo<ProblemDockContextValue>(
-    () => ({
-      problem,
-      isLoading,
-      error: error as Error | null,
-      sampleContents,
-      copiedKey,
-      onCopySample,
-      onDownloadSample,
-      submissions,
-      onSubmit: handleSubmit,
-      onRun: handleSubmit,
-      storageKey,
-      contestType: effectiveContestType,
-      onContestTypeChange: !contestId ? setContestType : undefined,
-      contestTypes: !contestId ? (registries?.contest_types ?? []) : undefined,
-      submissionFormat: problem?.submission_format,
-      contestId,
-      problemId,
-      latestSubmission,
-      latestEntry,
-    }),
-    [
-      problem,
-      isLoading,
-      error,
-      sampleContents,
-      copiedKey,
-      onCopySample,
-      onDownloadSample,
-      submissions,
-      handleSubmit,
-      storageKey,
-      effectiveContestType,
-      contestId,
-      problemId,
-      registries?.contest_types,
-      latestSubmission,
-      latestEntry,
-    ],
-  );
+  const isSubmitting = submissions.isAnySubmitting;
+  const submitError = latestEntry?.error ?? null;
+  const canEdit = !!user && user.permissions.includes('problem:edit');
 
   if (!problemId || Number.isNaN(problemId)) {
     return (
@@ -292,38 +251,72 @@ export default function ProblemView({
           problem={problem}
           headerId={headerId}
           contestId={contestId}
-          onEdit={() => setShowEditPage(true)}
         />
-        <ProblemEditForm problemId={problemId} />
+        <ProblemEditTab
+          problemId={problemId}
+          onBack={() => setShowEditPage(false)}
+        />
       </div>
     );
   }
 
   return (
-    <ProblemDockProvider value={contextValue}>
-      <div className="flex flex-col flex-1 min-h-0">
-        {copiedNotice && (
-          <div
-            className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-xs"
-            style={{ top: copiedNotice.top, left: copiedNotice.left }}
-          >
-            {copiedNotice.text || t('problem.copiedSimple')}
+    <div className="flex flex-col flex-1 min-h-0">
+      {copiedNotice && (
+        <div
+          className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-sm"
+          style={{ top: copiedNotice.top, left: copiedNotice.left }}
+        >
+          {copiedNotice.text || t('problem.copiedSimple')}
+        </div>
+      )}
+
+      <ProblemViewHeader
+        problem={problem}
+        headerId={headerId}
+        contestId={contestId}
+      />
+
+      <ProblemContentTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        canEdit={canEdit}
+        onEdit={() => setShowEditPage(true)}
+        descriptionContent={
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-4xl">
+              <ProblemDescriptionTab
+                problem={problem}
+                isLoading={isLoading}
+                hasError={!!error}
+                sampleContents={sampleContents}
+                copiedKey={copiedKey}
+                onCopySample={onCopySample}
+                onDownloadSample={onDownloadSample}
+              />
+            </div>
           </div>
-        )}
-
-        <ProblemViewHeader
-          problem={problem}
-          headerId={headerId}
-          contestId={contestId}
-          onEdit={() => setShowEditPage(true)}
-        />
-
-        {isDesktop ? (
-          <ProblemDockLayout dockApiRef={dockApiRef} />
-        ) : (
-          <ProblemMobileLayout problemId={problemId} />
-        )}
-      </div>
-    </ProblemDockProvider>
+        }
+        codingContent={
+          <ProblemCodingTab
+            isCodeFullscreen={isCodeFullscreen}
+            onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
+            onSubmit={handleSubmit}
+            storageKey={storageKey}
+            contestType={effectiveContestType}
+            onContestTypeChange={!contestId ? setContestType : undefined}
+            contestTypes={
+              !contestId ? (registries?.contest_types ?? []) : undefined
+            }
+            submissionFormat={problem?.submission_format}
+            latestSubmission={latestSubmission}
+            isSubmitting={isSubmitting}
+            submitError={submitError}
+            contestId={contestId}
+            problemId={problemId}
+          />
+        }
+      />
+    </div>
   );
 }
