@@ -1,10 +1,7 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
-import { Button } from '@broccoli/web-sdk/ui';
 import { formatKibibytes } from '@broccoli/web-sdk/utils';
-import { Edit } from 'lucide-react';
 
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { ContestCountdownMini } from '@/features/contest/components/ContestCountdown';
 
 import { ProblemHeader } from './ProblemHeader';
@@ -21,17 +18,14 @@ interface ProblemViewHeaderProps {
     | undefined;
   headerId: string;
   contestId?: number;
-  onEdit: () => void;
 }
 
 export function ProblemViewHeader({
   problem,
   headerId,
   contestId,
-  onEdit,
 }: ProblemViewHeaderProps) {
   const { t } = useTranslation();
-  const { user } = useAuth();
 
   const timeLimit = problem ? `${problem.time_limit} ms` : '—';
   const memoryLimit = problem ? formatKibibytes(problem.memory_limit) : '—';
@@ -54,17 +48,6 @@ export function ProblemViewHeader({
             <div className="hidden lg:flex items-center">
               <ContestCountdownMini />
             </div>
-          )}
-          {user && user.permissions.includes('problem:edit') && (
-            <Button
-              onClick={onEdit}
-              size="sm"
-              variant="default"
-              className="gap-1.5 h-8 px-3.5 text-xs font-medium"
-            >
-              <Edit className="h-3 w-3" />
-              {t('problem.edit')}
-            </Button>
           )}
         </div>
       </div>
