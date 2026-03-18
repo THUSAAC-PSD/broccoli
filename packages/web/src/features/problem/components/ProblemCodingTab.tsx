@@ -15,6 +15,7 @@ interface ProblemCodingTabProps {
   contestTypes?: string[];
   submissionFormat?: Record<string, string[]> | null;
   latestSubmission: Submission | null;
+  submissions?: unknown[];
   isSubmitting: boolean;
   submitError: SubmissionError | null;
   contestId?: number;
@@ -31,15 +32,16 @@ export function ProblemCodingTab({
   contestTypes,
   submissionFormat,
   latestSubmission,
+  submissions,
   isSubmitting,
   submitError,
   contestId,
   problemId,
 }: ProblemCodingTabProps) {
   return (
-    <div className="grid flex-1 grid-cols-1 gap-6 overflow-hidden p-6 lg:grid-cols-2">
+    <div className="grid flex-1 grid-cols-1 gap-6 overflow-hidden p-6 lg:grid-cols-5">
       <div
-        className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'lg:col-span-2' : ''}`}
+        className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'lg:col-span-5' : 'lg:col-span-3'}`}
       >
         <CodeEditor
           onSubmit={onSubmit}
@@ -55,7 +57,7 @@ export function ProblemCodingTab({
       </div>
 
       {!isCodeFullscreen && (
-        <div className="flex flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto lg:col-span-2">
           <SubmissionResult
             submission={latestSubmission}
             isSubmitting={isSubmitting}
@@ -64,7 +66,13 @@ export function ProblemCodingTab({
           <Slot
             name="problem-detail.sidebar"
             as="div"
-            slotProps={{ submission: latestSubmission, contestId, problemId }}
+            className="flex flex-col gap-2"
+            slotProps={{
+              submission: latestSubmission,
+              submissions,
+              contestId,
+              problemId,
+            }}
           />
         </div>
       )}

@@ -310,6 +310,7 @@ export default function ProblemView({
             }
             submissionFormat={problem?.submission_format}
             latestSubmission={latestSubmission}
+            submissions={submissions.entries}
             isSubmitting={isSubmitting}
             submitError={submitError}
             contestId={contestId}
