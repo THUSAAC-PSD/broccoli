@@ -1238,3 +1238,110 @@ fn parse_zip_test_cases(
 
     Ok(entries)
 }
+
+#[utoipa::path(
+    put,
+    path = "/",
+    tag = "Checker Source",
+    operation_id = "uploadCheckerSource",
+    summary = "Upload checker source files",
+    description = "Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    request_body = UploadCheckerSourceRequest,
+    responses(
+        (status = 200, description = "Checker source updated", body = CheckerSourceResponse),
+        (status = 400, description = "Validation error", body = ErrorBody),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Problem not found", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload), fields(id))]
+pub async fn upload_checker_source(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    AppJson(payload): AppJson<UploadCheckerSourceRequest>,
+) -> Result<Json<CheckerSourceResponse>, AppError> {
+    auth_user.require_permission("problem:edit")?;
+    validate_checker_source(&payload)?;
+
+    let existing = find_problem(&state.db, id).await?;
+    let mut active: problem::ActiveModel = existing.into();
+    active.checker_source = Set(Some(serde_json::to_value(&payload.files).map_err(|e| {
+        AppError::Internal(format!("Failed to serialize checker source: {e}"))
+    })?));
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(&state.db).await?;
+
+    Ok(Json(CheckerSourceResponse {
+        files: Some(payload.files),
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "Checker Source",
+    operation_id = "getCheckerSource",
+    summary = "Get checker source files",
+    description = "Returns the checker source files for a problem. Requires `problem:edit` permission.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    responses(
+        (status = 200, description = "Checker source files", body = CheckerSourceResponse),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Problem not found", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user), fields(id))]
+pub async fn get_checker_source(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<CheckerSourceResponse>, AppError> {
+    auth_user.require_permission("problem:edit")?;
+
+    let problem = find_problem(&state.db, id).await?;
+    let files: Option<Vec<CheckerSourceFile>> = problem
+        .checker_source
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    Ok(Json(CheckerSourceResponse { files }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/",
+    tag = "Checker Source",
+    operation_id = "deleteCheckerSource",
+    summary = "Clear checker source files",
+    description = "Removes the checker source files from a problem. Requires `problem:edit` permission.",
+    params(("id" = i32, Path, description = "Problem ID")),
+    responses(
+        (status = 204, description = "Checker source cleared"),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden", body = ErrorBody),
+        (status = 404, description = "Problem not found", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user), fields(id))]
+pub async fn delete_checker_source(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<StatusCode, AppError> {
+    auth_user.require_permission("problem:edit")?;
+
+    let existing = find_problem(&state.db, id).await?;
+    let mut active: problem::ActiveModel = existing.into();
+    active.checker_source = Set(None);
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(&state.db).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}

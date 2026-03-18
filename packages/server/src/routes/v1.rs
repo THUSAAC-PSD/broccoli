@@ -110,6 +110,7 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
         .nest("/{id}/test-cases", test_case_routes())
         .nest("/{id}/attachments", attachment_routes())
         .nest("/{id}/additional-files", additional_file_routes())
+        .nest("/{id}/checker-source", checker_source_routes())
         .nest("/{id}/config", problem_config_routes())
         .nest(
             "/{id}/submissions",
@@ -123,6 +124,14 @@ fn problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppSta
         .layer(handlers::submission::submission_body_limit(
             submission_max_size,
         ))
+}
+
+fn checker_source_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(
+        handlers::problem::get_checker_source,
+        handlers::problem::upload_checker_source,
+        handlers::problem::delete_checker_source,
+    ))
 }
 
 fn test_case_routes() -> OpenApiRouter<AppState> {

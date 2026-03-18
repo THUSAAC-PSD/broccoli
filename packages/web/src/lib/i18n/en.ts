@@ -447,6 +447,26 @@ export const en: Record<string, string> = {
   'admin.attachments.pickerHint': 'Click or drag into editor to insert',
   'admin.manageAttachments': 'Manage Attachments',
 
+  // Checker Source (admin)
+  'admin.manageCheckerSource': 'Manage Checker Source',
+  'admin.checkerSource.title': 'Checker Source',
+  'admin.checkerSource.description':
+    'Upload source files for a custom checker (e.g. checker.cpp and testlib.h). These are compiled and run to judge submissions when using the testlib checker format.',
+  'admin.checkerSource.empty': 'No checker source files.',
+  'admin.checkerSource.dropzone':
+    'Drop checker source files here (.cpp, .c, .h)',
+  'admin.checkerSource.uploading': 'Uploading checker source...',
+  'admin.checkerSource.uploaded': 'Checker source updated.',
+  'admin.checkerSource.uploadError': 'Failed to upload checker source.',
+  'admin.checkerSource.deleteError': 'Failed to delete checker source.',
+  'admin.checkerSource.deleted': 'File removed.',
+  'admin.checkerSource.cleared': 'Checker source cleared.',
+  'admin.checkerSource.staged': '{count} files ready to upload',
+  'admin.checkerSource.upload': 'Upload',
+  'admin.checkerSource.clear': 'Clear',
+  'admin.checkerSource.clearAll': 'Clear All',
+  'admin.checkerSource.fileCount': '{count} files',
+
   // Test Cases (admin)
   'admin.manageTestCases': 'Manage Test Cases',
   'admin.testCases.title': 'Test Cases',

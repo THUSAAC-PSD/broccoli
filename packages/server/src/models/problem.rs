@@ -515,6 +515,58 @@ pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppErro
     Ok(())
 }
 
+/// Request body for uploading checker source files.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UploadCheckerSourceRequest {
+    /// Array of source files for the checker.
+    pub files: Vec<CheckerSourceFile>,
+}
+
+/// A single file in the checker source.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CheckerSourceFile {
+    /// Filename (e.g. "checker.cpp", "testlib.h").
+    #[schema(example = "checker.cpp")]
+    pub filename: String,
+    /// File content as a string.
+    #[schema(example = "#include \"testlib.h\"\nint main() { ... }")]
+    pub content: String,
+}
+
+/// Response for checker source operations.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct CheckerSourceResponse {
+    /// The checker source files, or null if none set.
+    pub files: Option<Vec<CheckerSourceFile>>,
+}
+
+pub fn validate_checker_source(req: &UploadCheckerSourceRequest) -> Result<(), AppError> {
+    if req.files.is_empty() {
+        return Err(AppError::Validation("At least one file is required".into()));
+    }
+    if req.files.len() > 20 {
+        return Err(AppError::Validation("Maximum 20 files allowed".into()));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for file in &req.files {
+        validate_flat_filename(&file.filename)
+            .map_err(|e| AppError::Validation(e.message().into()))?;
+        if !seen.insert(&file.filename) {
+            return Err(AppError::Validation(format!(
+                "Duplicate filename: {}",
+                file.filename
+            )));
+        }
+        if file.content.len() > 1_048_576 {
+            return Err(AppError::Validation(format!(
+                "File '{}' exceeds 1 MB limit",
+                file.filename
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_update_problem(req: &UpdateProblemRequest) -> Result<(), AppError> {
     if let Some(ref title) = req.title {
         validate_title(title)?;
