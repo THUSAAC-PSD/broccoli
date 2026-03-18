@@ -1,9 +1,12 @@
 import { Slot } from '@broccoli/web-sdk/slot';
-import type { Submission } from '@broccoli/web-sdk/submission';
+import type {
+  Submission,
+  SubmissionSummary,
+} from '@broccoli/web-sdk/submission';
 
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
-import { SubmissionResult } from '@/features/submission/components/SubmissionResult';
-import type { SubmissionError } from '@/features/submission/hooks/use-submission';
+import { RecentSubmissionOverview } from '@/features/submission/components/RecentSubmissionOverview';
+import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 
 interface ProblemCodingTabProps {
   isCodeFullscreen: boolean;
@@ -15,9 +18,11 @@ interface ProblemCodingTabProps {
   contestTypes?: string[];
   submissionFormat?: Record<string, string[]> | null;
   latestSubmission: Submission | null;
-  submissions?: unknown[];
+  submissionHistory: SubmissionSummary[];
+  submissions?: SubmissionEntry[];
   isSubmitting: boolean;
-  submitError: SubmissionError | null;
+  overviewVisibleCount?: number;
+  submissionDetailLinkBuilder?: (submissionId: number) => string;
   contestId?: number;
   problemId: number;
 }
@@ -32,9 +37,11 @@ export function ProblemCodingTab({
   contestTypes,
   submissionFormat,
   latestSubmission,
+  submissionHistory,
   submissions,
   isSubmitting,
-  submitError,
+  overviewVisibleCount,
+  submissionDetailLinkBuilder,
   contestId,
   problemId,
 }: ProblemCodingTabProps) {
@@ -58,10 +65,12 @@ export function ProblemCodingTab({
 
       {!isCodeFullscreen && (
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto lg:col-span-2">
-          <SubmissionResult
-            submission={latestSubmission}
+          <RecentSubmissionOverview
+            entries={submissions ?? []}
+            history={submissionHistory}
             isSubmitting={isSubmitting}
-            error={submitError}
+            visibleCount={overviewVisibleCount}
+            linkBuilder={submissionDetailLinkBuilder}
           />
           <Slot
             name="problem-detail.sidebar"
