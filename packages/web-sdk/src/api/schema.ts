@@ -436,6 +436,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/contests/{id}/clarifications/{clarification_id}/replies/{reply_id}/toggle-public': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Toggle a reply's public visibility
+     * @description Admin can promote a private reply to a public announcement or revert it.
+     */
+    post: operations['toggleReplyPublic'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/clarifications/{clarification_id}/reply': {
     parameters: {
       query?: never;
@@ -447,9 +467,29 @@ export interface paths {
     put?: never;
     /**
      * Reply to a clarification
-     * @description Admin replies to a question or direct message. When `is_public` is true the reply becomes visible to all participants.
+     * @description Admin replies to a question or direct message. Multiple replies are allowed. When `is_public` is true the reply becomes visible to all participants.
      */
     post: operations['replyClarification'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/clarifications/{clarification_id}/resolve': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Resolve or reopen a clarification thread
+     * @description Admins or the question author can mark a thread as resolved or reopen it.
+     */
+    post: operations['resolveClarification'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1164,6 +1204,34 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/problems/{id}/checker-source': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get checker source files
+     * @description Returns the checker source files for a problem. Requires `problem:edit` permission.
+     */
+    get: operations['getCheckerSource'];
+    /**
+     * Upload checker source files
+     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission.
+     */
+    put: operations['uploadCheckerSource'];
+    post?: never;
+    /**
+     * Clear checker source files
+     * @description Removes the checker source files from a problem. Requires `problem:edit` permission.
+     */
+    delete: operations['deleteCheckerSource'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/problems/{id}/config': {
     parameters: {
       query?: never;
@@ -1815,9 +1883,48 @@ export interface components {
        */
       id: number;
     };
+    /** @description A single file in the checker source. */
+    CheckerSourceFile: {
+      /**
+       * @description File content as a string.
+       * @example #include "testlib.h"
+       *     int main() { ... }
+       */
+      content: string;
+      /**
+       * @description Filename (e.g. "checker.cpp", "testlib.h").
+       * @example checker.cpp
+       */
+      filename: string;
+    };
+    /** @description Response for checker source operations. */
+    CheckerSourceResponse: {
+      /** @description The checker source files, or null if none set. */
+      files?: components['schemas']['CheckerSourceFile'][] | null;
+    };
     /** @description Response for listing clarifications. */
     ClarificationListResponse: {
       data: components['schemas']['ClarificationResponse'][];
+    };
+    /** @description A single reply within a clarification thread. */
+    ClarificationReplyResponse: {
+      /**
+       * Format: int32
+       * @example 42
+       */
+      author_id: number;
+      /** @example admin */
+      author_name: string;
+      content: string;
+      /** Format: date-time */
+      created_at: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example true */
+      is_public: boolean;
     };
     /** @description A single clarification with author names resolved. */
     ClarificationResponse: {
@@ -1850,12 +1957,21 @@ export interface components {
       recipient_name?: string | null;
       /** Format: date-time */
       replied_at?: string | null;
+      /** @description All replies in chronological order. */
+      replies: components['schemas']['ClarificationReplyResponse'][];
       /** Format: int32 */
       reply_author_id?: number | null;
       reply_author_name?: string | null;
       reply_content?: string | null;
       /** @example false */
       reply_is_public: boolean;
+      /** @description Whether this thread is resolved. */
+      resolved: boolean;
+      /** Format: date-time */
+      resolved_at?: string | null;
+      /** Format: int32 */
+      resolved_by?: number | null;
+      resolved_by_name?: string | null;
       /** Format: date-time */
       updated_at: string;
     };
@@ -2689,8 +2805,12 @@ export interface components {
     PluginConfigResponse: {
       /** @description Config JSON blob */
       config: unknown;
+      /** @description Human-readable description of what this config controls. */
+      description?: string | null;
       /** @description Whether this plugin is enabled for the given scope. */
       enabled: boolean;
+      /** @description JSON Schema for this config namespace (from the plugin manifest). */
+      json_schema?: unknown;
       /**
        * @description Plugin namespace (e.g., "checker", "ioi")
        * @example checker
@@ -3027,7 +3147,7 @@ export interface components {
        */
       test_case_ids: number[];
     };
-    /** @description Request body for replying to a clarification (admin-only). */
+    /** @description Request body for replying to a clarification. */
     ReplyClarificationRequest: {
       /**
        * @description Reply content (1 – 10 000 chars).
@@ -3035,10 +3155,18 @@ export interface components {
        */
       content: string;
       /**
-       * @description If true the reply is visible to all contest participants.
+       * @description If true the reply is visible to all contest participants (admin-only flag).
        * @example true
        */
       is_public: boolean;
+    };
+    /** @description Request body for resolving / reopening a clarification thread. */
+    ResolveClarificationRequest: {
+      /**
+       * @description true = resolve, false = reopen.
+       * @example true
+       */
+      resolved: boolean;
     };
     /** @description A sample test case metadata included in problem detail responses. */
     SampleTestCaseMeta: {
@@ -3534,6 +3662,11 @@ export interface components {
        * @example 20
        */
       score?: number | null;
+    };
+    /** @description Request body for uploading checker source files. */
+    UploadCheckerSourceRequest: {
+      /** @description Array of source files for the checker. */
+      files: components['schemas']['CheckerSourceFile'][];
     };
     /**
      * @description Merge strategy for handling test case label conflicts during ZIP upload.
@@ -4963,6 +5096,60 @@ export interface operations {
       };
     };
   };
+  toggleReplyPublic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Clarification ID */
+        clarification_id: number;
+        /** @description Reply ID */
+        reply_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Reply visibility toggled */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClarificationReplyResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Reply not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   replyClarification: {
     parameters: {
       query?: never;
@@ -5026,8 +5213,55 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Already replied */
-      409: {
+    };
+  };
+  resolveClarification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Clarification ID */
+        clarification_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ResolveClarificationRequest'];
+      };
+    };
+    responses: {
+      /** @description Status updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClarificationResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Clarification not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -8007,6 +8241,167 @@ export interface operations {
         };
       };
       /** @description Attachment not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getCheckerSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Checker source files */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CheckerSourceResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  uploadCheckerSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UploadCheckerSourceRequest'];
+      };
+    };
+    responses: {
+      /** @description Checker source updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CheckerSourceResponse'];
+        };
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  deleteCheckerSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Checker source cleared */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found */
       404: {
         headers: {
           [name: string]: unknown;

@@ -43,7 +43,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 
-import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
+import { ResourceConfigDialog } from '@/components/config';
 import { Markdown } from '@/components/Markdown';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
@@ -434,7 +434,6 @@ export function ContestProblemsDialog({
   const queryClient = useQueryClient();
   const contestProblemsKey = ['contest-problems', contest.id];
   const apiClient = useApiClient();
-  const hasContestProblemConfig = useHasConfigSchemas('contest_problem');
 
   const { data: contestProblems = [], isLoading: loadingContestProblems } =
     useQuery({
@@ -580,19 +579,17 @@ export function ContestProblemsDialog({
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
-                        {hasContestProblemConfig && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => {
-                              setConfigProblemId(p.problem_id);
-                              setConfigCPOpen(true);
-                            }}
-                          >
-                            <Settings className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setConfigProblemId(p.problem_id);
+                            setConfigCPOpen(true);
+                          }}
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -739,7 +736,7 @@ function useContestColumns({
   onDelete: (contest: ContestSummary) => void;
   onManageProblems: (contest: ContestSummary) => void;
   onBulkParticipants: (contest: ContestSummary) => void;
-  onConfigure?: (contest: ContestSummary) => void;
+  onConfigure: (contest: ContestSummary) => void;
 }): DataTableColumn<ContestSummary>[] {
   const { t, locale } = useTranslation();
   return [
@@ -833,12 +830,10 @@ function useContestColumns({
               <Users className="h-4 w-4" />
               {t('admin.bulkParticipantsAction')}
             </DropdownMenuItem>
-            {onConfigure && (
-              <DropdownMenuItem onClick={() => onConfigure(row.original)}>
-                <Settings className="h-4 w-4" />
-                {t('admin.configure')}
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onClick={() => onConfigure(row.original)}>
+              <Settings className="h-4 w-4" />
+              {t('admin.configure')}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -864,7 +859,6 @@ export function AdminContestsTab() {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
-  const hasContestConfig = useHasConfigSchemas('contest');
 
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
   const [editingContest, setEditingContest] = useState<
@@ -927,7 +921,7 @@ export function AdminContestsTab() {
     onDelete: handleDeleteContest,
     onManageProblems: handleManageProblems,
     onBulkParticipants: handleBulkParticipants,
-    onConfigure: hasContestConfig ? handleConfigure : undefined,
+    onConfigure: handleConfigure,
   });
 
   return (
