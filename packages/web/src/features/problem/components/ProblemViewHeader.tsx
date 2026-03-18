@@ -31,7 +31,7 @@ export function ProblemViewHeader({
   const memoryLimit = problem ? formatKibibytes(problem.memory_limit) : '—';
 
   return (
-    <div className="shrink-0 px-5 pt-4 pb-3">
+    <div className="shrink-0 px-6 pt-6 pb-4">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <ProblemHeader
@@ -51,7 +51,7 @@ export function ProblemViewHeader({
           )}
         </div>
       </div>
-      <Slot name="problem-detail.header" as="div" className="relative mt-2" />
+      <Slot name="problem-detail.header" as="div" className="relative mt-3" />
     </div>
   );
 }
