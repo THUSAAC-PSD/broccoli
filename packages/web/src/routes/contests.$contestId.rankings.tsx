@@ -10,9 +10,7 @@ export default function ContestRankingPage() {
   return (
     <PageLayout
       pageId="ranking"
-      icon={
-        <BarChart3 className="h-6 w-6 text-amber-500 text-sidebar-primary" />
-      }
+      icon={<BarChart3 className="h-6 w-6 text-sidebar-primary" />}
       title={t('ranking.title')}
       contentClassName="flex flex-col gap-6"
     >
