@@ -186,12 +186,16 @@ export function DataTable<TData>({
         <div className="flex items-center gap-3 p-4 border-b">
           {searchable && (
             <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Search
+                className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                style={{ insetInlineStart: '0.625rem' }}
+              />
               <Input
                 placeholder={searchPlaceholder}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 h-8 text-sm"
+                className="h-8 text-sm"
+                style={{ paddingInlineStart: '2rem' }}
               />
             </div>
           )}
