@@ -343,7 +343,7 @@ export function ContestFormDialog({
                 id="contest-type"
                 value={contestType}
                 onChange={(e) => setContestType(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="">{t('admin.field.contestTypeNone')}</option>
                 {(registries?.contest_types ?? []).map((opt) => (

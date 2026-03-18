@@ -20,12 +20,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/tailwind-preset.ts src/*/index.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts src/tailwind-preset.ts src/*/index.ts --format esm --dts --clean && cp src/index.css dist/index.css",
     "dev": "tsup src/index.ts src/tailwind-preset.ts src/*/index.ts --format esm --dts --watch"
   },
   "devDependencies": {
     "@types/react": "^19.1.16",
-    "tailwindcss": "^3.4.18",
+    "tailwindcss": "^4.2.1",
     "tsup": "^8.5.0",
     "typescript": "~5.9.3"
   },
@@ -54,7 +54,6 @@
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^2.6.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwind-merge": "^3.5.0"
   }
 }

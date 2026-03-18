@@ -1,4 +1,5 @@
 import { reactRouter } from '@react-router/dev/vite';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
@@ -38,7 +39,7 @@ export default defineConfig(() => {
   ];
 
   return {
-    plugins: [sharedDepsPlugin(), reactRouter()],
+    plugins: [tailwindcss(), sharedDepsPlugin(), reactRouter()],
     build: {
       outDir: 'build/client',
     },

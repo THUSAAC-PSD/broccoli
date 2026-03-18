@@ -300,7 +300,7 @@ export function AdditionalFilesSection({
                     defaultLanguageRef.current = e.target.value;
                   }}
                   disabled={uploading}
-                  className="h-7 w-28 shrink-0 rounded border border-input bg-transparent px-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="h-7 w-28 shrink-0 rounded border border-input bg-transparent px-1.5 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="">
                     {t('admin.additionalFiles.language')}

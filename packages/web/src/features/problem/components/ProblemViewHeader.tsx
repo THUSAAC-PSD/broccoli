@@ -37,8 +37,8 @@ export function ProblemViewHeader({
   const memoryLimit = problem ? formatKibibytes(problem.memory_limit) : '—';
 
   return (
-    <div className="flex-shrink-0 px-6 pt-3 pb-2">
-      <div className="flex items-start sm:items-center gap-4">
+    <div className="shrink-0 px-5 pt-4 pb-3">
+      <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <ProblemHeader
             id={headerId}
@@ -49,7 +49,7 @@ export function ProblemViewHeader({
             memoryLimit={memoryLimit}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {contestId && (
             <div className="hidden lg:flex items-center">
               <ContestCountdownMini />
@@ -60,15 +60,15 @@ export function ProblemViewHeader({
               onClick={onEdit}
               size="sm"
               variant="default"
-              className="gap-1.5 h-8 px-4 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              className="gap-1.5 h-8 px-3.5 text-xs font-medium"
             >
-              <Edit className="h-3.5 w-3.5" />
+              <Edit className="h-3 w-3" />
               {t('problem.edit')}
             </Button>
           )}
         </div>
       </div>
-      <Slot name="problem-detail.header" as="div" className="relative mt-3" />
+      <Slot name="problem-detail.header" as="div" className="relative mt-2" />
     </div>
   );
 }

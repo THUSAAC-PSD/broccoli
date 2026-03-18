@@ -325,11 +325,11 @@ export function DeviceAuthPage() {
           style={{ animation: 'fade-up 0.6s ease-out both' }}
         >
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border/60 bg-card shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border/60 bg-card shadow-xs">
               <TerminalIcon className="h-5 w-5 text-primary" />
             </div>
             <LinkIcon className="h-4 w-4 text-muted-foreground/50" />
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border/60 bg-card shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border/60 bg-card shadow-xs">
               <svg
                 className="h-5 w-5 text-primary"
                 viewBox="0 0 24 24"
@@ -357,7 +357,7 @@ export function DeviceAuthPage() {
 
         {/* Code input card */}
         <div
-          className="rounded-xl border border-border/60 bg-card px-4 py-6 shadow-sm sm:px-6"
+          className="rounded-xl border border-border/60 bg-card px-4 py-6 shadow-xs sm:px-6"
           style={{
             animation: error
               ? 'shake 0.4s ease-out'
@@ -393,7 +393,7 @@ export function DeviceAuthPage() {
                     onFocus={() => setFocusedIndex(i)}
                     onPaste={i === 0 ? handlePaste : undefined}
                     autoFocus={i === 0}
-                    className={`h-10 min-w-0 flex-1 rounded-lg border bg-background text-center font-mono text-base font-semibold tracking-wide transition-all duration-150 focus:outline-none sm:h-12 sm:max-w-10 sm:text-lg ${
+                    className={`h-10 min-w-0 flex-1 rounded-lg border bg-background text-center font-mono text-base font-semibold tracking-wide transition-all duration-150 focus:outline-hidden sm:h-12 sm:max-w-10 sm:text-lg ${
                       focusedIndex === i
                         ? 'border-primary/80 shadow-[0_0_0_1px_hsl(var(--primary)/0.3)] ring-0'
                         : char

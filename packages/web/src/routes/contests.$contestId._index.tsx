@@ -40,11 +40,11 @@ export default function ContestOverviewPage() {
       icon={<Trophy className="h-6 w-6 text-primary" />}
       contentClassName="flex flex-col gap-4"
     >
-      <div className="flex flex-col gap-4 lg:flex-row">
+      <div className="flex flex-col gap-4 md:flex-row">
         <div className="flex-1 min-w-0 space-y-4">
           <ContestProblemsCard contestId={id} />
         </div>
-        <div className="flex flex-col w-full lg:w-80 lg:shrink-0 lg:sticky lg:top-6 h-fit gap-4">
+        <div className="flex flex-col w-full md:w-80 md:shrink-0 md:sticky md:top-6 h-fit gap-4">
           <ContestCountdown />
           {enrollState.canShowEnrollCard && (
             <ContestEnrollCard

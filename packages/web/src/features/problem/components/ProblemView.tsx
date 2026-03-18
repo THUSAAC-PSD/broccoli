@@ -304,7 +304,7 @@ export default function ProblemView({
       <div className="flex flex-col flex-1 min-h-0">
         {copiedNotice && (
           <div
-            className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-sm"
+            className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-xs"
             style={{ top: copiedNotice.top, left: copiedNotice.left }}
           >
             {copiedNotice.text || t('problem.copiedSimple')}

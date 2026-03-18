@@ -157,10 +157,10 @@ export function SubmissionsPanel() {
               entry &&
               (entry.status === 'submitting' || entry.status === 'polling')
             ) {
-              return 'bg-primary/[0.03]';
+              return 'bg-primary/3';
             }
             if (entry?.status === 'error') {
-              return 'bg-destructive/[0.03]';
+              return 'bg-destructive/3';
             }
             return '';
           }}
@@ -170,7 +170,7 @@ export function SubmissionsPanel() {
       <Slot
         name="problem-detail.sidebar"
         as="div"
-        className="flex-shrink-0"
+        className="shrink-0"
         slotProps={{
           submission: latestSubmission,
           submissions: entries,
