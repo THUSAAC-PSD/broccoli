@@ -33,6 +33,13 @@ pub struct Model {
     pub reply_is_public: bool,
     pub replied_at: Option<DateTimeUtc>,
 
+    /// Whether this thread has been resolved.
+    #[sea_orm(default_value = false)]
+    pub resolved: bool,
+    pub resolved_at: Option<DateTimeUtc>,
+    /// User who resolved this thread.
+    pub resolved_by: Option<i32>,
+
     #[sea_orm(belongs_to, from = "contest_id", to = "id")]
     pub contest: HasOne<super::contest::Entity>,
     #[sea_orm(belongs_to, from = "author_id", to = "id")]

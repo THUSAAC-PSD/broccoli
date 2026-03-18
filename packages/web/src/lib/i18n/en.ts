@@ -223,6 +223,11 @@ export const en: Record<string, string> = {
   'countdown.seconds': 'Sec',
 
   // Contest Q&A
+  'contest.qa.all': 'All',
+  'contest.qa.announcements': 'Announcements',
+  'contest.qa.questions': 'Q & A',
+  'contest.qa.directMessages': 'Direct Messages',
+  'contest.qa.messages': 'Messages',
   'contest.qa.empty': 'No questions yet.',
 
   // Ranking
@@ -607,6 +612,31 @@ export const en: Record<string, string> = {
   'clarification.submitError': 'Failed to submit.',
   'clarification.replySuccess': 'Reply sent.',
   'clarification.replyError': 'Failed to send reply.',
+  'clarification.resolved': 'Thread resolved.',
+  'clarification.reopened': 'Thread reopened.',
+  'clarification.resolveError': 'Failed to update thread status.',
+  'clarification.you': 'you',
+  'clarification.announcement': 'Announcement',
+  'clarification.direct': 'Direct',
+  'clarification.statusResolved': 'Resolved',
+  'clarification.statusInProgress': 'In Progress',
+  'clarification.statusPending': 'Pending',
+  'clarification.resolvedBy': 'Resolved by {name}',
+  'clarification.reopen': 'Reopen',
+  'clarification.threadOpen': 'Thread is open',
+  'clarification.awaitingReply': 'Awaiting reply',
+  'clarification.markResolved': 'Mark Resolved',
+  'clarification.replyPlaceholder': 'Type your reply...',
+  'clarification.private': 'Private',
+  'clarification.public': 'Public',
+  'clarification.send': 'Send',
+  'clarification.makePublic': 'Make public',
+  'clarification.makePrivate': 'Make private',
+  'clarification.publishReplyOnly': 'Publish reply only',
+  'clarification.publishWithQuestion': 'Publish with question',
+  'clarification.madePublic': 'Reply is now visible to all.',
+  'clarification.madePrivate': 'Reply is now private.',
+  'clarification.toggleError': 'Failed to update reply visibility.',
 
   // Dock layout
   'dock.empty': 'No panels open',

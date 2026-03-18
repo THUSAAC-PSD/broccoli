@@ -41,5 +41,22 @@ pub async fn init_db(db_url: &str) -> Result<DatabaseConnection, DbErr> {
         .sync(&db)
         .await?;
 
+    // Migrate existing single-reply data into the new clarification_reply table.
+    // Only runs once: copies rows where reply_content is set but no matching
+    // reply row exists yet.
+    let _ = db
+        .execute_unprepared(
+            r#"INSERT INTO "clarification_reply" ("clarification_id", "author_id", "content", "is_public", "created_at")
+               SELECT "id", "reply_author_id", "reply_content", "reply_is_public", "replied_at"
+               FROM "clarification"
+               WHERE "reply_content" IS NOT NULL
+                 AND "reply_author_id" IS NOT NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM "clarification_reply" cr
+                   WHERE cr."clarification_id" = "clarification"."id"
+                 )"#,
+        )
+        .await;
+
     Ok(db)
 }

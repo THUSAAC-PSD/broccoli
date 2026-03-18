@@ -24,15 +24,31 @@ pub struct CreateClarificationRequest {
     pub is_public: Option<bool>,
 }
 
-/// Request body for replying to a clarification (admin-only).
+/// Request body for replying to a clarification.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct ReplyClarificationRequest {
     /// Reply content (1 – 10 000 chars).
     #[schema(example = "Yes, the input is always sorted in ascending order.")]
     pub content: String,
-    /// If true the reply is visible to all contest participants.
+    /// If true the reply is visible to all contest participants (admin-only flag).
     #[schema(example = true)]
     pub is_public: bool,
+}
+
+/// Request body for resolving / reopening a clarification thread.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct ResolveClarificationRequest {
+    /// true = resolve, false = reopen.
+    #[schema(example = true)]
+    pub resolved: bool,
+}
+
+/// Query params for toggling reply visibility.
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ToggleReplyPublicQuery {
+    /// If true, also make the parent question visible to all when making a reply public.
+    pub include_question: Option<bool>,
 }
 
 /// Optional query params for listing clarifications.
@@ -47,6 +63,21 @@ pub struct ClarificationListQuery {
 // ---------------------------------------------------------------------------
 // Response DTOs
 // ---------------------------------------------------------------------------
+
+/// A single reply within a clarification thread.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ClarificationReplyResponse {
+    #[schema(example = 1)]
+    pub id: i32,
+    #[schema(example = 42)]
+    pub author_id: i32,
+    #[schema(example = "admin")]
+    pub author_name: String,
+    pub content: String,
+    #[schema(example = true)]
+    pub is_public: bool,
+    pub created_at: DateTime<Utc>,
+}
 
 /// A single clarification with author names resolved.
 #[derive(Serialize, utoipa::ToSchema)]
@@ -67,13 +98,22 @@ pub struct ClarificationResponse {
     #[schema(example = false)]
     pub is_public: bool,
 
-    // Reply fields (None when not yet answered)
+    // Legacy single-reply fields (kept for backwards compat, populated from first reply)
     pub reply_content: Option<String>,
     pub reply_author_id: Option<i32>,
     pub reply_author_name: Option<String>,
     #[schema(example = false)]
     pub reply_is_public: bool,
     pub replied_at: Option<DateTime<Utc>>,
+
+    /// All replies in chronological order.
+    pub replies: Vec<ClarificationReplyResponse>,
+
+    /// Whether this thread is resolved.
+    pub resolved: bool,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolved_by: Option<i32>,
+    pub resolved_by_name: Option<String>,
 
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

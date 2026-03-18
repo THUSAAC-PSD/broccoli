@@ -1,17 +1,17 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
-  Badge,
   Button,
-  Card,
-  CardContent,
   Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from '@broccoli/web-sdk/ui';
-import { Filter, LogIn, Mail, Megaphone, MessageCircle } from 'lucide-react';
-import { useState } from 'react';
+import { LogIn, MessageCircle } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
+import { PageLayout } from '@/components/PageLayout';
 import { useAuth } from '@/features/auth/hooks/use-auth';
-import type { ClarificationType } from '@/features/clarification/api/types';
 import { AskQuestionDialog } from '@/features/clarification/components/AskQuestionDialog';
 import { ClarificationCard } from '@/features/clarification/components/ClarificationCard';
 import { PostAnnouncementDialog } from '@/features/clarification/components/PostAnnouncementDialog';
@@ -20,16 +20,15 @@ import {
   useClarifications,
   useCreateClarification,
   useReplyClarification,
+  useResolveClarification,
+  useToggleReplyPublic,
 } from '@/features/clarification/hooks/use-clarifications';
-
-type FilterTab = 'all' | ClarificationType;
 
 export default function ContestQAPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { contestId } = useParams();
   const id = Number(contestId ?? '0');
-  const [activeTab, setActiveTab] = useState<FilterTab>('all');
 
   const isAdmin = !!user?.permissions?.includes('contest:manage');
 
@@ -39,141 +38,172 @@ export default function ContestQAPage() {
   );
   const createMutation = useCreateClarification(id);
   const replyMutation = useReplyClarification(id);
+  const resolveMutation = useResolveClarification(id);
+  const togglePublicMutation = useToggleReplyPublic(id);
 
   if (!contestId || Number.isNaN(Number(contestId))) {
     return <div className="text-2xl font-bold">{t('contests.notFound')}</div>;
   }
 
-  const filtered =
-    activeTab === 'all'
-      ? clarifications
-      : clarifications.filter((c) => c.clarification_type === activeTab);
+  const announcements = clarifications.filter(
+    (c) => c.clarification_type === 'announcement',
+  );
+  const questions = clarifications.filter(
+    (c) => c.clarification_type === 'question',
+  );
+  const directMessages = clarifications.filter(
+    (c) => c.clarification_type === 'direct_message',
+  );
 
-  const showDmTab =
-    isAdmin ||
-    clarifications.some((c) => c.clarification_type === 'direct_message');
+  const showDmTab = isAdmin || directMessages.length > 0;
 
-  const tabs: { key: FilterTab; label: string; icon: typeof MessageCircle }[] =
-    [
-      { key: 'all', label: 'All', icon: Filter },
-      { key: 'announcement', label: 'Announcements', icon: Megaphone },
-      { key: 'question', label: 'Q & A', icon: MessageCircle },
-      ...(showDmTab
-        ? [
-            {
-              key: 'direct_message' as FilterTab,
-              label: isAdmin ? 'Direct Messages' : 'Messages',
-              icon: Mail,
-            },
-          ]
-        : []),
-    ];
+  const renderList = (items: typeof clarifications, emptyMessage: string) => {
+    if (isLoading) {
+      return (
+        <div className="space-y-4">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      );
+    }
+
+    if (items.length === 0) {
+      return (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          <MessageCircle className="mx-auto h-10 w-10 mb-2 opacity-20" />
+          <p>{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {items.map((c) => (
+          <ClarificationCard
+            key={c.id}
+            clarification={c}
+            isAdmin={isAdmin}
+            currentUserId={user?.id ?? -1}
+            onReply={(content) =>
+              replyMutation.mutate({
+                clarificationId: c.id,
+                content,
+              })
+            }
+            onResolve={(resolved) =>
+              resolveMutation.mutate({
+                clarificationId: c.id,
+                resolved,
+              })
+            }
+            onToggleReplyPublic={(replyId, includeQuestion) =>
+              togglePublicMutation.mutate({
+                clarificationId: c.id,
+                replyId,
+                includeQuestion,
+              })
+            }
+          />
+        ))}
+      </div>
+    );
+  };
+
+  if (!user) {
+    return (
+      <PageLayout
+        pageId="contest-qa"
+        title={t('sidebar.qa')}
+        icon={<MessageCircle className="h-6 w-6 text-primary" />}
+      >
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <LogIn className="h-10 w-10 text-muted-foreground/40 mb-4" />
+          <p className="text-muted-foreground mb-4">{t('auth.loginToAsk')}</p>
+          <Button asChild>
+            <Link to="/login">{t('nav.signIn')}</Link>
+          </Button>
+        </div>
+      </PageLayout>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <MessageCircle className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">{t('sidebar.qa')}</h1>
-          <Badge variant="outline" className="ml-2">
-            {filtered.length}
-          </Badge>
-        </div>
-
+    <PageLayout
+      pageId="contest-qa"
+      title={t('sidebar.qa')}
+      icon={<MessageCircle className="h-6 w-6 text-primary" />}
+      actions={
         <div className="flex items-center gap-2">
-          {user ? (
+          {isAdmin && (
             <>
-              {isAdmin && (
-                <>
-                  <PostAnnouncementDialog
-                    onSubmit={(content) =>
-                      createMutation.mutate({
-                        content,
-                        clarification_type: 'announcement',
-                      })
-                    }
-                  />
-                  <SendDirectMessageDialog
-                    contestId={id}
-                    onSubmit={(content, recipientId) =>
-                      createMutation.mutate({
-                        content,
-                        clarification_type: 'direct_message',
-                        recipient_id: recipientId,
-                      })
-                    }
-                  />
-                </>
-              )}
-              <AskQuestionDialog
+              <PostAnnouncementDialog
                 onSubmit={(content) =>
                   createMutation.mutate({
                     content,
-                    clarification_type: 'question',
+                    clarification_type: 'announcement',
+                  })
+                }
+              />
+              <SendDirectMessageDialog
+                contestId={id}
+                onSubmit={(content, recipientId) =>
+                  createMutation.mutate({
+                    content,
+                    clarification_type: 'direct_message',
+                    recipient_id: recipientId,
                   })
                 }
               />
             </>
-          ) : (
-            <Button asChild variant="outline">
-              <Link to="/login">
-                <LogIn className="h-4 w-4 mr-2" />
-                {t('auth.loginToAsk')}
-              </Link>
-            </Button>
           )}
+          <AskQuestionDialog
+            onSubmit={(content) =>
+              createMutation.mutate({
+                content,
+                clarification_type: 'question',
+              })
+            }
+          />
         </div>
-      </div>
+      }
+      contentClassName="flex flex-col gap-6"
+    >
+      <Tabs defaultValue="all">
+        <TabsList>
+          <TabsTrigger value="all">
+            {t('contest.qa.all')} ({clarifications.length})
+          </TabsTrigger>
+          <TabsTrigger value="announcements">
+            {t('contest.qa.announcements')} ({announcements.length})
+          </TabsTrigger>
+          <TabsTrigger value="questions">
+            {t('contest.qa.questions')} ({questions.length})
+          </TabsTrigger>
+          {showDmTab && (
+            <TabsTrigger value="dm">
+              {isAdmin
+                ? t('contest.qa.directMessages')
+                : t('contest.qa.messages')}{' '}
+              ({directMessages.length})
+            </TabsTrigger>
+          )}
+        </TabsList>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-2 bg-muted p-1 rounded-md w-fit">
-        {tabs.map(({ key, label, icon: Icon }) => (
-          <Button
-            key={key}
-            size="sm"
-            variant={activeTab === key ? 'default' : 'ghost'}
-            onClick={() => setActiveTab(key)}
-            className="h-8 gap-1.5"
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {label}
-          </Button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <div className="space-y-4">
-        {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-              <MessageCircle className="h-10 w-10 mb-2 opacity-20" />
-              <p>{t('contest.qa.empty')}</p>
-            </CardContent>
-          </Card>
-        ) : (
-          filtered.map((c) => (
-            <ClarificationCard
-              key={c.id}
-              clarification={c}
-              isAdmin={isAdmin}
-              currentUserId={user?.id ?? -1}
-              onReply={(content, isPublic) =>
-                replyMutation.mutate({
-                  clarificationId: c.id,
-                  content,
-                  is_public: isPublic,
-                })
-              }
-            />
-          ))
+        <TabsContent value="all">
+          {renderList(clarifications, t('contest.qa.empty'))}
+        </TabsContent>
+        <TabsContent value="announcements">
+          {renderList(announcements, t('contest.qa.empty'))}
+        </TabsContent>
+        <TabsContent value="questions">
+          {renderList(questions, t('contest.qa.empty'))}
+        </TabsContent>
+        {showDmTab && (
+          <TabsContent value="dm">
+            {renderList(directMessages, t('contest.qa.empty'))}
+          </TabsContent>
         )}
-      </div>
-    </div>
+      </Tabs>
+    </PageLayout>
   );
 }
