@@ -175,7 +175,7 @@ export function ProblemDockLayout({ dockApiRef }: ProblemDockLayoutProps) {
 
   return (
     <DockApiContext value={dockApiRef}>
-      {/* ── Closed panels recovery bar ── */}
+      {/* -- Closed panels recovery bar -- */}
       {closedPanels.length > 0 && (
         <div className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border-b bg-muted/30">
           <span className="text-[11px] font-medium text-muted-foreground tracking-wide uppercase">

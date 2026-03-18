@@ -18,7 +18,7 @@ export function useDockLayout() {
         const json = api.toJSON();
         localStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify(json));
       } catch {
-        // localStorage full or serialization error — ignore
+        // localStorage full or serialization error - ignore
       }
     }, DEBOUNCE_MS);
   }, []);
