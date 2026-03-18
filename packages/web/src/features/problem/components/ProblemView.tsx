@@ -331,10 +331,12 @@ export default function ProblemView({
           headerId={headerId}
           contestId={contestId}
         />
-        <ProblemEditTab
-          problemId={problemId}
-          onBack={() => setRouteTab('description')}
-        />
+        <div className="flex-1 min-h-0">
+          <ProblemEditTab
+            problemId={problemId}
+            onBack={() => setRouteTab('description')}
+          />
+        </div>
       </div>
     );
   }
