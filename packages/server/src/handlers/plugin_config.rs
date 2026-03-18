@@ -11,6 +11,11 @@ use sea_orm::{
 };
 use tracing::instrument;
 
+use std::collections::HashSet;
+
+use plugin_core::registry::PluginStatus;
+use plugin_core::traits::PluginManager;
+
 use crate::entity::{contest, contest_problem, plugin_config, problem};
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
@@ -64,10 +69,46 @@ async fn find_contest_problem<C: ConnectionTrait>(
     Ok(())
 }
 
+struct AvailableSchema {
+    plugin_id: String,
+    namespace: String,
+    description: Option<String>,
+    json_schema: serde_json::Value,
+}
+
+fn collect_schemas_for_scope(plugins: &dyn PluginManager, scope: &str) -> Vec<AvailableSchema> {
+    let plugin_list = match plugins.list_plugins() {
+        Ok(list) => list,
+        Err(e) => {
+            tracing::warn!(error = %e, scope, "Failed to list plugins for config schema collection");
+            return vec![];
+        }
+    };
+
+    let mut schemas = Vec::new();
+    for plugin in &plugin_list {
+        if plugin.status != PluginStatus::Loaded {
+            continue;
+        }
+        for (ns_name, ns_config) in &plugin.manifest.config {
+            if ns_config.scopes.contains(&scope.to_string()) {
+                schemas.push(AvailableSchema {
+                    plugin_id: plugin.id.clone(),
+                    namespace: ns_name.clone(),
+                    description: ns_config.description.clone(),
+                    json_schema: ns_config.to_json_schema(),
+                });
+            }
+        }
+    }
+    schemas
+}
+
 async fn list_config_inner<C: ConnectionTrait>(
     db: &C,
     scope: &str,
     ref_id: &str,
+    available_schemas: &[AvailableSchema],
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     let rows = plugin_config::Entity::find()
         .filter(plugin_config::Column::Scope.eq(scope))
@@ -75,7 +116,9 @@ async fn list_config_inner<C: ConnectionTrait>(
         .all(db)
         .await?;
 
-    let response: Vec<PluginConfigResponse> = rows
+    let mut seen_keys: HashSet<(String, String)> = HashSet::new();
+
+    let mut response: Vec<PluginConfigResponse> = rows
         .into_iter()
         .map(|r| {
             let (plugin_id, namespace) = if scope == "plugin" {
@@ -88,6 +131,13 @@ async fn list_config_inner<C: ConnectionTrait>(
                     strip_namespace_prefix(&r.namespace).to_string(),
                 )
             };
+
+            let matching_schema = available_schemas
+                .iter()
+                .find(|s| s.plugin_id == plugin_id && s.namespace == namespace);
+
+            seen_keys.insert((plugin_id.clone(), namespace.clone()));
+
             PluginConfigResponse {
                 plugin_id,
                 namespace,
@@ -95,9 +145,28 @@ async fn list_config_inner<C: ConnectionTrait>(
                 enabled: r.enabled,
                 position: r.position,
                 updated_at: Some(r.updated_at),
+                json_schema: matching_schema.map(|s| s.json_schema.clone()),
+                description: matching_schema.and_then(|s| s.description.clone()),
             }
         })
         .collect();
+
+    // Add skeleton entries for schemas that have no saved config
+    for schema in available_schemas {
+        let key = (schema.plugin_id.clone(), schema.namespace.clone());
+        if !seen_keys.contains(&key) {
+            response.push(PluginConfigResponse {
+                plugin_id: schema.plugin_id.clone(),
+                namespace: schema.namespace.clone(),
+                config: serde_json::Value::Null,
+                enabled: true,
+                position: 0,
+                updated_at: None,
+                json_schema: Some(schema.json_schema.clone()),
+                description: schema.description.clone(),
+            });
+        }
+    }
 
     Ok(Json(response))
 }
@@ -127,6 +196,8 @@ async fn get_config_inner<C: ConnectionTrait>(
                 enabled: r.enabled,
                 position: r.position,
                 updated_at: Some(r.updated_at),
+                json_schema: None,
+                description: None,
             }))
         }
         None => {
@@ -187,6 +258,8 @@ async fn upsert_config_inner<C: ConnectionTrait>(
         enabled,
         position,
         updated_at: Some(now),
+        json_schema: None,
+        description: None,
     }))
 }
 
@@ -291,7 +364,7 @@ pub async fn list_plugin_global_config(
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
     let ref_id = config_key::plugin(&plugin_id);
-    list_config_inner(&state.db, "plugin", &ref_id).await
+    list_config_inner(&state.db, "plugin", &ref_id, &[]).await
 }
 
 #[utoipa::path(
@@ -427,7 +500,8 @@ pub async fn list_problem_config(
     auth_user.require_permission("problem:edit")?;
     find_problem(&state.db, problem_id).await?;
     let ref_id = config_key::problem(problem_id);
-    list_config_inner(&state.db, "problem", &ref_id).await
+    let schemas = collect_schemas_for_scope(&*state.plugins, "problem");
+    list_config_inner(&state.db, "problem", &ref_id, &schemas).await
 }
 
 #[utoipa::path(
@@ -581,7 +655,8 @@ pub async fn list_contest_problem_config(
     auth_user.require_permission("contest:manage")?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
     let ref_id = config_key::contest_problem(contest_id, problem_id);
-    list_config_inner(&state.db, "contest_problem", &ref_id).await
+    let schemas = collect_schemas_for_scope(&*state.plugins, "contest_problem");
+    list_config_inner(&state.db, "contest_problem", &ref_id, &schemas).await
 }
 
 #[utoipa::path(
@@ -748,7 +823,8 @@ pub async fn list_contest_config(
     auth_user.require_permission("contest:manage")?;
     find_contest(&state.db, contest_id).await?;
     let ref_id = config_key::contest(contest_id);
-    list_config_inner(&state.db, "contest", &ref_id).await
+    let schemas = collect_schemas_for_scope(&*state.plugins, "contest");
+    list_config_inner(&state.db, "contest", &ref_id, &schemas).await
 }
 
 #[utoipa::path(

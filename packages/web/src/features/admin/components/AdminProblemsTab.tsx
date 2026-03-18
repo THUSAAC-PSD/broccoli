@@ -35,7 +35,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 
-import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
+import { ResourceConfigDialog } from '@/components/config';
 import { AdditionalFilesDialog } from '@/features/admin/components/AdditionalFilesDialog';
 import { AttachmentsDialog } from '@/features/admin/components/AttachmentsDialog';
 import { CheckerSourceDialog } from '@/features/admin/components/CheckerSourceDialog';
@@ -252,7 +252,7 @@ function useProblemColumns({
   onManageAdditionalFiles: (problem: ProblemSummary) => void;
   onManageAttachments: (problem: ProblemSummary) => void;
   onManageCheckerSource: (problem: ProblemSummary) => void;
-  onConfigure?: (problem: ProblemSummary) => void;
+  onConfigure: (problem: ProblemSummary) => void;
 }): DataTableColumn<ProblemSummary>[] {
   const { t, locale } = useTranslation();
   return [
@@ -351,12 +351,10 @@ function useProblemColumns({
               <Image className="h-4 w-4" />
               {t('admin.manageAttachments')}
             </DropdownMenuItem>
-            {onConfigure && (
-              <DropdownMenuItem onClick={() => onConfigure(row.original)}>
-                <Settings className="h-4 w-4" />
-                {t('admin.configure')}
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onClick={() => onConfigure(row.original)}>
+              <Settings className="h-4 w-4" />
+              {t('admin.configure')}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               {t('admin.edit')}
@@ -382,7 +380,6 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
-  const hasProblemConfig = useHasConfigSchemas('problem');
 
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<
@@ -465,7 +462,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onManageAdditionalFiles: handleManageAdditionalFiles,
     onManageAttachments: handleManageAttachments,
     onManageCheckerSource: handleManageCheckerSource,
-    onConfigure: hasProblemConfig ? handleConfigure : undefined,
+    onConfigure: handleConfigure,
   });
 
   return (

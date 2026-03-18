@@ -19,6 +19,12 @@ pub struct PluginConfigResponse {
     pub position: i32,
     /// Last update timestamp. `null` when no config has been saved yet (using defaults).
     pub updated_at: Option<DateTime<Utc>>,
+    /// JSON Schema for this config namespace (from the plugin manifest).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_schema: Option<serde_json::Value>,
+    /// Human-readable description of what this config controls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Request body for upserting config (raw JSON value).

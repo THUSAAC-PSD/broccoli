@@ -23,15 +23,23 @@ import type { ConfigScope } from './types';
 type ConfigSchemaResponse = PluginDetail['config_schemas'][number];
 type PluginDetailResponse = PluginDetail;
 
+/** A config entry returned by resource-scoped config list endpoints. */
+interface ConfigEntry {
+  plugin_id: string;
+  namespace: string;
+  config: unknown;
+  enabled: boolean;
+  position: number;
+  updated_at: string | null;
+  json_schema?: Record<string, unknown>;
+  description?: string | null;
+}
+
 export interface ResourceConfigDialogProps {
   scope: ConfigScope;
   resourceLabel: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-function scopeString(scope: ConfigScope): string {
-  return scope.scope;
 }
 
 function buildConfigCallbacks(
@@ -217,6 +225,131 @@ function buildConfigCallbacks(
   }
 }
 
+/** Fetch the config list for a resource-scoped config (problem/contest/contest_problem).
+ *  Returns config entries with embedded json_schema from the self-describing endpoint. */
+function useResourceConfigList(
+  apiClient: ReturnType<typeof useApiClient>,
+  scope: ConfigScope,
+  open: boolean,
+) {
+  return useQuery<ConfigEntry[]>({
+    queryKey: configListQueryKey(scope),
+    queryFn: async () => {
+      let result: { data?: unknown; error?: unknown };
+
+      switch (scope.scope) {
+        case 'problem':
+          result = await apiClient.GET('/problems/{id}/config', {
+            params: { path: { id: scope.problemId } },
+          });
+          break;
+        case 'contest':
+          result = await apiClient.GET('/contests/{id}/config', {
+            params: { path: { id: scope.contestId } },
+          });
+          break;
+        case 'contest_problem':
+          result = await apiClient.GET(
+            '/contests/{id}/problems/{problem_id}/config',
+            {
+              params: {
+                path: {
+                  id: scope.contestId,
+                  problem_id: scope.problemId,
+                },
+              },
+            },
+          );
+          break;
+        default:
+          return [];
+      }
+
+      if (result.error) throw result.error;
+      return (result.data ?? []) as ConfigEntry[]; // All three endpoints return PluginConfigResponse[]
+    },
+    enabled: open && scope.scope !== 'plugin',
+  });
+}
+
+function configListQueryKey(scope: ConfigScope): string[] {
+  switch (scope.scope) {
+    case 'problem':
+      return ['config-list', 'problem', String(scope.problemId)];
+    case 'contest':
+      return ['config-list', 'contest', String(scope.contestId)];
+    case 'contest_problem':
+      return [
+        'config-list',
+        'contest_problem',
+        String(scope.contestId),
+        String(scope.problemId),
+      ];
+    case 'plugin':
+      return ['config-list', 'plugin', scope.pluginId];
+  }
+}
+
+/** Convert config list entries into the pluginsWithSchemas structure the dialog expects. */
+function configEntriesToPluginSchemas(
+  entries: ConfigEntry[],
+): { pluginId: string; schemas: ConfigSchemaResponse[] }[] {
+  const byPlugin = new Map<
+    string,
+    { pluginId: string; schemas: ConfigSchemaResponse[] }
+  >();
+
+  for (const entry of entries) {
+    if (!entry.json_schema) continue;
+
+    if (!byPlugin.has(entry.plugin_id)) {
+      byPlugin.set(entry.plugin_id, {
+        pluginId: entry.plugin_id,
+        schemas: [],
+      });
+    }
+
+    byPlugin.get(entry.plugin_id)!.schemas.push({
+      namespace: entry.namespace,
+      description: entry.description ?? undefined,
+      scopes: [], // Not needed since we already know the scope matches
+      json_schema: entry.json_schema as Record<string, unknown>,
+    });
+  }
+
+  return Array.from(byPlugin.values());
+}
+
+/** For plugin scope, use GET /admin/plugins (admin-only). */
+function usePluginScopeSchemas(
+  apiClient: ReturnType<typeof useApiClient>,
+  scope: ConfigScope,
+  open: boolean,
+) {
+  const { data: plugins = [] } = useQuery({
+    queryKey: ['admin-plugins'],
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/admin/plugins');
+      if (error) throw error;
+      return data;
+    },
+    enabled: open && scope.scope === 'plugin',
+  });
+
+  return useMemo(() => {
+    if (scope.scope !== 'plugin') return [];
+    return plugins
+      .filter((p: PluginDetailResponse) => p.id === scope.pluginId)
+      .map((p: PluginDetailResponse) => ({
+        pluginId: p.id,
+        schemas: p.config_schemas.filter((s: ConfigSchemaResponse) =>
+          s.scopes.includes('plugin'),
+        ),
+      }))
+      .filter((e: { schemas: ConfigSchemaResponse[] }) => e.schemas.length > 0);
+  }, [plugins, scope]);
+}
+
 export function ResourceConfigDialog({
   scope,
   resourceLabel,
@@ -225,49 +358,34 @@ export function ResourceConfigDialog({
 }: ResourceConfigDialogProps) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
-  const scopeStr = scopeString(scope);
 
-  const { data: plugins = [] } = useQuery({
-    queryKey: ['admin-plugins'],
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET('/admin/plugins');
-      if (error) throw error;
-      return data;
-    },
-  });
+  // For plugin scope, use admin endpoint
+  const pluginSchemas = usePluginScopeSchemas(apiClient, scope, open);
 
-  const pluginsWithSchemas = useMemo(
-    () =>
-      plugins
-        .filter((plugin: PluginDetailResponse) =>
-          scope.scope === 'plugin' ? plugin.id === scope.pluginId : true,
-        )
-        .map((plugin: PluginDetailResponse) => ({
-          plugin,
-          schemas: plugin.config_schemas.filter((s: ConfigSchemaResponse) =>
-            s.scopes.includes(scopeStr),
-          ),
-        }))
-        .filter(
-          (entry: {
-            plugin: PluginDetailResponse;
-            schemas: ConfigSchemaResponse[];
-          }) => entry.schemas.length > 0,
-        ),
-    [plugins, scopeStr, scope],
+  // For resource scopes, use self-describing config list endpoint
+  const { data: configEntries = [] } = useResourceConfigList(
+    apiClient,
+    scope,
+    open,
   );
+
+  const pluginsWithSchemas = useMemo(() => {
+    if (scope.scope === 'plugin') return pluginSchemas;
+    return configEntriesToPluginSchemas(configEntries);
+  }, [scope, pluginSchemas, configEntries]);
 
   const [activePlugin, setActivePlugin] = useState('');
   const [activeNamespace, setActiveNamespace] = useState('');
 
   useEffect(() => {
     if (open && pluginsWithSchemas.length > 0) {
-      setActivePlugin(pluginsWithSchemas[0].plugin.id);
+      setActivePlugin(pluginsWithSchemas[0].pluginId);
       setActiveNamespace(pluginsWithSchemas[0].schemas[0]?.namespace ?? '');
     }
   }, [open, pluginsWithSchemas]);
 
-  const invalidateKeys = [['admin-plugins']];
+  const invalidateKeys = [configListQueryKey(scope)];
+  if (scope.scope === 'plugin') invalidateKeys.push(['admin-plugins']);
   if (scope.scope === 'contest' || scope.scope === 'contest_problem')
     invalidateKeys.push(['admin-contests']);
   if (scope.scope === 'problem' || scope.scope === 'contest_problem')
@@ -292,7 +410,7 @@ export function ResourceConfigDialog({
             </div>
           ) : pluginsWithSchemas.length === 1 ? (
             <SinglePluginContent
-              pluginId={pluginsWithSchemas[0].plugin.id}
+              pluginId={pluginsWithSchemas[0].pluginId}
               schemas={pluginsWithSchemas[0].schemas}
               apiClient={apiClient}
               scope={scope}
@@ -304,44 +422,32 @@ export function ResourceConfigDialog({
               value={activePlugin}
               onValueChange={(v) => {
                 setActivePlugin(v);
-                const entry = pluginsWithSchemas.find(
-                  (e: { plugin: PluginDetailResponse }) => e.plugin.id === v,
-                );
+                const entry = pluginsWithSchemas.find((e) => e.pluginId === v);
                 if (entry)
                   setActiveNamespace(entry.schemas[0]?.namespace ?? '');
               }}
             >
               <TabsList>
-                {pluginsWithSchemas.map(
-                  (entry: {
-                    plugin: PluginDetailResponse;
-                    schemas: ConfigSchemaResponse[];
-                  }) => (
-                    <TabsTrigger key={entry.plugin.id} value={entry.plugin.id}>
-                      {entry.plugin.name}
-                    </TabsTrigger>
-                  ),
-                )}
+                {pluginsWithSchemas.map((entry) => (
+                  <TabsTrigger key={entry.pluginId} value={entry.pluginId}>
+                    {entry.pluginId}
+                  </TabsTrigger>
+                ))}
               </TabsList>
-              {pluginsWithSchemas.map(
-                (entry: {
-                  plugin: PluginDetailResponse;
-                  schemas: ConfigSchemaResponse[];
-                }) => (
-                  <TabsContent key={entry.plugin.id} value={entry.plugin.id}>
-                    <SinglePluginContent
-                      pluginId={entry.plugin.id}
-                      schemas={entry.schemas}
-                      apiClient={apiClient}
-                      scope={scope}
-                      open={open && activePlugin === entry.plugin.id}
-                      invalidateKeys={invalidateKeys}
-                      activeNamespace={activeNamespace}
-                      onNamespaceChange={setActiveNamespace}
-                    />
-                  </TabsContent>
-                ),
-              )}
+              {pluginsWithSchemas.map((entry) => (
+                <TabsContent key={entry.pluginId} value={entry.pluginId}>
+                  <SinglePluginContent
+                    pluginId={entry.pluginId}
+                    schemas={entry.schemas}
+                    apiClient={apiClient}
+                    scope={scope}
+                    open={open && activePlugin === entry.pluginId}
+                    invalidateKeys={invalidateKeys}
+                    activeNamespace={activeNamespace}
+                    onNamespaceChange={setActiveNamespace}
+                  />
+                </TabsContent>
+              ))}
             </Tabs>
           )}
         </div>
