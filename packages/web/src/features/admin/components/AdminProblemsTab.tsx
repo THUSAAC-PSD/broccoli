@@ -21,6 +21,7 @@ import {
 import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  FileCode,
   Image,
   List,
   MoreHorizontal,
@@ -37,6 +38,7 @@ import { toast } from 'sonner';
 import { ResourceConfigDialog, useHasConfigSchemas } from '@/components/config';
 import { AdditionalFilesDialog } from '@/features/admin/components/AdditionalFilesDialog';
 import { AttachmentsDialog } from '@/features/admin/components/AttachmentsDialog';
+import { CheckerSourceDialog } from '@/features/admin/components/CheckerSourceDialog';
 import {
   ProblemForm,
   type ProblemFormData,
@@ -241,6 +243,7 @@ function useProblemColumns({
   onManageTestCases,
   onManageAdditionalFiles,
   onManageAttachments,
+  onManageCheckerSource,
   onConfigure,
 }: {
   onEdit: (problem: ProblemSummary) => void;
@@ -248,6 +251,7 @@ function useProblemColumns({
   onManageTestCases: (problem: ProblemSummary) => void;
   onManageAdditionalFiles: (problem: ProblemSummary) => void;
   onManageAttachments: (problem: ProblemSummary) => void;
+  onManageCheckerSource: (problem: ProblemSummary) => void;
   onConfigure?: (problem: ProblemSummary) => void;
 }): DataTableColumn<ProblemSummary>[] {
   const { t, locale } = useTranslation();
@@ -337,6 +341,12 @@ function useProblemColumns({
               <Paperclip className="h-4 w-4" />
               {t('admin.manageAdditionalFiles')}
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onManageCheckerSource(row.original)}
+            >
+              <FileCode className="h-4 w-4" />
+              {t('admin.manageCheckerSource')}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onManageAttachments(row.original)}>
               <Image className="h-4 w-4" />
               {t('admin.manageAttachments')}
@@ -391,6 +401,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const [attachmentsProblem, setAttachmentsProblem] = useState<
     ProblemSummary | undefined
   >();
+  const [checkerSourceDialogOpen, setCheckerSourceDialogOpen] = useState(false);
+  const [checkerSourceProblem, setCheckerSourceProblem] = useState<
+    ProblemSummary | undefined
+  >();
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [configProblem, setConfigProblem] = useState<
     ProblemSummary | undefined
@@ -421,6 +435,11 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     setAttachmentsDialogOpen(true);
   }
 
+  function handleManageCheckerSource(problem: ProblemSummary) {
+    setCheckerSourceProblem(problem);
+    setCheckerSourceDialogOpen(true);
+  }
+
   function handleConfigure(problem: ProblemSummary) {
     setConfigProblem(problem);
     setConfigDialogOpen(true);
@@ -445,6 +464,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onManageTestCases: handleManageTestCases,
     onManageAdditionalFiles: handleManageAdditionalFiles,
     onManageAttachments: handleManageAttachments,
+    onManageCheckerSource: handleManageCheckerSource,
     onConfigure: hasProblemConfig ? handleConfigure : undefined,
   });
 
@@ -496,6 +516,13 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
           problem={attachmentsProblem}
           open={attachmentsDialogOpen}
           onOpenChange={setAttachmentsDialogOpen}
+        />
+      )}
+      {checkerSourceProblem && (
+        <CheckerSourceDialog
+          problem={checkerSourceProblem}
+          open={checkerSourceDialogOpen}
+          onOpenChange={setCheckerSourceDialogOpen}
         />
       )}
       {configProblem && (
