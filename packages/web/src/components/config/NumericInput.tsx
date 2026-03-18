@@ -134,7 +134,7 @@ export function NumericInput({
           }}
           onFocus={() => setFocused(true)}
           onKeyDown={handleKeyDown}
-          className="flex h-9 w-full rounded-l-md border border-r-0 border-input bg-transparent px-3 py-1 text-sm tabular-nums shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 w-full rounded-l-md border border-r-0 border-input bg-transparent px-3 py-1 text-sm tabular-nums shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50"
           placeholder={integer ? '0' : '0.0'}
         />
         {(rangeHint || unit) && (

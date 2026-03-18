@@ -283,7 +283,7 @@ function ReplyMessage({
     <div
       className={`px-5 py-3 flex gap-3 ${!isLast ? 'border-b' : ''} hover:bg-muted/20 transition-colors`}
     >
-      <div className="flex-shrink-0 mt-0.5">
+      <div className="shrink-0 mt-0.5">
         <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center">
           <User className="h-3.5 w-3.5 text-muted-foreground" />
         </div>

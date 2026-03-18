@@ -1,7 +1,8 @@
-@import 'tailwindcss/base';
+@import 'tailwindcss';
+@import 'tw-animate-css';
 @import '@broccoli/web-sdk/index.css';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+
+@source "../node_modules/@broccoli/web-sdk/src";
 
 /* Vim mode cursor fix */
 .monaco-editor .vim-cursor {
@@ -9,7 +10,7 @@
   color: hsl(var(--background)) !important;
 }
 
-/* 
+/*
   monaco-vim injects raw spans and an <input> for ex-commands.
   Structure: .vim-status-bar
     > span (modeInfoNode)   — "--INSERT--", "--VISUAL--" etc.

@@ -51,10 +51,10 @@ export function KeybindingModeDropdown({
             size="sm"
             title={t('editor.keybindings')}
             aria-label={t('editor.keybindings')}
-            className="gap-1.5 text-muted-foreground"
+            className="h-7 px-2 gap-1 text-xs text-muted-foreground"
           >
             <Keyboard className="h-3.5 w-3.5" />
-            <span className="text-xs">{modeLabel(mode, normalLabel)}</span>
+            {modeLabel(mode, normalLabel)}
           </Button>
         )}
       </DropdownMenuTrigger>

@@ -25,7 +25,7 @@ export function ProblemMobileLayout({ problemId }: ProblemMobileLayoutProps) {
       onValueChange={setActiveTab}
       className="flex-1 flex flex-col min-h-0"
     >
-      <TabsList className="flex-shrink-0 w-full justify-start rounded-none border-b bg-transparent px-2">
+      <TabsList className="shrink-0 w-full justify-start rounded-none border-b bg-transparent px-2">
         <TabsTrigger value="statement" className="text-xs">
           {t('problem.description', { defaultValue: 'Statement' })}
         </TabsTrigger>

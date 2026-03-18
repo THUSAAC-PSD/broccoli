@@ -61,7 +61,7 @@ function getVerdictVariant(verdict: Verdict): BadgeVariant {
     case 'Skipped':
       return 'secondary';
     default:
-      return 'outline';
+      return 'outline-solid';
   }
 }
 

@@ -124,7 +124,7 @@ export function SubmissionsTable({
       <thead className={stickyHeader ? 'sticky top-0 z-10' : ''}>
         <tr
           className={`border-b ${headerTextSize} font-medium text-muted-foreground ${
-            stickyHeader ? 'bg-muted/60 backdrop-blur-sm' : 'bg-muted/30'
+            stickyHeader ? 'bg-muted/60 backdrop-blur-xs' : 'bg-muted/30'
           }`}
         >
           {expandable && <th className={`w-5 ${px} ${py}`} />}

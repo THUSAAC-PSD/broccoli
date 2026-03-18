@@ -344,7 +344,7 @@ export function Sidebar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 side="top"
-                className="w-[--radix-dropdown-menu-trigger-width]"
+                className="w-(--radix-dropdown-menu-trigger-width)"
               >
                 {user ? (
                   <Link to="/">

@@ -654,21 +654,25 @@ export function CodeEditor({
   }, []);
 
   const toolbar = (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       <Slot
         name="problem-detail.editor.toolbar"
         as="div"
-        className="flex items-center gap-2"
+        className="flex items-center gap-1"
       />
       {contestTypes && contestTypes.length > 0 && onContestTypeChange && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs gap-1 text-muted-foreground"
+            >
               {contestType ?? 'standard'}
-              <ChevronDown className="ml-2 h-4 w-4" />
+              <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="start">
             {contestTypes.map((ct) => (
               <DropdownMenuItem
                 key={ct}
@@ -683,10 +687,11 @@ export function CodeEditor({
       <Button
         variant="ghost"
         size="sm"
+        className="h-7 w-7 p-0 text-muted-foreground"
         onClick={handleUploadClick}
         title={t('editor.upload')}
       >
-        <Upload className="h-4 w-4" />
+        <Upload className="h-3.5 w-3.5" />
       </Button>
       <input
         ref={fileInputRef}
@@ -700,25 +705,31 @@ export function CodeEditor({
         <Button
           variant="ghost"
           size="sm"
+          className="h-7 w-7 p-0 text-muted-foreground"
           onClick={onToggleFullscreen}
           aria-label={t('editor.toggleFullscreen')}
         >
           {isFullscreen ? (
-            <Minimize2 className="h-4 w-4" />
+            <Minimize2 className="h-3.5 w-3.5" />
           ) : (
-            <Maximize2 className="h-4 w-4" />
+            <Maximize2 className="h-3.5 w-3.5" />
           )}
         </Button>
       )}
+      <div className="h-4 w-px bg-border mx-1" />
       <KeybindingModeDropdown
         mode={keybindingMode}
         onChange={setKeybindingMode}
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 font-medium"
+          >
             {selectedLanguage.name}
-            <ChevronDown className="ml-2 h-4 w-4" />
+            <ChevronDown className="h-3 w-3" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -828,7 +839,7 @@ export function CodeEditor({
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
-      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
+      <div className="flex items-center justify-between px-2 py-1.5 shrink-0 border-b">
         {toolbar}
       </div>
       {fileTabs}

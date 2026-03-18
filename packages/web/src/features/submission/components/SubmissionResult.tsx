@@ -123,14 +123,14 @@ function RejectionMessage({ error }: { error: SubmissionError }) {
   if (error.code === 'RATE_LIMITED') {
     return (
       <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm py-2">
-        <Timer className="h-4 w-4 flex-shrink-0" />
+        <Timer className="h-4 w-4 shrink-0" />
         <span>{error.message}</span>
       </div>
     );
   }
   return (
     <div className="flex items-center gap-2 text-destructive text-sm py-2">
-      <XCircle className="h-4 w-4 flex-shrink-0" />
+      <XCircle className="h-4 w-4 shrink-0" />
       <span>{error.message}</span>
     </div>
   );

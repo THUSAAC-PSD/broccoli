@@ -1,5 +1,7 @@
 import { Slot } from '@broccoli/web-sdk/slot';
 
+import { Markdown } from '@/components/Markdown';
+
 interface PageLayoutProps {
   pageId: string;
   icon?: React.ReactNode;
@@ -25,20 +27,20 @@ export function PageLayout({
         <Slot
           name={`${pageId}.header`}
           as="div"
-          className="flex flex-col sm:flex-row items-start sm:items-center gap-4"
+          className="flex items-center gap-4"
         >
-          <div className="flex items-center gap-3 min-w-0 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
             {icon}
             <Slot name={`${pageId}.header.title`} as="div" className="min-w-0">
               <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
             </Slot>
           </div>
-          {actions && <div className="sm:ml-auto">{actions}</div>}
+          {actions && <div className="ml-auto shrink-0">{actions}</div>}
         </Slot>
         {subtitle && (
-          <p className="text-sm text-muted-foreground mt-3 max-h-16 overflow-y-auto">
+          <Markdown className="text-sm text-muted-foreground mt-3 max-h-24 overflow-y-auto">
             {subtitle}
-          </p>
+          </Markdown>
         )}
       </div>
       <Slot
@@ -46,7 +48,7 @@ export function PageLayout({
         as="div"
         className={contentClassName ?? 'flex flex-col gap-4'}
       >
-        <div className="w-full">{children}</div>
+        {children}
         <Slot
           name={`${pageId}.content.sidebar`}
           as="div"
