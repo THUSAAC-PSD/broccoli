@@ -23,6 +23,13 @@ export interface ServerTableResponse<T> {
   pagination: PaginationMeta;
 }
 
+export interface ControlledServerTableState {
+  page: number;
+  search: string;
+  sortBy?: string;
+  sortOrder: 'asc' | 'desc';
+}
+
 export interface UseServerTableOptions<T> {
   queryKey: string[];
   fetchFn: (
@@ -33,6 +40,13 @@ export interface UseServerTableOptions<T> {
   defaultSortBy?: string;
   defaultSortOrder?: 'asc' | 'desc';
   debounceMs?: number;
+  state?: ControlledServerTableState;
+  onPageChange?: (page: number) => void;
+  onSearchChange?: (search: string) => void;
+  onSortChange?: (
+    sortBy: string | undefined,
+    sortOrder: 'asc' | 'desc',
+  ) => void;
 }
 
 export function useServerTable<T>({
@@ -42,20 +56,31 @@ export function useServerTable<T>({
   defaultSortBy,
   defaultSortOrder = 'desc',
   debounceMs = 300,
+  state,
+  onPageChange,
+  onSearchChange,
+  onSortChange,
 }: UseServerTableOptions<T>) {
-  const [page, setPage] = useState(1);
+  const [internalPage, setInternalPage] = useState(1);
   const [perPage, setPerPage] = useState(defaultPerPage);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [sortBy, setSortBy] = useState(defaultSortBy);
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(defaultSortOrder);
+  const [internalSearch, setInternalSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    () => state?.search ?? '',
+  );
+  const [internalSortBy, setInternalSortBy] = useState(defaultSortBy);
+  const [internalSortOrder, setInternalSortOrder] = useState<'asc' | 'desc'>(
+    defaultSortOrder,
+  );
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const apiClient = useApiClient();
+  const page = state?.page ?? internalPage;
+  const search = state?.search ?? internalSearch;
+  const sortBy = state ? state.sortBy : internalSortBy;
+  const sortOrder = state?.sortOrder ?? internalSortOrder;
 
   useEffect(() => {
     debounceTimer.current = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1);
     }, debounceMs);
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -76,17 +101,48 @@ export function useServerTable<T>({
     placeholderData: keepPreviousData,
   });
 
+  const setPage = useCallback(
+    (nextPage: number) => {
+      if (state) {
+        onPageChange?.(nextPage);
+        return;
+      }
+      setInternalPage(nextPage);
+    },
+    [onPageChange, state],
+  );
+
+  const setSearch = useCallback(
+    (nextSearch: string) => {
+      if (state) {
+        onSearchChange?.(nextSearch);
+        return;
+      }
+      setInternalSearch(nextSearch);
+      setInternalPage(1);
+    },
+    [onSearchChange, state],
+  );
+
   const toggleSort = useCallback(
     (column: string) => {
-      if (sortBy === column) {
-        setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setSortBy(column);
-        setSortOrder('asc');
+      const nextSortOrder =
+        sortBy === column ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc';
+
+      if (state) {
+        onSortChange?.(column, nextSortOrder);
+        return;
       }
-      setPage(1);
+
+      if (sortBy === column) {
+        setInternalSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setInternalSortBy(column);
+        setInternalSortOrder('asc');
+      }
+      setInternalPage(1);
     },
-    [sortBy],
+    [onSortChange, sortBy, sortOrder, state],
   );
 
   const pagination = data?.pagination ?? {
@@ -109,7 +165,11 @@ export function useServerTable<T>({
     setPage,
     setPerPage: (v: number) => {
       setPerPage(v);
-      setPage(1);
+      if (state) {
+        onPageChange?.(1);
+        return;
+      }
+      setInternalPage(1);
     },
     setSearch,
     toggleSort,

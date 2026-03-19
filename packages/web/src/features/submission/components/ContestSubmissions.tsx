@@ -16,11 +16,11 @@ import {
   ListFilter,
   Search,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { useAuth } from '@/features/auth/hooks/use-auth';
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
-import { useContest } from '@/features/contest/contexts/contest-context';
 import { fetchSupportedLanguages } from '@/features/problem/api/fetch-supported-languages';
 import { fetchContestSubmissions } from '@/features/submission/api/fetch-contest-submissions';
 
@@ -28,23 +28,99 @@ import { SubmissionsTable } from './SubmissionsTable';
 
 const PER_PAGE = 20;
 
+function parsePositiveInt(value: string | null) {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseStatus(value: string | null): SubmissionStatusFilterValue {
+  return SUBMISSION_STATUS_FILTER_OPTIONS.includes(
+    value as SubmissionStatusFilterValue,
+  )
+    ? (value as SubmissionStatusFilterValue)
+    : 'all';
+}
+
 export function ContestSubmissions({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const apiClient = useApiClient();
-  const { filterProblemId, setFilterProblemId } = useContest();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = parsePositiveInt(searchParams.get('page')) ?? 1;
+  const appliedProblemId = parsePositiveInt(searchParams.get('problem'));
+  const appliedLanguage = searchParams.get('language') ?? null;
+  const appliedStatus = parseStatus(searchParams.get('status'));
 
   const [draftProblemId, setDraftProblemId] = useState<string>(
-    filterProblemId ? String(filterProblemId) : 'all',
+    appliedProblemId ? String(appliedProblemId) : 'all',
   );
-  const [draftLanguage, setDraftLanguage] = useState<string>('all');
+  const [draftLanguage, setDraftLanguage] = useState<string>(
+    appliedLanguage ?? 'all',
+  );
   const [draftStatus, setDraftStatus] =
-    useState<SubmissionStatusFilterValue>('all');
+    useState<SubmissionStatusFilterValue>(appliedStatus);
 
-  const [appliedLanguage, setAppliedLanguage] = useState<string | null>(null);
-  const [appliedStatus, setAppliedStatus] =
-    useState<SubmissionStatusFilterValue>('all');
-  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setDraftProblemId(appliedProblemId ? String(appliedProblemId) : 'all');
+    setDraftLanguage(appliedLanguage ?? 'all');
+    setDraftStatus(appliedStatus);
+  }, [appliedLanguage, appliedProblemId, appliedStatus]);
+
+  const updateSearchParams = useCallback(
+    (
+      updates: {
+        page?: number;
+        problem?: number | null;
+        language?: string | null;
+        status?: SubmissionStatusFilterValue;
+      },
+      options?: { replace?: boolean },
+    ) => {
+      const next = new URLSearchParams(searchParams);
+      const nextPage = updates.page ?? page;
+      const nextProblem =
+        updates.problem === undefined ? appliedProblemId : updates.problem;
+      const nextLanguage =
+        updates.language === undefined ? appliedLanguage : updates.language;
+      const nextStatus = updates.status ?? appliedStatus;
+
+      if (nextPage <= 1) {
+        next.delete('page');
+      } else {
+        next.set('page', String(nextPage));
+      }
+
+      if (nextProblem) {
+        next.set('problem', String(nextProblem));
+      } else {
+        next.delete('problem');
+      }
+
+      if (nextLanguage) {
+        next.set('language', nextLanguage);
+      } else {
+        next.delete('language');
+      }
+
+      if (nextStatus !== 'all') {
+        next.set('status', nextStatus);
+      } else {
+        next.delete('status');
+      }
+
+      setSearchParams(next, { replace: options?.replace ?? false });
+    },
+    [
+      appliedLanguage,
+      appliedProblemId,
+      appliedStatus,
+      page,
+      searchParams,
+      setSearchParams,
+    ],
+  );
 
   const { data: problems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
@@ -61,7 +137,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
     queryKey: [
       'contest-submissions-table',
       String(contestId),
-      String(filterProblemId ?? 'all'),
+      String(appliedProblemId ?? 'all'),
       String(appliedLanguage ?? 'all'),
       appliedStatus,
       page,
@@ -70,7 +146,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
     queryFn: () =>
       fetchContestSubmissions(apiClient, {
         contestId,
-        problemId: filterProblemId,
+        problemId: appliedProblemId,
         language: appliedLanguage,
         status: toSubmissionStatus(appliedStatus),
         userId: user?.id,
@@ -118,10 +194,12 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
   const applyFilters = () => {
     const nextProblemId =
       draftProblemId === 'all' ? null : Number(draftProblemId);
-    setFilterProblemId(nextProblemId);
-    setAppliedLanguage(draftLanguage === 'all' ? null : draftLanguage);
-    setAppliedStatus(draftStatus);
-    setPage(1);
+    updateSearchParams({
+      page: 1,
+      problem: nextProblemId,
+      language: draftLanguage === 'all' ? null : draftLanguage,
+      status: draftStatus,
+    });
   };
 
   return (
@@ -187,7 +265,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
               size="icon"
               className="h-8 w-8"
               disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => updateSearchParams({ page: page - 1 })}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -199,7 +277,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
               size="icon"
               className="h-8 w-8"
               disabled={page >= pagination.total_pages}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => updateSearchParams({ page: page + 1 })}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

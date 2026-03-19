@@ -8,7 +8,8 @@ import {
   TabsTrigger,
 } from '@broccoli/web-sdk/ui';
 import { LogIn, MessageCircle } from 'lucide-react';
-import { Link, useParams } from 'react-router';
+import { useEffect } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router';
 
 import { PageLayout } from '@/components/PageLayout';
 import { useAuth } from '@/features/auth/hooks/use-auth';
@@ -24,10 +25,19 @@ import {
   useToggleReplyPublic,
 } from '@/features/clarification/hooks/use-clarifications';
 
+type QaTab = 'all' | 'announcements' | 'questions' | 'dm';
+
+function parseQaTab(value: string | null): QaTab {
+  return value === 'announcements' || value === 'questions' || value === 'dm'
+    ? value
+    : 'all';
+}
+
 export default function ContestQAPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { contestId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const id = Number(contestId ?? '0');
 
   const isAdmin = !!user?.permissions?.includes('contest:manage');
@@ -41,10 +51,6 @@ export default function ContestQAPage() {
   const resolveMutation = useResolveClarification(id);
   const togglePublicMutation = useToggleReplyPublic(id);
 
-  if (!contestId || Number.isNaN(Number(contestId))) {
-    return <div className="text-2xl font-bold">{t('contests.notFound')}</div>;
-  }
-
   const announcements = clarifications.filter(
     (c) => c.clarification_type === 'announcement',
   );
@@ -56,6 +62,38 @@ export default function ContestQAPage() {
   );
 
   const showDmTab = isAdmin || directMessages.length > 0;
+  const requestedTab = parseQaTab(searchParams.get('tab'));
+  const canKeepDmTab = requestedTab === 'dm' && (isLoading || showDmTab);
+  const activeTab = canKeepDmTab
+    ? 'dm'
+    : !showDmTab && requestedTab === 'dm'
+      ? 'all'
+      : requestedTab;
+
+  useEffect(() => {
+    if (!isLoading && !showDmTab && requestedTab === 'dm') {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('tab');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [isLoading, requestedTab, searchParams, setSearchParams, showDmTab]);
+
+  const setActiveTab = (tab: string) => {
+    const nextTab = parseQaTab(tab);
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (nextTab === 'all') {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', nextTab);
+    }
+
+    setSearchParams(nextParams);
+  };
+
+  if (!contestId || Number.isNaN(Number(contestId))) {
+    return <div className="text-2xl font-bold">{t('contests.notFound')}</div>;
+  }
 
   const renderList = (items: typeof clarifications, emptyMessage: string) => {
     if (isLoading) {
@@ -168,7 +206,7 @@ export default function ContestQAPage() {
       }
       contentClassName="flex flex-col gap-6"
     >
-      <Tabs defaultValue="all">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="all">
             {t('contest.qa.all')} ({clarifications.length})
@@ -179,7 +217,7 @@ export default function ContestQAPage() {
           <TabsTrigger value="questions">
             {t('contest.qa.questions')} ({questions.length})
           </TabsTrigger>
-          {showDmTab && (
+          {(showDmTab || canKeepDmTab) && (
             <TabsTrigger value="dm">
               {isAdmin
                 ? t('contest.qa.directMessages')
@@ -198,7 +236,7 @@ export default function ContestQAPage() {
         <TabsContent value="questions">
           {renderList(questions, t('contest.qa.empty'))}
         </TabsContent>
-        {showDmTab && (
+        {(showDmTab || canKeepDmTab) && (
           <TabsContent value="dm">
             {renderList(directMessages, t('contest.qa.empty'))}
           </TabsContent>

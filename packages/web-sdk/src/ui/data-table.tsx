@@ -17,6 +17,7 @@ import {
 
 import type { ApiClient } from '@/api';
 import type {
+  ControlledServerTableState,
   PaginationMeta,
   ServerTableResponse,
 } from '@/hooks/use-server-table';
@@ -52,6 +53,13 @@ export interface DataTableProps<TData> {
   defaultSortOrder?: 'asc' | 'desc';
   emptyMessage?: string;
   toolbar?: React.ReactNode;
+  state?: ControlledServerTableState;
+  onPageChange?: (page: number) => void;
+  onSearchChange?: (search: string) => void;
+  onSortChange?: (
+    sortBy: string | undefined,
+    sortOrder: 'asc' | 'desc',
+  ) => void;
 }
 
 function SortIcon({
@@ -150,6 +158,10 @@ export function DataTable<TData>({
   defaultSortOrder = 'desc',
   emptyMessage = 'No results found.',
   toolbar,
+  state,
+  onPageChange,
+  onSearchChange,
+  onSortChange,
 }: DataTableProps<TData>) {
   const {
     data,
@@ -169,6 +181,10 @@ export function DataTable<TData>({
     defaultPerPage,
     defaultSortBy,
     defaultSortOrder,
+    state,
+    onPageChange,
+    onSearchChange,
+    onSortChange,
   });
 
   const table = useReactTable({

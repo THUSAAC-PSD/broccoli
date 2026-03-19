@@ -50,6 +50,7 @@ import {
   fetchAttachments,
 } from '@/features/problem/api/attachments';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
+import { useTableSearchParams } from '@/hooks/use-table-search-params';
 import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Problem Form Dialog ──
@@ -380,6 +381,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const table = useTableSearchParams({
+    defaultSortBy: 'created_at',
+    defaultSortOrder: 'desc',
+  });
 
   const [problemDialogOpen, setProblemDialogOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<
@@ -482,6 +487,10 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
         defaultSortBy="created_at"
         defaultSortOrder="desc"
         emptyMessage={t('admin.noProblems')}
+        state={table.state}
+        onPageChange={table.setPage}
+        onSearchChange={table.setSearch}
+        onSortChange={table.setSort}
         toolbar={
           <Button size="sm" onClick={handleCreateProblem}>
             <Plus className="h-4 w-4 mr-1" />

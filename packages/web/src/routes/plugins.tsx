@@ -12,6 +12,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Loader2, Puzzle, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 
 import { PageLayout } from '@/components/PageLayout';
@@ -25,14 +26,30 @@ export default function PluginsPage() {
   const { user } = useAuth();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
   const [reloadingIds, setReloadingIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [isReloadingAll, setIsReloadingAll] = useState(false);
-  const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
+  const detailPluginId = searchParams.get('plugin');
   const { unloadPlugin, reloadPlugin, reloadAllPlugins } = usePluginRegistry();
+
+  const setDetailPluginId = useCallback(
+    (pluginId: string | null) => {
+      const nextParams = new URLSearchParams(searchParams);
+
+      if (pluginId) {
+        nextParams.set('plugin', pluginId);
+      } else {
+        nextParams.delete('plugin');
+      }
+
+      setSearchParams(nextParams);
+    },
+    [searchParams, setSearchParams],
+  );
 
   const {
     data: plugins,
@@ -205,7 +222,9 @@ export default function PluginsPage() {
         pluginId={detailPluginId}
         open={!!detailPluginId}
         onOpenChange={(open) => {
-          if (!open) setDetailPluginId(null);
+          if (!open) {
+            setDetailPluginId(null);
+          }
         }}
       />
     </PageLayout>
