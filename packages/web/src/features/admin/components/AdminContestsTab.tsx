@@ -49,6 +49,7 @@ import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { getContestStatus } from '@/features/contest/utils/status';
+import { useTableSearchParams } from '@/hooks/use-table-search-params';
 import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Data fetcher ──
@@ -859,6 +860,10 @@ export function AdminContestsTab() {
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const table = useTableSearchParams({
+    defaultSortBy: 'created_at',
+    defaultSortOrder: 'desc',
+  });
 
   const [contestDialogOpen, setContestDialogOpen] = useState(false);
   const [editingContest, setEditingContest] = useState<
@@ -936,6 +941,10 @@ export function AdminContestsTab() {
         defaultSortBy="created_at"
         defaultSortOrder="desc"
         emptyMessage={t('admin.noContests')}
+        state={table.state}
+        onPageChange={table.setPage}
+        onSearchChange={table.setSearch}
+        onSortChange={table.setSort}
         toolbar={
           <Button size="sm" onClick={handleCreateContest}>
             <Plus className="h-4 w-4 mr-1" />
