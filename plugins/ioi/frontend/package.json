@@ -9,11 +9,41 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "build": "tsup src/index.tsx src/styles.css --format esm --dts --clean --external react --external react-dom --external react-router --external @tanstack/react-query --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/problem --external @broccoli/web-sdk/slot --external @broccoli/web-sdk/submission --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --external lucide-react --external @monaco-editor/react",
-    "dev": "tsup src/index.tsx src/styles.css --format esm --external react --external react-dom --external react-router --external @tanstack/react-query --external @broccoli/web-sdk/api --external @broccoli/web-sdk/i18n --external @broccoli/web-sdk/problem --external @broccoli/web-sdk/slot --external @broccoli/web-sdk/submission --external @broccoli/web-sdk/ui --external @broccoli/web-sdk/utils --external lucide-react --external @monaco-editor/react --watch --sourcemap"
+    "build": "tsdown --dts",
+    "dev": "tsdown --watch --sourcemap"
+  },
+  "tsdown": {
+    "entry": [
+      "src/index.tsx",
+      "src/styles.css"
+    ],
+    "platform": "neutral",
+    "css": {
+      "transformer": "postcss",
+      "fileName": "styles.css"
+    },
+    "deps": {
+      "neverBundle": [
+        "react",
+        "react-dom",
+        "react-router",
+        "@tanstack/react-query",
+        "@broccoli/web-sdk/api",
+        "@broccoli/web-sdk/i18n",
+        "@broccoli/web-sdk/problem",
+        "@broccoli/web-sdk/slot",
+        "@broccoli/web-sdk/submission",
+        "@broccoli/web-sdk/ui",
+        "@broccoli/web-sdk/utils",
+        "lucide-react",
+        "@monaco-editor/react"
+      ]
+    }
   },
   "dependencies": {
     "@broccoli/web-sdk": "file:../../../packages/web-sdk"
@@ -22,6 +52,7 @@
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@tsdown/css": "^0.21.4",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-query": "^5.0.0",
     "@types/react": "^19.1.16",
@@ -31,7 +62,7 @@
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
-    "tsup": "^8.5.0",
+    "tsdown": "^0.21.4",
     "typescript": "~5.9.3"
   }
 }

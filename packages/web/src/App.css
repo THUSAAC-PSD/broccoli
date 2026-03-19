@@ -1,3 +1,4 @@
+@layer plugin;
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '../../web-sdk/src/index.css';

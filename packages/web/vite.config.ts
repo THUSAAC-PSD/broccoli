@@ -19,7 +19,7 @@ function resolveSdkDep(dep: string): string {
         ? 'index.js'
         : `${dep.slice('@broccoli/web-sdk/'.length)}/index.js`;
 
-    return path.resolve(__dirname, `../sdk/dist/${relPath}`);
+    return path.resolve(__dirname, `../web-sdk/dist/${relPath}`);
   }
 }
 
