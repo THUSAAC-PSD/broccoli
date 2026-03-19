@@ -21,7 +21,7 @@ use super::wasm::copy_wasm_artifact;
 ///
 /// For plugins with a `[web]` section, the watch command spawns the frontend
 /// dev server (`pnpm dev` by default, configurable via `broccoli.dev.toml`)
-/// as a long-running background process. tsup's built-in `--watch` mode
+/// as a long-running background process. The frontend bundler's built-in `--watch` mode
 /// handles incremental frontend rebuilds; the CLI watches the `[web].root`
 /// output directory for changes and triggers package + upload when new
 /// build artifacts appear.
@@ -94,7 +94,7 @@ struct WebSection {
 enum ChangeKind {
     /// Backend source changed. Run cargo build, then package + upload.
     Backend,
-    /// Frontend dist output changed (from tsup --watch). Just package + upload.
+    /// Frontend dist output changed (from the frontend bundler watch mode). Just package + upload.
     FrontendOutput,
     /// plugin.toml changed. Rebuild backend + package + upload.
     ManifestChanged,
@@ -247,7 +247,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                     let relative = path.strip_prefix(&plugin_dir).unwrap_or(&path);
 
                     // Never ignore the web root output dir. We need to detect
-                    // changes from tsup's --watch mode. Only ignore built-in
+                    // changes from the frontend bundler watch mode. Only ignore built-in
                     // dirs (target/, .git/, node_modules/) and extra patterns.
                     if dev_config::should_ignore(
                         relative,
@@ -412,7 +412,7 @@ fn classify_changes(
         }
 
         // Check if this is a frontend source file (inside frontend_dir).
-        // We ignore these because tsup --watch handles rebuilds.
+        // We ignore these because the frontend bundler watch mode handles rebuilds.
         if frontend_dir.is_some_and(|fd| path.starts_with(fd)) {
             continue;
         }
@@ -439,7 +439,7 @@ fn classify_changes(
     }
 }
 
-/// Spawn the frontend dev server (e.g. `pnpm dev` which runs `tsup --watch`).
+/// Spawn the frontend dev server (e.g. `pnpm dev` which runs the bundler watch mode).
 fn spawn_frontend_dev(dev: &ResolvedDevConfig, _plugin_dir: &Path) -> anyhow::Result<Child> {
     let fe_dir = dev.frontend_dir.as_deref().context(
         "Cannot determine frontend directory. Set build.frontend_dir in broccoli.dev.toml",

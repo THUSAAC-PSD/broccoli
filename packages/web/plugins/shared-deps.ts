@@ -90,7 +90,7 @@ const FLAT_TO_DEP = new Map(SHARED_DEPS.map((dep) => [flattenId(dep), dep]));
 
 const IDENT_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 const SDK_DIST_ROOT = fileURLToPath(
-  new URL('../../sdk/dist/', import.meta.url),
+  new URL('../../web-sdk/dist/', import.meta.url),
 );
 
 const nodeRequire = createRequire(import.meta.url);

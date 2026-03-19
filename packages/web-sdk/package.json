@@ -20,13 +20,24 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/tailwind-preset.ts src/*/index.ts --format esm --dts --clean && cp src/index.css dist/index.css",
-    "dev": "tsup src/index.ts src/tailwind-preset.ts src/*/index.ts --format esm --dts --watch"
+    "build": "tsdown --dts",
+    "dev": "tsdown --watch --dts --no-clean"
+  },
+  "tsdown": {
+    "entry": [
+      "src/index.ts",
+      "src/tailwind-preset.ts",
+      "src/*/index.ts"
+    ],
+    "platform": "neutral",
+    "copy": [
+      "src/index.css"
+    ]
   },
   "devDependencies": {
     "@types/react": "^19.1.16",
     "tailwindcss": "^4.2.1",
-    "tsup": "^8.5.0",
+    "tsdown": "^0.21.4",
     "typescript": "~5.9.3"
   },
   "peerDependencies": {

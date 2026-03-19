@@ -12,8 +12,16 @@
   "files": ["dist"],
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "build": "tsup src/index.tsx src/styles.css --format esm --dts --clean --external react",
-    "dev": "tsup src/index.tsx src/styles.css --format esm --external react --watch --sourcemap"
+    "build": "tsdown --dts",
+    "dev": "tsdown --watch --sourcemap"
+  },
+  "tsdown": {
+    "entry": ["src/index.tsx", "src/styles.css"],
+    "platform": "neutral",
+    "css": {
+      "transformer": "postcss",
+      "fileName": "styles.css"
+    }
   },
   "dependencies": {
     "@broccoli/web-sdk": "{{web_sdk_dep}}"
@@ -22,11 +30,12 @@
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@tsdown/css": "^0.21.4",
     "@types/react": "^19.1.16",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
-    "tsup": "^8.5.0",
+    "tsdown": "^0.21.4",
     "typescript": "~5.9.3"
   }
 }
