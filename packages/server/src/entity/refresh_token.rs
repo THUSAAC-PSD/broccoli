@@ -5,7 +5,8 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "refresh_tokens")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub token: String, // UUID or secure random string
+    pub selector: String, // Unique identifier for the refresh token
+    pub validator: String, // Hashed validator for secure comparison
 
     pub user_id: i32,
 

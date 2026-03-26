@@ -5,4 +5,5 @@ pub mod hash;
 pub mod jwt;
 pub mod password;
 pub mod plugin;
+pub mod refresh;
 pub mod soft_delete;

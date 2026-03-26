@@ -2,9 +2,8 @@ use std::time::{Duration, Instant};
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use axum_extra::extract::CookieJar;
-use axum_extra::extract::cookie::{Cookie, SameSite};
+use axum_extra::extract::cookie::Cookie;
 use sea_orm::*;
-use std::sync::OnceLock;
 use tracing::instrument;
 
 use crate::entity::{refresh_token, role, role_permission, user};
@@ -18,33 +17,7 @@ use crate::models::auth::{
 };
 use crate::state::AppState;
 use crate::utils::soft_delete::SoftDeletable;
-use crate::utils::{hash, jwt};
-
-const REFRESH_TOKEN_EXPIRY_DAYS: i64 = 7;
-const REFRESH_COOKIE_NAME: &str = "broccoli_refresh";
-
-/// Helper to build the HttpOnly refresh cookie
-fn build_refresh_cookie(token: String, max_age_days: i64) -> Cookie<'static> {
-    Cookie::build((REFRESH_COOKIE_NAME, token))
-        .http_only(true)
-        .secure(true) // Ensure this is handled properly behind reverse proxies
-        .same_site(SameSite::Strict)
-        .path("/api/v1/auth/refresh")
-        .max_age(time::Duration::days(max_age_days))
-        .build()
-}
-
-/// A pre-computed dummy hash used during login when the username does not exist,
-/// ensuring the response time is consistent regardless of username validity
-/// (prevents username enumeration via timing attacks).
-static DUMMY_HASH: OnceLock<String> = OnceLock::new();
-
-fn dummy_hash() -> &'static str {
-    DUMMY_HASH.get_or_init(|| {
-        hash::hash_password("__broccoli_dummy__")
-            .expect("Failed to pre-compute dummy password hash")
-    })
-}
+use crate::utils::{hash, jwt, refresh};
 
 #[utoipa::path(
     post,
@@ -124,19 +97,14 @@ pub async fn login(
         .one(&state.db)
         .await?;
 
-    // Always run Argon2 verification to prevent timing-based username enumeration.
-    // When the user does not exist we verify against a dummy hash and discard the
-    // result, so the response time is the same whether the username is valid or not.
-    let hash_to_verify: String = maybe_user
-        .as_ref()
-        .map(|u| u.password.clone())
-        .unwrap_or_else(|| dummy_hash().to_owned());
+    let is_valid = hash::verify_password(
+        &payload.password,
+        maybe_user.as_ref().map(|u| u.password.as_str()),
+    )
+    .map_err(|e| AppError::Internal(format!("Password verify error: {}", e)))?;
 
-    let is_valid = hash::verify_password(&payload.password, &hash_to_verify)
-        .map_err(|e| AppError::Internal(format!("Password verify error: {}", e)))?;
-
-    let user = match (maybe_user, is_valid) {
-        (Some(u), true) => u,
+    let user = match maybe_user {
+        Some(u) if is_valid => u,
         _ => return Err(AppError::InvalidCredentials),
     };
 
@@ -158,19 +126,25 @@ pub async fn login(
     .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
     // Generate and store long-lived refresh token
-    let rt_string = jwt::generate_refresh_token();
-    let expiry = chrono::Utc::now() + chrono::Duration::days(REFRESH_TOKEN_EXPIRY_DAYS);
+    let now = chrono::Utc::now();
+    let expiry = now + chrono::Duration::days(refresh::REFRESH_TOKEN_EXPIRY_DAYS);
+
+    let selector = hash::generate_random_string();
+    let validator = hash::generate_random_string();
+    let hash = hash::hash_password(&validator)
+        .map_err(|e| AppError::Internal(format!("Refresh token hash error: {}", e)))?;
 
     refresh_token::ActiveModel {
-        token: Set(rt_string.clone()),
+        selector: Set(selector.clone()),
+        validator: Set(hash),
         user_id: Set(user.id),
         expires_at: Set(expiry),
-        created_at: Set(chrono::Utc::now()),
+        created_at: Set(now),
     }
     .insert(&state.db)
     .await?;
 
-    let cookie = build_refresh_cookie(rt_string, REFRESH_TOKEN_EXPIRY_DAYS);
+    let cookie = refresh::build_refresh_cookie(&selector, &validator);
 
     Ok((
         jar.add(cookie),
@@ -202,18 +176,29 @@ pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
-    let token_str = jar
-        .get(REFRESH_COOKIE_NAME)
+    let cookie_value = jar
+        .get(refresh::REFRESH_COOKIE_NAME)
         .map(|c| c.value().to_string())
         .ok_or(AppError::TokenMissing)?;
 
-    let record = refresh_token::Entity::find_by_id(&token_str)
+    let (selector, validator) =
+        refresh::parse_refresh_token(&cookie_value).map_err(|_| AppError::TokenInvalid)?;
+
+    let maybe_record = refresh_token::Entity::find_by_id(selector)
         .find_also_related(user::Entity)
         .one(&state.db)
-        .await?
-        .ok_or(AppError::TokenInvalid)?;
+        .await?;
 
-    let (rt_model, maybe_user) = record;
+    let is_valid = hash::verify_password(
+        validator,
+        maybe_record.as_ref().map(|(rt, _)| rt.validator.as_str()),
+    )
+    .map_err(|e| AppError::Internal(format!("Refresh token verify error: {}", e)))?;
+
+    let (rt_model, maybe_user) = match maybe_record {
+        Some((rt, user)) if is_valid => (rt, user),
+        _ => return Err(AppError::TokenInvalid),
+    };
 
     if rt_model.expires_at < chrono::Utc::now() {
         rt_model.delete(&state.db).await?;
@@ -270,14 +255,29 @@ pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
-    if let Some(cookie) = jar.get(REFRESH_COOKIE_NAME) {
-        refresh_token::Entity::delete_by_id(cookie.value().to_string())
-            .exec(&state.db)
+    if let Some(cookie) = jar.get(refresh::REFRESH_COOKIE_NAME) {
+        let cookie_value = cookie.value().to_string();
+
+        // Verify first to prevent malicious deletions.
+        let (selector, validator) =
+            refresh::parse_refresh_token(&cookie_value).map_err(|_| AppError::TokenInvalid)?;
+        let maybe_model = refresh_token::Entity::find_by_id(selector)
+            .one(&state.db)
             .await?;
+        let is_valid = hash::verify_password(
+            validator,
+            maybe_model.as_ref().map(|rt| rt.validator.as_str()),
+        )
+        .map_err(|e| AppError::Internal(format!("Refresh token verify error: {}", e)))?;
+        let rt_model = match maybe_model {
+            Some(rt) if is_valid => rt,
+            _ => return Err(AppError::TokenInvalid),
+        };
+        rt_model.delete(&state.db).await?;
     }
 
-    let mut removal_cookie = Cookie::build((REFRESH_COOKIE_NAME, ""))
-        .path("/api/v1/auth/refresh")
+    let mut removal_cookie = Cookie::build((refresh::REFRESH_COOKIE_NAME, ""))
+        .path("/")
         .build();
     removal_cookie.make_removal();
 

@@ -3,6 +3,8 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 
+use crate::utils::hash::generate_random_string;
+
 /// JWT Claims structure.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -28,7 +30,7 @@ pub fn sign_access_token(
         .timestamp();
 
     let claims = Claims {
-        jti: generate_refresh_token(), // Use a secure random string as jti
+        jti: generate_random_string(), // Use a secure random string as jti
         sub: username.to_owned(),
         uid: user_id,
         role: role.to_owned(),
@@ -53,11 +55,4 @@ pub fn verify(token: &str, secret: &str) -> Result<Claims> {
         &Validation::default(),
     )?;
     Ok(token_data.claims)
-}
-
-/// Generate a secure opaque string for refresh tokens.
-pub fn generate_refresh_token() -> String {
-    let mut key = [0u8; 32];
-    rand::fill(&mut key);
-    hex::encode(key)
 }
