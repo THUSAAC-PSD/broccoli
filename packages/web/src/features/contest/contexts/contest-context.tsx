@@ -1,7 +1,6 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useEffect } from 'react';
 import { createContext, type ReactNode, use, useState } from 'react';
-
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export type DashboardTab = 'problems' | 'submissions' | 'ranking';
 

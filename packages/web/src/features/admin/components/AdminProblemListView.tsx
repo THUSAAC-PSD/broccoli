@@ -1,10 +1,10 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Code2 } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
 import { AdminProblemsTab } from '@/features/admin/components/AdminProblemsTab';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export function AdminProblemListView({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();

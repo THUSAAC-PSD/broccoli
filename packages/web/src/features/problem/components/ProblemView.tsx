@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
@@ -7,7 +8,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import type { EditorFile } from '@/components/CodeEditor';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useSubmissions } from '@/features/submission/hooks/use-submissions';
 
 import { ProblemCodingTab } from './ProblemCodingTab';

@@ -1,10 +1,10 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Trophy } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
 import { AdminContestsTab } from '@/features/admin/components/AdminContestsTab';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export default function ContestListPage() {
   const { t } = useTranslation();

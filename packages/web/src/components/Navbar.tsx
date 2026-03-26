@@ -1,3 +1,4 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import {
@@ -9,7 +10,6 @@ import {
 import { Menu } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import {
   type DashboardTab,
   useContest,

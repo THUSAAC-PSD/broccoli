@@ -1,5 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
+import { useAuth, USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import {
@@ -35,7 +35,6 @@ import {
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContest } from '@/features/contest/contexts/contest-context';
 
 import { LocaleSelector } from './LocaleSelector';

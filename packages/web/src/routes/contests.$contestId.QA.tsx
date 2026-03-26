@@ -1,3 +1,4 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Button,
@@ -12,7 +13,6 @@ import { useEffect } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 
 import { PageLayout } from '@/components/PageLayout';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { AskQuestionDialog } from '@/features/clarification/components/AskQuestionDialog';
 import { ClarificationCard } from '@/features/clarification/components/ClarificationCard';
 import { PostAnnouncementDialog } from '@/features/clarification/components/PostAnnouncementDialog';

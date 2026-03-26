@@ -1,3 +1,4 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Button,
@@ -11,8 +12,6 @@ import {
 } from '@broccoli/web-sdk/ui';
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export default function LoginForm() {
   const { t } = useTranslation();

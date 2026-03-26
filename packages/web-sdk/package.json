@@ -9,7 +9,6 @@
       "import": "./dist/index.js"
     },
     "./package.json": "./package.json",
-    "./index.css": "./dist/index.css",
     "./tailwind-preset": "./dist/tailwind-preset.js",
     "./*": {
       "types": "./dist/*/index.d.ts",
@@ -21,7 +20,7 @@
   ],
   "scripts": {
     "build": "tsdown --dts",
-    "dev": "tsdown --watch --dts --no-clean"
+    "dev": "tsdown --watch ./src --dts --no-clean"
   },
   "tsdown": {
     "entry": [

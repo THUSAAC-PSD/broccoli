@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
@@ -17,7 +18,6 @@ import { toast } from 'sonner';
 
 import { PageLayout } from '@/components/PageLayout';
 import { Unauthorized } from '@/components/Unauthorized';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { PluginCard } from '@/features/plugin/components/PluginCard';
 import { PluginDetailDialog } from '@/features/plugin/components/PluginDetailDialog';
 
