@@ -6,7 +6,7 @@ use axum_extra::extract::cookie::Cookie;
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{refresh_token, role, role_permission, user};
+use crate::entity::{refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -45,26 +45,39 @@ pub async fn register(
     let hash = hash::hash_password(&payload.password)
         .map_err(|e| AppError::Internal(format!("Password hash error: {}", e)))?;
 
+    let txn = state.db.begin().await?;
+
     let new_user = user::ActiveModel {
         username: Set(username),
         password: Set(hash),
-        role: Set(role::DEFAULT_ROLE.to_string()),
         created_at: Set(chrono::Utc::now()),
         ..Default::default()
     };
 
     // The partial unique index (WHERE deleted_at IS NULL) guarantees that this
     // INSERT only fails with UniqueConstraintViolation when an *active* user
-    // already holds the same username.  Soft-deleted accounts are outside the
+    // already holds the same username. Soft-deleted accounts are outside the
     // index and therefore never block re-registration.
-    let user = new_user
-        .insert(&state.db)
-        .await
-        .map_err(|e| match e.sql_err() {
-            Some(SqlErr::UniqueConstraintViolation(_)) => AppError::UsernameTaken,
-            _ => AppError::from(e),
-        })?;
+    let user = new_user.insert(&txn).await.map_err(|e| match e.sql_err() {
+        Some(SqlErr::UniqueConstraintViolation(_)) => AppError::UsernameTaken,
+        _ => AppError::from(e),
+    })?;
 
+    for role_name in role::DEFAULT_ROLES {
+        let role = role::Entity::find_by_id(role_name.to_string())
+            .one(&txn)
+            .await?
+            .ok_or_else(|| AppError::Internal(format!("Default role '{}' not found", role_name)))?;
+
+        user_role::ActiveModel {
+            user_id: Set(user.id),
+            role: Set(role.name),
+        }
+        .insert(&txn)
+        .await?;
+    }
+
+    txn.commit().await?;
     Ok((StatusCode::CREATED, Json(RegisterResponse::from(user))))
 }
 
@@ -108,18 +121,22 @@ pub async fn login(
         _ => return Err(AppError::InvalidCredentials),
     };
 
-    let role_perms = role_permission::Entity::find()
-        .filter(role_permission::Column::Role.eq(&user.role))
-        .all(&state.db)
-        .await?;
+    let role_models = user.find_related(role::Entity).all(&state.db).await?;
+    let roles: Vec<String> = role_models.iter().map(|r| r.name.clone()).collect();
 
-    let permissions: Vec<String> = role_perms.into_iter().map(|rp| rp.permission).collect();
+    let permissions: Vec<String> = role_models
+        .load_many(role_permission::Entity, &state.db)
+        .await?
+        .into_iter()
+        .flatten()
+        .map(|rp| rp.permission)
+        .collect();
 
     // Generate short-lived access token
     let access_token = jwt::sign_access_token(
         user.id,
         &user.username,
-        &user.role,
+        roles.clone(),
         permissions.clone(),
         &state.config.auth.jwt_secret,
     )
@@ -152,7 +169,7 @@ pub async fn login(
             token: access_token,
             id: user.id,
             username: user.username,
-            role: user.role,
+            roles,
             permissions,
         }),
     ))
@@ -214,17 +231,21 @@ pub async fn refresh(
         }
     };
 
-    let role_perms = role_permission::Entity::find()
-        .filter(role_permission::Column::Role.eq(&user.role))
-        .all(&state.db)
-        .await?;
+    let role_models = user.find_related(role::Entity).all(&state.db).await?;
+    let roles: Vec<String> = role_models.iter().map(|r| r.name.clone()).collect();
 
-    let permissions: Vec<String> = role_perms.into_iter().map(|rp| rp.permission).collect();
+    let permissions: Vec<String> = role_models
+        .load_many(role_permission::Entity, &state.db)
+        .await?
+        .into_iter()
+        .flatten()
+        .map(|rp| rp.permission)
+        .collect();
 
     let new_access_token = jwt::sign_access_token(
         user.id,
         &user.username,
-        &user.role,
+        roles.clone(),
         permissions.clone(),
         &state.config.auth.jwt_secret,
     )
@@ -234,7 +255,7 @@ pub async fn refresh(
         token: new_access_token,
         id: user.id,
         username: user.username,
-        role: user.role,
+        roles,
         permissions,
     }))
 }
@@ -290,7 +311,7 @@ pub async fn logout(
     tag = "Auth",
     operation_id = "getCurrentUser",
     summary = "Get current authenticated user profile",
-    description = "Returns the authenticated user's profile, including the role and permissions embedded in their JWT.",
+    description = "Returns the authenticated user's profile, including the roles and permissions embedded in their JWT.",
     responses(
         (status = 200, description = "Current user info", body = MeResponse),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
@@ -302,7 +323,7 @@ pub async fn me(auth_user: AuthUser) -> Json<MeResponse> {
     Json(MeResponse {
         id: auth_user.user_id,
         username: auth_user.username,
-        role: auth_user.role,
+        roles: auth_user.roles,
         permissions: auth_user.permissions,
     })
 }
@@ -476,7 +497,7 @@ pub async fn authorize_device(
     let token = jwt::sign_access_token(
         auth_user.user_id,
         &auth_user.username,
-        &auth_user.role,
+        auth_user.roles,
         auth_user.permissions,
         &state.config.auth.jwt_secret,
     )

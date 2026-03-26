@@ -12,7 +12,7 @@ use crate::utils::jwt;
 pub struct AuthUser {
     pub user_id: i32,
     pub username: String,
-    pub role: String,
+    pub roles: Vec<String>,
     pub permissions: Vec<String>,
 }
 
@@ -66,7 +66,7 @@ where
         Ok(AuthUser {
             user_id: claims.uid,
             username: claims.sub,
-            role: claims.role,
+            roles: claims.roles,
             permissions: claims.permissions,
         })
     }

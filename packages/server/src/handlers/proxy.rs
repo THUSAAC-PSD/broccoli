@@ -41,7 +41,7 @@ fn resolve_optional_auth_user(
     Ok(Some(AuthUser {
         user_id: claims.uid,
         username: claims.sub,
-        role: claims.role,
+        roles: claims.roles,
         permissions: claims.permissions,
     }))
 }
@@ -133,7 +133,7 @@ async fn handle_plugin_request_impl(
         auth: auth_user.map(|user| PluginHttpAuth {
             user_id: user.user_id,
             username: user.username,
-            role: user.role,
+            roles: user.roles,
             permissions: user.permissions,
         }),
     };

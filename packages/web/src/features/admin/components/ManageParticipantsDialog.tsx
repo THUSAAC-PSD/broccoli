@@ -36,7 +36,7 @@ type ParsedBulkUser = {
 type UserPreviewItem = {
   id: number;
   username: string;
-  role: string;
+  roles: string[];
   created_at: string;
 };
 
@@ -370,7 +370,9 @@ function AddParticipantsTab({
                 >
                   <td className="px-3 py-2 text-muted-foreground">{u.id}</td>
                   <td className="px-3 py-2 font-medium">{u.username}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{u.role}</td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {u.roles.join(', ')}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <Button
                       variant="outline"
@@ -452,7 +454,7 @@ function BulkImportTab({
         allUsersMap.set(user.username.toLowerCase(), {
           id: user.id,
           username: user.username,
-          role: user.role,
+          roles: user.roles,
           created_at: user.created_at,
         });
       }
@@ -609,7 +611,7 @@ function BulkImportTab({
               >
                 <td className="px-3 py-2">{user.id}</td>
                 <td className="px-3 py-2">{user.username}</td>
-                <td className="px-3 py-2">{user.role}</td>
+                <td className="px-3 py-2">{user.roles.join(', ')}</td>
               </tr>
             ))}
           </tbody>

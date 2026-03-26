@@ -12,10 +12,9 @@ pub struct Model {
 
     pub username: String,
     pub password: String,
-    #[sea_orm(default_value = "contestant")]
-    pub role: String,
-    #[sea_orm(belongs_to, from = "role", to = "name")]
-    pub role_ref: Option<super::role::Entity>,
+
+    #[sea_orm(has_many, via = "user_role")]
+    pub roles: HasMany<super::role::Entity>,
 
     #[sea_orm(has_many)]
     pub submissions: HasMany<super::submission::Entity>,

@@ -7,7 +7,7 @@ use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{contest, contest_problem, contest_user, problem, user};
+use crate::entity::{contest, contest_problem, contest_user, problem, role, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -1093,19 +1093,34 @@ pub async fn bulk_add_participants(
         let new_user = user::ActiveModel {
             username: Set(username.clone()),
             password: Set(hash),
-            role: Set(crate::entity::role::DEFAULT_ROLE.to_string()),
             created_at: Set(chrono::Utc::now()),
             ..Default::default()
         };
 
         match new_user.insert(&txn).await {
-            Ok(m) => {
+            Ok(user) => {
+                for role_name in role::DEFAULT_ROLES {
+                    let role = role::Entity::find_by_id(role_name.to_string())
+                        .one(&txn)
+                        .await?
+                        .ok_or_else(|| {
+                            AppError::Internal(format!("Default role '{}' not found", role_name))
+                        })?;
+
+                    user_role::ActiveModel {
+                        user_id: Set(user.id),
+                        role: Set(role.name),
+                    }
+                    .insert(&txn)
+                    .await?;
+                }
+
                 created_response.push(BulkParticipantCreated {
-                    user_id: m.id,
+                    user_id: user.id,
                     username: username.clone(),
                     password: plaintext,
                 });
-                users_to_enroll.push((m.id, username));
+                users_to_enroll.push((user.id, username));
             }
             Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
                 // The partial unique index (WHERE deleted_at IS NULL) guarantees that a

@@ -42,7 +42,8 @@ export default function Index() {
     if (!user) {
       return;
     }
-    if (user && user.role === 'admin') {
+    // FIX: check permissions instead of roles
+    if (user && user.roles.includes('admin')) {
       navigate('/admin');
       return;
     }
@@ -53,7 +54,8 @@ export default function Index() {
   }, [contests, contestId, setContest, navigate, user]);
 
   // Admin user, redirect to admin dashboard
-  if (user && user.role === 'admin') {
+  // FIX: check permissions instead of roles
+  if (user && user.roles.includes('admin')) {
     return <></>;
   }
 

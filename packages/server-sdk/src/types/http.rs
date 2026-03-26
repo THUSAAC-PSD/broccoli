@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct PluginHttpAuth {
     pub user_id: i32,
     pub username: String,
-    pub role: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
 }
