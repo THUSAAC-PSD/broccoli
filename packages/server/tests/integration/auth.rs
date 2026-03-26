@@ -202,13 +202,11 @@ mod token_refresh {
         let login_res = app.post_without_token(routes::LOGIN, &body).await;
         let old_token = login_res.body["token"].as_str().unwrap().to_string();
 
-        // Wait a bit to ensure timestamps would differ (optional)
-        // Refresh uses the cookie automatically
         let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
 
         assert_eq!(refresh_res.status, 200);
         assert!(refresh_res.body["token"].is_string());
-        // New access token should be different from the old one (due to exp/issued time)
+        // New access token should be different from the old one
         assert_ne!(refresh_res.body["token"].as_str().unwrap(), old_token);
     }
 
