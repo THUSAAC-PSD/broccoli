@@ -17,7 +17,7 @@ use crate::utils::soft_delete::SoftDeletable;
 #[utoipa::path(
     get,
     path = "/",
-    tag = "Auth",
+    tag = "Users",
     operation_id = "listUsers",
     summary = "List all users",
     description = "Returns all users with full stored fields. Requires `user:manage` permission.",
@@ -49,7 +49,7 @@ pub async fn list_users(
 #[utoipa::path(
     delete,
     path = "/{id}",
-    tag = "Auth",
+    tag = "Users",
     operation_id = "deleteUser",
     summary = "Soft-delete a user by ID",
     description = "Marks the user as deleted. The record is retained for historical data but the user can no longer log in and will not appear in listings. Requires `user:manage` permission.\n\nDeletion is blocked if the user is registered in a running or recently-ended contest. Registrations in future (not-yet-started) contests are automatically cancelled before deletion.",
