@@ -67,10 +67,6 @@ mod list_users {
 mod user_deletion {
     use super::*;
 
-    fn user_detail_path(user_id: i32) -> String {
-        format!("{}/{}", routes::USERS, user_id)
-    }
-
     #[tokio::test]
     async fn admin_can_soft_delete_user_and_hide_from_list() {
         let app = TestApp::spawn().await;
@@ -83,7 +79,7 @@ mod user_deletion {
         let victim_id = app.get_with_token(routes::ME, &victim_token).await.id();
 
         let delete_res = app
-            .delete_with_token(&user_detail_path(victim_id), &admin_token)
+            .delete_with_token(&routes::user(victim_id), &admin_token)
             .await;
         assert_eq!(delete_res.status, 204, "delete failed: {}", delete_res.text);
 
@@ -111,7 +107,7 @@ mod user_deletion {
         let victim_id = app.get_with_token(routes::ME, &victim_token).await.id();
 
         let delete_res = app
-            .delete_with_token(&user_detail_path(victim_id), &admin_token)
+            .delete_with_token(&routes::user(victim_id), &admin_token)
             .await;
         assert_eq!(delete_res.status, 204, "delete failed: {}", delete_res.text);
 
@@ -137,7 +133,7 @@ mod user_deletion {
         let victim_id = app.get_with_token(routes::ME, &victim_token).await.id();
 
         let delete_res = app
-            .delete_with_token(&user_detail_path(victim_id), &admin_token)
+            .delete_with_token(&routes::user(victim_id), &admin_token)
             .await;
         assert_eq!(delete_res.status, 204, "delete failed: {}", delete_res.text);
 
@@ -179,7 +175,7 @@ mod user_deletion {
             .expect("login response should contain user id") as i32;
 
         let delete_res = app
-            .delete_with_token(&user_detail_path(first_user_id), &admin_token)
+            .delete_with_token(&routes::user(first_user_id), &admin_token)
             .await;
         assert_eq!(delete_res.status, 204, "delete failed: {}", delete_res.text);
 
@@ -195,5 +191,198 @@ mod user_deletion {
             reg2.text
         );
         assert_ne!(reg2.body["id"], json!(first_user_id));
+    }
+}
+
+mod user_modification {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_update_user_password_and_login_works() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_mod", "securepass", "admin")
+            .await;
+        let victim_token = app.create_authenticated_user("victim", "old_pass").await;
+        let victim_id = app.get_with_token(routes::ME, &victim_token).await.id();
+
+        // Admin updates the password
+        let res = app
+            .patch_with_token(
+                &routes::user(victim_id),
+                &json!({"password": "new_secure_pass"}),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(res.status, 200);
+
+        // Refresh token should be revoked
+        let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
+        assert_eq!(refresh_res.status, 401);
+        assert_eq!(refresh_res.body["code"], "TOKEN_INVALID");
+
+        // Old password should fail
+        let login_old = app
+            .post_without_token(
+                routes::LOGIN,
+                &json!({"username": "victim", "password": "old_pass"}),
+            )
+            .await;
+        assert_eq!(login_old.status, 401);
+
+        // New password should succeed
+        let login_new = app
+            .post_without_token(
+                routes::LOGIN,
+                &json!({"username": "victim", "password": "new_secure_pass"}),
+            )
+            .await;
+        assert_eq!(login_new.status, 200);
+    }
+
+    #[tokio::test]
+    async fn user_cannot_modify_themselves_without_permission() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_authenticated_user("self_hacker", "securepass")
+            .await;
+        let id = app.get_with_token(routes::ME, &token).await.id();
+
+        let res = app
+            .patch_with_token(&routes::user(id), &json!({"username": "new_name"}), &token)
+            .await;
+
+        // Fails because the user doesn't have 'user:manage' even for their own ID
+        assert_eq!(res.status, 403);
+    }
+
+    #[tokio::test]
+    async fn admin_can_assign_and_unassign_roles() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_role_mgr", "securepass", "admin")
+            .await;
+        let user_token = app
+            .create_authenticated_user("role_victim", "securepass")
+            .await;
+        let user_id = app.get_with_token(routes::ME, &user_token).await.id();
+
+        // Assign 'problem_setter' role
+        let assign_res = app
+            .post_with_token(
+                &routes::user_roles(user_id),
+                &json!({"role": "problem_setter"}),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(assign_res.status, 201);
+
+        // Refresh token should be revoked
+        let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
+        assert_eq!(refresh_res.status, 401);
+        assert_eq!(refresh_res.body["code"], "TOKEN_INVALID");
+
+        // Re-login to get updated roles
+        let login_res = app
+            .post_without_token(
+                routes::LOGIN,
+                &json!({"username": "role_victim", "password": "securepass"}),
+            )
+            .await;
+        assert_eq!(login_res.status, 200);
+        let roles = login_res.body["roles"].as_array().unwrap();
+        assert!(roles.contains(&json!("problem_setter")));
+
+        // Unassign the role
+        let unassign_res = app
+            .delete_with_token(&routes::user_role(user_id, "problem_setter"), &admin_token)
+            .await;
+        assert_eq!(unassign_res.status, 204);
+
+        // Verify it is gone
+        let me_res_after = app.get_with_token(routes::ME, &user_token).await;
+        assert!(
+            !me_res_after.body["roles"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("problem_setter"))
+        );
+    }
+}
+
+mod role_management {
+    use super::*;
+
+    #[tokio::test]
+    async fn admin_can_list_all_roles() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("super_admin", "securepass", "admin")
+            .await;
+
+        let res = app.get_with_token(routes::ROLES, &admin_token).await;
+        assert_eq!(res.status, 200);
+        let roles = res.body.as_array().unwrap();
+        assert!(roles.contains(&json!("admin")));
+        assert!(roles.contains(&json!("contestant")));
+    }
+
+    #[tokio::test]
+    async fn admin_can_manage_role_permissions() {
+        let app = TestApp::spawn().await;
+        // Assume 'admin' role has 'role:manage' permission
+        let admin_token = app
+            .create_user_with_role("super_admin", "securepass", "admin")
+            .await;
+        let test_role = "contestant";
+
+        // Grant a new permission
+        let grant_res = app
+            .post_with_token(
+                &routes::role_permissions(test_role),
+                &json!({"permission": "experimental:feature"}),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(grant_res.status, 201);
+
+        // List permissions and verify
+        let list_res = app
+            .get_with_token(&routes::role_permissions(test_role), &admin_token)
+            .await;
+        let perms = list_res.body.as_array().unwrap();
+        assert!(perms.contains(&json!("experimental:feature")));
+
+        // Revoke the permission
+        let revoke_res = app
+            .delete_with_token(
+                &routes::role_permission(test_role, "experimental:feature"),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(revoke_res.status, 204);
+
+        // Verify it's gone
+        let list_res_final = app
+            .get_with_token(&routes::role_permissions(test_role), &admin_token)
+            .await;
+        assert!(
+            !list_res_final
+                .body
+                .as_array()
+                .unwrap()
+                .contains(&json!("experimental:feature"))
+        );
+    }
+
+    #[tokio::test]
+    async fn regular_user_cannot_access_role_permissions() {
+        let app = TestApp::spawn().await;
+        let token = app.create_authenticated_user("peasant", "securepass").await;
+
+        let res = app
+            .get_with_token(&routes::role_permissions("admin"), &token)
+            .await;
+        assert_eq!(res.status, 403);
     }
 }

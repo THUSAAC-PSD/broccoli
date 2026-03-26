@@ -10,6 +10,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .nest("/auth", auth_routes())
         .nest("/users", user_routes())
+        .nest("/roles", role_routes())
         .nest("/admin", admin_routes())
         .nest("/plugins", plugin_routes())
         .nest("/p", proxy_routes())
@@ -36,7 +37,19 @@ fn auth_routes() -> OpenApiRouter<AppState> {
 fn user_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::user::list_users))
+        .routes(routes!(handlers::user::get_user))
         .routes(routes!(handlers::user::delete_user))
+        .routes(routes!(handlers::user::update_user))
+        .routes(routes!(handlers::user::assign_role))
+        .routes(routes!(handlers::user::revoke_role))
+}
+
+fn role_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::role::list_roles))
+        .routes(routes!(handlers::role::list_role_permissions))
+        .routes(routes!(handlers::role::grant_permission_to_role))
+        .routes(routes!(handlers::role::revoke_permission_from_role))
 }
 
 fn admin_routes() -> OpenApiRouter<AppState> {

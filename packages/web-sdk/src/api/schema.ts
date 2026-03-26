@@ -1400,6 +1400,70 @@ export interface paths {
     patch: operations['updateTestCase'];
     trace?: never;
   };
+  '/roles': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List all roles
+     * @description Returns a list of all roles. Requires `role:manage` permission.
+     */
+    get: operations['listRoles'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/roles/{role}/permissions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List permissions granted to a role
+     * @description Returns a list of permissions granted to the specified role. Requires `role:manage` permission.
+     */
+    get: operations['listRolePermissions'];
+    put?: never;
+    /**
+     * Grant a permission to a role
+     * @description Grants a permission to a role. Requires `role:manage` permission.
+     */
+    post: operations['grantPermissionToRole'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/roles/{role}/permissions/{permission}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Revoke a permission from a role
+     * @description Revokes a permission from a role. Requires `role:manage` permission.
+     */
+    delete: operations['revokePermissionFromRole'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/submissions': {
     parameters: {
       query?: never;
@@ -1507,7 +1571,11 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get?: never;
+    /**
+     * Get user details by ID
+     * @description Returns user details. Requires `user:manage` permission.
+     */
+    get: operations['getUser'];
     put?: never;
     post?: never;
     /**
@@ -1517,6 +1585,50 @@ export interface paths {
      *     Deletion is blocked if the user is registered in a running or recently-ended contest. Registrations in future (not-yet-started) contests are automatically cancelled before deletion.
      */
     delete: operations['deleteUser'];
+    options?: never;
+    head?: never;
+    /**
+     * Update user information
+     * @description Updates user information such as username and password. Requires `user:manage` permission.
+     */
+    patch: operations['updateUser'];
+    trace?: never;
+  };
+  '/users/{id}/roles': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Assign a role to a user
+     * @description Assigns a role to the user. Requires `user:manage` permission.
+     */
+    post: operations['assignRole'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/users/{id}/roles/{role}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Revoke a role from a user
+     * @description Revokes a role from the user. Requires `user:manage` permission.
+     */
+    delete: operations['revokeRole'];
     options?: never;
     head?: never;
     patch?: never;
@@ -2805,6 +2917,14 @@ export interface components {
        */
       total_pages: number;
     };
+    /** @description Request body for granting a permission to a role. */
+    PermissionGrantRequest: {
+      /**
+       * @description Permission name to grant.
+       * @example manage_users
+       */
+      permission: string;
+    };
     /** @description Response for a single plugin config entry. */
     PluginConfigResponse: {
       /** @description Config JSON blob */
@@ -3171,6 +3291,14 @@ export interface components {
        * @example true
        */
       resolved: boolean;
+    };
+    /** @description Request body for assigning a role to a user. */
+    RoleAssignmentRequest: {
+      /**
+       * @description Role name to assign.
+       * @example admin
+       */
+      role: string;
     };
     /** @description A sample test case metadata included in problem detail responses. */
     SampleTestCaseMeta: {
@@ -3667,6 +3795,13 @@ export interface components {
        */
       score?: number | null;
     };
+    /** @description Request body for updating user information. */
+    UpdateUserRequest: {
+      /** @description New password. If not provided, the password will not be updated. */
+      password?: string | null;
+      /** @description New username. If not provided, the username will not be updated. */
+      username?: string | null;
+    };
     /** @description Request body for uploading checker source files. */
     UploadCheckerSourceRequest: {
       /** @description Array of source files for the checker. */
@@ -3732,7 +3867,7 @@ export interface components {
        */
       position?: number;
     };
-    /** @description User details returned by admin listing endpoint. */
+    /** @description User details returned by user listing and retrieval endpoints. */
     UserResponse: {
       /**
        * Format: date-time
@@ -9230,6 +9365,187 @@ export interface operations {
       };
     };
   };
+  listRoles: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of roles */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': string[];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listRolePermissions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Role name */
+        role: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of permissions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': string[];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  grantPermissionToRole: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Role name */
+        role: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PermissionGrantRequest'];
+      };
+    };
+    responses: {
+      /** @description Permission granted successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  revokePermissionFromRole: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Role name */
+        role: string;
+        /** @description Permission name */
+        permission: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Permission revoked successfully */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Role permission not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   listSubmissions: {
     parameters: {
       query?: {
@@ -9489,6 +9805,56 @@ export interface operations {
       };
     };
   };
+  getUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description User ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description User details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UserResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description User not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   deleteUser: {
     parameters: {
       query?: never;
@@ -9537,6 +9903,180 @@ export interface operations {
       };
       /** @description User is in an active or under-judgement contest (CONFLICT) */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  updateUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description User ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateUserRequest'];
+      };
+    };
+    responses: {
+      /** @description Updated user details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UserResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description User not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  assignRole: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description User ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RoleAssignmentRequest'];
+      };
+    };
+    responses: {
+      /** @description Role assigned */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description User not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  revokeRole: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description User ID */
+        id: number;
+        /** @description Role name */
+        role: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Role revoked */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description User role not found (NOT_FOUND) */
+      404: {
         headers: {
           [name: string]: unknown;
         };
