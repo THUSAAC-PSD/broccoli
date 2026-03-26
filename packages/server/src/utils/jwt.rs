@@ -11,7 +11,7 @@ pub struct Claims {
     pub jti: String,              // Unique token ID
     pub sub: String,              // Username
     pub uid: i32,                 // User ID
-    pub role: String,             // Role (informational, for display)
+    pub roles: Vec<String>,       // Roles assigned to the user
     pub permissions: Vec<String>, // Permissions
     pub exp: u64,                 // Expiration timestamp
 }
@@ -20,7 +20,7 @@ pub struct Claims {
 pub fn sign_access_token(
     user_id: i32,
     username: &str,
-    role: &str,
+    roles: Vec<String>,
     permissions: Vec<String>,
     secret: &str,
 ) -> Result<String> {
@@ -33,7 +33,7 @@ pub fn sign_access_token(
         jti: generate_random_string(), // Use a secure random string as jti
         sub: username.to_owned(),
         uid: user_id,
-        role: role.to_owned(),
+        roles,
         permissions,
         exp: expiration as u64,
     };

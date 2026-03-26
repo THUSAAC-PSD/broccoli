@@ -289,7 +289,7 @@ export interface paths {
     };
     /**
      * Get current authenticated user profile
-     * @description Returns the authenticated user's profile, including the role and permissions embedded in their JWT.
+     * @description Returns the authenticated user's profile, including the roles and permissions embedded in their JWT.
      */
     get: operations['getCurrentUser'];
     put?: never;
@@ -2718,10 +2718,12 @@ export interface components {
        */
       permissions: string[];
       /**
-       * @description User's role.
-       * @example contestant
+       * @description User's roles
+       * @example [
+       *       "contestant"
+       *     ]
        */
-      role: string;
+      roles: string[];
       /**
        * @description JWT bearer access token valid for 5 minutes.
        * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
@@ -2749,10 +2751,12 @@ export interface components {
        */
       permissions: string[];
       /**
-       * @description Role.
-       * @example contestant
+       * @description Roles.
+       * @example [
+       *       "contestant"
+       *     ]
        */
-      role: string;
+      roles: string[];
       /**
        * @description Username.
        * @example alice_wonder
@@ -3745,8 +3749,12 @@ export interface components {
        * @example $argon2id$v=19$m=19456,t=2,p=1$...
        */
       password: string;
-      /** @example contestant */
-      role: string;
+      /**
+       * @example [
+       *       "contestant"
+       *     ]
+       */
+      roles: string[];
       /** @example alice */
       username: string;
     };

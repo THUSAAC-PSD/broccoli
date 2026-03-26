@@ -88,9 +88,9 @@ pub struct LoginResponse {
     /// Authenticated user's username.
     #[schema(example = "alice_wonder")]
     pub username: String,
-    /// User's role.
-    #[schema(example = "contestant")]
-    pub role: String,
+    /// User's roles
+    #[schema(example = json!(["contestant"]))]
+    pub roles: Vec<String>,
     /// Permissions granted to the user.
     #[schema(example = json!(["submission:submit"]))]
     pub permissions: Vec<String>,
@@ -105,9 +105,9 @@ pub struct MeResponse {
     /// Username.
     #[schema(example = "alice_wonder")]
     pub username: String,
-    /// Role.
-    #[schema(example = "contestant")]
-    pub role: String,
+    /// Roles.
+    #[schema(example = json!(["contestant"]))]
+    pub roles: Vec<String>,
     /// Permissions.
     #[schema(example = json!(["submission:submit"]))]
     pub permissions: Vec<String>,

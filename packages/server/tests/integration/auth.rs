@@ -143,7 +143,7 @@ mod login {
         assert_eq!(reg.status, 201, "Registration failed: {}", reg.text);
         let res = app.post_without_token(routes::LOGIN, &body).await;
 
-        assert_eq!(res.body["role"], "contestant");
+        assert_eq!(res.body["roles"], json!(["contestant"]));
         let permissions = res.body["permissions"]
             .as_array()
             .expect("permissions should be an array");
@@ -299,7 +299,7 @@ mod authenticated_access {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["username"], "alice");
         assert!(res.body["id"].is_number());
-        assert_eq!(res.body["role"], "contestant");
+        assert_eq!(res.body["roles"], json!(["contestant"]));
         assert!(res.body["permissions"].is_array());
     }
 
@@ -365,7 +365,7 @@ mod list_users {
             .iter()
             .find(|u| u["username"] == "admin_user")
             .expect("admin_user should exist");
-        assert_eq!(admin["role"], "admin");
+        assert!(admin["roles"].as_array().unwrap().contains(&json!("admin")));
         assert!(admin["id"].is_number());
         assert!(admin["created_at"].is_string());
         let admin_password = admin["password"]
@@ -378,7 +378,7 @@ mod list_users {
             .iter()
             .find(|u| u["username"] == "alice")
             .expect("alice should exist");
-        assert_eq!(alice["role"], "contestant");
+        assert_eq!(alice["roles"], json!(["contestant"]));
     }
 
     #[tokio::test]

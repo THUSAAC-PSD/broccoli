@@ -2,7 +2,7 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// The role assigned to newly registered users.
-pub const DEFAULT_ROLE: &str = "contestant";
+pub const DEFAULT_ROLES: [&str; 1] = ["contestant"];
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
@@ -11,7 +11,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub name: String,
 
-    #[sea_orm(has_many)]
+    #[sea_orm(has_many, via = "user_role")]
     pub users: HasMany<super::user::Entity>,
 
     #[sea_orm(has_many)]

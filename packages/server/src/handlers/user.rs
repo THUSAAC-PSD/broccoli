@@ -7,7 +7,7 @@ use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{contest, contest_user, user};
+use crate::entity::{contest, contest_user, role, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::user::UserResponse;
@@ -35,8 +35,12 @@ pub async fn list_users(
 ) -> Result<Json<Vec<UserResponse>>, AppError> {
     auth_user.require_permission("user:manage")?;
 
-    let users = user::Entity::find_active()
+    // NOTE: load() does not exist in EntityTrait, so we have to manually filter out deleted users
+    // here instead of using load_active().
+    let users = user::Entity::load()
+        .filter(user::Column::DeletedAt.is_null())
         .order_by_asc(user::Column::Id)
+        .with(role::Entity)
         .all(&state.db)
         .await?
         .into_iter()

@@ -17,3 +17,4 @@ pub mod submission;
 pub mod test_case;
 pub mod test_case_result;
 pub mod user;
+pub mod user_role;

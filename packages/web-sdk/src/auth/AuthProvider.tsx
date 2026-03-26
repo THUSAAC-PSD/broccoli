@@ -72,7 +72,7 @@ export function AuthProvider({
       setUser({
         id: data.id,
         username: data.username,
-        role: data.role,
+        roles: data.roles,
         permissions: data.permissions,
       });
       localStorage.setItem(sessionStatusKey, 'true');
@@ -92,7 +92,7 @@ export function AuthProvider({
       setUser({
         id: resData.id,
         username: resData.username,
-        role: resData.role,
+        roles: resData.roles,
         permissions: resData.permissions,
       });
 

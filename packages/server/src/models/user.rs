@@ -11,19 +11,19 @@ pub struct UserResponse {
     /// Password hash stored in database.
     #[schema(example = "$argon2id$v=19$m=19456,t=2,p=1$...")]
     pub password: String,
-    #[schema(example = "contestant")]
-    pub role: String,
+    #[schema(example = json!(["contestant"]))]
+    pub roles: Vec<String>,
     #[schema(example = "2026-03-05T10:00:00Z")]
     pub created_at: DateTime<Utc>,
 }
 
-impl From<crate::entity::user::Model> for UserResponse {
-    fn from(user: crate::entity::user::Model) -> Self {
+impl From<crate::entity::user::ModelEx> for UserResponse {
+    fn from(user: crate::entity::user::ModelEx) -> Self {
         Self {
             id: user.id,
             username: user.username,
             password: user.password,
-            role: user.role,
+            roles: user.roles.into_iter().map(|r| r.name).collect(),
             created_at: user.created_at,
         }
     }

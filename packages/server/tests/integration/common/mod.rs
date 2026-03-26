@@ -7,8 +7,8 @@ use std::sync::{Arc, OnceLock};
 use plugin_core::config::PluginConfig;
 use reqwest::Client;
 use sea_orm::{
-    ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend,
-    EntityTrait, QueryFilter, Set, Statement,
+    ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
+    DbBackend, EntityTrait, QueryFilter, Set, Statement, TransactionTrait,
 };
 use serde_json::Value;
 use testcontainers::ContainerAsync;
@@ -23,7 +23,7 @@ use server::config::{
     AppConfig, AuthConfig, BlobStoreConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig,
     SubmissionConfig,
 };
-use server::entity::user;
+use server::entity::{user, user_role};
 use server::manager::ServerManager;
 use server::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
@@ -967,12 +967,24 @@ impl TestApp {
             .expect("DB query failed")
             .expect("User not found after registration");
 
-        let mut active: user::ActiveModel = db_user.into();
-        active.role = Set(role.to_string());
-        user::Entity::update(active)
-            .exec(&self.db)
+        let txn = self.db.begin().await.expect("Failed to begin transaction");
+
+        // Clear any existing roles
+        user_role::Entity::delete_many()
+            .filter(user_role::Column::UserId.eq(db_user.id))
+            .exec(&txn)
             .await
-            .expect("Failed to update user role");
+            .expect("Failed to clear existing user roles");
+
+        user_role::ActiveModel {
+            user_id: Set(db_user.id),
+            role: Set(role.to_string()),
+        }
+        .insert(&txn)
+        .await
+        .expect("Failed to update user role");
+
+        txn.commit().await.expect("Failed to commit transaction");
 
         let res = self.post_without_token(routes::LOGIN, &body).await;
         assert_eq!(res.status, 200, "Login failed: {}", res.text);
