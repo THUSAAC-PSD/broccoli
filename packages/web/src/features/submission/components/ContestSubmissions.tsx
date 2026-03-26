@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   getStatusLabel,
@@ -19,7 +20,6 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
 import { fetchSupportedLanguages } from '@/features/problem/api/fetch-supported-languages';
 import { fetchContestSubmissions } from '@/features/submission/api/fetch-contest-submissions';

@@ -1,9 +1,9 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Trophy } from 'lucide-react';
 import { useParams } from 'react-router';
 
 import { PageLayout } from '@/components/PageLayout';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { ContestAdminActions } from '@/features/contest/components/ContestAdminActions';
 import { ContestCountdown } from '@/features/contest/components/ContestCountdown';
 import { ContestEnrollCard } from '@/features/contest/components/ContestEnrollCard';

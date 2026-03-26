@@ -1,10 +1,10 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button } from '@broccoli/web-sdk/ui';
 import { Code2, LogIn } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 
 import { PageLayout } from '@/components/PageLayout';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
 import { ContestSubmissions } from '@/features/submission/components/ContestSubmissions';
 

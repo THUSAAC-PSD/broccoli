@@ -1,4 +1,5 @@
 import { ApiClientProvider } from '@broccoli/web-sdk/api';
+import { AuthProvider } from '@broccoli/web-sdk/auth';
 import { I18nProvider } from '@broccoli/web-sdk/i18n';
 import type { LazyPluginLoader } from '@broccoli/web-sdk/plugin';
 import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
@@ -9,7 +10,6 @@ import { Outlet } from 'react-router';
 import { AppLayout } from '@/components/AppLayout';
 import { SlotPermissionsBridge } from '@/components/SlotPermissionsBridge';
 import { appConfig } from '@/config';
-import { AuthProvider } from '@/features/auth/components/AuthProvider';
 import { ContestProvider } from '@/features/contest/contexts/contest-context';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';

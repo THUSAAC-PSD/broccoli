@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy } from 'lucide-react';
@@ -7,7 +8,6 @@ import { useNavigate } from 'react-router';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
 import { GuestWelcome } from '@/features/auth/components/GuestWelcome';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { ContestSelector } from '@/features/contest/components/ContestSelector';
 import { useContest } from '@/features/contest/contexts/contest-context';
 

@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,7 +12,6 @@ import {
   ContestProblemsDialog,
 } from '@/features/admin/components/AdminContestsTab';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 export function ContestAdminActions() {
   const { contestId } = useParams();

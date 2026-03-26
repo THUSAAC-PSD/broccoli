@@ -1,11 +1,11 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { Link } from 'react-router';
 
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
 
 export function ContestProblemsCard({ contestId }: { contestId: number }) {

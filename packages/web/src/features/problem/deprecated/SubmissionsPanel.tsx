@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
@@ -6,7 +7,6 @@ import { Badge } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Inbox } from 'lucide-react';
 
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { SubmissionResult } from '@/features/submission/components/SubmissionResult';
 import { SubmissionsTable } from '@/features/submission/components/SubmissionsTable';
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';

@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -15,7 +16,6 @@ import { Link } from 'react-router';
 
 import { ListSkeleton } from '@/components/ListSkeleton';
 import { PageLayout } from '@/components/PageLayout';
-import { useAuth } from '@/features/auth/hooks/use-auth';
 import { getContestStatus } from '@/features/contest/utils/status';
 import { SubmissionsTable } from '@/features/submission/components/SubmissionsTable';
 

@@ -1,7 +1,6 @@
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { SlotPermissionsContext } from '@broccoli/web-sdk/slot';
 import type { ReactNode } from 'react';
-
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 /**
  * Bridges the web app's auth context into the SDK's SlotPermissionsContext,

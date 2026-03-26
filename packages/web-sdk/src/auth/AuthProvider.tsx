@@ -1,17 +1,21 @@
-import { useApiClient, useSetApiAccessToken } from '@broccoli/web-sdk/api';
+import { useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { useApiClient, useSetApiAccessToken } from '@/api';
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   type LoginRequest,
   type User,
-} from '@broccoli/web-sdk/auth';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-
-import { appConfig } from '@/config';
-import { AuthContext } from '@/features/auth/contexts/auth-context';
-import { queryClient } from '@/lib/query-client';
+} from '@/auth';
+import { AuthContext } from '@/auth/auth-context';
 
 // Refresh the access token every 4.5 minutes
 const REFRESH_INTERVAL_MS = 4.5 * 60 * 1000;
+
+interface AuthProviderProps {
+  children: React.ReactNode;
+  sessionStatusKey: string;
+}
 
 /**
  * AuthProvider manages the dual-token authentication lifecycle.
@@ -19,13 +23,18 @@ const REFRESH_INTERVAL_MS = 4.5 * 60 * 1000;
  * Refresh Token is stored in an HttpOnly cookie (handled by the browser).
  * Session Hint is stored in localStorage to persist login intent across reloads.
  */
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+  sessionStatusKey,
+}: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const apiClient = useApiClient();
   const setApiAccessToken = useSetApiAccessToken();
+
+  const queryClient = useQueryClient();
 
   const updateAccessToken = useCallback(
     (token: string | null) => {
@@ -36,11 +45,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const clearSession = useCallback(() => {
-    localStorage.setItem(appConfig.api.sessionStatusKey, 'false');
+    localStorage.setItem(sessionStatusKey, 'false');
     updateAccessToken(null);
     setUser(null);
     queryClient.clear();
-  }, [updateAccessToken]);
+  }, [updateAccessToken, sessionStatusKey, queryClient]);
 
   const logout = useCallback(async () => {
     // Notify backend to revoke the refresh token
@@ -66,9 +75,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: data.role,
         permissions: data.permissions,
       });
-      localStorage.setItem(appConfig.api.sessionStatusKey, 'true');
+      localStorage.setItem(sessionStatusKey, 'true');
     }
-  }, [apiClient, clearSession, updateAccessToken]);
+  }, [apiClient, clearSession, updateAccessToken, sessionStatusKey]);
 
   const login = useCallback(
     async (data: LoginRequest) => {
@@ -87,10 +96,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         permissions: resData.permissions,
       });
 
-      localStorage.setItem(appConfig.api.sessionStatusKey, 'true');
+      localStorage.setItem(sessionStatusKey, 'true');
       queryClient.clear();
     },
-    [apiClient, updateAccessToken],
+    [apiClient, updateAccessToken, sessionStatusKey, queryClient],
   );
 
   // Sync state with other tabs or infrastructure events
@@ -98,16 +107,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const handleTokenCleared = (event: Event) => {
       const key = (event as CustomEvent<{ key?: string }>).detail?.key;
       // If no key provided, clear all. Otherwise, check if it matches our session hint key.
-      if (!key || key === appConfig.api.sessionStatusKey) {
+      if (!key || key === sessionStatusKey) {
         clearSession();
       }
     };
 
     const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key === appConfig.api.sessionStatusKey &&
-        event.newValue == null
-      ) {
+      if (event.key === sessionStatusKey && event.newValue == null) {
         clearSession();
       }
     };
@@ -116,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('storage', handleStorage);
 
     const initAuth = async () => {
-      const sessionHint = localStorage.getItem(appConfig.api.sessionStatusKey);
+      const sessionHint = localStorage.getItem(sessionStatusKey);
       if (sessionHint === 'true') {
         await refresh();
       }
@@ -132,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
       window.removeEventListener('storage', handleStorage);
     };
-  }, [clearSession, refresh]);
+  }, [clearSession, refresh, sessionStatusKey, queryClient]);
 
   // Automatic background refresh loop
   useEffect(() => {

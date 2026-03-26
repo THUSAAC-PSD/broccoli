@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button } from '@broccoli/web-sdk/ui';
 import {
@@ -9,8 +10,6 @@ import {
   useState,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-
-import { useAuth } from '@/features/auth/hooks/use-auth';
 
 function TerminalIcon({ className }: { className?: string }) {
   return (
