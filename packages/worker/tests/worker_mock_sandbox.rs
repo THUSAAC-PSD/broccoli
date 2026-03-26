@@ -59,6 +59,7 @@ fn build_operation_task(command: &str) -> OperationTask {
             cache: None,
         }],
         channels: vec![],
+        priority: None,
     }
 }
 
@@ -84,6 +85,7 @@ async fn execute_operation_with_mock(
         executor_name: "operation".to_string(),
         payload: serde_json::to_value(operation).unwrap(),
         result_queue: "test_results".into(),
+        priority: None,
     };
 
     let result = worker.execute_task(task).await.unwrap();
@@ -243,6 +245,7 @@ printf '2 40\n' > input.txt
             },
         ],
         channels: vec![],
+        priority: None,
     };
 
     let (result, operation_result) = execute_operation_with_mock("task-cpp-oi", operation).await;
@@ -339,6 +342,7 @@ CPP
             },
         ],
         channels: vec![],
+        priority: None,
     };
 
     let (result, operation_result) =
@@ -388,6 +392,7 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail() {
             cache: None,
         }],
         channels: vec![],
+        priority: None,
     };
 
     let (result, operation_result) =
@@ -463,6 +468,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
             },
         ],
         channels: vec![],
+        priority: None,
     };
 
     let (result, operation_result) =
@@ -587,6 +593,7 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
             },
         ],
         channels: vec![],
+        priority: None,
     };
 
     let result = handler
@@ -658,6 +665,7 @@ async fn shared_channel_fifo_between_two_environments() {
             name: "pipe1".to_string(),
             buffer_size: Some(8192),
         }],
+        priority: None,
     };
 
     let (result, operation_result) =
@@ -741,6 +749,7 @@ async fn channel_pipe_io_redirect_between_environments() {
             name: "data_pipe".to_string(),
             buffer_size: Some(8192),
         }],
+        priority: None,
     };
 
     let (result, operation_result) =
@@ -814,6 +823,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
             name: "some_other_channel".to_string(),
             buffer_size: Some(8192),
         }],
+        priority: None,
     };
 
     let (result, operation_result) =

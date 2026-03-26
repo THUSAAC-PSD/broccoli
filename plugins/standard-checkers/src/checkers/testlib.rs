@@ -259,6 +259,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
             },
         ],
         channels: vec![],
+        priority: None,
     }];
 
     let batch_id = match host::operations::start_batch_tasks(&operations) {

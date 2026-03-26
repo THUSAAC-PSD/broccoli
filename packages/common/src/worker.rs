@@ -11,6 +11,9 @@ pub struct Task {
     pub executor_name: String,
     pub payload: serde_json::Value,
     pub result_queue: String,
+    /// Optional priority level (1-5, where 1 is highest priority)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
