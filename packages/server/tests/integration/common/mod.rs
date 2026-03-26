@@ -205,7 +205,30 @@ pub mod routes {
     pub const REFRESH: &str = "/api/v1/auth/refresh";
     pub const LOGOUT: &str = "/api/v1/auth/logout";
     pub const ME: &str = "/api/v1/auth/me";
+
     pub const USERS: &str = "/api/v1/users";
+
+    pub fn user(id: i32) -> String {
+        format!("/api/v1/users/{id}")
+    }
+
+    pub fn user_roles(id: i32) -> String {
+        format!("/api/v1/users/{id}/roles")
+    }
+
+    pub fn user_role(id: i32, role_name: &str) -> String {
+        format!("/api/v1/users/{id}/roles/{role_name}")
+    }
+
+    pub const ROLES: &str = "/api/v1/roles";
+
+    pub fn role_permissions(role_name: &str) -> String {
+        format!("/api/v1/roles/{role_name}/permissions")
+    }
+
+    pub fn role_permission(role_name: &str, permission_name: &str) -> String {
+        format!("/api/v1/roles/{role_name}/permissions/{permission_name}")
+    }
 
     pub fn admin_plugin_details(id: &str) -> String {
         format!("/api/v1/admin/plugins/{id}")

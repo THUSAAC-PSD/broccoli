@@ -7,11 +7,12 @@ use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{contest, contest_user, role, user};
+use crate::entity::{contest, contest_user, refresh_token, role, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
-use crate::models::user::UserResponse;
+use crate::models::user::{RoleAssignmentRequest, UpdateUserRequest, UserResponse};
 use crate::state::AppState;
+use crate::utils::hash;
 use crate::utils::soft_delete::SoftDeletable;
 
 #[utoipa::path(
@@ -48,6 +49,99 @@ pub async fn list_users(
         .collect();
 
     Ok(Json(users))
+}
+
+#[utoipa::path(
+    get,
+    path = "/{id}",
+    tag = "Users",
+    operation_id = "getUser",
+    summary = "Get user details by ID",
+    description = "Returns user details. Requires `user:manage` permission.",
+    params(("id" = i32, Path, description = "User ID")),
+    responses(
+        (status = 200, description = "User details", body = UserResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "User not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+pub async fn get_user(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<UserResponse>, AppError> {
+    auth_user.require_permission("user:manage")?;
+
+    let user_model = user::Entity::load()
+        .filter(user::Column::Id.eq(id))
+        .with(role::Entity)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
+
+    Ok(Json(UserResponse::from(user_model)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/{id}",
+    tag = "Users",
+    operation_id = "updateUser",
+    summary = "Update user information",
+    description = "Updates user information such as username and password. Requires `user:manage` permission.",
+    params(("id" = i32, Path, description = "User ID")),
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "Updated user details", body = UserResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "User not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+pub async fn update_user(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> Result<Json<UserResponse>, AppError> {
+    auth_user.require_permission("user:manage")?;
+
+    let user_model = user::Entity::find_active_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
+
+    let txn = state.db.begin().await?;
+
+    let mut active: user::ActiveModel = user_model.into();
+    if let Some(username) = payload.username {
+        active.username = Set(username);
+    }
+    if let Some(password) = payload.password {
+        let password_hash = hash::hash_password(&password)
+            .map_err(|_| AppError::Validation("Failed to hash password".into()))?;
+        active.password = Set(password_hash);
+        // Revoke all existing refresh tokens for the user to force re-login with the new
+        // password.
+        refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    }
+    let updated_user = active.update(&txn).await?;
+
+    txn.commit().await?;
+
+    // Load roles after update.
+    let user_with_roles = user::Entity::load()
+        .filter(user::Column::Id.eq(updated_user.id))
+        .with(role::Entity)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found after update".into()))?;
+
+    Ok(Json(UserResponse::from(user_with_roles)))
 }
 
 #[utoipa::path(
@@ -132,5 +226,87 @@ pub async fn delete_user(
     active.update(&txn).await?;
 
     txn.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/{id}/roles",
+    tag = "Users",
+    operation_id = "assignRole",
+    summary = "Assign a role to a user",
+    description = "Assigns a role to the user. Requires `user:manage` permission.",
+    params(("id" = i32, Path, description = "User ID")),
+    request_body = RoleAssignmentRequest,
+    responses(
+        (status = 204, description = "Role assigned"),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "User not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+pub async fn assign_role(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Json(payload): Json<RoleAssignmentRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    auth_user.require_permission("user:manage")?;
+
+    let role_model = role::Entity::find()
+        .filter(role::Column::Name.eq(payload.role))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Validation("Invalid role name".into()))?;
+
+    let user_model = user::Entity::find_active_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".into()))?;
+
+    let txn = state.db.begin().await?;
+    user_model.assign_role(&txn, role_model.name).await?;
+    // Revoke all existing refresh tokens for the user to ensure new permissions take effect
+    // immediately.
+    refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    txn.commit().await?;
+
+    Ok(StatusCode::CREATED)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/{id}/roles/{role}",
+    tag = "Users",
+    operation_id = "revokeRole",
+    summary = "Revoke a role from a user",
+    description = "Revokes a role from the user. Requires `user:manage` permission.",
+    params(
+        ("id" = i32, Path, description = "User ID"),
+        ("role" = String, Path, description = "Role name")
+    ),
+    responses(
+        (status = 204, description = "Role revoked"),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "User role not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+pub async fn revoke_role(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((id, role_name)): Path<(i32, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    auth_user.require_permission("user:manage")?;
+
+    let active = user_role::Entity::find_by_id((id, role_name))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User role not found".into()))?;
+    active.delete(&state.db).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }

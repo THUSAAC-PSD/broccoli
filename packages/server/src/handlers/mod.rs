@@ -12,5 +12,6 @@ pub mod plugin;
 pub mod plugin_config;
 pub mod problem;
 pub mod proxy;
+pub mod role;
 pub mod submission;
 pub mod user;
