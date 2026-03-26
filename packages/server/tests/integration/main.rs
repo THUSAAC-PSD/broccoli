@@ -8,3 +8,4 @@ mod plugin;
 mod plugin_config;
 mod problem;
 mod submission;
+mod user;
