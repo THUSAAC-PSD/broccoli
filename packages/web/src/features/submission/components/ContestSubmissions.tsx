@@ -149,7 +149,11 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         problemId: appliedProblemId,
         language: appliedLanguage,
         status: toSubmissionStatus(appliedStatus),
-        userId: user?.id,
+        userId:
+          user?.permissions.includes('submissions:view_all') ||
+          user?.permissions.includes('contest:manage')
+            ? undefined
+            : user?.id,
         page,
         per_page: PER_PAGE,
         sort_by: 'created_at',
