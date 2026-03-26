@@ -3683,7 +3683,7 @@ export interface components {
        * @description ZIP file containing test cases. Each test case consists of an input file and an output
        *     file.
        */
-      file: string;
+      file: Blob;
       /**
        * @description Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
        *     `input_01.txt` with label `01`.

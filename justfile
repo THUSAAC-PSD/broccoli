@@ -30,6 +30,10 @@ worker:
 install:
     pnpm install
 
+# Generate API client from OpenAPI spec
+gen-api url="http://127.0.0.1:3000/api-docs/openapi.json":
+    node packages/web-sdk/scripts/generate-api.mjs {{url}}
+
 # Build all JS packages (sdk before web)
 build-js:
     pnpm build

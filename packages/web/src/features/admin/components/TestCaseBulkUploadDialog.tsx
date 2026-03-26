@@ -111,7 +111,7 @@ export function TestCaseBulkUploadDialog({
         // File is typed as string in the OpenAPI schema (binary format),
         // but we pass a File object and handle serialization in bodySerializer.
         body: {
-          file: selectedFile as unknown as string,
+          file: selectedFile,
           input_format: inputFormat,
           output_format: outputFormat,
           strategy: strategy as 'abort' | 'skip' | 'overwrite' | 'replace',
