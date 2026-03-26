@@ -281,6 +281,7 @@ pub fn build_operation(
         environments,
         tasks: steps,
         channels,
+        priority: None,
     }])
 }
 

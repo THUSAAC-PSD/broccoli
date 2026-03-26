@@ -211,6 +211,7 @@ pub fn build_operation(
         environments: vec![env],
         tasks: steps,
         channels: vec![],
+        priority: None,
     };
 
     Ok(vec![op])

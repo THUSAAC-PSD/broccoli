@@ -169,6 +169,9 @@ pub struct OperationTask {
     pub tasks: Vec<Step>,
     #[serde(default)]
     pub channels: Vec<Channel>,
+    /// Optional priority for dispatching the operation (1-5, 1 is highest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
 }
 
 /// Result of a worker operation batch.

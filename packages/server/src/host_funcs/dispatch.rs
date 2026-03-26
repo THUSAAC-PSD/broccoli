@@ -3,6 +3,7 @@ use broccoli_server_sdk::types::OperationTask;
 use common::worker::{Task, TaskResult};
 use extism::{Function, UserData, Val, ValType};
 use mq::MqQueue;
+use mq::config::PublishConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -175,11 +176,20 @@ fn start_operation_batch_fn(
             payload: serde_json::to_value(&op)
                 .map_err(|e| extism::Error::msg(format!("Failed to serialize operation: {}", e)))?,
             result_queue: result_queue_name.clone(),
+            priority: op.priority,
         };
 
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(async { mq.publish(&queue_name, None, &task, None).await })
+            tokio::runtime::Handle::current().block_on(async {
+                mq.publish(
+                    &queue_name,
+                    None,
+                    &task,
+                    task.priority
+                        .map(|p| PublishConfig::builder().priority(p).build()),
+                )
+                .await
+            })
         })
         .map_err(|e| extism::Error::msg(format!("MQ publish error: {}", e)))?;
 
