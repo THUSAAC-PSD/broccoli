@@ -1,5 +1,6 @@
 mod attachment;
 mod auth;
+mod clarification;
 mod common;
 mod contest;
 mod dlq;

@@ -206,7 +206,6 @@ pub mod routes {
     pub const LOGOUT: &str = "/api/v1/auth/logout";
     pub const ME: &str = "/api/v1/auth/me";
     pub const USERS: &str = "/api/v1/users";
-    pub const PROBLEMS: &str = "/api/v1/problems";
 
     pub fn admin_plugin_details(id: &str) -> String {
         format!("/api/v1/admin/plugins/{id}")
@@ -234,6 +233,8 @@ pub mod routes {
         let path = path.trim_start_matches('/');
         format!("/assets/{id}/{path}")
     }
+
+    pub const PROBLEMS: &str = "/api/v1/problems";
 
     pub fn problem(id: i32) -> String {
         format!("/api/v1/problems/{id}")
@@ -309,6 +310,24 @@ pub mod routes {
 
     pub fn contest_problem_submissions(contest_id: i32, problem_id: i32) -> String {
         format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions")
+    }
+
+    pub fn contest_clarifications(contest_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/clarifications")
+    }
+
+    pub fn contest_clarification_reply(contest_id: i32, clar_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/clarifications/{clar_id}/reply")
+    }
+
+    pub fn contest_clarification_toggle(contest_id: i32, clar_id: i32, reply_id: i32) -> String {
+        format!(
+            "/api/v1/contests/{contest_id}/clarifications/{clar_id}/replies/{reply_id}/toggle-public"
+        )
+    }
+
+    pub fn contest_clarification_resolve(contest_id: i32, clar_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/clarifications/{clar_id}/resolve")
     }
 
     pub const DLQ: &str = "/api/v1/dlq";

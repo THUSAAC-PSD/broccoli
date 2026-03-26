@@ -421,13 +421,13 @@ export interface paths {
     };
     /**
      * List clarifications for a contest
-     * @description Returns clarifications visible to the current user. Admins see all; contestants see own questions, public announcements, public replies, and direct messages addressed to them.
+     * @description Returns clarifications visible to the current user. Users with `contest:manage` see all; others see their own questions, public announcements, public replies, and direct messages addressed to them.
      */
     get: operations['listClarifications'];
     put?: never;
     /**
      * Create a clarification
-     * @description Contestants can create questions. Admins can also create announcements and direct messages to specific participants.
+     * @description Users can create questions. Users with `contest:manage` permission can also create announcements and direct messages to specific participants.
      */
     post: operations['createClarification'];
     delete?: never;
@@ -447,7 +447,7 @@ export interface paths {
     put?: never;
     /**
      * Toggle a reply's public visibility
-     * @description Admin can promote a private reply to a public announcement or revert it.
+     * @description Requires `contest:manage` permission. Promotes a private reply to a public announcement or reverts it. Optionally makes the parent question public as well.
      */
     post: operations['toggleReplyPublic'];
     delete?: never;
@@ -467,7 +467,7 @@ export interface paths {
     put?: never;
     /**
      * Reply to a clarification
-     * @description Admin replies to a question or direct message. Multiple replies are allowed. When `is_public` is true the reply becomes visible to all participants.
+     * @description Users with `contest:manage` permission, the question author, or the DM recipient can reply. Multiple replies are allowed. When `is_public` is true, the reply becomes visible to all participants.
      */
     post: operations['replyClarification'];
     delete?: never;
@@ -487,7 +487,7 @@ export interface paths {
     put?: never;
     /**
      * Resolve or reopen a clarification thread
-     * @description Admins or the question author can mark a thread as resolved or reopen it.
+     * @description Users with `contest:manage` permission or the question author can mark a thread as resolved or reopen it.
      */
     post: operations['resolveClarification'];
     delete?: never;
@@ -5013,7 +5013,7 @@ export interface operations {
           'application/json': components['schemas']['ClarificationListResponse'];
         };
       };
-      /** @description Unauthorized */
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -5022,7 +5022,16 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Contest not found */
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -5058,7 +5067,7 @@ export interface operations {
           'application/json': components['schemas']['ClarificationResponse'];
         };
       };
-      /** @description Validation error */
+      /** @description Validation error (VALIDATION_ERROR) */
       400: {
         headers: {
           [name: string]: unknown;
@@ -5067,7 +5076,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Unauthorized */
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -5076,7 +5085,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Forbidden */
+      /** @description Forbidden (PERMISSION_DENIED) */
       403: {
         headers: {
           [name: string]: unknown;
@@ -5085,7 +5094,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Contest not found */
+      /** @description Contest or recipient not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -5098,7 +5107,10 @@ export interface operations {
   };
   toggleReplyPublic: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description If true, also make the parent question visible to all when making a reply public. */
+        include_question?: boolean;
+      };
       header?: never;
       path: {
         /** @description Contest ID */
@@ -5121,7 +5133,7 @@ export interface operations {
           'application/json': components['schemas']['ClarificationReplyResponse'];
         };
       };
-      /** @description Unauthorized */
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -5130,7 +5142,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Forbidden */
+      /** @description Forbidden (PERMISSION_DENIED) */
       403: {
         headers: {
           [name: string]: unknown;
@@ -5139,7 +5151,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Reply not found */
+      /** @description Reply or Clarification not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -5177,7 +5189,7 @@ export interface operations {
           'application/json': components['schemas']['ClarificationResponse'];
         };
       };
-      /** @description Validation error */
+      /** @description Validation error (VALIDATION_ERROR) */
       400: {
         headers: {
           [name: string]: unknown;
@@ -5186,7 +5198,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Unauthorized */
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -5195,7 +5207,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Forbidden */
+      /** @description Forbidden (PERMISSION_DENIED) */
       403: {
         headers: {
           [name: string]: unknown;
@@ -5204,7 +5216,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Clarification not found */
+      /** @description Clarification not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -5242,7 +5254,7 @@ export interface operations {
           'application/json': components['schemas']['ClarificationResponse'];
         };
       };
-      /** @description Unauthorized */
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -5251,7 +5263,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Forbidden */
+      /** @description Forbidden (PERMISSION_DENIED) */
       403: {
         headers: {
           [name: string]: unknown;
@@ -5260,7 +5272,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Clarification not found */
+      /** @description Clarification not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
