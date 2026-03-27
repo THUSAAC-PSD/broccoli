@@ -225,7 +225,8 @@ pub async fn refresh(
     let user = match maybe_user {
         Some(u) if u.deleted_at.is_none() => u,
         _ => {
-            // User was banned or soft-deleted since the refresh token was issued
+            // NOTE: Refresh token is revoked immediately when the user is deleted. Banning logic
+            // may go here in the future if we want to keep the account but block access.
             rt_model.delete(&state.db).await?;
             return Err(AppError::PermissionDenied);
         }

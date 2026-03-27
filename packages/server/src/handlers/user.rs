@@ -225,6 +225,8 @@ pub async fn delete_user(
     active.deleted_at = Set(Some(now));
     active.update(&txn).await?;
 
+    refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

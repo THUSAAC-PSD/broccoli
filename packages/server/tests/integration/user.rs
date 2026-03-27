@@ -137,9 +137,10 @@ mod user_deletion {
             .await;
         assert_eq!(delete_res.status, 204, "delete failed: {}", delete_res.text);
 
+        // Refresh token should be revoked
         let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
-        assert_eq!(refresh_res.status, 403);
-        assert_eq!(refresh_res.body["code"], "PERMISSION_DENIED");
+        assert_eq!(refresh_res.status, 401);
+        assert_eq!(refresh_res.body["code"], "TOKEN_INVALID");
     }
 
     #[tokio::test]
