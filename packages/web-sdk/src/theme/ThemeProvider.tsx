@@ -16,10 +16,15 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
-    }
-    return defaultTheme;
+    if (typeof window === 'undefined') return defaultTheme;
+
+    const saved = localStorage.getItem(storageKey) as Theme;
+    if (saved) return saved;
+
+    const prefersDark = window.matchMedia(
+      '(prefers-color-scheme: dark)',
+    ).matches;
+    return prefersDark ? 'dark' : 'light';
   });
 
   useEffect(() => {
