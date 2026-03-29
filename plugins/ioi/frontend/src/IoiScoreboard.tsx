@@ -1,4 +1,5 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Label, Switch } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
@@ -262,15 +263,10 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
             </span>
           )}
           {phase === 'during' && (
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-                style={{ accentColor: 'rgb(16, 185, 129)' }}
-              />
+            <Label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer font-normal">
+              <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
               {t('ioi.scoreboard.autoRefresh')}
-            </label>
+            </Label>
           )}
         </div>
       </div>

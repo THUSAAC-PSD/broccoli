@@ -3,6 +3,7 @@
  * Three IOI scoring eras, rendered as a horizontal timeline with selectable cards.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Label } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 
 import { getConfiguredTokenMode } from './config-rules';
@@ -67,9 +68,9 @@ export function ScoringModeSelector({
 
   return (
     <div className="flex flex-col gap-2.5 col-span-2">
-      <label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
+      <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
         {schema.title ?? t('ioi.scoringMode.label')}
-      </label>
+      </Label>
       {schema.description && (
         <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}
