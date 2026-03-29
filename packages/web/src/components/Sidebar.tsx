@@ -32,6 +32,7 @@ import {
   Puzzle,
   Trophy,
   User,
+  Users,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 
@@ -58,6 +59,12 @@ const allMenuItems: MenuItem[] = [
       'contest:manage',
       'plugin:manage',
     ],
+  },
+  {
+    titleKey: 'sidebar.users',
+    icon: Users,
+    url: '/users',
+    requiredPermissions: ['user:manage', 'role:manage'],
   },
   {
     titleKey: 'sidebar.problems',
