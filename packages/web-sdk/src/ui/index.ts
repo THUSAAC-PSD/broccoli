@@ -8,6 +8,7 @@ export * from '@/ui/dialog';
 export * from '@/ui/dropdown-menu';
 export * from '@/ui/file-drop-zone';
 export * from '@/ui/filter-dropdown';
+export * from '@/ui/hover-card';
 export * from '@/ui/input';
 export * from '@/ui/label';
 export * from '@/ui/navigation-menu';

@@ -1,5 +1,12 @@
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@broccoli/web-sdk/ui';
 
 interface ManagerLanguageSelectorProps {
   value: unknown;
@@ -33,26 +40,31 @@ export function ManagerLanguageSelector({
         </p>
       )}
 
-      <select
-        value={selectedValue}
-        onChange={(event) => onChange(event.target.value)}
+      <Select
+        value={selectedValue || undefined}
+        onValueChange={(v) => onChange(v)}
         disabled={isLoading}
-        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        <option value="">
-          {isLoading
-            ? t('admin.loading')
-            : t('admin.submissionFormat.language')}
-        </option>
-        {languages.map((lang) => (
-          <option key={lang.id} value={lang.id}>
-            {lang.name}
-          </option>
-        ))}
-        {selectedValue && !hasCurrentValue && !isLoading && (
-          <option value={selectedValue}>{selectedValue}</option>
-        )}
-      </select>
+        <SelectTrigger>
+          <SelectValue
+            placeholder={
+              isLoading
+                ? t('admin.loading')
+                : t('admin.submissionFormat.language')
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {languages.map((lang) => (
+            <SelectItem key={lang.id} value={lang.id}>
+              {lang.name}
+            </SelectItem>
+          ))}
+          {selectedValue && !hasCurrentValue && !isLoading && (
+            <SelectItem value={selectedValue}>{selectedValue}</SelectItem>
+          )}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

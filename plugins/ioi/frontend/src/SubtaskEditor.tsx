@@ -5,7 +5,18 @@ import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { TestCaseSummary } from '@broccoli/web-sdk/problem';
 
 type TestCaseListItem = TestCaseSummary;
-import { Button, Input } from '@broccoli/web-sdk/ui';
+import {
+  Button,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 import type React from 'react';
 import {
@@ -211,146 +222,66 @@ function parseRanges(input: string): number[] {
 /** Monospace font class shorthand. */
 const monoClass = 'font-mono tabular-nums';
 
-function PreviewPopover({
-  tc,
-  anchorRect,
-  onMouseEnter,
-  onMouseLeave,
-  portalTarget,
-  portalOffset,
-}: {
-  tc: TestCaseListItem;
-  anchorRect: DOMRect | null;
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
-  portalTarget: HTMLElement;
-  portalOffset: { dx: number; dy: number };
-}) {
+/** Shared preview content for test case hover cards. */
+function PreviewContent({ tc }: { tc: TestCaseListItem }) {
   const { t } = useTranslation();
-  if (!anchorRect) return null;
-  // Estimate height for flip decision; actual height auto-sizes
-  const estHeight = 200;
-  const flipAbove = anchorRect.bottom + estHeight + 8 > window.innerHeight;
-  const left = Math.max(
-    8,
-    Math.min(
-      anchorRect.left + anchorRect.width / 2 - 160,
-      window.innerWidth - 328,
-    ),
-  );
-
-  // Bridge wrapper: the outer div extends from the anchor edge (no gap) so
-  // the mouse can transition from chip -> popover without leaving a tracked element.
-  return createPortal(
-    <div
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className="fixed w-80 z-[100000] pointer-events-auto"
-      style={{
-        ...(flipAbove
-          ? { bottom: window.innerHeight - anchorRect.top - portalOffset.dy }
-          : { top: anchorRect.bottom - portalOffset.dy }),
-        left: left - portalOffset.dx,
-      }}
-    >
-      <div
-        className={cn(
-          'bg-popover text-popover-foreground backdrop-blur-sm border border-border rounded-[10px] p-3 isolate shadow-[0_12px_40px_rgba(0,0,0,0.18),0_4px_12px_rgba(0,0,0,0.08)]',
-          flipAbove ? 'mb-1' : 'mt-1',
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={cn(monoClass, 'text-xs font-bold opacity-60')}>
+          #{tc.position + 1}
+        </span>
+        {tc.label && (
+          <span className={cn(monoClass, 'text-[11px] opacity-50')}>
+            {tc.label}
+          </span>
         )}
-      >
-        <div className="flex items-center gap-2 mb-2">
-          <span className={cn(monoClass, 'text-xs font-bold opacity-60')}>
-            #{tc.position + 1}
+        {tc.is_sample && (
+          <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded bg-indigo-500/10 text-indigo-500">
+            {t('ioi.subtask.preview.sample')}
           </span>
-          {tc.label && (
-            <span className={cn(monoClass, 'text-[11px] opacity-50')}>
-              {tc.label}
-            </span>
-          )}
-          {tc.is_sample && (
-            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded bg-indigo-500/10 text-indigo-500">
-              {t('ioi.subtask.preview.sample')}
-            </span>
-          )}
-          <span className={cn(monoClass, 'text-[11px] opacity-50 ml-auto')}>
-            {tc.score} pts
-          </span>
+        )}
+        <span className={cn(monoClass, 'text-[11px] opacity-50 ml-auto')}>
+          {tc.score} pts
+        </span>
+      </div>
+      {tc.description && (
+        <div className="text-[11px] opacity-60 mb-2 leading-snug">
+          {tc.description.length > 200
+            ? tc.description.slice(0, 200) + '\u2026'
+            : tc.description}
         </div>
-        {tc.description && (
-          <div className="text-[11px] opacity-60 mb-2 leading-snug">
-            {tc.description.length > 200
-              ? tc.description.slice(0, 200) + '\u2026'
-              : tc.description}
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-0.5">
+            {t('ioi.subtask.preview.input')}
           </div>
-        )}
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-0.5">
-              {t('ioi.subtask.preview.input')}
-            </div>
-            <pre
-              className={cn(
-                monoClass,
-                'text-[10px] leading-snug m-0 p-1.5 rounded max-h-20 overflow-auto overscroll-contain bg-muted whitespace-pre-wrap break-all',
-              )}
-            >
-              {tc.input_preview || t('ioi.subtask.preview.empty')}
-            </pre>
+          <pre
+            className={cn(
+              monoClass,
+              'text-[10px] leading-snug m-0 p-1.5 rounded max-h-20 overflow-auto overscroll-contain bg-muted whitespace-pre-wrap break-all',
+            )}
+          >
+            {tc.input_preview || t('ioi.subtask.preview.empty')}
+          </pre>
+        </div>
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-0.5">
+            {t('ioi.subtask.preview.output')}
           </div>
-          <div>
-            <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-0.5">
-              {t('ioi.subtask.preview.output')}
-            </div>
-            <pre
-              className={cn(
-                monoClass,
-                'text-[10px] leading-snug m-0 p-1.5 rounded max-h-20 overflow-auto overscroll-contain bg-muted whitespace-pre-wrap break-all',
-              )}
-            >
-              {tc.output_preview || t('ioi.subtask.preview.empty')}
-            </pre>
-          </div>
+          <pre
+            className={cn(
+              monoClass,
+              'text-[10px] leading-snug m-0 p-1.5 rounded max-h-20 overflow-auto overscroll-contain bg-muted whitespace-pre-wrap break-all',
+            )}
+          >
+            {tc.output_preview || t('ioi.subtask.preview.empty')}
+          </pre>
         </div>
       </div>
-    </div>,
-    portalTarget,
+    </>
   );
-}
-
-/** Shared hover-with-delay logic for components that show PreviewPopover. */
-function useHoverPopover() {
-  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const anchorRef = useRef<HTMLElement | null>(null);
-
-  const clearClose = () => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-  };
-  const scheduleClose = () => {
-    clearClose();
-    closeTimer.current = setTimeout(() => setHoverRect(null), 300);
-  };
-
-  useEffect(() => () => clearClose(), []);
-
-  const anchorHandlers = {
-    onMouseEnter: () => {
-      clearClose();
-      if (anchorRef.current)
-        setHoverRect(anchorRef.current.getBoundingClientRect());
-    },
-    onMouseLeave: scheduleClose,
-  };
-  const popoverHandlers = {
-    onMouseEnter: clearClose,
-    onMouseLeave: scheduleClose,
-  };
-
-  return { hoverRect, anchorRef, anchorHandlers, popoverHandlers };
 }
 
 function TcChip({
@@ -358,82 +289,63 @@ function TcChip({
   onRemove,
   onDragStart,
   isDuplicate,
-  portalTarget,
-  portalOffset,
 }: {
   tc: TestCaseListItem;
   onRemove: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   isDuplicate?: boolean;
-  portalTarget: HTMLElement;
-  portalOffset: { dx: number; dy: number };
 }) {
-  const { hoverRect, anchorRef, anchorHandlers, popoverHandlers } =
-    useHoverPopover();
-
   return (
-    <>
-      <span
-        ref={anchorRef as React.RefObject<HTMLSpanElement>}
-        draggable={!!onDragStart}
-        onDragStart={onDragStart}
-        onMouseEnter={anchorHandlers.onMouseEnter}
-        onMouseLeave={anchorHandlers.onMouseLeave}
-        className={cn(
-          monoClass,
-          'inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[11px] select-none transition-[border-color,box-shadow,background] duration-150',
-          isDuplicate
-            ? 'border-[1.5px] border-dashed border-red-500/50 bg-red-500/[0.06]'
-            : hoverRect
-              ? 'border border-primary bg-accent'
-              : 'border border-border bg-card',
-          onDragStart ? 'cursor-grab' : 'cursor-default',
-          hoverRect
-            ? isDuplicate
-              ? 'shadow-[0_0_0_1px_rgba(239,68,68,0.4)]'
-              : 'shadow-[0_0_0_1px_hsl(var(--primary))]'
-            : 'shadow-[0_1px_0_0_rgba(0,0,0,0.06)]',
-        )}
-      >
-        {tc.label ? (
-          <>
-            <span className="text-[11px]">{tc.label}</span>
-            <span className="opacity-35 text-[9px]">#{tc.position + 1}</span>
-          </>
-        ) : (
-          <>
-            <span className="opacity-50 text-[9px]">#</span>
-            {tc.position + 1}
-          </>
-        )}
-        {tc.is_sample && (
-          <span className="size-1 rounded-full bg-indigo-500 shrink-0" />
-        )}
-        {isDuplicate && (
-          <span className="size-1.5 rounded-full shrink-0 bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.2)]" />
-        )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="bg-transparent border-none cursor-pointer text-[10px] opacity-30 px-px py-0 text-inherit leading-none transition-opacity duration-150 hover:opacity-80"
+    <HoverCard openDelay={0} closeDelay={300}>
+      <HoverCardTrigger asChild>
+        <span
+          draggable={!!onDragStart}
+          onDragStart={onDragStart}
+          className={cn(
+            monoClass,
+            'inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[11px] select-none transition-[border-color,box-shadow,background] duration-150',
+            isDuplicate
+              ? 'border-[1.5px] border-dashed border-red-500/50 bg-red-500/[0.06]'
+              : 'border border-border bg-card hover:border-primary hover:bg-accent',
+            onDragStart ? 'cursor-grab' : 'cursor-default',
+            isDuplicate
+              ? 'hover:shadow-[0_0_0_1px_rgba(239,68,68,0.4)]'
+              : 'shadow-[0_1px_0_0_rgba(0,0,0,0.06)] hover:shadow-[0_0_0_1px_hsl(var(--primary))]',
+          )}
         >
-          ✕
-        </button>
-      </span>
-      {hoverRect && (
-        <PreviewPopover
-          tc={tc}
-          anchorRect={hoverRect}
-          onMouseEnter={popoverHandlers.onMouseEnter}
-          onMouseLeave={popoverHandlers.onMouseLeave}
-          portalTarget={portalTarget}
-          portalOffset={portalOffset}
-        />
-      )}
-    </>
+          {tc.label ? (
+            <>
+              <span className="text-[11px]">{tc.label}</span>
+              <span className="opacity-35 text-[9px]">#{tc.position + 1}</span>
+            </>
+          ) : (
+            <>
+              <span className="opacity-50 text-[9px]">#</span>
+              {tc.position + 1}
+            </>
+          )}
+          {tc.is_sample && (
+            <span className="size-1 rounded-full bg-indigo-500 shrink-0" />
+          )}
+          {isDuplicate && (
+            <span className="size-1.5 rounded-full shrink-0 bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.2)]" />
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="bg-transparent border-none cursor-pointer text-[10px] opacity-30 px-px py-0 text-inherit leading-none transition-opacity duration-150 hover:opacity-80"
+          >
+            ✕
+          </button>
+        </span>
+      </HoverCardTrigger>
+      <HoverCardContent side="bottom" align="center" className="w-80 p-3">
+        <PreviewContent tc={tc} />
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -444,8 +356,6 @@ function PoolCard({
   onClick,
   onDragStart,
   isDuplicate,
-  portalTarget,
-  portalOffset,
 }: {
   tc: TestCaseListItem;
   state: 'unassigned' | 'this' | 'other';
@@ -453,89 +363,76 @@ function PoolCard({
   onClick: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent) => void;
   isDuplicate?: boolean;
-  portalTarget: HTMLElement;
-  portalOffset: { dx: number; dy: number };
 }) {
-  const { hoverRect, anchorRef, anchorHandlers, popoverHandlers } =
-    useHoverPopover();
-
   return (
-    <>
-      <div
-        ref={anchorRef as React.RefObject<HTMLDivElement>}
-        draggable
-        onDragStart={onDragStart}
-        onClick={onClick}
-        onMouseEnter={anchorHandlers.onMouseEnter}
-        onMouseLeave={anchorHandlers.onMouseLeave}
-        className={cn(
-          'px-2.5 py-2 rounded-lg border-[1.5px] transition-all duration-150 select-none relative min-w-0',
-          isDuplicate
-            ? 'border-red-500/50 bg-red-500/[0.04]'
-            : state === 'this'
-              ? 'border-emerald-500/50 bg-emerald-500/[0.04]'
-              : state === 'other'
-                ? 'border-border bg-muted'
-                : 'border-border bg-card',
-          state === 'other'
-            ? 'cursor-not-allowed opacity-45'
-            : 'cursor-pointer opacity-100',
-        )}
-      >
-        <div className="flex items-center gap-1.5">
-          {tc.label ? (
-            <>
-              <span
-                className={cn(
-                  monoClass,
-                  'text-[11px] font-bold opacity-80 overflow-hidden text-ellipsis whitespace-nowrap',
-                )}
-              >
-                {tc.label}
-              </span>
-              <span className={cn(monoClass, 'text-[9px] opacity-35')}>
-                #{tc.position + 1}
-              </span>
-            </>
-          ) : (
-            <span className={cn(monoClass, 'text-xs font-bold opacity-70')}>
-              {tc.position + 1}
-            </span>
+    <HoverCard openDelay={0} closeDelay={300}>
+      <HoverCardTrigger asChild>
+        <div
+          draggable
+          onDragStart={onDragStart}
+          onClick={onClick}
+          className={cn(
+            'px-2.5 py-2 rounded-lg border-[1.5px] transition-all duration-150 select-none relative min-w-0',
+            isDuplicate
+              ? 'border-red-500/50 bg-red-500/[0.04]'
+              : state === 'this'
+                ? 'border-emerald-500/50 bg-emerald-500/[0.04]'
+                : state === 'other'
+                  ? 'border-border bg-muted'
+                  : 'border-border bg-card',
+            state === 'other'
+              ? 'cursor-not-allowed opacity-45'
+              : 'cursor-pointer opacity-100',
           )}
-          {tc.is_sample && (
-            <span className="text-[8px] font-bold uppercase tracking-tight px-[5px] py-px rounded-[3px] bg-indigo-500/10 text-indigo-500">
-              S
+        >
+          <div className="flex items-center gap-1.5">
+            {tc.label ? (
+              <>
+                <span
+                  className={cn(
+                    monoClass,
+                    'text-[11px] font-bold opacity-80 overflow-hidden text-ellipsis whitespace-nowrap',
+                  )}
+                >
+                  {tc.label}
+                </span>
+                <span className={cn(monoClass, 'text-[9px] opacity-35')}>
+                  #{tc.position + 1}
+                </span>
+              </>
+            ) : (
+              <span className={cn(monoClass, 'text-xs font-bold opacity-70')}>
+                {tc.position + 1}
+              </span>
+            )}
+            {tc.is_sample && (
+              <span className="text-[8px] font-bold uppercase tracking-tight px-[5px] py-px rounded-[3px] bg-indigo-500/10 text-indigo-500">
+                S
+              </span>
+            )}
+            <span className={cn(monoClass, 'text-[10px] opacity-40 ml-auto')}>
+              {tc.score}
             </span>
+          </div>
+          {tc.description && (
+            <div className="text-[10px] opacity-50 mt-[3px] whitespace-nowrap overflow-hidden text-ellipsis">
+              {tc.description}
+            </div>
           )}
-          <span className={cn(monoClass, 'text-[10px] opacity-40 ml-auto')}>
-            {tc.score}
-          </span>
+          {state === 'this' && (
+            <div className="absolute top-[3px] right-[3px] size-1.5 rounded-full bg-emerald-500" />
+          )}
+          {state === 'other' && ownerLabel && (
+            <div className="text-[9px] opacity-60 mt-[3px] italic">
+              {'\u2192'} {ownerLabel}
+            </div>
+          )}
         </div>
-        {tc.description && (
-          <div className="text-[10px] opacity-50 mt-[3px] whitespace-nowrap overflow-hidden text-ellipsis">
-            {tc.description}
-          </div>
-        )}
-        {state === 'this' && (
-          <div className="absolute top-[3px] right-[3px] size-1.5 rounded-full bg-emerald-500" />
-        )}
-        {state === 'other' && ownerLabel && (
-          <div className="text-[9px] opacity-60 mt-[3px] italic">
-            {'\u2192'} {ownerLabel}
-          </div>
-        )}
-      </div>
-      {hoverRect && (
-        <PreviewPopover
-          tc={tc}
-          anchorRect={hoverRect}
-          onMouseEnter={popoverHandlers.onMouseEnter}
-          onMouseLeave={popoverHandlers.onMouseLeave}
-          portalTarget={portalTarget}
-          portalOffset={portalOffset}
-        />
-      )}
-    </>
+      </HoverCardTrigger>
+      <HoverCardContent side="bottom" align="center" className="w-80 p-3">
+        <PreviewContent tc={tc} />
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -1744,33 +1641,37 @@ export function SubtaskEditor({
                   <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-1">
                     {t('ioi.subtask.fieldMethod')}
                   </div>
-                  <div className="relative">
-                    <select
-                      value={subtask.scoring_method}
-                      onChange={(e) =>
-                        updateSubtask(idx, { scoring_method: e.target.value })
-                      }
-                      className="h-9 min-w-[130px] pl-[34px] rounded-md border border-input bg-card text-[13px] appearance-none outline-none transition-[border-color,box-shadow] duration-150"
-                    >
+                  <Select
+                    value={subtask.scoring_method}
+                    onValueChange={(v) =>
+                      updateSubtask(idx, { scoring_method: v })
+                    }
+                  >
+                    <SelectTrigger className="min-w-[130px]">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            monoClass,
+                            'text-[9px] font-extrabold px-[5px] py-px rounded-[3px] tracking-tight',
+                          )}
+                          style={{
+                            background: methodInfo.bg,
+                            color: methodInfo.color,
+                          }}
+                        >
+                          {t(methodInfo.shortKey)}
+                        </span>
+                        <SelectValue />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
                       {SCORING_METHODS.map((m) => (
-                        <option key={m.key} value={m.key}>
+                        <SelectItem key={m.key} value={m.key}>
                           {t(m.labelKey)}
-                        </option>
+                        </SelectItem>
                       ))}
-                    </select>
-                    <span
-                      className={cn(
-                        monoClass,
-                        'absolute left-[7px] top-1/2 -translate-y-1/2 text-[9px] font-extrabold px-[5px] py-px rounded-[3px] tracking-tight pointer-events-none',
-                      )}
-                      style={{
-                        background: methodInfo.bg,
-                        color: methodInfo.color,
-                      }}
-                    >
-                      {t(methodInfo.shortKey)}
-                    </span>
-                  </div>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <div className="text-[9px] font-bold uppercase tracking-widest opacity-40 block mb-1">
@@ -1900,8 +1801,6 @@ export function SubtaskEditor({
                         }
                         onDragStart={(e) => handleDragStart(e, [tcId], idx)}
                         isDuplicate={duplicateSet.has(tcId)}
-                        portalTarget={portalInfo.target}
-                        portalOffset={portalInfo.offset}
                       />
                     );
                   })}
@@ -1993,8 +1892,6 @@ export function SubtaskEditor({
                               )
                             }
                             isDuplicate={duplicateSet.has(label)}
-                            portalTarget={portalInfo.target}
-                            portalOffset={portalInfo.offset}
                           />
                         );
                       })}
