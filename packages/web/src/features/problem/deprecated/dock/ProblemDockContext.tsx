@@ -7,6 +7,8 @@ import type {
   UseSubmissionsReturn,
 } from '@/features/submission/hooks/use-submissions';
 
+export type { SubmissionEntry };
+
 type SampleContentMap = Record<number, { input?: string; output?: string }>;
 
 interface Problem {
@@ -54,7 +56,12 @@ export interface ProblemDockContextValue {
 
   // Editor
   onSubmit: (files: EditorFile[], language: string) => void;
-  onRun: (files: EditorFile[], language: string) => void;
+  onRun: (
+    files: EditorFile[],
+    language: string,
+    customTestCases: { input: string; expected_output?: string | null }[],
+  ) => void;
+  latestRun: SubmissionEntry | null;
   storageKey: string;
   contestType: string;
   onContestTypeChange?: (type: string) => void;

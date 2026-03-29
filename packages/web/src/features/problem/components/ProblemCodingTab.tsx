@@ -12,6 +12,12 @@ interface ProblemCodingTabProps {
   isCodeFullscreen: boolean;
   onToggleFullscreen: () => void;
   onSubmit: (files: EditorFile[], language: string) => void;
+  onRun: (
+    files: EditorFile[],
+    language: string,
+    customTestCases: { input: string; expected_output?: string | null }[],
+  ) => void;
+  latestRun: SubmissionEntry | null;
   storageKey: string;
   contestType: string;
   onContestTypeChange?: (value: string) => void;
@@ -31,6 +37,8 @@ export function ProblemCodingTab({
   isCodeFullscreen,
   onToggleFullscreen,
   onSubmit,
+  onRun,
+  latestRun,
   storageKey,
   contestType,
   onContestTypeChange,
@@ -52,7 +60,8 @@ export function ProblemCodingTab({
       >
         <CodeEditor
           onSubmit={onSubmit}
-          onRun={onSubmit}
+          onRun={onRun}
+          latestRun={latestRun}
           isFullscreen={isCodeFullscreen}
           onToggleFullscreen={onToggleFullscreen}
           storageKey={storageKey}

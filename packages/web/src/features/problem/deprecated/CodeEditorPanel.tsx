@@ -6,6 +6,7 @@ export function CodeEditorPanel() {
   const {
     onSubmit,
     onRun,
+    latestRun,
     storageKey,
     contestType,
     onContestTypeChange,
@@ -18,6 +19,7 @@ export function CodeEditorPanel() {
       <CodeEditor
         onSubmit={onSubmit}
         onRun={onRun}
+        latestRun={latestRun}
         storageKey={storageKey}
         contestType={contestType}
         onContestTypeChange={onContestTypeChange}

@@ -21,6 +21,12 @@ pub struct StartEvaluateCaseInput {
     pub solution_language: String,
     pub time_limit_ms: i32,
     pub memory_limit_kb: i32,
+    /// Inline input data for custom run test cases.
+    #[serde(default)]
+    pub inline_input: Option<String>,
+    /// Inline expected output for custom run test cases.
+    #[serde(default)]
+    pub inline_expected_output: Option<String>,
 }
 
 /// Server-enriched input forwarded to the evaluator plugin.

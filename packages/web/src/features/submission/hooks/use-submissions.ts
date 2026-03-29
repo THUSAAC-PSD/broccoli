@@ -20,6 +20,8 @@ export interface SubmissionEntry {
   submission: Submission | null;
   status: 'submitting' | 'polling' | 'done' | 'error';
   error: SubmissionError | null;
+  /** True for "run code" entries */
+  isRun?: boolean;
 }
 
 interface SubmissionFile {
@@ -29,10 +31,19 @@ interface SubmissionFile {
 
 export interface UseSubmissionsReturn {
   entries: SubmissionEntry[];
+  /** Entries filtered to exclude runs (for the submissions panel). */
+  submissionEntries: SubmissionEntry[];
+  /** The most recent run entry (for inline display in the editor). */
+  latestRun: SubmissionEntry | null;
   submit: (
     files: SubmissionFile[],
     language: string,
     contestType?: string,
+  ) => Promise<void>;
+  run: (
+    files: SubmissionFile[],
+    language: string,
+    customTestCases: { input: string; expected_output?: string | null }[],
   ) => Promise<void>;
   isAnySubmitting: boolean;
   activeEntryId: number | null;
@@ -219,6 +230,85 @@ export function useSubmissions({
     [apiClient, contestId, problemId, queryClient, startPolling, t],
   );
 
+  const run = useCallback(
+    async (
+      files: SubmissionFile[],
+      language: string,
+      customTestCases: { input: string; expected_output?: string | null }[],
+    ) => {
+      const entryId = ++entryIdCounter;
+
+      const newEntry: SubmissionEntry = {
+        id: entryId,
+        submission: null,
+        status: 'submitting',
+        error: null,
+        isRun: true,
+      };
+
+      setEntries((prev) => [newEntry, ...prev]);
+      setActiveEntryId(entryId);
+
+      const custom_test_cases = customTestCases.map((tc) => ({
+        input: tc.input,
+        expected_output: tc.expected_output ?? null,
+      }));
+
+      try {
+        let data: Submission;
+
+        if (contestId) {
+          const res = await apiClient.POST(
+            '/contests/{id}/problems/{problem_id}/submissions/run',
+            {
+              params: {
+                path: { id: contestId, problem_id: problemId },
+              },
+              body: { files, language, custom_test_cases },
+            },
+          );
+          if (res.error) throw res.error;
+          data = res.data;
+        } else {
+          const res = await apiClient.POST('/problems/{id}/submissions/run', {
+            params: { path: { id: problemId } },
+            body: { files, language, custom_test_cases },
+          });
+          if (res.error) throw res.error;
+          data = res.data;
+        }
+
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id === entryId
+              ? { ...e, submission: data, status: 'polling' as const }
+              : e,
+          ),
+        );
+
+        toast.success(
+          t('toast.submission.running', { defaultValue: 'Running code...' }),
+        );
+        startPolling(entryId, data.id);
+      } catch (err) {
+        console.error('Run failed:', err);
+        const submissionError = parseSubmissionError(err);
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id === entryId
+              ? { ...e, status: 'error' as const, error: submissionError }
+              : e,
+          ),
+        );
+        toast.error(t('toast.submission.error'));
+      }
+    },
+    [apiClient, contestId, problemId, startPolling, t],
+  );
+
+  const submissionEntries = entries.filter((e) => !e.isRun);
+  const latestRun = entries.find((e) => e.isRun) ?? null;
+
   const isAnySubmitting = entries.some(
     (e) => e.status === 'submitting' || e.status === 'polling',
   );
@@ -235,5 +325,14 @@ export function useSubmissions({
     return () => stopAllPolling();
   }, [stopAllPolling]);
 
-  return { entries, submit, isAnySubmitting, activeEntryId, setActiveEntryId };
+  return {
+    entries,
+    submissionEntries,
+    latestRun,
+    submit,
+    run,
+    isAnySubmitting,
+    activeEntryId,
+    setActiveEntryId,
+  };
 }

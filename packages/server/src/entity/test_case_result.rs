@@ -9,10 +9,11 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
 
-    #[sea_orm(unique_key = "submission_test_case")]
     pub submission_id: i32,
-    #[sea_orm(unique_key = "submission_test_case")]
-    pub test_case_id: i32,
+    /// NULL for custom run test cases (which have no DB-backed test_case row).
+    pub test_case_id: Option<i32>,
+    /// 0-based index for custom run test cases. NULL for DB-backed test cases.
+    pub run_index: Option<i32>,
 
     #[sea_orm(column_type = "Text")]
     pub verdict: Verdict,

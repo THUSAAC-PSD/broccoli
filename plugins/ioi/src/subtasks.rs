@@ -193,6 +193,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("tc_1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -201,6 +204,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("tc_2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let defs = build_default_subtasks(&test_cases);
@@ -220,6 +226,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: None,
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -228,6 +237,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: None,
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let defs = build_default_subtasks(&test_cases);

@@ -106,6 +106,8 @@ mod tests {
             time_limit_ms: 1000,
             memory_limit_kb: 262144,
             problem_type: "standard".into(),
+            mode: SubmissionMode::Submit,
+            test_cases: vec![],
         }
     }
 
@@ -142,6 +144,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -150,6 +155,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let ctx = default_ctx(tcs);
@@ -187,6 +195,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -195,6 +206,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 3,
@@ -203,6 +217,9 @@ mod tests {
                 position: 2,
                 description: None,
                 label: Some("3".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
 
@@ -246,6 +263,9 @@ mod tests {
             position: 0,
             description: None,
             label: Some("1".into()),
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
         }];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
@@ -279,6 +299,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -287,6 +310,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let ctx = default_ctx(tcs);
@@ -340,6 +366,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -348,6 +377,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let ctx = JudgeContext {
@@ -399,6 +431,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -407,6 +442,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let ctx = JudgeContext {
@@ -437,6 +475,9 @@ mod tests {
             position: 0,
             description: None,
             label: Some("1".into()),
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
         }];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
@@ -476,6 +517,9 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
             TestCaseRow {
                 id: 2,
@@ -484,6 +528,9 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
+                inline_input: None,
+                inline_expected_output: None,
+                is_custom: false,
             },
         ];
         let ctx = JudgeContext {

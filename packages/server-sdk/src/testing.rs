@@ -52,6 +52,9 @@ impl MockHost {
             position: pos,
             description: None,
             label: Some(id.to_string()),
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
         });
         self
     }
@@ -65,6 +68,9 @@ impl MockHost {
             position: pos,
             description: None,
             label: Some(id.to_string()),
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
         });
         self
     }

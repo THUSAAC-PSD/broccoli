@@ -40,7 +40,10 @@ pub struct SubmissionUpdate {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestCaseResultRow {
     pub submission_id: i32,
-    pub test_case_id: i32,
+    /// NULL for custom run test cases (which have no DB-backed test_case row).
+    pub test_case_id: Option<i32>,
+    /// 0-based index for custom run test cases. None for DB-backed test cases.
+    pub run_index: Option<i32>,
     pub verdict: Verdict,
     pub score: f64,
     pub time_used: Option<i32>,

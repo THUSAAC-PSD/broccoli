@@ -24,5 +24,5 @@ pub use operation::{
 };
 pub use persistence::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow};
 pub use query::{ProblemCheckerInfo, TestCaseData, TestCaseRow};
-pub use submission::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
+pub use submission::{OnSubmissionInput, OnSubmissionOutput, SourceFile, SubmissionMode};
 pub use verdict::Verdict;

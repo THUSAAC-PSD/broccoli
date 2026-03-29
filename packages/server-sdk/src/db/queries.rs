@@ -5,7 +5,8 @@ use crate::types::{ProblemCheckerInfo, TestCaseData, TestCaseRow};
 /// Query test cases for a problem, ordered by position.
 pub fn query_test_cases(problem_id: i32) -> Result<Vec<TestCaseRow>, SdkError> {
     let sql = format!(
-        "SELECT id, score, is_sample, position, description, label FROM test_case WHERE problem_id = {} ORDER BY position ASC",
+        "SELECT id, score, is_sample, position, description, label \
+         FROM test_case WHERE problem_id = {} ORDER BY position ASC",
         problem_id
     );
     host::db::db_query(&sql)

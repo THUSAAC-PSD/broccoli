@@ -1,10 +1,22 @@
 use serde::{Deserialize, Serialize};
 
+use super::query::TestCaseRow;
+
 /// A named file with content, used for submission files and evaluator source files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceFile {
     pub filename: String,
     pub content: String,
+}
+
+/// Submission mode: formal judged submission vs ephemeral run-code execution.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum SubmissionMode {
+    /// Normal submission: affects scoring, uses DB test cases.
+    #[default]
+    Submit,
+    /// Run code: ephemeral, uses custom test cases, no scoring side effects.
+    Run,
 }
 
 /// Input to contest type plugin handler's on_submission handler.
@@ -19,6 +31,12 @@ pub struct OnSubmissionInput {
     pub time_limit_ms: i32,
     pub memory_limit_kb: i32,
     pub problem_type: String,
+    /// Submission mode. Default: Submit.
+    #[serde(default)]
+    pub mode: SubmissionMode,
+    /// Pre-resolved test cases.
+    #[serde(default)]
+    pub test_cases: Vec<TestCaseRow>,
 }
 
 /// Output from contest type plugin handler.

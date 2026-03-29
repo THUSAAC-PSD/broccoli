@@ -288,6 +288,21 @@ export default function ProblemView({
     [submissions, effectiveContestType],
   );
 
+  const handleRun = useCallback(
+    (
+      files: EditorFile[],
+      language: string,
+      customTestCases: { input: string; expected_output?: string | null }[],
+    ) => {
+      submissions.run(
+        files.map(({ filename, content }) => ({ filename, content })),
+        language,
+        customTestCases,
+      );
+    },
+    [submissions],
+  );
+
   const storageKey = contestId
     ? `contest-${contestId}-problem-${problemId}`
     : `problem-${problemId}`;
@@ -304,7 +319,7 @@ export default function ProblemView({
     [contestId],
   );
 
-  const latestEntry = submissions.entries[0] ?? null;
+  const latestEntry = submissions.submissionEntries[0] ?? null;
   const latestSubmission = latestEntry?.submission ?? null;
   const isSubmitting = submissions.isAnySubmitting;
   const canEdit = !!user && user.permissions.includes('problem:edit');
@@ -383,6 +398,8 @@ export default function ProblemView({
             isCodeFullscreen={isCodeFullscreen}
             onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
             onSubmit={handleSubmit}
+            onRun={handleRun}
+            latestRun={submissions.latestRun}
             storageKey={storageKey}
             contestType={effectiveContestType}
             onContestTypeChange={!contestId ? setContestType : undefined}
@@ -392,7 +409,7 @@ export default function ProblemView({
             submissionFormat={problem?.submission_format}
             latestSubmission={latestSubmission}
             submissionHistory={submissionHistory}
-            submissions={submissions.entries}
+            submissions={submissions.submissionEntries}
             isSubmitting={isSubmitting}
             overviewVisibleCount={RECENT_SUBMISSION_OVERVIEW_COUNT}
             submissionDetailLinkBuilder={submissionDetailLinkBuilder}

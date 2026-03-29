@@ -48,6 +48,8 @@ pub fn evaluate_all(
                 solution_language: req.language.clone(),
                 time_limit_ms: req.time_limit_ms,
                 memory_limit_kb: req.memory_limit_kb,
+                inline_input: tc.inline_input.clone(),
+                inline_expected_output: tc.inline_expected_output.clone(),
             })
             .collect(),
     };
@@ -181,9 +183,16 @@ fn insert_tc_result(
         Some(tc) => scale_score(outcome.raw_score, tc),
         None => 0.0,
     };
+    let is_custom = tc.map_or(false, |t| t.is_custom);
+    let (tc_id, run_index) = if is_custom {
+        (None, Some(outcome.test_case_id)) // test_case_id is the 0-based run_index
+    } else {
+        (Some(outcome.test_case_id), None)
+    };
     host.insert_test_case_results(&[TestCaseResultRow {
         submission_id,
-        test_case_id: outcome.test_case_id,
+        test_case_id: tc_id,
+        run_index,
         verdict: outcome.verdict.clone(),
         score,
         time_used: outcome.time_used,

@@ -134,6 +134,7 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
 fn problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::submission::create_submission))
+        .routes(routes!(handlers::submission::run_code))
         .layer(handlers::submission::submission_body_limit(
             submission_max_size,
         ))
@@ -262,6 +263,7 @@ fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState>
 fn contest_problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::submission::create_contest_submission))
+        .routes(routes!(handlers::submission::run_contest_code))
         .layer(handlers::submission::submission_body_limit(
             submission_max_size,
         ))

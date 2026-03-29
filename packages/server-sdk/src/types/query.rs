@@ -11,6 +11,15 @@ pub struct TestCaseRow {
     pub description: Option<String>,
     #[serde(default)]
     pub label: Option<String>,
+    /// Inline input data for custom run test cases (not from DB).
+    #[serde(default)]
+    pub inline_input: Option<String>,
+    /// Inline expected output for custom run test cases. None means no checking (use "none" checker).
+    #[serde(default)]
+    pub inline_expected_output: Option<String>,
+    /// True if this is a synthetic (custom run) test case, not backed by a DB row.
+    #[serde(default)]
+    pub is_custom: bool,
 }
 
 /// DB query result for test case content (input and expected output).

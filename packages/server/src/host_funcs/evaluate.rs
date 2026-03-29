@@ -137,7 +137,13 @@ fn start_evaluate_batch_fn(
     let resolved_inputs = if input.test_cases.is_empty() {
         Vec::new()
     } else {
-        let tc_ids: Vec<i32> = input.test_cases.iter().map(|tc| tc.test_case_id).collect();
+        // Only query DB for test cases that aren't inline (custom run TCs have inline_input)
+        let tc_ids: Vec<i32> = input
+            .test_cases
+            .iter()
+            .filter(|tc| tc.inline_input.is_none())
+            .map(|tc| tc.test_case_id)
+            .collect();
         let problem_id = input.test_cases[0].problem_id;
 
         if input
@@ -164,14 +170,18 @@ fn start_evaluate_batch_fn(
         let (tc_data_map, problem_model, checker_config_model, additional_source_files) =
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    // Get test case input + expected_output
-                    let tc_models = test_case::Entity::find()
-                        .filter(test_case::Column::Id.is_in(tc_ids))
-                        .all(&db)
-                        .await
-                        .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query test case data: {}", e))
-                        })?;
+                    // Get test case input + expected_output (only for DB-backed TCs)
+                    let tc_models = if tc_ids.is_empty() {
+                        Vec::new()
+                    } else {
+                        test_case::Entity::find()
+                            .filter(test_case::Column::Id.is_in(tc_ids))
+                            .all(&db)
+                            .await
+                            .map_err(|e| {
+                                extism::Error::msg(format!("Failed to query test case data: {}", e))
+                            })?
+                    };
 
                     let tc_data: HashMap<i32, (String, String)> = tc_models
                         .into_iter()
@@ -270,20 +280,32 @@ fn start_evaluate_batch_fn(
             .test_cases
             .into_iter()
             .map(|tc| {
-                let (test_input, expected_output) =
-                    tc_data_map.get(&tc.test_case_id).ok_or_else(|| {
-                        extism::Error::msg(format!(
-                            "Test case {} not found in database",
-                            tc.test_case_id
-                        ))
-                    })?;
-
                 // Judge-supplied additional_files go FIRST so they take
                 // precedence over user-submitted files with the same name.
                 // Evaluators keep the first occurrence of each filename, so
                 // this prevents contestants from shadowing judge stubs.
                 let mut merged_source = additional_source_files.clone();
                 merged_source.extend(tc.solution_source);
+
+                let (test_input, expected_output, tc_checker_format) =
+                    if let Some(ref inline) = tc.inline_input {
+                        let expected = tc.inline_expected_output.clone().unwrap_or_default();
+                        // No expected output so use "none" checker (always Accepted)
+                        let fmt = if tc.inline_expected_output.is_none() {
+                            Some("none".to_string())
+                        } else {
+                            checker_format.clone()
+                        };
+                        (inline.clone(), expected, fmt)
+                    } else {
+                        let (ti, eo) = tc_data_map.get(&tc.test_case_id).ok_or_else(|| {
+                            extism::Error::msg(format!(
+                                "Test case {} not found in database",
+                                tc.test_case_id
+                            ))
+                        })?;
+                        (ti.clone(), eo.clone(), checker_format.clone())
+                    };
 
                 Ok::<_, extism::Error>(BuildEvalOpsInput {
                     problem_id: tc.problem_id,
@@ -292,9 +314,9 @@ fn start_evaluate_batch_fn(
                     solution_language: tc.solution_language,
                     time_limit_ms: tc.time_limit_ms,
                     memory_limit_kb: tc.memory_limit_kb,
-                    test_input: test_input.clone(),
-                    expected_output: expected_output.clone(),
-                    checker_format: checker_format.clone(),
+                    test_input,
+                    expected_output,
+                    checker_format: tc_checker_format,
                     checker_config: checker_config_value.clone(),
                     checker_source: parsed_checker_source.clone(),
                 })
