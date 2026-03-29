@@ -76,6 +76,20 @@ export const en: Record<string, string> = {
   'submissions.filters.search': 'Search',
   'submissions.viewDetails': 'View Details',
   'submissions.details': 'Details',
+  'submissions.selection.toggleVisible': 'Toggle selection for visible rows',
+  'submissions.selection.toggleSingle': 'Toggle selection for submission #{id}',
+  'submissions.selection.selectMatched': 'Select Matched',
+  'submissions.selection.unselectMatched': 'Unselect Matched',
+  'submissions.selection.clear': 'Clear Selection',
+  'submissions.selection.selectedCount': '{count} selected',
+  'submissions.selection.matchingCount': '{count} matched by filters',
+  'submissions.bulkRejudge.action': 'Bulk Rejudge',
+  'submissions.bulkRejudge.enterMode': 'Rejudge',
+  'submissions.bulkRejudge.exitMode': 'Cancel Rejudge',
+  'submissions.bulkRejudge.noSelection':
+    'Select at least one submission first.',
+  'submissions.bulkRejudge.queued': 'Queued {count} submissions for rejudge.',
+  'submissions.bulkRejudge.error': 'Failed to bulk rejudge submissions.',
 
   // Homepage
   'homepage.title': 'Broccoli Online Judge',

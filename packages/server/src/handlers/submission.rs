@@ -1193,14 +1193,14 @@ pub async fn list_contest_submissions(
     }))
 }
 
-/// Bulk rejudge submissions by filter.
+/// Bulk rejudge submissions by explicit submission IDs.
 #[utoipa::path(
     post,
     path = "/bulk-rejudge",
     tag = "Submissions",
     operation_id = "bulkRejudgeSubmissions",
     summary = "Bulk rejudge submissions",
-    description = "Re-queues submissions matching the given filters for rejudging. At least one filter must be provided. Max 10,000 matching submissions. Requires `submission:rejudge` permission.",
+    description = "Re-queues submissions in the provided ID list for rejudging. Max 10,000 IDs per request. Requires `submission:rejudge` permission.",
     request_body = BulkRejudgeRequest,
     responses(
         (status = 200, description = "Submissions re-queued", body = BulkRejudgeResponse),
@@ -1219,49 +1219,21 @@ pub async fn bulk_rejudge_submissions(
     auth_user.require_permission("submission:rejudge")?;
     validate_bulk_rejudge(&payload)?;
 
+    let requested = payload.submission_ids.len();
+    let mut requested_ids = payload.submission_ids;
+    requested_ids.sort_unstable();
+    requested_ids.dedup();
+    let requested_unique = requested_ids.len();
+
     let terminal_statuses = vec![
         SubmissionStatus::Judged,
         SubmissionStatus::CompilationError,
         SubmissionStatus::SystemError,
     ];
-    let mut base =
-        submission::Entity::find().filter(submission::Column::Status.is_in(terminal_statuses));
 
-    if let Some(pid) = payload.problem_id {
-        base = base.filter(submission::Column::ProblemId.eq(pid));
-    }
-    if let Some(cid) = payload.contest_id {
-        base = base.filter(submission::Column::ContestId.eq(Some(cid)));
-    }
-    if let Some(ref lang) = payload.language {
-        base = base.filter(submission::Column::Language.eq(lang.trim()));
-    }
-    if let Some(ref verdict_str) = payload.verdict {
-        let verdict_str = verdict_str.trim();
-        if verdict_str.is_empty() {
-            return Err(AppError::Validation("verdict cannot be empty".into()));
-        }
-
-        let verdict: Verdict =
-            verdict_str
-                .parse()
-                .map_err(|e: common::submission_status::ParseVerdictError| {
-                    AppError::Validation(e.to_string())
-                })?;
-        base = base.filter(submission::Column::Verdict.eq(Some(verdict)));
-    }
-    if let Some(uid) = payload.user_id {
-        base = base.filter(submission::Column::UserId.eq(uid));
-    }
-
-    let total = base.clone().count(&state.db).await?;
-    if total > 10_000 {
-        return Err(AppError::Validation(format!(
-            "Too many matching submissions ({total}). Maximum is 10,000. Please narrow your filters."
-        )));
-    }
-
-    let all_ids: Vec<i32> = base
+    let all_ids: Vec<i32> = submission::Entity::find()
+        .filter(submission::Column::Id.is_in(requested_ids.clone()))
+        .filter(submission::Column::Status.is_in(terminal_statuses))
         .select_only()
         .column(submission::Column::Id)
         .order_by_asc(submission::Column::Id)
@@ -1345,12 +1317,7 @@ pub async fn bulk_rejudge_submissions(
 
     info!(
         user_id = auth_user.user_id,
-        queued,
-        problem_id = ?payload.problem_id,
-        contest_id = ?payload.contest_id,
-        language = ?payload.language,
-        verdict = ?payload.verdict,
-        "Bulk rejudge completed"
+        requested, requested_unique, queued, "Bulk rejudge completed"
     );
 
     Ok(Json(BulkRejudgeResponse { queued }))

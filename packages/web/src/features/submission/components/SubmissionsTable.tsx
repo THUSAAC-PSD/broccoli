@@ -4,10 +4,17 @@ import type {
   Submission,
   SubmissionSummary,
 } from '@broccoli/web-sdk/submission';
-import { Badge } from '@broccoli/web-sdk/ui';
+import { Badge, Button } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, ExternalLink, Inbox } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Inbox,
+  Minus,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 
@@ -73,6 +80,17 @@ export interface SubmissionsTableProps {
   renderExpandedDetail?: (
     submission: SubmissionSummary,
   ) => React.ReactNode | undefined;
+  /** Enables checkbox selection on the left side. */
+  selectable?: boolean;
+  /** Selected submission IDs for controlled selection. */
+  selectedSubmissionIds?: ReadonlySet<number>;
+  /** Called when a row checkbox is toggled. */
+  onToggleSubmissionSelection?: (
+    submissionId: number,
+    checked: boolean,
+  ) => void;
+  /** Called when header checkbox toggles all currently visible rows. */
+  onToggleSelectVisible?: (submissionIds: number[], checked: boolean) => void;
 }
 
 export function SubmissionsTable({
@@ -88,6 +106,10 @@ export function SubmissionsTable({
   rowClassName,
   autoExpandId,
   renderExpandedDetail,
+  selectable = false,
+  selectedSubmissionIds,
+  onToggleSubmissionSelection,
+  onToggleSelectVisible,
 }: SubmissionsTableProps) {
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(
@@ -103,7 +125,20 @@ export function SubmissionsTable({
     }
   }
   const cols = columns ?? DEFAULT_COLUMNS;
-  const colSpan = cols.length + (expandable ? 1 : 0);
+  const colSpan = cols.length + (expandable ? 1 : 0) + (selectable ? 1 : 0);
+
+  const selectedVisibleCount = selectable
+    ? submissions.reduce(
+        (count, sub) => count + (selectedSubmissionIds?.has(sub.id) ? 1 : 0),
+        0,
+      )
+    : 0;
+  const allVisibleSelected =
+    selectable &&
+    submissions.length > 0 &&
+    selectedVisibleCount === submissions.length;
+  const partiallyVisibleSelected =
+    selectable && selectedVisibleCount > 0 && !allVisibleSelected;
 
   const px = compact ? 'px-2' : 'px-4';
   const py = compact ? 'py-1.5' : 'py-2.5';
@@ -127,6 +162,22 @@ export function SubmissionsTable({
             stickyHeader ? 'bg-muted/60 backdrop-blur-xs' : 'bg-muted/30'
           }`}
         >
+          {selectable && (
+            <th className={`w-10 ${px} ${py}`}>
+              <SelectionCheckbox
+                checked={allVisibleSelected}
+                indeterminate={partiallyVisibleSelected}
+                disabled={!onToggleSelectVisible || submissions.length === 0}
+                onCheckedChange={(checked) =>
+                  onToggleSelectVisible?.(
+                    submissions.map((sub) => sub.id),
+                    checked,
+                  )
+                }
+                aria-label={t('submissions.selection.toggleVisible')}
+              />
+            </th>
+          )}
           {expandable && <th className={`w-5 ${px} ${py}`} />}
           {cols.map((col) => (
             <th
@@ -146,10 +197,15 @@ export function SubmissionsTable({
             key={sub.id}
             submission={sub}
             columns={cols}
+            selectable={selectable}
             expandable={expandable}
             isExpanded={expandedId === sub.id}
             onToggle={() =>
               setExpandedId(expandedId === sub.id ? null : sub.id)
+            }
+            isSelected={!!selectedSubmissionIds?.has(sub.id)}
+            onToggleSelection={(checked) =>
+              onToggleSubmissionSelection?.(sub.id, checked)
             }
             linkBuilder={linkBuilder}
             renderVerdict={renderVerdict}
@@ -173,9 +229,12 @@ SubmissionsTable.compactColumns = DEFAULT_COLUMNS;
 function SubmissionRow({
   submission,
   columns,
+  selectable,
   expandable,
   isExpanded,
   onToggle,
+  isSelected,
+  onToggleSelection,
   linkBuilder,
   renderVerdict,
   renderExpandedDetail,
@@ -185,9 +244,12 @@ function SubmissionRow({
 }: {
   submission: SubmissionSummary;
   columns: SubmissionsTableColumn[];
+  selectable: boolean;
   expandable: boolean;
   isExpanded: boolean;
   onToggle: () => void;
+  isSelected: boolean;
+  onToggleSelection?: (checked: boolean) => void;
   linkBuilder?: (submission: SubmissionSummary) => string;
   renderVerdict?: (submission: SubmissionSummary) => React.ReactNode;
   renderExpandedDetail?: (
@@ -318,6 +380,19 @@ function SubmissionRow({
           expandable ? 'cursor-pointer hover:bg-muted/30' : 'hover:bg-muted/20'
         } ${isExpanded ? 'bg-muted/20' : ''} ${rowClassName ?? ''}`}
       >
+        {selectable && (
+          <td className={`${px} ${py}`}>
+            <SelectionCheckbox
+              checked={isSelected}
+              disabled={!onToggleSelection}
+              onCheckedChange={(checked) => onToggleSelection?.(checked)}
+              stopPropagation
+              aria-label={t('submissions.selection.toggleSingle', {
+                id: submission.id,
+              })}
+            />
+          </td>
+        )}
         {expandable && (
           <td className={`${px} ${py} text-muted-foreground/50`}>
             {isExpanded ? (
@@ -342,6 +417,55 @@ function SubmissionRow({
         </tr>
       )}
     </>
+  );
+}
+
+function SelectionCheckbox({
+  checked,
+  indeterminate = false,
+  disabled = false,
+  onCheckedChange,
+  'aria-label': ariaLabel,
+  stopPropagation = false,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  'aria-label': string;
+  stopPropagation?: boolean;
+}) {
+  const showChecked = checked && !indeterminate;
+  const showMixed = indeterminate;
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      disabled={disabled}
+      role="checkbox"
+      aria-checked={indeterminate ? 'mixed' : checked}
+      aria-label={ariaLabel}
+      className={`h-5 w-5 p-0 ${
+        showChecked || showMixed
+          ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
+          : 'border-input bg-background'
+      }`}
+      onClick={(e) => {
+        if (stopPropagation) {
+          e.stopPropagation();
+        }
+        const nextChecked = indeterminate ? true : !checked;
+        onCheckedChange?.(nextChecked);
+      }}
+    >
+      {showMixed ? (
+        <Minus className="h-3 w-3" />
+      ) : showChecked ? (
+        <Check className="h-3 w-3" />
+      ) : null}
+    </Button>
   );
 }
 

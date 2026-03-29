@@ -213,27 +213,11 @@ pub struct TestCaseResultResponse {
     pub checker_output: Option<String>,
 }
 
-/// Request body for bulk-rejudging submissions by filter.
+/// Request body for bulk-rejudging submissions by explicit IDs.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkRejudgeRequest {
-    /// Filter by problem ID.
-    #[schema(example = 5)]
-    pub problem_id: Option<i32>,
-    /// Filter by contest ID.
-    #[schema(example = 2)]
-    pub contest_id: Option<i32>,
-    /// Filter by language.
-    #[schema(example = "cpp")]
-    pub language: Option<String>,
-    /// Filter by verdict string.
-    /// Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
-    /// Custom verdicts may use the raw custom label (e.g. PartiallyAccepted).
-    /// `Other(<custom>)` is also accepted.
-    #[schema(example = "WrongAnswer")]
-    pub verdict: Option<String>,
-    /// Filter by user ID.
-    #[schema(example = 7)]
-    pub user_id: Option<i32>,
+    /// Submission IDs to rejudge. Duplicate IDs are ignored.
+    pub submission_ids: Vec<i32>,
 }
 
 /// Response from bulk rejudge.
@@ -245,26 +229,16 @@ pub struct BulkRejudgeResponse {
 }
 
 pub fn validate_bulk_rejudge(req: &BulkRejudgeRequest) -> Result<(), AppError> {
-    if req.problem_id.is_none()
-        && req.contest_id.is_none()
-        && req.language.is_none()
-        && req.verdict.is_none()
-        && req.user_id.is_none()
-    {
+    if req.submission_ids.is_empty() {
         return Err(AppError::Validation(
-            "At least one filter field must be provided".into(),
+            "submission_ids cannot be empty".into(),
         ));
     }
 
-    if let Some(ref verdict) = req.verdict {
-        let verdict = verdict.trim();
-        if verdict.is_empty() {
-            return Err(AppError::Validation("verdict cannot be empty".into()));
-        }
-
-        verdict
-            .parse::<Verdict>()
-            .map_err(|e| AppError::Validation(e.to_string()))?;
+    if let Some(invalid_id) = req.submission_ids.iter().copied().find(|id| *id <= 0) {
+        return Err(AppError::Validation(format!(
+            "submission_ids contains invalid id {invalid_id}. IDs must be positive integers."
+        )));
     }
 
     Ok(())
