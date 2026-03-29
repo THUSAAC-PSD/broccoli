@@ -2,14 +2,22 @@ use chrono::{DateTime, Utc};
 use common::{SubmissionStatus, Verdict};
 use serde::{Deserialize, Serialize};
 
-use crate::entity::submission::SubmissionFile;
 use crate::error::AppError;
-use crate::utils::filename::validate_flat_filename;
 
 use super::shared::Pagination;
 
+/// A single file in a multi-file submission.
+/// Stored as JSON array in the database.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmissionFile {
+    /// Filename (e.g., "Main.java", "solution.cpp")
+    pub filename: String,
+    /// Source code content
+    pub content: String,
+}
+
 /// A single file in a submission.
-#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct SubmissionFileDto {
     /// Filename (e.g., "Main.java", "solution.cpp"). No path separators allowed.
     #[schema(example = "solution.cpp")]
@@ -203,85 +211,6 @@ pub struct TestCaseResultResponse {
     pub stderr: Option<String>,
     /// Custom checker feedback.
     pub checker_output: Option<String>,
-}
-
-/// Maximum total size of all files in bytes.
-pub const DEFAULT_MAX_SUBMISSION_SIZE: usize = 1_048_576; // 1 MB
-
-/// Validate a submission creation request.
-pub fn validate_create_submission(
-    req: &CreateSubmissionRequest,
-    max_size: usize,
-) -> Result<(), AppError> {
-    use std::collections::HashSet;
-
-    if req.files.is_empty() {
-        return Err(AppError::Validation("At least one file is required".into()));
-    }
-
-    let mut total_size = 0usize;
-    let mut seen_filenames = HashSet::with_capacity(req.files.len());
-
-    for file in &req.files {
-        // Validate filename using shared validation
-        let filename = validate_flat_filename(&file.filename)
-            .map_err(|e| AppError::Validation(e.message().into()))?;
-
-        // Check for duplicates
-        if !seen_filenames.insert(filename) {
-            return Err(AppError::Validation(format!(
-                "Duplicate filename: '{}'",
-                filename
-            )));
-        }
-
-        // Content must not be empty
-        if file.content.is_empty() {
-            return Err(AppError::Validation(format!(
-                "File '{}' cannot be empty",
-                filename
-            )));
-        }
-
-        total_size = total_size.saturating_add(file.content.len());
-    }
-
-    if total_size > max_size {
-        return Err(AppError::Validation(format!(
-            "Total submission size ({} bytes) exceeds maximum ({} bytes)",
-            total_size, max_size
-        )));
-    }
-
-    let language = req.language.trim();
-    if language.is_empty() {
-        return Err(AppError::Validation("Language is required".into()));
-    }
-
-    Ok(())
-}
-
-/// Validate submission list query parameters.
-pub fn validate_submission_list_query(query: &SubmissionListQuery) -> Result<(), AppError> {
-    if let Some(ref sort_by) = query.sort_by {
-        const ALLOWED_SORT_FIELDS: &[&str] = &["created_at", "status"];
-        if !ALLOWED_SORT_FIELDS.contains(&sort_by.as_str()) {
-            return Err(AppError::Validation(format!(
-                "Invalid sort_by field '{}'. Allowed: created_at, status",
-                sort_by
-            )));
-        }
-    }
-
-    if let Some(ref sort_order) = query.sort_order
-        && !["asc", "desc"].contains(&sort_order.to_lowercase().as_str())
-    {
-        return Err(AppError::Validation(
-            "sort_order must be 'asc' or 'desc'".into(),
-        ));
-    }
-
-    Ok(())
 }
 
 /// Request body for bulk-rejudging submissions by filter.

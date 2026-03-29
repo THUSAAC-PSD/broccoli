@@ -5,14 +5,13 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use chrono::{Duration, Utc};
-use common::language::{LanguageDefinition, resolve_language};
+use broccoli_server_sdk::types::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent};
+use chrono::Utc;
 use common::{SubmissionStatus, Verdict};
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::{error, info, instrument, warn};
 
-use crate::entity::submission::SubmissionFile;
 use crate::entity::{
     contest, contest_problem, problem, submission, test_case, test_case_result, user,
 };
@@ -26,52 +25,12 @@ use crate::state::AppState;
 use crate::utils::contest::{
     is_contest_participant, require_contest_participant, require_contest_running,
 };
+use crate::utils::judging::{
+    files_from_json, files_to_json, validate_code_payload, validate_submission_contract,
+};
+use crate::utils::query::validate_sorting_params;
+use crate::utils::rate_limit::check_rate_limit;
 use crate::utils::soft_delete::SoftDeletable;
-use broccoli_server_sdk::types::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent};
-
-/// Check rate limit for a user.
-///
-/// Uses an optimistic (non-locking) approach, so technically concurrent
-/// requests within a very short window may both pass the rate check before
-/// either insert completes, but this is an accepted trade-off compared to
-/// pessimistic locking which adds latency to each request.
-async fn check_rate_limit(
-    db: &DatabaseConnection,
-    user_id: i32,
-    limit_per_minute: u32,
-) -> Result<(), AppError> {
-    if limit_per_minute == 0 {
-        return Ok(()); // Rate limiting disabled
-    }
-
-    let one_minute_ago = Utc::now() - Duration::minutes(1);
-
-    let count = submission::Entity::find()
-        .filter(submission::Column::UserId.eq(user_id))
-        .filter(submission::Column::CreatedAt.gt(one_minute_ago))
-        .count(db)
-        .await?;
-
-    if count >= limit_per_minute as u64 {
-        let oldest = submission::Entity::find()
-            .filter(submission::Column::UserId.eq(user_id))
-            .filter(submission::Column::CreatedAt.gt(one_minute_ago))
-            .order_by_asc(submission::Column::CreatedAt)
-            .one(db)
-            .await?;
-
-        let retry_after = oldest
-            .map(|s| {
-                let expires = s.created_at + Duration::minutes(1);
-                cmp::max((expires - Utc::now()).num_seconds(), 1) as u64
-            })
-            .unwrap_or(60);
-
-        return Err(AppError::RateLimited { retry_after });
-    }
-
-    Ok(())
-}
 
 /// Dispatch `before_submission` hooks and convert the outcome to an AppError if rejected.
 async fn dispatch_before_submission_hooks(
@@ -98,58 +57,6 @@ async fn dispatch_before_submission_hooks(
             details,
         }),
     }
-}
-
-fn validate_submission_contract(
-    payload: &CreateSubmissionRequest,
-    problem: &problem::Model,
-    languages: &HashMap<String, LanguageDefinition>,
-) -> Result<(), AppError> {
-    let language = payload.language.trim();
-    let submitted_filename = payload
-        .files
-        .first()
-        .map(|file| file.filename.as_str())
-        .unwrap_or_default();
-
-    resolve_language(language, submitted_filename, languages, &[]).map_err(AppError::Validation)?;
-
-    let submission_format: Option<HashMap<String, Vec<String>>> = problem
-        .submission_format
-        .clone()
-        .and_then(|value| serde_json::from_value(value).ok());
-
-    let Some(submission_format) = submission_format else {
-        return Ok(());
-    };
-
-    if submission_format.is_empty() {
-        return Ok(());
-    }
-
-    let mut expected = submission_format.get(language).cloned().ok_or_else(|| {
-        AppError::Validation(format!(
-            "Language '{}' is not allowed for this problem",
-            language
-        ))
-    })?;
-    let mut actual = payload
-        .files
-        .iter()
-        .map(|file| file.filename.trim().to_string())
-        .collect::<Vec<_>>();
-    expected.sort();
-    actual.sort();
-
-    if actual != expected {
-        return Err(AppError::Validation(format!(
-            "Files for language '{}' must exactly match: {}",
-            language,
-            expected.join(", ")
-        )));
-    }
-
-    Ok(())
 }
 
 /// Fire `after_submission` hooks in the background. Non-blocking.
@@ -463,27 +370,6 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
     });
 }
 
-/// Convert files to JSON value for storage.
-fn files_to_json(files: &[SubmissionFileDto]) -> serde_json::Value {
-    let submission_files: Vec<SubmissionFile> = files
-        .iter()
-        .map(|f| SubmissionFile {
-            filename: f.filename.trim().to_string(),
-            content: f.content.clone(),
-        })
-        .collect();
-    serde_json::to_value(&submission_files).unwrap_or(serde_json::Value::Array(vec![]))
-}
-
-/// Parse files from JSON value.
-fn files_from_json(value: &serde_json::Value) -> Vec<SubmissionFileDto> {
-    serde_json::from_value::<Vec<SubmissionFile>>(value.clone())
-        .unwrap_or_default()
-        .into_iter()
-        .map(SubmissionFileDto::from)
-        .collect()
-}
-
 /// Build list items from submissions.
 async fn build_submission_list_items(
     db: &DatabaseConnection,
@@ -781,7 +667,11 @@ pub async fn create_submission(
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
-    validate_create_submission(&payload, state.config.submission.max_size)?;
+    validate_code_payload(
+        &payload.files,
+        &payload.language,
+        state.config.submission.max_size,
+    )?;
     check_rate_limit(
         &state.db,
         auth_user.user_id,
@@ -792,7 +682,12 @@ pub async fn create_submission(
     let txn = state.db.begin().await?;
 
     let problem = find_problem(&txn, problem_id).await?;
-    validate_submission_contract(&payload, &problem, &state.config.languages)?;
+    validate_submission_contract(
+        &payload.files,
+        &payload.language,
+        problem.get_submission_format(),
+        &state.config.languages,
+    )?;
 
     let contest_type = match payload.contest_type {
         Some(ref ct) => {
@@ -884,7 +779,11 @@ pub async fn list_submissions(
     State(state): State<AppState>,
     Query(query): Query<SubmissionListQuery>,
 ) -> Result<Json<SubmissionListResponse>, AppError> {
-    validate_submission_list_query(&query)?;
+    validate_sorting_params(
+        query.sort_by.as_deref(),
+        query.sort_order.as_deref(),
+        &["created_at", "status"],
+    )?;
 
     let can_view_all = auth_user.has_permission("submission:view_all");
 
@@ -1096,7 +995,11 @@ pub async fn create_contest_submission(
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
-    validate_create_submission(&payload, state.config.submission.max_size)?;
+    validate_code_payload(
+        &payload.files,
+        &payload.language,
+        state.config.submission.max_size,
+    )?;
     check_rate_limit(
         &state.db,
         auth_user.user_id,
@@ -1119,7 +1022,12 @@ pub async fn create_contest_submission(
     let now = Utc::now();
     require_contest_running(&auth_user, &contest_model, now)?;
     require_contest_participant(&state.db, &auth_user, &contest_model).await?;
-    validate_submission_contract(&payload, &problem, &state.config.languages)?;
+    validate_submission_contract(
+        &payload.files,
+        &payload.language,
+        problem.get_submission_format(),
+        &state.config.languages,
+    )?;
 
     let enabled_plugins =
         hooks::fetch_resource_enablements(problem_id, Some(contest_id), &state.db).await?;
@@ -1207,7 +1115,11 @@ pub async fn list_contest_submissions(
     Path(contest_id): Path<i32>,
     Query(query): Query<SubmissionListQuery>,
 ) -> Result<Json<SubmissionListResponse>, AppError> {
-    validate_submission_list_query(&query)?;
+    validate_sorting_params(
+        query.sort_by.as_deref(),
+        query.sort_order.as_deref(),
+        &["created_at", "status"],
+    )?;
 
     let contest_model = find_contest(&state.db, contest_id).await?;
 

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -62,5 +64,13 @@ impl SoftDeletable for Entity {
     type DeletedAtColumn = Column;
     fn deleted_at() -> Self::DeletedAtColumn {
         Column::DeletedAt
+    }
+}
+
+impl Model {
+    pub fn get_submission_format(&self) -> Option<HashMap<String, Vec<String>>> {
+        self.submission_format
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
     }
 }

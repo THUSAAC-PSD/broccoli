@@ -2,16 +2,6 @@ use common::{SubmissionStatus, Verdict};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// A single file in a multi-file submission.
-/// Stored as JSON array in the database.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubmissionFile {
-    /// Filename (e.g., "Main.java", "solution.cpp")
-    pub filename: String,
-    /// Source code content
-    pub content: String,
-}
-
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "submission")]
