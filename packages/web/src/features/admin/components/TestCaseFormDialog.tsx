@@ -14,7 +14,8 @@ import {
   Textarea,
 } from '@broccoli/web-sdk/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { Upload } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SwitchField } from '@/features/admin/components/SwitchField';
@@ -28,6 +29,8 @@ interface TestCaseFormDialogProps {
   testCasesQueryKey: (string | number)[];
 }
 
+type UploadType = 'Input' | 'Output';
+
 export function TestCaseFormDialog({
   problemId,
   testCaseId,
@@ -39,6 +42,8 @@ export function TestCaseFormDialog({
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const isEdit = !!testCaseId;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileOutputRef = useRef<HTMLInputElement>(null);
 
   const [label, setLabel] = useState('');
   const [input, setInput] = useState('');
@@ -48,6 +53,8 @@ export function TestCaseFormDialog({
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
+  const [inputUploaded, setInputUploaded] = useState(false);
+  const [outputUploaded, setOutputUploaded] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +83,47 @@ export function TestCaseFormDialog({
       setDescription('');
     }
   }, [apiClient, open, testCaseId, problemId]);
+
+  const handleFileUpload = async (file: File) => {
+    try {
+      return await file.text();
+    } catch {
+      toast.error(t('admin.testCases.fileReadError'));
+      return undefined;
+    }
+  };
+
+  const handleFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: UploadType,
+  ) => {
+    const inputEl = e.currentTarget;
+    const file = inputEl.files?.[0];
+    if (!file) return;
+
+    const content = await handleFileUpload(file);
+
+    inputEl.value = '';
+
+    if (!content) return;
+
+    if (type === 'Input') {
+      setInput(content);
+      setInputUploaded(true);
+    } else {
+      setExpectedOutput(content);
+      setOutputUploaded(true);
+    }
+  };
+
+  const triggerFileUpload = (type: UploadType) => {
+    console.log('Triggering file upload for', type);
+    if (type === 'Input') {
+      fileInputRef.current?.click();
+    } else {
+      fileOutputRef.current?.click();
+    }
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -147,28 +195,90 @@ export function TestCaseFormDialog({
               <Label htmlFor="tc-input">
                 {t('admin.testCases.field.input')}
               </Label>
-              <Textarea
-                id="tc-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                rows={6}
-                className="font-mono text-sm"
-                placeholder="4&#10;2 7 11 15&#10;9"
-              />
+              <div className="flex justify-end gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => handleFileChange(e, 'Input')}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => triggerFileUpload('Input')}
+                  className="flex-1"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  上传文件
+                </Button>
+              </div>
+              {!inputUploaded || input?.length <= 100 ? (
+                <Textarea
+                  id="tc-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  rows={6}
+                  className="font-mono text-sm"
+                  placeholder="4&#10;2 7 11 15&#10;9"
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setInput('');
+                    setInputUploaded(false);
+                  }}
+                >
+                  已上传输入文件，内容已隐藏。长度：{input.length} 字符
+                </Button>
+              )}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="tc-expected-output">
                 {t('admin.testCases.field.expectedOutput')}
               </Label>
-              <Textarea
-                id="tc-expected-output"
-                value={expectedOutput}
-                onChange={(e) => setExpectedOutput(e.target.value)}
-                rows={6}
-                className="font-mono text-sm"
-                placeholder="0 1"
-              />
+              <div className="flex justify-end gap-2">
+                <input
+                  ref={fileOutputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => handleFileChange(e, 'Output')}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => triggerFileUpload('Output')}
+                  className="flex-1"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  上传文件
+                </Button>
+              </div>
+              {!outputUploaded || expectedOutput?.length <= 100 ? (
+                <Textarea
+                  id="tc-expected-output"
+                  value={expectedOutput}
+                  onChange={(e) => setExpectedOutput(e.target.value)}
+                  rows={6}
+                  className="font-mono text-sm"
+                  placeholder="0 1"
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setExpectedOutput('');
+                    setOutputUploaded(false);
+                  }}
+                >
+                  已上传输出文件，内容已隐藏。长度：{expectedOutput.length} 字符
+                </Button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
