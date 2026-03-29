@@ -109,12 +109,19 @@ pub fn insert_test_case_results(results: &[TestCaseResultRow]) -> Result<(), Sdk
 
         let score_val = if r.score.is_finite() { r.score } else { 0.0 };
         let verdict_escaped = r.verdict.to_db_str().replace('\0', "").replace('\'', "''");
+        let tc_id_sql = r
+            .test_case_id
+            .map_or("NULL".to_string(), |id| id.to_string());
+        let run_idx_sql = r
+            .run_index
+            .map_or("NULL".to_string(), |idx| idx.to_string());
         let sql = format!(
             "INSERT INTO test_case_result \
-             (submission_id, test_case_id, verdict, score, time_used, memory_used, checker_output, stdout, stderr, created_at) \
-             VALUES ({}, {}, '{}', {}, {}, {}, {}, {}, {}, NOW())",
+             (submission_id, test_case_id, run_index, verdict, score, time_used, memory_used, checker_output, stdout, stderr, created_at) \
+             VALUES ({}, {}, {}, '{}', {}, {}, {}, {}, {}, {}, NOW())",
             r.submission_id,
-            r.test_case_id,
+            tc_id_sql,
+            run_idx_sql,
             verdict_escaped,
             score_val,
             r.time_used.map_or("NULL".to_string(), |t| t.to_string()),

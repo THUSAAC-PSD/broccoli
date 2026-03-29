@@ -221,28 +221,35 @@ pub fn handle_ioi_submission(input: String) -> FnResult<String> {
     let host_impl = WasmHost;
     let req: OnSubmissionInput = serde_json::from_str(&input)?;
 
-    let contest_id = match req.contest_id {
-        Some(id) => id,
-        None => {
-            let output = OnSubmissionOutput {
-                success: false,
-                error_message: Some("IOI plugin requires contest_id".into()),
-            };
-            return Ok(serde_json::to_string(&output)?);
+    let output = match (&req.mode, req.contest_id) {
+        (SubmissionMode::Run, _) => {
+            match broccoli_server_sdk::evaluator::evaluate_run(&host_impl, &req) {
+                Ok(out) => out,
+                Err(e) => OnSubmissionOutput {
+                    success: false,
+                    error_message: Some(format!("{e:?}")),
+                },
+            }
         }
-    };
-
-    host::logger::log_info(format!(
-        "IOI: Judging submission {} for problem {} in contest {}",
-        req.submission_id, req.problem_id, contest_id
-    ))?;
-
-    let output = match run_judge(&host_impl, &req, contest_id) {
-        Ok(out) => out,
-        Err(e) => OnSubmissionOutput {
+        // Standalone submit
+        (SubmissionMode::Submit, None) => OnSubmissionOutput {
             success: false,
-            error_message: Some(format!("{e:?}")),
+            error_message: Some("IOI plugin requires contest_id".into()),
         },
+        // Contest submit
+        (SubmissionMode::Submit, Some(id)) => {
+            host::logger::log_info(format!(
+                "IOI: Judging submission {} for problem {} in contest {}",
+                req.submission_id, req.problem_id, id
+            ))?;
+            match run_judge(&host_impl, &req, id) {
+                Ok(out) => out,
+                Err(e) => OnSubmissionOutput {
+                    success: false,
+                    error_message: Some(format!("{e:?}")),
+                },
+            }
+        }
     };
     Ok(serde_json::to_string(&output)?)
 }
@@ -262,7 +269,7 @@ fn run_judge(
     )
     .unwrap_or_default();
 
-    let test_cases = host_impl.query_test_cases(req.problem_id)?;
+    let test_cases = req.test_cases.clone();
 
     let subtask_defs = if task_config.subtasks.is_empty() {
         build_default_subtasks(&test_cases)
@@ -352,7 +359,8 @@ fn recompute_sum_best_subtask(
         "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
-         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {}",
+         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
+         AND s.mode = 'Submit' AND tcr.test_case_id IS NOT NULL",
         user_id, problem_id, contest_id
     ))?;
 
@@ -411,7 +419,8 @@ fn compute_official_task_score(
         ScoringMode::MaxSubmission => {
             let rows: Vec<MaxScore> = host::db::db_query(&format!(
                 "SELECT MAX(score) as max_score FROM submission \
-                 WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
+                 WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
+                 AND mode = 'Submit'",
                 user_id, problem_id, contest_id
             ))?;
             Ok(rows.first().and_then(|r| r.max_score).unwrap_or(0.0))
@@ -441,7 +450,8 @@ fn compute_official_task_score(
                     .collect();
                 let rows: Vec<MaxScore> = host::db::db_query(&format!(
                     "SELECT MAX(score) as max_score FROM submission \
-                     WHERE id IN ({}) AND problem_id = {}",
+                     WHERE id IN ({}) AND problem_id = {} \
+                     AND mode = 'Submit'",
                     ids.join(","),
                     problem_id
                 ))?;
@@ -451,6 +461,7 @@ fn compute_official_task_score(
             let last_rows: Vec<SubmissionScore> = host::db::db_query(&format!(
                 "SELECT id, score FROM submission \
                  WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
+                 AND mode = 'Submit' \
                  ORDER BY created_at DESC LIMIT 1",
                 user_id, problem_id, contest_id
             ))?;
@@ -840,6 +851,7 @@ fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError>
         "SELECT verdict, score FROM submission \
          WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
          AND status = 'Judged' AND verdict IS NOT NULL \
+         AND mode = 'Submit' \
          ORDER BY created_at DESC LIMIT 1",
         user_id, problem_id, contest_id
     ))?;

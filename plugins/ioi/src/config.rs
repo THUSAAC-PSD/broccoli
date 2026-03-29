@@ -155,6 +155,9 @@ mod tests {
             position: 0,
             description: None,
             label: Some("sample_01".into()),
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
         };
         assert_eq!(resolve_tc_label(&tc), "sample_01");
     }
@@ -168,6 +171,9 @@ mod tests {
             position: 0,
             description: None,
             label: None,
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
         };
         assert_eq!(resolve_tc_label(&tc), "42");
     }

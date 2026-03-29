@@ -17,6 +17,7 @@ pub fn init() -> FnResult<String> {
     host::registry::register_checker_format("unordered-tokens", "check_unordered_tokens")?;
     host::registry::register_checker_format("unordered-lines", "check_unordered_lines")?;
     host::registry::register_checker_format("testlib", "check_testlib")?;
+    host::registry::register_checker_format("none", "check_none")?;
     host::logger::log_info("Standard checkers registered")?;
     Ok("ok".to_string())
 }
@@ -74,6 +75,14 @@ pub fn check_unordered_tokens(input: String) -> FnResult<String> {
 pub fn check_unordered_lines(input: String) -> FnResult<String> {
     let req: CheckerParseInput = serde_json::from_str(&input)?;
     let verdict = checkers::unordered_lines::check(&req).map_err(extism_pdk::Error::msg)?;
+    Ok(serde_json::to_string(&verdict)?)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[plugin_fn]
+pub fn check_none(input: String) -> FnResult<String> {
+    let req: CheckerParseInput = serde_json::from_str(&input)?;
+    let verdict = checkers::none::check(&req).map_err(extism_pdk::Error::msg)?;
     Ok(serde_json::to_string(&verdict)?)
 }
 

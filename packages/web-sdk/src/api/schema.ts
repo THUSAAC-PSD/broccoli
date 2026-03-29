@@ -760,6 +760,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/contests/{id}/problems/{problem_id}/submissions/run': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Run code against test cases in a contest
+     * @description Runs code against custom or sample test cases for a contest problem. The user must be a contest participant and the contest must be running.
+     */
+    post: operations['runContestCode'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/register': {
     parameters: {
       query?: never;
@@ -1282,6 +1302,26 @@ export interface paths {
      * @description Creates a new submission for the specified problem. The submission will be queued for judging. Requires `submission:submit` permission.
      */
     post: operations['createSubmission'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/problems/{id}/submissions/run': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Run code against test cases
+     * @description Runs code against custom test cases or sample test cases without creating a formal submission. Returns a submission with mode="Run" that can be polled for results.
+     */
+    post: operations['runCode'];
     delete?: never;
     options?: never;
     head?: never;
@@ -2525,6 +2565,13 @@ export interface components {
        */
       username: string;
     };
+    /** @description A custom test case for run code requests. */
+    CustomTestCaseInput: {
+      /** @description Expected output. If omitted, output is shown but not checked. */
+      expected_output?: string | null;
+      /** @description Input data to feed to stdin. */
+      input: string;
+    };
     /** @description Request body for authorizing a device code. */
     DeviceAuthorizeRequest: {
       /**
@@ -3271,6 +3318,18 @@ export interface components {
        */
       role: string;
     };
+    /** @description Request body for running code against custom test cases. */
+    RunCodeRequest: {
+      /** @description Custom test cases to run against. At least one required. */
+      custom_test_cases: components['schemas']['CustomTestCaseInput'][];
+      /** @description Source files. At least one file required. */
+      files: components['schemas']['SubmissionFileDto'][];
+      /**
+       * @description Programming language (e.g., "cpp", "java", "python3").
+       * @example cpp
+       */
+      language: string;
+    };
     /** @description A sample test case metadata included in problem detail responses. */
     SampleTestCaseMeta: {
       /**
@@ -3353,6 +3412,8 @@ export interface components {
        * @example 1024
        */
       memory_used?: number | null;
+      /** @description Submission mode: "Submit" for formal submissions, "Run" for run-code executions. */
+      mode: string;
       /**
        * Format: int32
        * @example 1
@@ -3409,6 +3470,8 @@ export interface components {
        * @example 2025-10-01T14:30:00Z
        */
       created_at: string;
+      /** @description Custom test cases (only populated for runs with custom test cases). */
+      custom_test_cases?: components['schemas']['CustomTestCaseInput'][] | null;
       files: components['schemas']['SubmissionFileDto'][];
       /**
        * Format: int32
@@ -3417,6 +3480,8 @@ export interface components {
       id: number;
       /** @example cpp */
       language: string;
+      /** @description Submission mode: "Submit" for formal submissions, "Run" for run-code executions. */
+      mode: string;
       /**
        * Format: int32
        * @example 1
@@ -3555,6 +3620,11 @@ export interface components {
        */
       memory_used?: number | null;
       /**
+       * Format: int32
+       * @description 0-based index for custom run test cases. Null for DB-backed test cases.
+       */
+      run_index?: number | null;
+      /**
        * Format: double
        * @example 10
        */
@@ -3565,9 +3635,9 @@ export interface components {
       stdout?: string | null;
       /**
        * Format: int32
-       * @example 1
+       * @description DB test case ID. Null for custom run test cases.
        */
-      test_case_id: number;
+      test_case_id?: number | null;
       /**
        * Format: int32
        * @description Time used in milliseconds.
@@ -3793,7 +3863,7 @@ export interface components {
        * @description ZIP file containing test cases. Each test case consists of an input file and an output
        *     file.
        */
-      file: Blob;
+      file: string;
       /**
        * @description Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
        *     `input_01.txt` with label `01`.
@@ -6544,6 +6614,80 @@ export interface operations {
       };
     };
   };
+  runContestCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RunCodeRequest'];
+      };
+    };
+    responses: {
+      /** @description Run created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limited (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   registerForContest: {
     parameters: {
       query?: never;
@@ -6674,6 +6818,8 @@ export interface operations {
          * @example desc
          */
         sort_order?: string;
+        /** @description Include run submissions in results. Default: false. */
+        include_runs?: boolean;
       };
       header?: never;
       path: {
@@ -8824,6 +8970,78 @@ export interface operations {
       };
     };
   };
+  runCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RunCodeRequest'];
+      };
+    };
+    responses: {
+      /** @description Run created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limited (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   listTestCases: {
     parameters: {
       query?: never;
@@ -9551,6 +9769,8 @@ export interface operations {
          * @example desc
          */
         sort_order?: string;
+        /** @description Include run submissions in results. Default: false. */
+        include_runs?: boolean;
       };
       header?: never;
       path?: never;

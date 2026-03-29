@@ -27,7 +27,7 @@ export function SubmissionsPanel() {
   const { user } = useAuth();
   const { submissions, latestSubmission, contestId, problemId } =
     useProblemDockContext();
-  const { entries } = submissions;
+  const { submissionEntries: entries } = submissions;
 
   // Fetch past submissions from API
   const { data: pastSubmissions } = useQuery({

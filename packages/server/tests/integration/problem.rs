@@ -1371,7 +1371,7 @@ mod test_case_deletion {
         // Create test case result linked to submission
         let tcr = test_case_result::ActiveModel {
             submission_id: Set(sub_model.id),
-            test_case_id: Set(tc_id),
+            test_case_id: Set(Some(tc_id)),
             verdict: Set(Verdict::Accepted),
             score: Set(10.0),
             time_used: Set(Some(50)),
@@ -2207,7 +2207,7 @@ mod bulk_delete_test_cases {
         // Create test case result linked to tc1
         let tcr = test_case_result::ActiveModel {
             submission_id: Set(sub_model.id),
-            test_case_id: Set(tc1),
+            test_case_id: Set(Some(tc1)),
             verdict: Set(Verdict::Accepted),
             score: Set(10.0),
             time_used: Set(Some(50)),

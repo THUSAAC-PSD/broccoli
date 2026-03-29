@@ -52,6 +52,13 @@ pub struct Model {
     #[sea_orm(has_many)]
     pub test_case_results: HasMany<super::test_case_result::Entity>,
 
+    /// Submission mode: "Submit" for formal submissions, "Run" for run-code executions.
+    #[sea_orm(default_value = "Submit")]
+    pub mode: String,
+    /// Custom test cases for runs, stored as JSON array of {input, expected_output?}.
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub custom_test_cases: Option<serde_json::Value>,
+
     pub created_at: DateTimeUtc,
     pub judged_at: Option<DateTimeUtc>,
 }

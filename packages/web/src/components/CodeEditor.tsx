@@ -15,10 +15,12 @@ import { useQuery } from '@tanstack/react-query';
 import JSZip from 'jszip';
 import {
   ChevronDown,
+  ChevronRight,
   Maximize2,
   Minimize2,
   Play,
   Plus,
+  Terminal,
   Upload,
   X,
 } from 'lucide-react';
@@ -30,6 +32,7 @@ import {
   fetchSupportedLanguages,
   type SupportedLanguage,
 } from '@/features/problem/api/fetch-supported-languages';
+import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 import { useEditorKeybindings } from '@/lib/use-editor-keybindings';
 
 type Language = SupportedLanguage;
@@ -49,7 +52,12 @@ export interface EditorFile {
 
 interface CodeEditorProps {
   onSubmit?: (files: EditorFile[], language: string) => void;
-  onRun?: (files: EditorFile[], language: string) => void;
+  onRun?: (
+    files: EditorFile[],
+    language: string,
+    customTestCases: { input: string; expected_output?: string | null }[],
+  ) => void;
+  latestRun?: SubmissionEntry | null;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   /** Unique key for persisting code to localStorage (e.g. problem ID). */
@@ -243,6 +251,7 @@ function getConfiguredFilenames(
 export function CodeEditor({
   onSubmit,
   onRun,
+  latestRun,
   isFullscreen,
   onToggleFullscreen,
   storageKey,
@@ -616,10 +625,55 @@ export function CodeEditor({
     }
   };
 
+  const [customTestCases, setCustomTestCases] = useState([
+    { input: '', expectedOutput: '' },
+  ]);
+  const [activeTestCase, setActiveTestCase] = useState(0);
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const updateTestCase = useCallback(
+    (index: number, field: 'input' | 'expectedOutput', value: string) => {
+      setCustomTestCases((prev) =>
+        prev.map((tc, i) => (i === index ? { ...tc, [field]: value } : tc)),
+      );
+    },
+    [],
+  );
+
+  const addTestCase = useCallback(() => {
+    setCustomTestCases((prev) => {
+      if (prev.length >= 10) return prev;
+      const next = [...prev, { input: '', expectedOutput: '' }];
+      setActiveTestCase(next.length - 1);
+      return next;
+    });
+  }, []);
+
+  const removeTestCase = useCallback(
+    (index: number) => {
+      setCustomTestCases((prev) => {
+        if (prev.length <= 1) return prev;
+        const next = prev.filter((_, i) => i !== index);
+        if (activeTestCase >= next.length) {
+          setActiveTestCase(next.length - 1);
+        }
+        return next;
+      });
+    },
+    [activeTestCase],
+  );
+
   const handleRun = () => {
-    if (onRun) {
-      onRun(files, selectedLanguage.id);
+    if (!onRun) return;
+    if (!showCustomInput) {
+      setShowCustomInput(true);
+      return;
     }
+    const tcs = customTestCases.map((tc) => ({
+      input: tc.input,
+      expected_output: tc.expectedOutput.trim() || null,
+    }));
+    onRun(files, selectedLanguage.id, tcs);
   };
 
   const handleEditorDidMount = (
@@ -820,6 +874,242 @@ export function CodeEditor({
     </div>
   );
 
+  // Auto-expand custom input panel when a run completes
+  useEffect(() => {
+    if (latestRun && latestRun.status !== 'submitting') {
+      setShowCustomInput(true);
+    }
+  }, [latestRun?.status]);
+
+  const runResult = latestRun?.submission?.result;
+  const runTcResults = runResult?.test_case_results ?? [];
+  const activeTc = customTestCases[activeTestCase];
+  const activeRunTc = runTcResults.find((r) => r.run_index === activeTestCase);
+  const activeCustomTc =
+    latestRun?.submission?.custom_test_cases?.[activeTestCase];
+  const activeHasExpected = activeCustomTc?.expected_output != null;
+
+  const customInputPanel = (
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        onClick={() => setShowCustomInput((v) => !v)}
+        className="flex items-center gap-1.5 px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors self-start"
+      >
+        {showCustomInput ? (
+          <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
+        )}
+        <Terminal className="h-3 w-3" />
+        {t('editor.customInput', { defaultValue: 'Custom Input' })}
+      </button>
+      {showCustomInput && (
+        <div className="flex flex-col gap-2">
+          {/* Test case tabs */}
+          <div
+            className="flex items-center gap-0 text-xs overflow-x-auto"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {customTestCases.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveTestCase(i)}
+                className={`group flex items-center gap-1 px-2.5 py-1 rounded-t-md border-b-2 whitespace-nowrap transition-colors ${
+                  i === activeTestCase
+                    ? 'border-primary text-foreground font-medium'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Case {i + 1}
+                {customTestCases.length > 1 && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeTestCase(i);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.stopPropagation();
+                        removeTestCase(i);
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 hover:text-destructive ml-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </span>
+                )}
+              </button>
+            ))}
+            {customTestCases.length < 10 && (
+              <button
+                type="button"
+                onClick={addTestCase}
+                className="px-1.5 py-1 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Active test case editor */}
+          {activeTc && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  stdin
+                </label>
+                <textarea
+                  value={activeTc.input}
+                  onChange={(e) =>
+                    updateTestCase(activeTestCase, 'input', e.target.value)
+                  }
+                  placeholder={t('editor.customInputPlaceholder', {
+                    defaultValue: 'Input for your program...',
+                  })}
+                  spellCheck={false}
+                  className="w-full resize-y rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring min-h-[4.5rem] max-h-[12rem]"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t('editor.expectedOutput', {
+                    defaultValue: 'Expected Output',
+                  })}
+                  <span className="ml-1 text-muted-foreground/60 font-normal">
+                    ({t('editor.optional', { defaultValue: 'optional' })})
+                  </span>
+                </label>
+                <textarea
+                  value={activeTc.expectedOutput}
+                  onChange={(e) =>
+                    updateTestCase(
+                      activeTestCase,
+                      'expectedOutput',
+                      e.target.value,
+                    )
+                  }
+                  placeholder={t('editor.expectedOutputPlaceholder', {
+                    defaultValue: 'Leave empty to just see output',
+                  })}
+                  spellCheck={false}
+                  className="w-full resize-y rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring min-h-[4.5rem] max-h-[12rem]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Run status / results */}
+          {latestRun &&
+            (latestRun.status === 'submitting' ||
+              (latestRun.status === 'polling' && !runResult)) && (
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground animate-pulse">
+                {t('editor.running', { defaultValue: 'Running...' })}
+              </div>
+            )}
+          {latestRun && latestRun.status === 'error' && latestRun.error && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {latestRun.error.message}
+            </div>
+          )}
+          {runResult && latestRun?.status === 'done' && activeRunTc && (
+            <div className="rounded-md border bg-muted/30 overflow-hidden">
+              <div className="flex items-center gap-3 px-3 py-1.5 border-b bg-muted/50 text-xs">
+                {latestRun.submission?.status === 'CompilationError' ? (
+                  <span className="font-medium text-amber-600 dark:text-amber-400">
+                    Compilation Error
+                  </span>
+                ) : activeHasExpected ? (
+                  <span
+                    className={
+                      activeRunTc.verdict === 'Accepted'
+                        ? 'font-medium text-green-600 dark:text-green-400'
+                        : 'font-medium text-red-600 dark:text-red-400'
+                    }
+                  >
+                    {activeRunTc.verdict}
+                  </span>
+                ) : (
+                  <span className="font-medium text-foreground">Executed</span>
+                )}
+                {activeRunTc.time_used != null && (
+                  <span className="text-muted-foreground">
+                    {activeRunTc.time_used} ms
+                  </span>
+                )}
+                {activeRunTc.memory_used != null && (
+                  <span className="text-muted-foreground">
+                    {(activeRunTc.memory_used / 1024).toFixed(1)} MB
+                  </span>
+                )}
+              </div>
+              {runResult.compile_output && (
+                <div className="px-3 py-2 border-b">
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    Compiler Output
+                  </div>
+                  <pre className="font-mono text-xs whitespace-pre-wrap text-foreground/80 max-h-[8rem] overflow-y-auto">
+                    {runResult.compile_output}
+                  </pre>
+                </div>
+              )}
+              {activeRunTc.stdout != null && (
+                <div className="px-3 py-2">
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    stdout
+                  </div>
+                  <pre className="font-mono text-sm whitespace-pre-wrap text-foreground max-h-[10rem] overflow-y-auto">
+                    {activeRunTc.stdout || '(empty)'}
+                  </pre>
+                </div>
+              )}
+              {activeRunTc.stderr && (
+                <div className="px-3 py-2 border-t">
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    stderr
+                  </div>
+                  <pre className="font-mono text-xs whitespace-pre-wrap text-foreground/70 max-h-[6rem] overflow-y-auto">
+                    {activeRunTc.stderr}
+                  </pre>
+                </div>
+              )}
+              {!runResult.compile_output &&
+                !activeRunTc.stdout &&
+                !activeRunTc.stderr && (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                    {t('editor.noOutput', { defaultValue: 'No output' })}
+                  </div>
+                )}
+            </div>
+          )}
+          {/* Compilation error shown once (not per test case) */}
+          {runResult &&
+            latestRun?.status === 'done' &&
+            latestRun.submission?.status === 'CompilationError' &&
+            !activeRunTc && (
+              <div className="rounded-md border bg-muted/30 overflow-hidden">
+                <div className="flex items-center gap-3 px-3 py-1.5 border-b bg-muted/50 text-xs">
+                  <span className="font-medium text-amber-600 dark:text-amber-400">
+                    Compilation Error
+                  </span>
+                </div>
+                {runResult.compile_output && (
+                  <div className="px-3 py-2">
+                    <pre className="font-mono text-xs whitespace-pre-wrap text-foreground/80 max-h-[8rem] overflow-y-auto">
+                      {runResult.compile_output}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+        </div>
+      )}
+    </div>
+  );
+
   const actionButtons = (
     <div className="flex gap-2 justify-end">
       <Button variant="outline" onClick={handleRun}>
@@ -842,6 +1132,7 @@ export function CodeEditor({
       {fileTabs}
       <div className="flex-1 flex flex-col gap-3 p-3 min-h-0">
         {editorArea}
+        {customInputPanel}
         {actionButtons}
       </div>
     </div>
