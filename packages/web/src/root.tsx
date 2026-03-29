@@ -42,7 +42,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           }}
         />
       </head>
-      <body suppressHydrationWarning>
+      <body>
         {children}
         <ScrollRestoration />
         <Scripts />
