@@ -10,6 +10,15 @@ import { SchemaFields } from './SchemaFields';
 import type { ConfigScope, JsonSchemaProperty } from './types';
 import { defaultForType } from './utils';
 
+function DefaultBadge() {
+  const { t } = useTranslation();
+  return (
+    <span className="inline-flex items-center rounded-full border border-dashed px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      {t('plugins.config.defaultBadge')}
+    </span>
+  );
+}
+
 export function SchemaField({
   name,
   prop,
@@ -293,7 +302,7 @@ export function SchemaField({
             ))}
             <Button
               type="button"
-              variant={isNestedArray ? 'secondary' : 'outline-solid'}
+              variant={isNestedArray ? 'secondary' : 'outline'}
               size="sm"
               className="mt-1"
               onClick={() =>
@@ -337,14 +346,6 @@ export function SchemaField({
           <FieldError message={error} />
         </div>
       </div>
-    );
-  }
-
-  function DefaultBadge() {
-    return (
-      <span className="inline-flex items-center rounded-full border border-dashed px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {t('plugins.config.defaultBadge')}
-      </span>
     );
   }
 }

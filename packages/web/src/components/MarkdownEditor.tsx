@@ -3,7 +3,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@broccoli/web-sdk/ui';
 import type { Monaco } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import type * as monacoNs from 'monaco-editor';
 import { useCallback, useRef, useState } from 'react';
 
 import { KeybindingModeDropdown } from '@/components/KeybindingModeDropdown';
@@ -34,9 +33,7 @@ export function MarkdownEditor({
   const [tab, setTab] = useState<string>('write');
   const [editorInstance, setEditorInstance] =
     useState<editor.IStandaloneCodeEditor | null>(null);
-  const [monacoInstance, setMonacoInstance] = useState<typeof monacoNs | null>(
-    null,
-  );
+  const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
   const vimStatusRef = useRef<HTMLDivElement | null>(null);
   const [keybindingMode, setKeybindingMode] = useEditorKeybindings(
     editorInstance,
@@ -47,7 +44,7 @@ export function MarkdownEditor({
   const handleMount = useCallback(
     (ed: editor.IStandaloneCodeEditor, monaco: Monaco) => {
       setEditorInstance(ed);
-      setMonacoInstance(monaco as typeof monacoNs);
+      setMonacoInstance(monaco);
       onEditorMount?.(ed, monaco);
     },
     [onEditorMount],

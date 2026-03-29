@@ -399,6 +399,51 @@ function AddParticipantsTab({
 
 // ── Bulk Import Tab ──
 
+function PreviewUserTable({
+  title,
+  users,
+}: {
+  title: string;
+  users: UserPreviewItem[];
+}) {
+  const { t } = useTranslation();
+  if (users.length === 0) return null;
+  return (
+    <div className="rounded-md border overflow-hidden">
+      <div className="px-3 py-2 border-b bg-muted/40 text-sm font-medium">
+        {title}
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-muted/20">
+            <th className="px-3 py-2 text-left font-medium text-foreground/80">
+              #
+            </th>
+            <th className="px-3 py-2 text-left font-medium text-foreground/80">
+              {t('auth.username')}
+            </th>
+            <th className="px-3 py-2 text-left font-medium text-foreground/80">
+              {t('admin.field.role')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((user) => (
+            <tr
+              key={`${title}-${user.id}-${user.username}`}
+              className="border-b last:border-0"
+            >
+              <td className="px-3 py-2">{user.id}</td>
+              <td className="px-3 py-2">{user.username}</td>
+              <td className="px-3 py-2">{user.roles.join(', ')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function BulkImportTab({
   contest,
   participants,
@@ -574,50 +619,6 @@ function BulkImportTab({
     queryClient.invalidateQueries({
       queryKey: ['contest-participants', contest.id],
     });
-  }
-
-  function PreviewUserTable({
-    title,
-    users,
-  }: {
-    title: string;
-    users: UserPreviewItem[];
-  }) {
-    if (users.length === 0) return null;
-    return (
-      <div className="rounded-md border overflow-hidden">
-        <div className="px-3 py-2 border-b bg-muted/40 text-sm font-medium">
-          {title}
-        </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/20">
-              <th className="px-3 py-2 text-left font-medium text-foreground/80">
-                #
-              </th>
-              <th className="px-3 py-2 text-left font-medium text-foreground/80">
-                {t('auth.username')}
-              </th>
-              <th className="px-3 py-2 text-left font-medium text-foreground/80">
-                {t('admin.field.role')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr
-                key={`${title}-${user.id}-${user.username}`}
-                className="border-b last:border-0"
-              >
-                <td className="px-3 py-2">{user.id}</td>
-                <td className="px-3 py-2">{user.username}</td>
-                <td className="px-3 py-2">{user.roles.join(', ')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
   }
 
   return (

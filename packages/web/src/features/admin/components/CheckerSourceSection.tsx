@@ -4,7 +4,7 @@ import { Button, FileDropZone } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileCode, Loader2, Plus, Trash2, Upload } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { extractErrorMessage } from '@/lib/extract-error';
@@ -57,7 +57,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
     },
   });
 
-  const files = existing ?? [];
+  const files = useMemo(() => existing ?? [], [existing]);
 
   const handleFilesSelected = useCallback((fileList: File[]) => {
     for (const file of fileList) {
