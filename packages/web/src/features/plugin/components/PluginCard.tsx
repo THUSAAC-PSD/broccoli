@@ -40,7 +40,7 @@ export function PluginCard({
   return (
     <>
       <Card
-        className={`flex flex-col${onClick ? ' cursor-pointer transition-colors hover:bg-muted/50' : ''}`}
+        className={`flex flex-col${onClick ? ' cursor-pointer hover:bg-muted/50' : ''}`}
         onClick={() => onClick?.(plugin)}
       >
         <CardHeader>
