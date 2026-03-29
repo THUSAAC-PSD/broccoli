@@ -8,6 +8,7 @@ export const en: Record<string, string> = {
   'sidebar.account': 'Account',
   'sidebar.problems': 'Problems',
   'sidebar.contests': 'Contests',
+  'sidebar.users': 'Users',
   'sidebar.selector': 'Contest Selector',
 
   // Navbar
@@ -283,6 +284,77 @@ export const en: Record<string, string> = {
 
   // Sidebar (admin)
   'sidebar.admin': 'Admin',
+
+  // Users
+  'users.title': 'User Management',
+  'users.subtitle':
+    'Manage roles, role permissions, and user role assignments.',
+  'users.tabs.users': 'Users',
+  'users.tabs.roles': 'Roles & Permissions',
+  'users.common.close': 'Close',
+  'users.common.cancel': 'Cancel',
+
+  // Users - Roles
+  'users.roles.role': 'Role',
+  'users.roles.permissions': 'Permissions',
+  'users.roles.permissionCount': 'Count',
+  'users.roles.searchPlaceholder': 'Search roles or permissions...',
+  'users.roles.empty': 'No roles found.',
+  'users.roles.noPermissions': 'No permissions granted.',
+  'users.roles.managePermissions': 'Manage Permissions',
+  'users.roles.managePermissionsFor': 'Manage permissions for role: {role}',
+  'users.roles.managePermissionsDescription':
+    'Grant or revoke permissions for this role.',
+  'users.roles.permissionPlaceholder': 'e.g. contest:manage',
+  'users.roles.permissionRequired': 'Permission name is required.',
+  'users.roles.permissionExists': 'This permission is already granted.',
+  'users.roles.addPermission': 'Add Permission',
+  'users.roles.grantPermissionSuccess': 'Permission granted successfully.',
+  'users.roles.grantPermissionError': 'Failed to grant permission.',
+  'users.roles.revokePermissionConfirm':
+    'Revoke permission "{permission}" from this role?',
+  'users.roles.revokePermissionSuccess': 'Permission revoked successfully.',
+  'users.roles.revokePermissionError': 'Failed to revoke permission.',
+
+  // Users - User list
+  'users.users.username': 'Username',
+  'users.users.roles': 'Roles',
+  'users.users.searchPlaceholder': 'Search users by name, id, or role...',
+  'users.users.empty': 'No users found.',
+  'users.users.noRoles': 'No roles assigned.',
+  'users.users.manageRoles': 'Manage Roles',
+  'users.users.assignRole': 'Assign role',
+  'users.users.assignRoleButton': 'Assign',
+  'users.users.roleSelectPlaceholder': 'Select a role',
+  'users.users.roleInputPlaceholder': 'Enter role name',
+  'users.users.noAssignableRoles': 'No available roles to assign.',
+  'users.users.roleRequired': 'Role is required.',
+  'users.users.roleAlreadyAssigned': 'This role is already assigned.',
+  'users.users.assignRoleSuccess': 'Role assigned successfully.',
+  'users.users.assignRoleError': 'Failed to assign role.',
+  'users.users.revokeRoleConfirm': 'Revoke role "{role}" from this user?',
+  'users.users.revokeRoleSuccess': 'Role revoked successfully.',
+  'users.users.revokeRoleError': 'Failed to revoke role.',
+  'users.users.editUser': 'Edit User',
+  'users.users.editUserDescription':
+    'Update profile fields for user: {username}',
+  'users.users.editUserDescriptionFallback':
+    'Update the selected user profile fields.',
+  'users.users.usernamePlaceholder': 'Enter username',
+  'users.users.passwordOptional': 'New Password (optional)',
+  'users.users.passwordPlaceholder': 'Leave empty to keep current password',
+  'users.users.saveUser': 'Save Changes',
+  'users.users.noChanges': 'No changes to save.',
+  'users.users.updateUserSuccess': 'User updated successfully.',
+  'users.users.updateUserError': 'Failed to update user.',
+  'users.users.manageRolesDescription':
+    'Add or revoke roles for user: {username}',
+  'users.users.manageRolesDescriptionFallback':
+    'Add or revoke roles for the selected user.',
+  'users.users.deleteUserConfirm':
+    'Delete user "{username}"? This action cannot be undone.',
+  'users.users.deleteUserSuccess': 'User deleted successfully.',
+  'users.users.deleteUserError': 'Failed to delete user.',
 
   // Admin
   'admin.createContest': 'Create Contest',
