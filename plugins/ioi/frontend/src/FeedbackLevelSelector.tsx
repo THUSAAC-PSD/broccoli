@@ -1,4 +1,11 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@broccoli/web-sdk/ui';
 
 import { getConfiguredTokenMode } from './config-rules';
 import type { FeedbackLevel } from './types';
@@ -49,17 +56,18 @@ export function FeedbackLevelSelector({
         </p>
       )}
 
-      <select
-        value={selectedValue}
-        onChange={(event) => onChange(event.target.value)}
-        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      >
-        {FEEDBACK_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {t(option.labelKey)}
-          </option>
-        ))}
-      </select>
+      <Select value={selectedValue} onValueChange={(v) => onChange(v)}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {FEEDBACK_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {t(option.labelKey)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <p className="text-xs m-0 text-muted-foreground leading-normal">
         {tokenEnabled

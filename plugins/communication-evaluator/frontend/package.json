@@ -33,7 +33,8 @@
         "react-dom",
         "@tanstack/react-query",
         "@broccoli/web-sdk/hooks",
-        "@broccoli/web-sdk/i18n"
+        "@broccoli/web-sdk/i18n",
+        "@broccoli/web-sdk/ui"
       ]
     }
   },
