@@ -23,7 +23,6 @@ import {
   X,
 } from 'lucide-react';
 import type { editor } from 'monaco-editor';
-import type * as monacoNs from 'monaco-editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { KeybindingModeDropdown } from '@/components/KeybindingModeDropdown';
@@ -370,9 +369,7 @@ export function CodeEditor({
   const vimStatusRef = useRef<HTMLDivElement | null>(null);
   const [editorInstance, setEditorInstance] =
     useState<editor.IStandaloneCodeEditor | null>(null);
-  const [monacoInstance, setMonacoInstance] = useState<typeof monacoNs | null>(
-    null,
-  );
+  const [monacoInstance, setMonacoInstance] = useState<Monaco>(null);
   const [keybindingMode, setKeybindingMode] = useEditorKeybindings(
     editorInstance,
     monacoInstance,
@@ -631,7 +628,7 @@ export function CodeEditor({
   ) => {
     editorRef.current = ed;
     setEditorInstance(ed);
-    setMonacoInstance(monaco as typeof monacoNs);
+    setMonacoInstance(monaco);
   };
 
   const handleDrop = useCallback(
