@@ -41,3 +41,38 @@ export async function fetchContestSubmissions(
     pagination: data.pagination,
   };
 }
+
+export async function fetchAllContestSubmissions(
+  apiClient: ApiClient,
+  params: {
+    contestId: number;
+    userId?: number | undefined;
+  },
+): Promise<SubmissionSummary[]> {
+  const all: SubmissionSummary[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const { data, error } = await apiClient.GET('/contests/{id}/submissions', {
+      params: {
+        path: { id: params.contestId },
+        query: {
+          page,
+          per_page: undefined,
+          sort_by: 'created_at',
+          sort_order: 'desc',
+          user_id: params.userId,
+        },
+      },
+    });
+
+    if (error) throw error;
+
+    all.push(...data.data);
+    totalPages = Math.max(1, data.pagination.total_pages);
+    page += 1;
+  }
+
+  return all;
+}

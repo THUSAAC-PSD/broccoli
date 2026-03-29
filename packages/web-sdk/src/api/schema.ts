@@ -1495,7 +1495,7 @@ export interface paths {
     put?: never;
     /**
      * Bulk rejudge submissions
-     * @description Re-queues submissions matching the given filters for rejudging. At least one filter must be provided. Max 10,000 matching submissions. Requires `submission:rejudge` permission.
+     * @description Re-queues submissions in the provided ID list for rejudging. Max 10,000 IDs per request. Requires `submission:rejudge` permission.
      */
     post: operations['bulkRejudgeSubmissions'];
     delete?: never;
@@ -1911,39 +1911,10 @@ export interface components {
       /** @example charlie */
       username: string;
     };
-    /** @description Request body for bulk-rejudging submissions by filter. */
+    /** @description Request body for bulk-rejudging submissions by explicit IDs. */
     BulkRejudgeRequest: {
-      /**
-       * Format: int32
-       * @description Filter by contest ID.
-       * @example 2
-       */
-      contest_id?: number | null;
-      /**
-       * @description Filter by language.
-       * @example cpp
-       */
-      language?: string | null;
-      /**
-       * Format: int32
-       * @description Filter by problem ID.
-       * @example 5
-       */
-      problem_id?: number | null;
-      /**
-       * Format: int32
-       * @description Filter by user ID.
-       * @example 7
-       */
-      user_id?: number | null;
-      /**
-       * @description Filter by verdict string.
-       *     Built-in values use PascalCase (e.g. Accepted, WrongAnswer).
-       *     Custom verdicts may use the raw custom label (e.g. PartiallyAccepted).
-       *     `Other(<custom>)` is also accepted.
-       * @example WrongAnswer
-       */
-      verdict?: string | null;
+      /** @description Submission IDs to rejudge. Duplicate IDs are ignored. */
+      submission_ids: number[];
     };
     /** @description Response from bulk rejudge. */
     BulkRejudgeResponse: {

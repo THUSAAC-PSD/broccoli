@@ -8,21 +8,28 @@ import {
   toSubmissionStatus,
 } from '@broccoli/web-sdk/submission';
 import { Button, FilterDropdown } from '@broccoli/web-sdk/ui';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
   Code2,
   ListFilter,
+  Loader2,
+  RotateCcw,
   Search,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { toast } from 'sonner';
 
 import { fetchContestProblemList } from '@/features/contest/api/fetch-contest-problem-list';
 import { fetchSupportedLanguages } from '@/features/problem/api/fetch-supported-languages';
-import { fetchContestSubmissions } from '@/features/submission/api/fetch-contest-submissions';
+import {
+  fetchAllContestSubmissions,
+  fetchContestSubmissions,
+} from '@/features/submission/api/fetch-contest-submissions';
+import { extractErrorMessage } from '@/lib/extract-error';
 
 import { SubmissionsTable } from './SubmissionsTable';
 
@@ -46,7 +53,19 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const apiClient = useApiClient();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<
+    Set<number>
+  >(() => new Set<number>());
+
+  const canBulkRejudge = !!user?.permissions.includes('submission:rejudge');
+  const scopedUserId =
+    user?.permissions.includes('submissions:view_all') ||
+    user?.permissions.includes('contest:manage')
+      ? undefined
+      : user?.id;
 
   const page = parsePositiveInt(searchParams.get('page')) ?? 1;
   const appliedProblemId = parsePositiveInt(searchParams.get('problem'));
@@ -149,16 +168,90 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         problemId: appliedProblemId,
         language: appliedLanguage,
         status: toSubmissionStatus(appliedStatus),
-        userId:
-          user?.permissions.includes('submissions:view_all') ||
-          user?.permissions.includes('contest:manage')
-            ? undefined
-            : user?.id,
+        userId: scopedUserId,
         page,
         per_page: PER_PAGE,
         sort_by: 'created_at',
         sort_order: 'desc',
       }),
+  });
+
+  const { data: allSubmissions = [], isLoading: isAllSubmissionsLoading } =
+    useQuery({
+      queryKey: [
+        'contest-submissions-bulk-source',
+        String(contestId),
+        String(scopedUserId ?? 'all'),
+      ],
+      enabled: !!user && canBulkRejudge && isBulkMode,
+      queryFn: () =>
+        fetchAllContestSubmissions(apiClient, {
+          contestId,
+          userId: scopedUserId,
+        }),
+    });
+
+  const bulkRejudgeMutation = useMutation({
+    mutationFn: async (submissionIds: number[]) => {
+      const { data, error } = await apiClient.POST(
+        '/submissions/bulk-rejudge',
+        {
+          body: {
+            submission_ids: submissionIds,
+          },
+        },
+      );
+
+      if (!error) {
+        return data;
+      }
+
+      const message = extractErrorMessage(error, '');
+
+      // Compatibility fallback for older backend instances that still expect filter fields.
+      if (message.includes('At least one filter field must be provided')) {
+        let queued = 0;
+
+        for (const submissionId of submissionIds) {
+          const single = await apiClient.POST('/submissions/{id}/rejudge', {
+            params: { path: { id: submissionId } },
+          });
+
+          if (!single.error) {
+            queued += 1;
+          }
+        }
+
+        return { queued };
+      }
+
+      throw error;
+    },
+    onSuccess: async (data, submissionIds) => {
+      toast.success(
+        t('submissions.bulkRejudge.queued', { count: data.queued }),
+      );
+
+      setSelectedSubmissionIds((prev) => {
+        const next = new Set(prev);
+        for (const id of submissionIds) {
+          next.delete(id);
+        }
+        return next;
+      });
+
+      await queryClient.invalidateQueries({
+        queryKey: ['contest-submissions-table', String(contestId)],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['contest-submissions-bulk-source', String(contestId)],
+      });
+    },
+    onError: (error) => {
+      toast.error(
+        extractErrorMessage(error, t('submissions.bulkRejudge.error')),
+      );
+    },
   });
 
   const submissions = submissionsResult?.data ?? [];
@@ -195,6 +288,74 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
     [t],
   );
 
+  const matchedSubmissionIds = useMemo(() => {
+    if (!canBulkRejudge || !isBulkMode) {
+      return [];
+    }
+
+    const targetProblemId =
+      draftProblemId === 'all' ? null : Number(draftProblemId);
+    const targetLanguage = draftLanguage === 'all' ? null : draftLanguage;
+    const targetStatus = draftStatus === 'all' ? null : draftStatus;
+
+    return allSubmissions
+      .filter((submission) => {
+        if (
+          targetProblemId !== null &&
+          submission.problem_id !== targetProblemId
+        ) {
+          return false;
+        }
+
+        if (targetLanguage !== null && submission.language !== targetLanguage) {
+          return false;
+        }
+
+        if (targetStatus !== null && submission.status !== targetStatus) {
+          return false;
+        }
+
+        return true;
+      })
+      .map((submission) => submission.id);
+  }, [
+    allSubmissions,
+    canBulkRejudge,
+    isBulkMode,
+    draftLanguage,
+    draftProblemId,
+    draftStatus,
+  ]);
+
+  useEffect(() => {
+    if (!canBulkRejudge) {
+      setIsBulkMode(false);
+      setSelectedSubmissionIds((prev) =>
+        prev.size === 0 ? prev : new Set<number>(),
+      );
+      return;
+    }
+
+    if (!isBulkMode) {
+      setSelectedSubmissionIds((prev) =>
+        prev.size === 0 ? prev : new Set<number>(),
+      );
+      return;
+    }
+
+    const validIds = new Set(allSubmissions.map((submission) => submission.id));
+
+    setSelectedSubmissionIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (validIds.has(id)) {
+          next.add(id);
+        }
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [allSubmissions, canBulkRejudge, isBulkMode]);
+
   const applyFilters = () => {
     const nextProblemId =
       draftProblemId === 'all' ? null : Number(draftProblemId);
@@ -204,6 +365,52 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
       language: draftLanguage === 'all' ? null : draftLanguage,
       status: draftStatus,
     });
+  };
+
+  const selectMatched = () => {
+    if (matchedSubmissionIds.length === 0) {
+      return;
+    }
+
+    setSelectedSubmissionIds((prev) => {
+      const next = new Set(prev);
+      for (const id of matchedSubmissionIds) {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const unselectMatched = () => {
+    if (matchedSubmissionIds.length === 0) {
+      return;
+    }
+
+    setSelectedSubmissionIds((prev) => {
+      const next = new Set(prev);
+      for (const id of matchedSubmissionIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedSubmissionIds(new Set<number>());
+  };
+
+  const toggleBulkMode = () => {
+    setIsBulkMode((prev) => !prev);
+  };
+
+  const triggerBulkRejudge = () => {
+    const ids = Array.from(selectedSubmissionIds);
+    if (ids.length === 0) {
+      toast.error(t('submissions.bulkRejudge.noSelection'));
+      return;
+    }
+
+    bulkRejudgeMutation.mutate(ids);
   };
 
   return (
@@ -237,7 +444,76 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
           <Search className="mr-1 h-4 w-4" />
           {t('submissions.filters.search')}
         </Button>
+        {canBulkRejudge && (
+          <Button
+            className="h-9 shrink-0"
+            variant={isBulkMode ? 'secondary' : 'outline'}
+            onClick={toggleBulkMode}
+          >
+            <RotateCcw className="mr-1 h-4 w-4" />
+            {isBulkMode
+              ? t('submissions.bulkRejudge.exitMode')
+              : t('submissions.bulkRejudge.enterMode')}
+          </Button>
+        )}
       </div>
+
+      {canBulkRejudge && isBulkMode && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
+          <Button
+            variant="outline"
+            className="h-8"
+            disabled={
+              isAllSubmissionsLoading || matchedSubmissionIds.length === 0
+            }
+            onClick={selectMatched}
+          >
+            {t('submissions.selection.selectMatched')}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-8"
+            disabled={
+              isAllSubmissionsLoading || matchedSubmissionIds.length === 0
+            }
+            onClick={unselectMatched}
+          >
+            {t('submissions.selection.unselectMatched')}
+          </Button>
+          <Button
+            variant="ghost"
+            className="h-8"
+            disabled={selectedSubmissionIds.size === 0}
+            onClick={clearSelection}
+          >
+            {t('submissions.selection.clear')}
+          </Button>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {t('submissions.selection.selectedCount', {
+              count: selectedSubmissionIds.size,
+            })}{' '}
+            ·{' '}
+            {t('submissions.selection.matchingCount', {
+              count: matchedSubmissionIds.length,
+            })}
+          </span>
+          <Button
+            className="h-8 ml-auto"
+            disabled={
+              bulkRejudgeMutation.isPending || selectedSubmissionIds.size === 0
+            }
+            onClick={triggerBulkRejudge}
+          >
+            {bulkRejudgeMutation.isPending && (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            )}
+            {!bulkRejudgeMutation.isPending && (
+              <RotateCcw className="mr-1 h-4 w-4" />
+            )}
+            {t('submissions.bulkRejudge.action')}
+          </Button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="border rounded-lg overflow-hidden">
@@ -249,6 +525,32 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
           <SubmissionsTable
             submissions={submissions}
             columns={SubmissionsTable.fullColumns}
+            selectable={canBulkRejudge && isBulkMode}
+            selectedSubmissionIds={selectedSubmissionIds}
+            onToggleSubmissionSelection={(submissionId, checked) => {
+              setSelectedSubmissionIds((prev) => {
+                const next = new Set(prev);
+                if (checked) {
+                  next.add(submissionId);
+                } else {
+                  next.delete(submissionId);
+                }
+                return next;
+              });
+            }}
+            onToggleSelectVisible={(submissionIds, checked) => {
+              setSelectedSubmissionIds((prev) => {
+                const next = new Set(prev);
+                for (const id of submissionIds) {
+                  if (checked) {
+                    next.add(id);
+                  } else {
+                    next.delete(id);
+                  }
+                }
+                return next;
+              });
+            }}
             linkBuilder={(sub) =>
               `/contests/${contestId}/submissions/${sub.id}`
             }
