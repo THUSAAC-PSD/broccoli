@@ -1,6 +1,7 @@
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
+  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -31,9 +32,9 @@ export function ManagerLanguageSelector({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
+      <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
         {schema.title ?? t('admin.additionalFiles.language')}
-      </label>
+      </Label>
       {schema.description && (
         <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}

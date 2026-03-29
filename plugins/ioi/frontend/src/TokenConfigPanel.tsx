@@ -4,7 +4,7 @@
  * token budget indicator.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Input } from '@broccoli/web-sdk/ui';
+import { Input, Label } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 
 import { getConfiguredScoringMode } from './config-rules';
@@ -154,9 +154,9 @@ export function TokenConfigPanel({
       {mode === 'fixed_budget' && (
         <div className="flex flex-col gap-2.5">
           <div>
-            <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+            <Label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
               {t('ioi.tokenConfig.initialTokens')}
-            </label>
+            </Label>
             <Input
               type="number"
               min={0}
@@ -192,9 +192,9 @@ export function TokenConfigPanel({
 
           <div className="grid grid-cols-3 gap-2.5">
             <div>
-              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+              <Label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
                 {t('ioi.tokenConfig.initial')}
-              </label>
+              </Label>
               <Input
                 type="number"
                 min={0}
@@ -210,9 +210,9 @@ export function TokenConfigPanel({
               </div>
             </div>
             <div>
-              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+              <Label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
                 {t('ioi.tokenConfig.maximum')}
-              </label>
+              </Label>
               <Input
                 type="number"
                 min={0}
@@ -226,9 +226,9 @@ export function TokenConfigPanel({
               </div>
             </div>
             <div>
-              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
+              <Label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-50">
                 {t('ioi.tokenConfig.interval')}
-              </label>
+              </Label>
               <Input
                 type="number"
                 min={1}

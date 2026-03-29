@@ -5,6 +5,7 @@
  * Receives slot props: { value, schema, onChange, path }
  */
 
+import { Label } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 
 interface ModeCardSelectorProps {
@@ -39,12 +40,12 @@ export function ModeCardSelector({
 
   return (
     <div className="flex flex-col gap-1.5 col-span-2">
-      <label className="text-[11px] font-medium uppercase tracking-wide opacity-60">
+      <Label className="text-[11px] font-medium uppercase tracking-wide opacity-60">
         {schema.title ?? 'Mode'}
         <span className="ml-1.5 text-[10px] font-normal normal-case tracking-normal text-amber-600">
           (plugin override)
         </span>
-      </label>
+      </Label>
       {schema.description && (
         <p className="text-xs opacity-60 m-0">{schema.description}</p>
       )}
