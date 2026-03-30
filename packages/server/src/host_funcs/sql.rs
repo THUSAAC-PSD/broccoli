@@ -45,7 +45,7 @@ impl HostDbResponse {
 /// Helper function to convert JSON values from the plugin into SeaORM parameter values.
 fn json_to_sea_value(v: JsonValue) -> sea_orm::Value {
     match v {
-        JsonValue::Null => sea_orm::Value::Json(None),
+        JsonValue::Null => sea_orm::Value::String(None),
         JsonValue::Bool(b) => sea_orm::Value::Bool(Some(b)),
         JsonValue::Number(n) => {
             if let Some(i) = n.as_i64() {

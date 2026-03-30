@@ -38,6 +38,16 @@ pub struct SubmissionUpdate {
     pub error_message: Option<Option<String>>,
 }
 
+impl SubmissionUpdate {
+    pub fn new(submission_id: i32, judge_epoch: i32) -> Self {
+        Self {
+            submission_id,
+            judge_epoch,
+            ..Default::default()
+        }
+    }
+}
+
 /// Data for inserting a single test case result row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestCaseResultRow {
@@ -67,6 +77,15 @@ pub struct CodeRunUpdate {
     pub compile_output: Option<Option<String>>,
     pub error_code: Option<Option<String>>,
     pub error_message: Option<Option<String>>,
+}
+
+impl CodeRunUpdate {
+    pub fn new(code_run_id: i32) -> Self {
+        Self {
+            code_run_id,
+            ..Default::default()
+        }
+    }
 }
 
 /// Data for inserting a single code run result row.
