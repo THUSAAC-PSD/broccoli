@@ -546,18 +546,6 @@ fn load_token_state(host: &Host, contest_id: i32, user_id: i32) -> Result<TokenS
 }
 
 #[cfg(target_arch = "wasm32")]
-fn save_token_state(
-    host: &Host,
-    contest_id: i32,
-    user_id: i32,
-    state: &TokenState,
-) -> Result<(), SdkError> {
-    let key = format!("tokens:{contest_id}:{user_id}");
-    let json = serde_json::to_string(state).map_err(|e| SdkError::Serialization(e.to_string()))?;
-    host.storage.set(&key, &json)
-}
-
-#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_use_token(input: String) -> FnResult<String> {
     let host = Host::new();
@@ -652,28 +640,38 @@ fn handle_use_token(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkE
         .unwrap_or(0.0)
         .max(0.0) as u64;
 
-    let mut token_state = load_token_state(host, contest_id, user_id)?;
+    let token_key = format!("tokens:{contest_id}:{user_id}");
+    let tokens_config = contest_config.tokens.clone();
+    let token_state = host.storage.modify::<TokenState>(&token_key, |state| {
+        if available_tokens(&tokens_config, state, elapsed_min) == 0 {
+            return Err(SdkError::Other("NO_TOKENS_AVAILABLE".into()));
+        }
+        if state.tokened_submission_ids.contains(&submission_id) {
+            return Err(SdkError::Other("ALREADY_TOKENED".into()));
+        }
+        state.used += 1;
+        state.tokened_submission_ids.push(submission_id);
+        Ok(())
+    });
 
-    let avail = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
-    if avail == 0 {
-        return Ok(PluginHttpResponse {
-            status: 400,
-            headers: None,
-            body: Some(serde_json::json!({ "error": "No tokens available" })),
-        });
-    }
-
-    if token_state.tokened_submission_ids.contains(&submission_id) {
-        return Ok(PluginHttpResponse {
-            status: 400,
-            headers: None,
-            body: Some(serde_json::json!({ "error": "Submission already has a token" })),
-        });
-    }
-
-    token_state.used += 1;
-    token_state.tokened_submission_ids.push(submission_id);
-    save_token_state(host, contest_id, user_id, &token_state)?;
+    let token_state = match token_state {
+        Ok(state) => state,
+        Err(SdkError::Other(ref msg)) if msg == "NO_TOKENS_AVAILABLE" => {
+            return Ok(PluginHttpResponse {
+                status: 400,
+                headers: None,
+                body: Some(serde_json::json!({ "error": "No tokens available" })),
+            });
+        }
+        Err(SdkError::Other(ref msg)) if msg == "ALREADY_TOKENED" => {
+            return Ok(PluginHttpResponse {
+                status: 400,
+                headers: None,
+                body: Some(serde_json::json!({ "error": "Submission already has a token" })),
+            });
+        }
+        Err(e) => return Err(e),
+    };
 
     let task_score = compute_official_task_score(
         host,

@@ -23,6 +23,7 @@ extern "ExtismHost" {
     pub fn get_language_config(input: String) -> String;
     pub fn store_get(input: String) -> String;
     pub fn store_set(input: String);
+    pub fn store_compare_and_set(input: String) -> String;
     pub fn config_get(input: String) -> String;
     pub fn config_set(input: String);
 }
