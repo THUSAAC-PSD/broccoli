@@ -1,8 +1,18 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex as StdMutex};
+
 use extism::host_fn;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait};
+use sea_orm::{
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, Statement,
+    TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tracing::error;
+use uuid::Uuid;
+
+/// Shared map of active transactions, keyed by UUID.
+pub type TransactionMap = Arc<StdMutex<HashMap<String, DatabaseTransaction>>>;
 
 /// Response wrapper to pass results or errors back to the plugin.
 #[derive(Serialize)]
@@ -163,5 +173,151 @@ host_fn!(pub db_transaction(user_data: (String, DatabaseConnection); queries_jso
             error!("DB transaction error: {}", e);
             HostDbResponse::err(e.to_string()).to_json_string()
         }
+    }
+});
+
+// Begins a new database transaction. Returns {"txn_id": "<uuid>"}.
+host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _input: String) -> String {
+    let (db, txn_map) = {
+        let user_data_guard = user_data.get()?;
+        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        (ctx.1.clone(), ctx.2.clone())
+    };
+
+    let txn = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(db.begin())
+    }).map_err(|e| {
+        error!("DB begin error: {}", e);
+        extism::Error::msg(e.to_string())
+    })?;
+
+    let txn_id = Uuid::new_v4().to_string();
+    txn_map.lock()
+        .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?
+        .insert(txn_id.clone(), txn);
+
+    HostDbResponse::ok(serde_json::json!({"txn_id": txn_id})).to_json_string()
+});
+
+// Executes a SELECT query within an existing transaction.
+host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
+    let txn_map = {
+        let user_data_guard = user_data.get()?;
+        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        ctx.2.clone()
+    };
+
+    let values = parse_args(&args)?;
+    let wrapped_sql = format!(
+        "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM ({}) AS t",
+        sql
+    );
+    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, wrapped_sql, values);
+
+    let mut map_guard = txn_map.lock()
+        .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?;
+    let txn = map_guard.get_mut(&txn_id)
+        .ok_or_else(|| extism::Error::msg(format!("Transaction not found: {txn_id}")))?;
+
+    let query_result = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(txn.query_one_raw(stmt))
+    });
+
+    match query_result {
+        Ok(Some(res)) => {
+            let json_val: serde_json::Value = res.try_get("", "json_data")
+                .unwrap_or(serde_json::json!([]));
+            HostDbResponse::ok(json_val).to_json_string()
+        },
+        Ok(None) => HostDbResponse::ok(serde_json::json!([])).to_json_string(),
+        Err(e) => {
+            error!("DB query_in error: {}", e);
+            HostDbResponse::err(e.to_string()).to_json_string()
+        }
+    }
+});
+
+// Executes a statement within an existing transaction.
+host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
+    let txn_map = {
+        let user_data_guard = user_data.get()?;
+        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        ctx.2.clone()
+    };
+
+    let values = parse_args(&args)?;
+    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, sql, values);
+
+    let mut map_guard = txn_map.lock()
+        .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?;
+    let txn = map_guard.get_mut(&txn_id)
+        .ok_or_else(|| extism::Error::msg(format!("Transaction not found: {txn_id}")))?;
+
+    let exec_result = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(txn.execute_raw(stmt))
+    });
+
+    match exec_result {
+        Ok(res) => HostDbResponse::ok(JsonValue::from(res.rows_affected())).to_json_string(),
+        Err(e) => {
+            error!("DB execute_in error: {}", e);
+            HostDbResponse::err(e.to_string()).to_json_string()
+        }
+    }
+});
+
+// Commits an active transaction. Removes it from the map.
+host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
+    let txn_map = {
+        let user_data_guard = user_data.get()?;
+        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        ctx.2.clone()
+    };
+
+    let txn = txn_map.lock()
+        .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?
+        .remove(&txn_id)
+        .ok_or_else(|| extism::Error::msg(format!("Transaction not found: {txn_id}")))?;
+
+    let result = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(txn.commit())
+    });
+
+    match result {
+        Ok(()) => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
+        Err(e) => {
+            error!("DB commit error: {}", e);
+            HostDbResponse::err(e.to_string()).to_json_string()
+        }
+    }
+});
+
+// Rolls back an active transaction. Removes it from the map.
+host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
+    let txn_map = {
+        let user_data_guard = user_data.get()?;
+        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        ctx.2.clone()
+    };
+
+    let txn = txn_map.lock()
+        .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?
+        .remove(&txn_id);
+
+    match txn {
+        Some(txn) => {
+            let result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(txn.rollback())
+            });
+            match result {
+                Ok(()) => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
+                Err(e) => {
+                    error!("DB rollback error: {}", e);
+                    HostDbResponse::err(e.to_string()).to_json_string()
+                }
+            }
+        }
+        // Already committed/rolled back — not an error (idempotent for Drop safety)
+        None => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
     }
 });

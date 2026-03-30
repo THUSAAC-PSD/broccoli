@@ -19,7 +19,8 @@ use mq::MqQueue;
 use plugin_core::host::HostFunctionRegistry;
 use plugin_core::traits::PluginManager;
 use sea_orm::DatabaseConnection;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Semaphore;
 
 #[allow(clippy::too_many_arguments)]
@@ -102,6 +103,88 @@ pub fn init_host_functions(
             [ValType::I64],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             sql::db_transaction,
+        )
+    });
+
+    let txn_map: sql::TransactionMap = Arc::new(StdMutex::new(HashMap::new()));
+
+    let db_clone = db.clone();
+    let txn_map_clone = txn_map.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_begin",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((
+                plugin_id.to_string(),
+                db_clone.clone(),
+                txn_map_clone.clone(),
+            )),
+            sql::db_begin,
+        )
+    });
+
+    let db_clone = db.clone();
+    let txn_map_clone = txn_map.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_query_in",
+            [ValType::I64, ValType::I64, ValType::I64],
+            [ValType::I64],
+            UserData::new((
+                plugin_id.to_string(),
+                db_clone.clone(),
+                txn_map_clone.clone(),
+            )),
+            sql::db_query_in,
+        )
+    });
+
+    let db_clone = db.clone();
+    let txn_map_clone = txn_map.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_execute_in",
+            [ValType::I64, ValType::I64, ValType::I64],
+            [ValType::I64],
+            UserData::new((
+                plugin_id.to_string(),
+                db_clone.clone(),
+                txn_map_clone.clone(),
+            )),
+            sql::db_execute_in,
+        )
+    });
+
+    let db_clone = db.clone();
+    let txn_map_clone = txn_map.clone();
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_commit",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((
+                plugin_id.to_string(),
+                db_clone.clone(),
+                txn_map_clone.clone(),
+            )),
+            sql::db_commit,
+        )
+    });
+
+    let db_clone = db.clone();
+    let txn_map_clone = txn_map;
+    hr.register("sql", move |plugin_id| {
+        Function::new(
+            "db_rollback",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((
+                plugin_id.to_string(),
+                db_clone.clone(),
+                txn_map_clone.clone(),
+            )),
+            sql::db_rollback,
         )
     });
 
