@@ -5,6 +5,19 @@ use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::utils::soft_delete::SoftDeletable;
 
+/// Check if a problem belongs to a contest.
+pub async fn is_problem_in_contest<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    contest_id: i32,
+    problem_id: i32,
+) -> Result<bool, AppError> {
+    let exists = contest_problem::Entity::find_by_id((contest_id, problem_id))
+        .one(db)
+        .await?
+        .is_some();
+    Ok(exists)
+}
+
 /// Verify the caller can access the given contest.
 pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
     db: &C,

@@ -1,4 +1,5 @@
 mod checker;
+mod code_run;
 mod config;
 mod evaluate;
 pub mod hook_events;
@@ -10,6 +11,7 @@ mod submission;
 mod verdict;
 
 pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
+pub use code_run::{OnCodeRunInput, OnCodeRunOutput};
 pub use config::ConfigResult;
 pub use evaluate::{
     BuildEvalOpsInput, ResolvedLanguage, StartEvaluateBatchInput, StartEvaluateCaseInput,
@@ -22,7 +24,9 @@ pub use operation::{
     IOTarget, OperationResult, OperationTask, ResourceLimits, RunOptions, SandboxResult,
     SessionFile, Step, StepCacheConfig, TaskExecutionResult,
 };
-pub use persistence::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow};
+pub use persistence::{
+    CodeRunResultRow, CodeRunUpdate, SubmissionStatus, SubmissionUpdate, TestCaseResultRow,
+};
 pub use query::{ProblemCheckerInfo, TestCaseData, TestCaseRow};
-pub use submission::{OnSubmissionInput, OnSubmissionOutput, SourceFile, SubmissionMode};
+pub use submission::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
 pub use verdict::Verdict;

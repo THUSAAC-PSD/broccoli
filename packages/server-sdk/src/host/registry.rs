@@ -1,10 +1,15 @@
 use crate::error::SdkError;
 
-/// Register a contest type handler with the plugin registry.
-pub fn register_contest_type(contest_type: &str, handler: &str) -> Result<(), SdkError> {
+/// Register a contest type with both submission and code_run handlers.
+pub fn register_contest_type(
+    contest_type: &str,
+    submission_handler: &str,
+    code_run_handler: &str,
+) -> Result<(), SdkError> {
     let input = serde_json::json!({
         "type": contest_type,
-        "handler": handler,
+        "submission_handler": submission_handler,
+        "code_run_handler": code_run_handler,
     });
     unsafe { super::raw::register_contest_type(serde_json::to_string(&input)?)? };
     Ok(())

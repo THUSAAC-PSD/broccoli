@@ -340,6 +340,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/code-runs/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a code run by ID
+     * @description Returns the code run details including judge results. Used for polling run status.
+     */
+    get: operations['getCodeRun'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/config/upload': {
     parameters: {
       query?: never;
@@ -704,6 +724,26 @@ export interface paths {
     patch: operations['updateContestProblem'];
     trace?: never;
   };
+  '/contests/{id}/problems/{problem_id}/code-runs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Run code against test cases in a contest
+     * @description Runs code against custom test cases for a contest problem. The user must be a contest participant and the contest must be running.
+     */
+    post: operations['runContestCode'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/problems/{problem_id}/config': {
     parameters: {
       query?: never;
@@ -754,26 +794,6 @@ export interface paths {
      * @description Creates a new submission for a problem within a contest. The user must be a contest participant (or have `contest:manage` permission), and the contest must be active. Requires `submission:submit` permission.
      */
     post: operations['createContestSubmission'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/contests/{id}/problems/{problem_id}/submissions/run': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Run code against test cases in a contest
-     * @description Runs code against custom or sample test cases for a contest problem. The user must be a contest participant and the contest must be running.
-     */
-    post: operations['runContestCode'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1252,6 +1272,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/problems/{id}/code-runs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Run code against custom test cases
+     * @description Runs code against custom test cases for a problem. Results are ephemeral and don't affect scoring.
+     */
+    post: operations['runCode'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/problems/{id}/config': {
     parameters: {
       query?: never;
@@ -1302,26 +1342,6 @@ export interface paths {
      * @description Creates a new submission for the specified problem. The submission will be queued for judging. Requires `submission:submit` permission.
      */
     post: operations['createSubmission'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/problems/{id}/submissions/run': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Run code against test cases
-     * @description Runs code against custom test cases or sample test cases without creating a formal submission. Returns a submission with mode="Run" that can be polled for results.
-     */
-    post: operations['runCode'];
     delete?: never;
     options?: never;
     head?: never;
@@ -2097,6 +2117,130 @@ export interface components {
       resolved_by_name?: string | null;
       /** Format: date-time */
       updated_at: string;
+    };
+    /** @description Judge result for a code run. */
+    CodeRunJudgeResult: {
+      /** @description Compiler output (stdout/stderr). */
+      compile_output?: string | null;
+      /** @description System error message (only for SystemError status). */
+      error_message?: string | null;
+      /**
+       * Format: date-time
+       * @description When judging completed.
+       */
+      judged_at?: string | null;
+      /**
+       * Format: int32
+       * @description Maximum memory used in kilobytes.
+       * @example 1024
+       */
+      memory_used?: number | null;
+      /**
+       * Format: double
+       * @description Total score across all test cases (raw evaluator scores).
+       * @example 2
+       */
+      score?: number | null;
+      /** @description Individual test case results. */
+      test_case_results: components['schemas']['CodeRunResultResponse'][];
+      /**
+       * Format: int32
+       * @description Maximum time used in milliseconds.
+       * @example 50
+       */
+      time_used?: number | null;
+      /**
+       * @description Execution verdict (null if compilation failed or system error).
+       * @example Accepted
+       */
+      verdict?: string | null;
+    };
+    /** @description Full code run details. */
+    CodeRunResponse: {
+      /**
+       * Format: int32
+       * @description Contest ID if this is a contest code run, null otherwise.
+       * @example 1
+       */
+      contest_id?: number | null;
+      /**
+       * @description Contest type used for dispatching.
+       * @example ioi
+       */
+      contest_type: string;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:30:00Z
+       */
+      created_at: string;
+      /** @description Custom test cases provided for this run. */
+      custom_test_cases: components['schemas']['CustomTestCaseInput'][];
+      files: components['schemas']['SubmissionFileDto'][];
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @example cpp */
+      language: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      problem_id: number;
+      /** @example Two Sum */
+      problem_title: string;
+      result?: null | components['schemas']['CodeRunJudgeResult'];
+      status: components['schemas']['SubmissionStatus'];
+      /**
+       * Format: int32
+       * @example 1
+       */
+      user_id: number;
+      /** @example alice */
+      username: string;
+    };
+    /** @description Result for a single code run test case. */
+    CodeRunResultResponse: {
+      /** @description Custom checker feedback. */
+      checker_output?: string | null;
+      /** @description Expected output (if provided). */
+      expected_output?: string | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      /** @description Test case input. */
+      input?: string | null;
+      /**
+       * Format: int32
+       * @description Memory used in kilobytes.
+       * @example 256
+       */
+      memory_used?: number | null;
+      /**
+       * Format: int32
+       * @description 0-based index into the code run's custom_test_cases array.
+       */
+      run_index: number;
+      /**
+       * Format: double
+       * @example 1
+       */
+      score: number;
+      /** @description Program stderr. */
+      stderr?: string | null;
+      /** @description Program stdout. */
+      stdout?: string | null;
+      /**
+       * Format: int32
+       * @description Time used in milliseconds.
+       * @example 5
+       */
+      time_used?: number | null;
+      /** @example Accepted */
+      verdict: string;
     };
     /**
      * @example {
@@ -3412,8 +3556,6 @@ export interface components {
        * @example 1024
        */
       memory_used?: number | null;
-      /** @description Submission mode: "Submit" for formal submissions, "Run" for run-code executions. */
-      mode: string;
       /**
        * Format: int32
        * @example 1
@@ -3470,8 +3612,6 @@ export interface components {
        * @example 2025-10-01T14:30:00Z
        */
       created_at: string;
-      /** @description Custom test cases (only populated for runs with custom test cases). */
-      custom_test_cases?: components['schemas']['CustomTestCaseInput'][] | null;
       files: components['schemas']['SubmissionFileDto'][];
       /**
        * Format: int32
@@ -3480,8 +3620,6 @@ export interface components {
       id: number;
       /** @example cpp */
       language: string;
-      /** @description Submission mode: "Submit" for formal submissions, "Run" for run-code executions. */
-      mode: string;
       /**
        * Format: int32
        * @example 1
@@ -3619,11 +3757,6 @@ export interface components {
        * @example 256
        */
       memory_used?: number | null;
-      /**
-       * Format: int32
-       * @description 0-based index for custom run test cases. Null for DB-backed test cases.
-       */
-      run_index?: number | null;
       /**
        * Format: double
        * @example 10
@@ -4860,6 +4993,47 @@ export interface operations {
       };
       /** @description Username taken (USERNAME_TAKEN) */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getCodeRun: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Code run ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Code run details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CodeRunResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Code run not found (NOT_FOUND) */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -6318,6 +6492,80 @@ export interface operations {
       };
     };
   };
+  runContestCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RunCodeRequest'];
+      };
+    };
+    responses: {
+      /** @description Code run created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CodeRunResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limited (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   listContestProblemConfig: {
     parameters: {
       query?: never;
@@ -6614,80 +6862,6 @@ export interface operations {
       };
     };
   };
-  runContestCode: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Contest ID */
-        id: number;
-        /** @description Problem ID */
-        problem_id: number;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RunCodeRequest'];
-      };
-    };
-    responses: {
-      /** @description Run created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SubmissionResponse'];
-        };
-      };
-      /** @description Validation error (VALIDATION_ERROR) */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Forbidden (PERMISSION_DENIED) */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Contest or problem not found (NOT_FOUND) */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Rate limited (RATE_LIMITED) */
-      429: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-    };
-  };
   registerForContest: {
     parameters: {
       query?: never;
@@ -6818,8 +6992,6 @@ export interface operations {
          * @example desc
          */
         sort_order?: string;
-        /** @description Include run submissions in results. Default: false. */
-        include_runs?: boolean;
       };
       header?: never;
       path: {
@@ -8684,6 +8856,78 @@ export interface operations {
       };
     };
   };
+  runCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Problem ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RunCodeRequest'];
+      };
+    };
+    responses: {
+      /** @description Code run created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CodeRunResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limited (RATE_LIMITED) */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   listProblemConfig: {
     parameters: {
       query?: never;
@@ -8960,78 +9204,6 @@ export interface operations {
         };
       };
       /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
-      429: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-    };
-  };
-  runCode: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Problem ID */
-        id: number;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RunCodeRequest'];
-      };
-    };
-    responses: {
-      /** @description Run created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SubmissionResponse'];
-        };
-      };
-      /** @description Validation error (VALIDATION_ERROR) */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Forbidden (PERMISSION_DENIED) */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Problem not found (NOT_FOUND) */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ErrorBody'];
-        };
-      };
-      /** @description Rate limited (RATE_LIMITED) */
       429: {
         headers: {
           [name: string]: unknown;
@@ -9769,8 +9941,6 @@ export interface operations {
          * @example desc
          */
         sort_order?: string;
-        /** @description Include run submissions in results. Default: false. */
-        include_runs?: boolean;
       };
       header?: never;
       path?: never;

@@ -12,9 +12,7 @@ use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::{error, info, instrument, warn};
 
-use crate::entity::{
-    contest, contest_problem, problem, submission, test_case, test_case_result, user,
-};
+use crate::entity::{contest, problem, submission, test_case, test_case_result, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -23,16 +21,15 @@ use crate::models::shared::Pagination;
 use crate::models::submission::*;
 use crate::state::AppState;
 use crate::utils::contest::{
-    is_contest_participant, require_contest_participant, require_contest_running,
+    find_contest, is_contest_participant, is_problem_in_contest, require_contest_participant,
+    require_contest_running,
 };
 use crate::utils::judging::{
     files_from_json, files_to_json, validate_code_payload, validate_submission_contract,
 };
+use crate::utils::problem::find_problem;
 use crate::utils::query::validate_sorting_params;
 use crate::utils::rate_limit::check_rate_limit;
-use crate::utils::soft_delete::SoftDeletable;
-use common::language::{LanguageDefinition, resolve_language};
-
 /// Dispatch `before_submission` hooks and convert the outcome to an AppError if rejected.
 async fn dispatch_before_submission_hooks(
     state: &AppState,
@@ -60,22 +57,6 @@ async fn dispatch_before_submission_hooks(
     }
 }
 
-/// Validate language for run code requests. Skips submission_format check since
-/// runs are for testing and shouldn't enforce strict file naming rules.
-fn validate_run_language(
-    payload: &RunCodeRequest,
-    languages: &HashMap<String, LanguageDefinition>,
-) -> Result<(), AppError> {
-    let language = payload.language.trim();
-    let submitted_filename = payload
-        .files
-        .first()
-        .map(|file| file.filename.as_str())
-        .unwrap_or_default();
-
-    resolve_language(language, submitted_filename, languages, &[]).map_err(AppError::Validation)?;
-    Ok(())
-}
 /// Fire `after_submission` hooks in the background. Non-blocking.
 fn fire_after_submission_hooks(
     state: &AppState,
@@ -129,11 +110,6 @@ async fn fire_after_judging_hooks(
         return;
     }
 
-    // Runs are ephemeral — don't fire after_judging hooks (e.g., standings updates, notifications)
-    if sub.mode == "Run" {
-        return;
-    }
-
     let verdict = sub
         .verdict
         .map(|v| v.to_string())
@@ -163,14 +139,6 @@ async fn fire_after_judging_hooks(
     );
 }
 
-/// Find a problem by ID or return 404. Soft-deleted problems are treated as not found.
-async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Model, AppError> {
-    problem::Entity::find_active_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Problem not found".into()))
-}
-
 /// Find a submission by ID or return 404.
 async fn find_submission<C: ConnectionTrait>(
     db: &C,
@@ -182,36 +150,11 @@ async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
-/// Find a contest by ID or return 404. Soft-deleted contests are treated as not found.
-async fn find_contest<C: ConnectionTrait>(db: &C, id: i32) -> Result<contest::Model, AppError> {
-    contest::Entity::find_active_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Contest not found".into()))
-}
-
-/// Check if a problem belongs to a contest.
-async fn is_problem_in_contest<C: ConnectionTrait>(
-    db: &C,
-    contest_id: i32,
-    problem_id: i32,
-) -> Result<bool, AppError> {
-    let exists = contest_problem::Entity::find()
-        .filter(contest_problem::Column::ContestId.eq(contest_id))
-        .filter(contest_problem::Column::ProblemId.eq(problem_id))
-        .one(db)
-        .await?
-        .is_some();
-    Ok(exists)
-}
-
 /// Dispatch submission to plugin-based judging system.
 #[instrument(skip(state), fields(submission_id = submission.id))]
 pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
     use common::submission_dispatch::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
 
-    // Use the persisted contest_type — it was resolved at submission creation time
-    // from either the contest entity or the problem's default_contest_type.
     let contest_type = Some(submission.contest_type.clone());
 
     let handler = {
@@ -282,30 +225,7 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
         }
     };
 
-    let (sdk_mode, resolved_test_cases) = if submission.mode == "Run" {
-        use crate::models::submission::CustomTestCaseInput;
-        let custom_tcs: Vec<CustomTestCaseInput> = submission
-            .custom_test_cases
-            .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-        let resolved = custom_tcs
-            .iter()
-            .enumerate()
-            .map(|(i, tc)| common::submission_dispatch::TestCaseRow {
-                id: i as i32,
-                score: 0.0,
-                is_sample: false,
-                position: i as i32,
-                description: None,
-                label: None,
-                inline_input: Some(tc.input.clone()),
-                inline_expected_output: tc.expected_output.clone(),
-                is_custom: true,
-            })
-            .collect();
-        (common::submission_dispatch::SubmissionMode::Run, resolved)
-    } else {
+    let resolved_test_cases = {
         let db_tcs = match test_case::Entity::find()
             .filter(test_case::Column::ProblemId.eq(submission.problem_id))
             .order_by_asc(test_case::Column::Position)
@@ -325,7 +245,7 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
                 return;
             }
         };
-        let resolved = db_tcs
+        db_tcs
             .into_iter()
             .map(|tc| common::submission_dispatch::TestCaseRow {
                 id: tc.id,
@@ -338,11 +258,7 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
                 inline_expected_output: None,
                 is_custom: false,
             })
-            .collect();
-        (
-            common::submission_dispatch::SubmissionMode::Submit,
-            resolved,
-        )
+            .collect()
     };
 
     let input = OnSubmissionInput {
@@ -355,7 +271,6 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
         time_limit_ms: problem.time_limit,
         memory_limit_kb: problem.memory_limit,
         problem_type: problem.problem_type.clone(),
-        mode: sdk_mode,
         test_cases: resolved_test_cases,
     };
 
@@ -375,7 +290,7 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
     };
 
     let plugin_id = handler.plugin_id.clone();
-    let function_name = handler.function_name.clone();
+    let function_name = handler.submission_fn.clone();
     let plugins = state.plugins.clone();
     let hook_registry = state.registries.hook_registry.clone();
     let db = state.db.clone();
@@ -496,7 +411,6 @@ async fn build_submission_list_items(
             problem_title: problem_model.title.clone(),
             contest_id: sub.contest_id,
             contest_type: sub.contest_type,
-            mode: sub.mode.clone(),
             created_at: sub.created_at,
             score: sub.score,
             time_used: sub.time_used,
@@ -582,7 +496,6 @@ async fn build_submission_response(
             .all(db)
             .await?;
 
-        // For runs, test_case_id may be NULL (custom TCs use run_index instead)
         let tc_ids: Vec<i32> = results.iter().filter_map(|r| r.test_case_id).collect();
         let tc_meta: HashMap<i32, TestCaseMeta> = if tc_ids.is_empty() {
             HashMap::new()
@@ -604,10 +517,10 @@ async fn build_submission_response(
         let mut results_with_pos: Vec<_> = results
             .into_iter()
             .map(|r| {
-                let pos = match r.test_case_id {
-                    Some(tc_id) => tc_meta.get(&tc_id).map_or(i32::MAX, |m| m.position),
-                    None => r.run_index.unwrap_or(i32::MAX),
-                };
+                let pos = r
+                    .test_case_id
+                    .and_then(|tc_id| tc_meta.get(&tc_id))
+                    .map_or(i32::MAX, |m| m.position);
                 (r, pos)
             })
             .collect();
@@ -639,40 +552,16 @@ async fn build_submission_response(
                 .collect()
         };
 
-        let custom_tcs: Option<Vec<CustomTestCaseInput>> = if sub.mode == "Run" {
-            sub.custom_test_cases
-                .as_ref()
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-        } else {
-            None
-        };
-
         let test_case_results = results_with_pos
             .into_iter()
             .map(|(result, _)| {
-                // Custom run TCs (test_case_id is NULL) always show I/O
-                let is_custom_run_tc = result.test_case_id.is_none();
                 let is_sample = result
                     .test_case_id
                     .and_then(|tc_id| tc_meta.get(&tc_id))
                     .is_some_and(|m| m.is_sample);
-                let show_io = has_view_all
-                    || problem_model.show_test_details
-                    || is_sample
-                    || is_custom_run_tc;
+                let show_io = has_view_all || problem_model.show_test_details || is_sample;
 
-                // For custom run TCs, get input/expected from the submission's custom_test_cases
-                let (tc_input, tc_expected) = if is_custom_run_tc {
-                    if let (Some(idx), Some(tcs)) = (result.run_index, &custom_tcs) {
-                        let tc = tcs.get(idx as usize);
-                        (
-                            tc.map(|t| t.input.clone()),
-                            tc.and_then(|t| t.expected_output.clone()),
-                        )
-                    } else {
-                        (None, None)
-                    }
-                } else if show_io {
+                let (tc_input, tc_expected) = if show_io {
                     let io = result.test_case_id.and_then(|tc_id| io_data.get(&tc_id));
                     (
                         io.map(|d| d.input.clone()),
@@ -689,7 +578,6 @@ async fn build_submission_response(
                     time_used: result.time_used,
                     memory_used: result.memory_used,
                     test_case_id: result.test_case_id,
-                    run_index: result.run_index,
                     input: tc_input,
                     expected_output: tc_expected,
                     stdout: if show_io { result.stdout } else { None },
@@ -742,15 +630,6 @@ async fn build_submission_response(
         vec![]
     };
 
-    let custom_test_cases: Option<Vec<CustomTestCaseInput>> =
-        if sub.mode == "Run" && show_source_code {
-            sub.custom_test_cases
-                .as_ref()
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-        } else {
-            None
-        };
-
     Ok(SubmissionResponse {
         id: sub.id,
         files,
@@ -762,8 +641,6 @@ async fn build_submission_response(
         problem_title: problem_model.title,
         contest_id: sub.contest_id,
         contest_type: sub.contest_type.clone(),
-        mode: sub.mode.clone(),
-        custom_test_cases,
         created_at: sub.created_at,
         result: result_response,
     })
@@ -943,11 +820,6 @@ pub async fn list_submissions(
         base_select = base_select.filter(submission::Column::Status.eq(status));
     }
 
-    // Exclude runs by default
-    if !query.include_runs.unwrap_or(false) {
-        base_select = base_select.filter(submission::Column::Mode.eq("Submit"));
-    }
-
     let total = base_select.clone().count(&state.db).await?;
 
     let select = base_select.find_also_related(user::Entity);
@@ -1068,12 +940,6 @@ pub async fn rejudge_submission(
         .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))?;
-
-    if sub.mode == "Run" {
-        return Err(AppError::Validation(
-            "Run submissions cannot be rejudged".into(),
-        ));
-    }
 
     test_case_result::Entity::delete_many()
         .filter(test_case_result::Column::SubmissionId.eq(sub.id))
@@ -1300,11 +1166,6 @@ pub async fn list_contest_submissions(
         base_select = base_select.filter(submission::Column::Status.eq(status));
     }
 
-    // Exclude runs by default
-    if !query.include_runs.unwrap_or(false) {
-        base_select = base_select.filter(submission::Column::Mode.eq("Submit"));
-    }
-
     let total = base_select.clone().count(&state.db).await?;
 
     let select = base_select.find_also_related(user::Entity);
@@ -1382,8 +1243,6 @@ pub async fn bulk_rejudge_submissions(
     let all_ids: Vec<i32> = submission::Entity::find()
         .filter(submission::Column::Id.is_in(requested_ids.clone()))
         .filter(submission::Column::Status.is_in(terminal_statuses))
-        // Never rejudge run submissions — they are ephemeral test executions
-        .filter(submission::Column::Mode.eq("Submit"))
         .select_only()
         .column(submission::Column::Id)
         .order_by_asc(submission::Column::Id)
@@ -1471,187 +1330,6 @@ pub async fn bulk_rejudge_submissions(
     );
 
     Ok(Json(BulkRejudgeResponse { queued }))
-}
-
-/// Run code against custom or sample test cases (standalone problem).
-#[utoipa::path(
-    post,
-    path = "/run",
-    tag = "Submissions",
-    operation_id = "runCode",
-    summary = "Run code against test cases",
-    description = "Runs code against custom test cases or sample test cases without creating a formal submission. Returns a submission with mode=\"Run\" that can be polled for results.",
-    params(
-        ("id" = i32, Path, description = "Problem ID")
-    ),
-    request_body = RunCodeRequest,
-    responses(
-        (status = 201, description = "Run created", body = SubmissionResponse),
-        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
-        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limited (RATE_LIMITED)", body = ErrorBody),
-    ),
-    security(("jwt" = [])),
-)]
-#[instrument(skip(state, auth_user, payload), fields(problem_id = %problem_id))]
-pub async fn run_code(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
-    AppJson(payload): AppJson<RunCodeRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
-    validate_run_code(&payload, state.config.submission.max_size)?;
-    check_rate_limit(
-        &state.db,
-        auth_user.user_id,
-        state.config.submission.rate_limit_per_minute,
-    )
-    .await?;
-
-    let txn = state.db.begin().await?;
-    let problem = find_problem(&txn, problem_id).await?;
-
-    validate_run_language(&payload, &state.config.languages)?;
-
-    let contest_type = problem.default_contest_type.clone();
-    let custom_tcs_json =
-        serde_json::to_value(&payload.custom_test_cases).unwrap_or(serde_json::Value::Null);
-
-    // Runs intentionally skip before_submission/after_submission hooks.
-    let now = Utc::now();
-    let language = payload.language.trim().to_string();
-    let new_submission = submission::ActiveModel {
-        files: Set(files_to_json(&payload.files)),
-        language: Set(language),
-        status: Set(SubmissionStatus::Pending),
-        user_id: Set(auth_user.user_id),
-        problem_id: Set(problem_id),
-        contest_id: Set(None),
-        contest_type: Set(contest_type),
-        mode: Set("Run".to_string()),
-        custom_test_cases: Set(Some(custom_tcs_json)),
-        created_at: Set(now),
-        ..Default::default()
-    };
-
-    let model = new_submission.insert(&txn).await?;
-    txn.commit().await?;
-
-    let state_clone = state.clone();
-    let model_clone = model.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, model_clone).await;
-    });
-
-    let visibility = Some(VisibilityContext {
-        viewer_id: auth_user.user_id,
-        has_view_all: auth_user.has_permission("submission:view_all"),
-    });
-    let response = build_submission_response(&state.db, model, visibility).await?;
-
-    Ok((StatusCode::CREATED, Json(response)))
-}
-
-/// Run code against custom or sample test cases (contest problem).
-#[utoipa::path(
-    post,
-    path = "/run",
-    tag = "Submissions",
-    operation_id = "runContestCode",
-    summary = "Run code against test cases in a contest",
-    description = "Runs code against custom or sample test cases for a contest problem. The user must be a contest participant and the contest must be running.",
-    params(
-        ("id" = i32, Path, description = "Contest ID"),
-        ("problem_id" = i32, Path, description = "Problem ID")
-    ),
-    request_body = RunCodeRequest,
-    responses(
-        (status = 201, description = "Run created", body = SubmissionResponse),
-        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
-        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
-        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 404, description = "Contest or problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limited (RATE_LIMITED)", body = ErrorBody),
-    ),
-    security(("jwt" = [])),
-)]
-#[instrument(skip(state, auth_user, payload), fields(id = %id, problem_id = %problem_id))]
-pub async fn run_contest_code(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-    Path((id, problem_id)): Path<(i32, i32)>,
-    AppJson(payload): AppJson<RunCodeRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
-    validate_run_code(&payload, state.config.submission.max_size)?;
-    check_rate_limit(
-        &state.db,
-        auth_user.user_id,
-        state.config.submission.rate_limit_per_minute,
-    )
-    .await?;
-
-    let contest_id = id;
-    let txn = state.db.begin().await?;
-
-    let contest_model = find_contest(&txn, contest_id).await?;
-    let _problem = find_problem(&txn, problem_id).await?;
-    if !is_problem_in_contest(&txn, contest_id, problem_id).await? {
-        return Err(AppError::NotFound(
-            "Problem not found in this contest".into(),
-        ));
-    }
-
-    let now = Utc::now();
-    require_contest_running(&auth_user, &contest_model, now)?;
-    require_contest_participant(&state.db, &auth_user, &contest_model).await?;
-
-    validate_run_language(&payload, &state.config.languages)?;
-
-    let custom_tcs_json =
-        serde_json::to_value(&payload.custom_test_cases).unwrap_or(serde_json::Value::Null);
-
-    let language = payload.language.trim().to_string();
-    let contest_type = match &contest_model.contest_type {
-        Some(ct) => ct.clone(),
-        None => {
-            let reg = state.registries.contest_type_registry.read().await;
-            reg.keys().min().cloned().unwrap_or_default()
-        }
-    };
-    let new_submission = submission::ActiveModel {
-        files: Set(files_to_json(&payload.files)),
-        language: Set(language),
-        status: Set(SubmissionStatus::Pending),
-        user_id: Set(auth_user.user_id),
-        problem_id: Set(problem_id),
-        contest_id: Set(Some(contest_id)),
-        contest_type: Set(contest_type),
-        mode: Set("Run".to_string()),
-        custom_test_cases: Set(Some(custom_tcs_json)),
-        created_at: Set(now),
-        ..Default::default()
-    };
-
-    let model = new_submission.insert(&txn).await?;
-    txn.commit().await?;
-
-    let state_clone = state.clone();
-    let model_clone = model.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, model_clone).await;
-    });
-
-    let visibility = Some(VisibilityContext {
-        viewer_id: auth_user.user_id,
-        has_view_all: auth_user.has_permission("submission:view_all"),
-    });
-    let response = build_submission_response(&state.db, model, visibility).await?;
-
-    Ok((StatusCode::CREATED, Json(response)))
 }
 
 /// Body limit for submission requests.

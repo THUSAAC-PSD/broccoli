@@ -1,5 +1,6 @@
 use crate::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry, PluginHandler,
+    CheckerFormatRegistry, ContestTypeHandlers, ContestTypeRegistry, EvaluatorRegistry,
+    PluginHandler,
 };
 use extism::{Function, UserData, Val, ValType};
 use serde::Deserialize;
@@ -12,7 +13,8 @@ use tokio::sync::RwLock;
 struct RegisterContestTypeInput {
     #[serde(rename = "type")]
     contest_type: String,
-    handler: String,
+    submission_handler: String,
+    code_run_handler: String,
 }
 
 /// Input for register_evaluator
@@ -131,15 +133,35 @@ fn register_contest_type_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (data.plugin_id.clone(), data.contest_type_registry.clone())
     };
-    register_handler::<RegisterContestTypeInput>(
-        plugin,
-        inputs,
-        _outputs,
-        &plugin_id,
-        &registry,
-        |input| (&input.contest_type, &input.handler),
-        "Contest type",
-    )
+
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: RegisterContestTypeInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let key = input.contest_type;
+
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let mut registry = registry.write().await;
+            registry.insert(
+                key.clone(),
+                ContestTypeHandlers {
+                    plugin_id: plugin_id.to_string(),
+                    submission_fn: input.submission_handler.clone(),
+                    code_run_fn: input.code_run_handler.clone(),
+                },
+            );
+            tracing::info!(
+                plugin_id = %plugin_id,
+                key = %key,
+                submission_fn = %input.submission_handler,
+                code_run_fn = %input.code_run_handler,
+                "Contest type registered"
+            );
+        })
+    });
+
+    Ok(())
 }
 
 fn register_evaluator_fn(

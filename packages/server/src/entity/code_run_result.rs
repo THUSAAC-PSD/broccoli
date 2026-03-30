@@ -4,21 +4,21 @@ use serde::{Deserialize, Serialize};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "test_case_result")]
+#[sea_orm(table_name = "code_run_result")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
 
-    pub submission_id: i32,
-    /// NULL for custom run test cases (which have no DB-backed test_case row).
-    pub test_case_id: Option<i32>,
+    pub code_run_id: i32,
+    /// 0-based index into the code_run's custom_test_cases array.
+    pub run_index: i32,
 
     #[sea_orm(column_type = "Text")]
     pub verdict: Verdict,
     #[sea_orm(column_type = "Double")]
     pub score: f64,
 
-    pub time_used: Option<i32>,   // in miliseconds
+    pub time_used: Option<i32>,   // in milliseconds
     pub memory_used: Option<i32>, // in kilobytes
 
     #[sea_orm(column_type = "Text", nullable)]
@@ -28,10 +28,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub checker_output: Option<String>,
 
-    #[sea_orm(belongs_to, from = "submission_id", to = "id")]
-    pub submission: HasOne<super::submission::Entity>,
-    #[sea_orm(belongs_to, from = "test_case_id", to = "id")]
-    pub test_case: HasOne<super::test_case::Entity>,
+    #[sea_orm(belongs_to, from = "code_run_id", to = "id")]
+    pub code_run: HasOne<super::code_run::Entity>,
 
     pub created_at: DateTimeUtc,
 }

@@ -1,7 +1,8 @@
 use crate::error::SdkError;
 use crate::traits::PluginHost;
 use crate::types::{
-    StartEvaluateBatchInput, SubmissionUpdate, TestCaseResultRow, TestCaseRow, TestCaseVerdict,
+    CodeRunResultRow, CodeRunUpdate, StartEvaluateBatchInput, SubmissionUpdate, TestCaseResultRow,
+    TestCaseRow, TestCaseVerdict,
 };
 
 /// Zero-size host that delegates to FFI. Only available on WASM targets.
@@ -34,6 +35,14 @@ impl PluginHost for WasmHost {
 
     fn insert_test_case_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
         crate::db::insert_test_case_results(results)
+    }
+
+    fn update_code_run(&self, update: &CodeRunUpdate) -> Result<(), SdkError> {
+        crate::db::update_code_run(update)
+    }
+
+    fn insert_code_run_results(&self, results: &[CodeRunResultRow]) -> Result<(), SdkError> {
+        crate::db::insert_code_run_results(results)
     }
 
     fn log_info(&self, msg: &str) -> Result<(), SdkError> {

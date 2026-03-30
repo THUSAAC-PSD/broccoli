@@ -16,13 +16,15 @@ use std::collections::HashSet;
 use plugin_core::registry::PluginStatus;
 use plugin_core::traits::PluginManager;
 
-use crate::entity::{contest, contest_problem, plugin_config, problem};
+use crate::entity::plugin_config;
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::host_funcs::config::{extract_plugin_id, resolve_namespace, strip_namespace_prefix};
 use crate::models::plugin_config::{PluginConfigResponse, UpsertPluginConfigRequest, config_key};
 use crate::state::AppState;
+use crate::utils::contest::{find_contest, find_contest_problem};
+use crate::utils::problem::find_problem;
 
 fn validate_namespace(ns: &str) -> Result<(), AppError> {
     if ns.is_empty() || ns.len() > 128 {
@@ -38,34 +40,6 @@ fn validate_namespace(ns: &str) -> Result<(), AppError> {
             "Namespace must contain only alphanumeric, hyphen, or underscore characters".into(),
         ));
     }
-    Ok(())
-}
-
-async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<(), AppError> {
-    problem::Entity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
-    Ok(())
-}
-
-async fn find_contest<C: ConnectionTrait>(db: &C, id: i32) -> Result<(), AppError> {
-    contest::Entity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Contest not found".into()))?;
-    Ok(())
-}
-
-async fn find_contest_problem<C: ConnectionTrait>(
-    db: &C,
-    contest_id: i32,
-    problem_id: i32,
-) -> Result<(), AppError> {
-    contest_problem::Entity::find_by_id((contest_id, problem_id))
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Contest problem not found".into()))?;
     Ok(())
 }
 

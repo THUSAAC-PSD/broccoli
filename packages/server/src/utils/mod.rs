@@ -6,6 +6,7 @@ pub mod judging;
 pub mod jwt;
 pub mod password;
 pub mod plugin;
+pub mod problem;
 pub mod query;
 pub mod rate_limit;
 pub mod refresh;

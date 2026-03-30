@@ -4,6 +4,7 @@ pub mod assets;
 pub mod attachment;
 pub mod auth;
 pub mod clarification;
+pub mod code_run;
 pub mod config_upload;
 pub mod contest;
 pub mod dlq;

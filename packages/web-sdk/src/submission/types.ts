@@ -9,6 +9,10 @@ export type JudgeResult = components['schemas']['JudgeResultResponse'];
 export type TestCaseResult = components['schemas']['TestCaseResultResponse'];
 export type Verdict = TestCaseResult['verdict'];
 
+export type CodeRun = components['schemas']['CodeRunResponse'];
+export type CodeRunJudgeResult = components['schemas']['CodeRunJudgeResult'];
+export type CodeRunResult = components['schemas']['CodeRunResultResponse'];
+
 export const SUBMISSION_STATUSES: SubmissionStatus[] = [
   'Pending',
   'Compiling',

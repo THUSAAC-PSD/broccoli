@@ -124,6 +124,22 @@ pub fn files_from_json(value: &serde_json::Value) -> Vec<SubmissionFileDto> {
         .collect()
 }
 
+/// Validate language for run code requests.
+pub fn validate_run_language(
+    files: &[SubmissionFileDto],
+    language: &str,
+    languages: &HashMap<String, LanguageDefinition>,
+) -> Result<(), AppError> {
+    let language = language.trim();
+    let submitted_filename = files
+        .first()
+        .map(|file| file.filename.as_str())
+        .unwrap_or_default();
+
+    resolve_language(language, submitted_filename, languages, &[]).map_err(AppError::Validation)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
