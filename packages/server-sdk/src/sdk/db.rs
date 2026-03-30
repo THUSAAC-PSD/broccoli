@@ -13,7 +13,7 @@ mod wasm_impl {
     use super::*;
     use std::cell::Cell;
 
-    use super::shared::{HostDbResponse, parse_affected, parse_rows};
+    use crate::sdk::shared::{HostDbResponse, parse_affected, parse_rows};
 
     impl Db {
         pub fn query<T: DeserializeOwned>(&self, sql: &str) -> Result<Vec<T>, SdkError> {

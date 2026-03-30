@@ -78,7 +78,8 @@ fn plugin_error(status: u16, message: impl Into<String>) -> PluginHttpResponse {
 
 #[cfg(target_arch = "wasm32")]
 fn load_contest_route_info(host: &Host, contest_id: i32) -> Result<ContestRouteInfo, SdkError> {
-    let rows: Vec<ContestRouteInfo> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT contest_type, is_public, \
             ((activate_time IS NULL OR activate_time <= NOW()) AND \
              (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
@@ -87,10 +88,11 @@ fn load_contest_route_info(host: &Host, contest_id: i32) -> Result<ContestRouteI
                 WHEN NOW() > end_time THEN 'after' \
                 ELSE 'during' \
             END AS phase \
-         FROM contest WHERE id = {contest_id}"
-    ))?;
-    rows.into_iter()
-        .next()
+         FROM contest WHERE id = {}",
+        p.bind(contest_id)
+    );
+    host.db
+        .query_one_with_args::<ContestRouteInfo>(&sql, &p.into_args())?
         .ok_or_else(|| SdkError::Other("Contest not found".into()))
 }
 
@@ -101,13 +103,19 @@ fn contest_has_problem(host: &Host, contest_id: i32, problem_id: i32) -> Result<
         exists: bool,
     }
 
-    let rows: Vec<ExistsRow> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT EXISTS( \
             SELECT 1 FROM contest_problem \
-            WHERE contest_id = {contest_id} AND problem_id = {problem_id} \
-         ) AS exists"
-    ))?;
-    Ok(rows.first().is_some_and(|row| row.exists))
+            WHERE contest_id = {} AND problem_id = {} \
+         ) AS exists",
+        p.bind(contest_id),
+        p.bind(problem_id)
+    );
+    Ok(host
+        .db
+        .query_one_with_args::<ExistsRow>(&sql, &p.into_args())?
+        .is_some_and(|row| row.exists))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -117,13 +125,19 @@ fn user_is_participant(host: &Host, contest_id: i32, user_id: i32) -> Result<boo
         exists: bool,
     }
 
-    let rows: Vec<ExistsRow> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT EXISTS( \
             SELECT 1 FROM contest_user \
-            WHERE contest_id = {contest_id} AND user_id = {user_id} \
-         ) AS exists"
-    ))?;
-    Ok(rows.first().is_some_and(|row| row.exists))
+            WHERE contest_id = {} AND user_id = {} \
+         ) AS exists",
+        p.bind(contest_id),
+        p.bind(user_id)
+    );
+    Ok(host
+        .db
+        .query_one_with_args::<ExistsRow>(&sql, &p.into_args())?
+        .is_some_and(|row| row.exists))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -376,20 +390,26 @@ fn recompute_sum_best_subtask(
     test_cases: &[TestCaseRow],
     subtask_defs: &[SubtaskDef],
 ) -> Result<f64, SdkError> {
-    let tc_results: Vec<TcResultRow> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
          WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
          AND tcr.test_case_id IS NOT NULL",
-        user_id, problem_id, contest_id
-    ))?;
+        p.bind(user_id),
+        p.bind(problem_id),
+        p.bind(contest_id)
+    );
+    let tc_results: Vec<TcResultRow> = host.db.query_with_args(&sql, &p.into_args())?;
 
-    let tc_maxes: Vec<TcMaxScore> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT id as test_case_id, score as max_score \
          FROM test_case WHERE problem_id = {}",
-        problem_id
-    ))?;
+        p.bind(problem_id)
+    );
+    let tc_maxes: Vec<TcMaxScore> = host.db.query_with_args(&sql, &p.into_args())?;
     let max_map: HashMap<i32, f64> = tc_maxes
         .iter()
         .map(|t| (t.test_case_id, t.max_score))
@@ -439,13 +459,19 @@ fn compute_official_task_score(
 ) -> Result<f64, SdkError> {
     match config.scoring_mode {
         ScoringMode::MaxSubmission => {
-            let rows: Vec<MaxScore> = host.db.query(&format!(
+            let mut p = Params::new();
+            let sql = format!(
                 "SELECT MAX(score) as max_score FROM submission \
-                 WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-                 ",
-                user_id, problem_id, contest_id
-            ))?;
-            Ok(rows.first().and_then(|r| r.max_score).unwrap_or(0.0))
+                 WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
+                p.bind(user_id),
+                p.bind(problem_id),
+                p.bind(contest_id)
+            );
+            Ok(host
+                .db
+                .query_one_with_args::<MaxScore>(&sql, &p.into_args())?
+                .and_then(|r| r.max_score)
+                .unwrap_or(0.0))
         }
         ScoringMode::SumBestSubtask => {
             let owned;
@@ -472,27 +498,38 @@ fn compute_official_task_score(
             let tokened_best = if token_state.tokened_submission_ids.is_empty() {
                 0.0
             } else {
-                let ids: Vec<String> = token_state
+                let mut p = Params::new();
+                let ids_sql: Vec<String> = token_state
                     .tokened_submission_ids
                     .iter()
-                    .map(|id| id.to_string())
+                    .map(|id| p.bind(*id))
                     .collect();
-                let rows: Vec<MaxScore> = host.db.query(&format!(
+                let sql = format!(
                     "SELECT MAX(score) as max_score FROM submission \
                      WHERE id IN ({}) AND problem_id = {}",
-                    ids.join(","),
-                    problem_id
-                ))?;
-                rows.first().and_then(|r| r.max_score).unwrap_or(0.0)
+                    ids_sql.join(","),
+                    p.bind(problem_id)
+                );
+                host.db
+                    .query_one_with_args::<MaxScore>(&sql, &p.into_args())?
+                    .and_then(|r| r.max_score)
+                    .unwrap_or(0.0)
             };
 
-            let last_rows: Vec<SubmissionScore> = host.db.query(&format!(
+            let mut p = Params::new();
+            let sql = format!(
                 "SELECT id, score FROM submission \
                  WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
                  ORDER BY created_at DESC LIMIT 1",
-                user_id, problem_id, contest_id
-            ))?;
-            let last_score = last_rows.first().map(|r| r.score).unwrap_or(0.0);
+                p.bind(user_id),
+                p.bind(problem_id),
+                p.bind(contest_id)
+            );
+            let last_score = host
+                .db
+                .query_one_with_args::<SubmissionScore>(&sql, &p.into_args())?
+                .map(|r| r.score)
+                .unwrap_or(0.0);
 
             Ok(score_best_tokened_or_last(tokened_best, last_score))
         }
@@ -565,12 +602,14 @@ fn handle_use_token(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkE
         problem_id: i32,
         contest_id: Option<i32>,
     }
-    let sub_rows: Vec<SubmissionInfo> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT user_id, problem_id, contest_id FROM submission WHERE id = {}",
-        submission_id
-    ))?;
-    let sub_info = sub_rows
-        .first()
+        p.bind(submission_id)
+    );
+    let sub_info = host
+        .db
+        .query_one_with_args::<SubmissionInfo>(&sql, &p.into_args())?
         .ok_or_else(|| SdkError::Other("Submission not found".into()))?;
     if sub_info.user_id != user_id {
         return Ok(PluginHttpResponse {
@@ -600,13 +639,15 @@ fn handle_use_token(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkE
         });
     }
 
-    let elapsed_rows: Vec<ElapsedMinutes> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT EXTRACT(EPOCH FROM (NOW() - start_time)) / 60 as elapsed_minutes \
          FROM contest WHERE id = {}",
-        contest_id
-    ))?;
-    let elapsed_min = elapsed_rows
-        .first()
+        p.bind(contest_id)
+    );
+    let elapsed_min = host
+        .db
+        .query_one_with_args::<ElapsedMinutes>(&sql, &p.into_args())?
         .and_then(|r| r.elapsed_minutes)
         .unwrap_or(0.0)
         .max(0.0) as u64;
@@ -885,23 +926,25 @@ fn handle_submission_status(host: &Host, input: &str) -> Result<PluginHttpRespon
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
-    // Query last judged submission with a verdict
-    // Safety: all interpolated values are i32, no SQL injection risk
     #[derive(Deserialize)]
     struct LastVerdict {
         verdict: Option<String>,
         score: Option<f64>,
     }
-    let last_rows: Vec<LastVerdict> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT verdict, score FROM submission \
          WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
          AND status = 'Judged' AND verdict IS NOT NULL \
          ORDER BY created_at DESC LIMIT 1",
-        user_id, problem_id, contest_id
-    ))?;
-    let (last_verdict, last_score) = last_rows
-        .first()
-        .map(|r| (r.verdict.clone(), r.score))
+        p.bind(user_id),
+        p.bind(problem_id),
+        p.bind(contest_id)
+    );
+    let (last_verdict, last_score) = host
+        .db
+        .query_one_with_args::<LastVerdict>(&sql, &p.into_args())?
+        .map(|r| (r.verdict, r.score))
         .unwrap_or((None, None));
 
     Ok(PluginHttpResponse {
@@ -954,13 +997,15 @@ fn handle_token_status(host: &Host, input: &str) -> Result<PluginHttpResponse, S
     let token_state = load_token_state(host, contest_id, user_id)?;
 
     // Query elapsed minutes for regenerating mode
-    let elapsed_rows: Vec<ElapsedMinutes> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT EXTRACT(EPOCH FROM (NOW() - start_time)) / 60 as elapsed_minutes \
          FROM contest WHERE id = {}",
-        contest_id
-    ))?;
-    let elapsed_min = elapsed_rows
-        .first()
+        p.bind(contest_id)
+    );
+    let elapsed_min = host
+        .db
+        .query_one_with_args::<ElapsedMinutes>(&sql, &p.into_args())?
         .and_then(|r| r.elapsed_minutes)
         .unwrap_or(0.0)
         .max(0.0) as u64;
@@ -973,13 +1018,17 @@ fn handle_token_status(host: &Host, input: &str) -> Result<PluginHttpResponse, S
     };
     let next_regen_at = match next_regen_elapsed_min(&contest_config.tokens, elapsed_min) {
         Some(next_elapsed_min) => {
-            let rows: Vec<NextRegenAtRow> = host.db.query(&format!(
+            let mut p = Params::new();
+            let sql = format!(
                 "SELECT TO_CHAR((start_time + make_interval(mins => {})) AT TIME ZONE 'UTC', \
                  'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as next_regen_at \
                  FROM contest WHERE id = {}",
-                next_elapsed_min, contest_id
-            ))?;
-            rows.first().and_then(|r| r.next_regen_at.clone())
+                p.bind(next_elapsed_min),
+                p.bind(contest_id)
+            );
+            host.db
+                .query_one_with_args::<NextRegenAtRow>(&sql, &p.into_args())?
+                .and_then(|r| r.next_regen_at)
         }
         None => None,
     };
@@ -1032,17 +1081,18 @@ fn handle_scoreboard(host: &Host, input: &str) -> Result<PluginHttpResponse, Sdk
     struct Phase {
         phase: String,
     }
-    let phase_rows: Vec<Phase> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT CASE \
             WHEN NOW() < start_time THEN 'before' \
             WHEN NOW() > end_time THEN 'after' \
             ELSE 'during' \
          END AS phase \
          FROM contest WHERE id = {}",
-        contest_id
-    ))?;
-    let phase = match phase_rows.first() {
-        Some(r) => r.phase.clone(),
+        p.bind(contest_id)
+    );
+    let phase = match host.db.query_one_with_args::<Phase>(&sql, &p.into_args())? {
+        Some(r) => r.phase,
         None => {
             return Ok(PluginHttpResponse {
                 status: 404,
@@ -1064,10 +1114,12 @@ fn handle_scoreboard(host: &Host, input: &str) -> Result<PluginHttpResponse, Sdk
     struct ContestProblem {
         problem_id: i32,
     }
-    let problems: Vec<ContestProblem> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT problem_id FROM contest_problem WHERE contest_id = {} ORDER BY position",
-        contest_id
-    ))?;
+        p.bind(contest_id)
+    );
+    let problems: Vec<ContestProblem> = host.db.query_with_args(&sql, &p.into_args())?;
     let problem_ids: Vec<i32> = problems.iter().map(|p| p.problem_id).collect();
 
     let mut max_scores: HashMap<i32, f64> = HashMap::new();
@@ -1080,11 +1132,13 @@ fn handle_scoreboard(host: &Host, input: &str) -> Result<PluginHttpResponse, Sdk
         .unwrap_or_default();
 
         let max: f64 = if task_config.subtasks.is_empty() {
-            let tc_rows: Vec<TcMaxScore> = host.db.query(&format!(
+            let mut p = Params::new();
+            let sql = format!(
                 "SELECT id as test_case_id, score as max_score \
                  FROM test_case WHERE problem_id = {}",
-                pid
-            ))?;
+                p.bind(pid)
+            );
+            let tc_rows: Vec<TcMaxScore> = host.db.query_with_args(&sql, &p.into_args())?;
             tc_rows.iter().map(|t| t.max_score).sum()
         } else {
             task_config.subtasks.iter().map(|s| s.max_score).sum()
@@ -1097,14 +1151,16 @@ fn handle_scoreboard(host: &Host, input: &str) -> Result<PluginHttpResponse, Sdk
         user_id: i32,
         username: String,
     }
-    let participants: Vec<Participant> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT cu.user_id, u.username \
          FROM contest_user cu \
          JOIN \"user\" u ON u.id = cu.user_id \
          WHERE cu.contest_id = {} \
          ORDER BY cu.registered_at ASC",
-        contest_id
-    ))?;
+        p.bind(contest_id)
+    );
+    let participants: Vec<Participant> = host.db.query_with_args(&sql, &p.into_args())?;
 
     // Build rankings
     #[derive(Serialize)]
@@ -1233,17 +1289,19 @@ fn handle_submission_subtask_scores(
     struct Phase {
         phase: String,
     }
-    let phase_rows: Vec<Phase> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT CASE \
             WHEN NOW() < start_time THEN 'before' \
             WHEN NOW() > end_time THEN 'after' \
             ELSE 'during' \
          END AS phase \
          FROM contest WHERE id = {}",
-        contest_id
-    ))?;
-    let phase = phase_rows
-        .first()
+        p.bind(contest_id)
+    );
+    let phase_row = host.db.query_one_with_args::<Phase>(&sql, &p.into_args())?;
+    let phase = phase_row
+        .as_ref()
         .map(|r| r.phase.as_str())
         .unwrap_or("during");
 
@@ -1252,12 +1310,15 @@ fn handle_submission_subtask_scores(
         problem_id: i32,
         user_id: i32,
     }
-    let sub_rows: Vec<SubInfo> = host.db.query(&format!(
+    let mut p = Params::new();
+    let sql = format!(
         "SELECT problem_id, user_id FROM submission WHERE id = {} AND contest_id = {}",
-        submission_id, contest_id
-    ))?;
-    let sub_info = sub_rows
-        .first()
+        p.bind(submission_id),
+        p.bind(contest_id)
+    );
+    let sub_info = host
+        .db
+        .query_one_with_args::<SubInfo>(&sql, &p.into_args())?
         .ok_or_else(|| SdkError::Other("Submission not found".into()))?;
     let problem_id = sub_info.problem_id;
 

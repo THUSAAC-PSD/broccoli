@@ -110,19 +110,22 @@ mod plugin {
             )?);
         }
 
+        let mut p = Params::new();
         let contest_filter = match event.contest_id {
-            Some(cid) => format!("AND contest_id = {}", cid),
+            Some(cid) => format!("AND contest_id = {}", p.bind(cid)),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SecondsSinceLast> = host.db.query(&format!(
+        let sql = format!(
             "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",
-            event.user_id, event.problem_id, contest_filter
-        ))?;
-
-        let seconds_since_last = rows
-            .first()
+            p.bind(event.user_id),
+            p.bind(event.problem_id),
+            contest_filter
+        );
+        let seconds_since_last = host
+            .db
+            .query_one_with_args::<SecondsSinceLast>(&sql, &p.into_args())?
             .and_then(|r| r.seconds_since_last)
             .map(|s| s.max(0) as u64);
 
@@ -224,15 +227,24 @@ mod plugin {
                 is_participant: bool,
                 has_problem: bool,
             }
-            let access_rows: Vec<ContestAccess> = host.db.query(&format!(
+            let mut p = Params::new();
+            let sql = format!(
                 "SELECT \
                     ((activate_time IS NULL OR activate_time <= NOW()) AND \
                      (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
-                    EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {contest_id} AND user_id = {user_id}) AS is_participant, \
-                    EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {contest_id} AND problem_id = {problem_id}) AS has_problem \
-                 FROM contest WHERE id = {contest_id}"
-            ))?;
-            let access = match access_rows.first() {
+                    EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {} AND user_id = {}) AS is_participant, \
+                    EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {} AND problem_id = {}) AS has_problem \
+                 FROM contest WHERE id = {}",
+                p.bind(contest_id),
+                p.bind(user_id),
+                p.bind(contest_id),
+                p.bind(problem_id),
+                p.bind(contest_id),
+            );
+            let access = match host
+                .db
+                .query_one_with_args::<ContestAccess>(&sql, &p.into_args())?
+            {
                 Some(access) => access,
                 None => {
                     return Ok(PluginHttpResponse {
@@ -256,18 +268,23 @@ mod plugin {
 
         let resolved = resolve_cooldown(host, contest_id, problem_id)?;
 
+        let mut p = Params::new();
         let contest_filter = match contest_id {
-            Some(cid) => format!("AND contest_id = {}", cid),
+            Some(cid) => format!("AND contest_id = {}", p.bind(cid)),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SecondsSinceLast> = host.db.query(&format!(
+        let sql = format!(
             "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",
-            user_id, problem_id, contest_filter
-        ))?;
-
-        let seconds_since_last = rows.first().and_then(|r| r.seconds_since_last);
+            p.bind(user_id),
+            p.bind(problem_id),
+            contest_filter
+        );
+        let seconds_since_last = host
+            .db
+            .query_one_with_args::<SecondsSinceLast>(&sql, &p.into_args())?
+            .and_then(|r| r.seconds_since_last);
 
         let can_submit = if resolved.cooldown_seconds == 0 {
             true

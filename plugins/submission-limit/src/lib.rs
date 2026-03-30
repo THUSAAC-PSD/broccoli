@@ -113,19 +113,24 @@ mod plugin {
         }
 
         // Query submission count for this user/problem, scoped to contest if present.
-        // Safety: all interpolated values are i32, no SQL injection risk
+        let mut p = Params::new();
         let contest_filter = match event.contest_id {
-            Some(cid) => format!("AND contest_id = {}", cid),
+            Some(cid) => format!("AND contest_id = {}", p.bind(cid)),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SubmissionCount> = host.db.query(&format!(
+        let sql = format!(
             "SELECT COUNT(*) as count \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",
-            event.user_id, event.problem_id, contest_filter
-        ))?;
-
-        let count = rows.first().map(|r| r.count).unwrap_or(0) as u32;
+            p.bind(event.user_id),
+            p.bind(event.problem_id),
+            contest_filter
+        );
+        let count = host
+            .db
+            .query_one_with_args::<SubmissionCount>(&sql, &p.into_args())?
+            .map(|r| r.count)
+            .unwrap_or(0) as u32;
 
         if count >= resolved.max_submissions {
             let resp = serde_json::json!({
@@ -218,15 +223,24 @@ mod plugin {
                 is_participant: bool,
                 has_problem: bool,
             }
-            let access_rows: Vec<ContestAccess> = host.db.query(&format!(
+            let mut p = Params::new();
+            let sql = format!(
                 "SELECT \
                     ((activate_time IS NULL OR activate_time <= NOW()) AND \
                      (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
-                    EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {contest_id} AND user_id = {user_id}) AS is_participant, \
-                    EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {contest_id} AND problem_id = {problem_id}) AS has_problem \
-                 FROM contest WHERE id = {contest_id}"
-            ))?;
-            let access = match access_rows.first() {
+                    EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {} AND user_id = {}) AS is_participant, \
+                    EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {} AND problem_id = {}) AS has_problem \
+                 FROM contest WHERE id = {}",
+                p.bind(contest_id),
+                p.bind(user_id),
+                p.bind(contest_id),
+                p.bind(problem_id),
+                p.bind(contest_id),
+            );
+            let access = match host
+                .db
+                .query_one_with_args::<ContestAccess>(&sql, &p.into_args())?
+            {
                 Some(access) => access,
                 None => {
                     return Ok(PluginHttpResponse {
@@ -251,18 +265,24 @@ mod plugin {
         let resolved = resolve_max_submissions(host, contest_id, problem_id)?;
         let unlimited = resolved.max_submissions == 0;
 
+        let mut p = Params::new();
         let contest_filter = match contest_id {
-            Some(cid) => format!("AND contest_id = {}", cid),
+            Some(cid) => format!("AND contest_id = {}", p.bind(cid)),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SubmissionCount> = host.db.query(&format!(
+        let sql = format!(
             "SELECT COUNT(*) as count \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",
-            user_id, problem_id, contest_filter
-        ))?;
-
-        let count = rows.first().map(|r| r.count).unwrap_or(0) as u32;
+            p.bind(user_id),
+            p.bind(problem_id),
+            contest_filter
+        );
+        let count = host
+            .db
+            .query_one_with_args::<SubmissionCount>(&sql, &p.into_args())?
+            .map(|r| r.count)
+            .unwrap_or(0) as u32;
         let remaining = if unlimited {
             None
         } else {
