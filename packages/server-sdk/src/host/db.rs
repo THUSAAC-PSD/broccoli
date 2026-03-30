@@ -21,7 +21,20 @@ impl HostDbResponse {
     }
 }
 
-/// Execute a SELECT query without parameters and deserialize the result rows.
+/// Parse a query response into deserialized rows.
+fn parse_rows<T: DeserializeOwned>(data: Option<JsonValue>) -> Result<Vec<T>, SdkError> {
+    match data {
+        Some(v) => Ok(serde_json::from_value(v)?),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Parse an execute response into affected row count.
+fn parse_affected(data: Option<JsonValue>) -> u64 {
+    data.and_then(|v| v.as_u64()).unwrap_or(0)
+}
+
+/// Execute a SELECT query and deserialize the result rows.
 pub fn db_query<T: DeserializeOwned>(sql: &str) -> Result<Vec<T>, SdkError> {
     db_query_with_args(sql, &[] as &[JsonValue])
 }
@@ -34,31 +47,41 @@ pub fn db_query_with_args<T: DeserializeOwned>(
     let args_json = serde_json::to_string(args)?;
     let result_json = unsafe { super::raw::db_query(sql.to_string(), args_json)? };
     let resp: HostDbResponse = serde_json::from_str(&result_json)?;
-    let data = resp.into_result()?;
-    match data {
-        Some(v) => Ok(serde_json::from_value(v)?),
-        None => Ok(Vec::new()),
-    }
+    parse_rows(resp.into_result()?)
 }
 
-/// Execute an INSERT/UPDATE/DELETE statement without parameters.
-pub fn db_execute(sql: &str) -> Result<(), SdkError> {
-    db_execute_with_args(sql, &[] as &[JsonValue])?;
-    Ok(())
+/// Execute a SELECT query expecting at most one row.
+pub fn db_query_one<T: DeserializeOwned>(sql: &str) -> Result<Option<T>, SdkError> {
+    db_query_one_with_args(sql, &[] as &[JsonValue])
 }
 
-/// Execute a parameterized INSERT/UPDATE/DELETE statement.
-/// Returns the number of affected rows.
+/// Execute a parameterized SELECT query expecting at most one row.
+pub fn db_query_one_with_args<T: DeserializeOwned>(
+    sql: &str,
+    args: &[impl serde::Serialize],
+) -> Result<Option<T>, SdkError> {
+    let mut rows: Vec<T> = db_query_with_args(sql, args)?;
+    Ok(if rows.is_empty() {
+        None
+    } else {
+        Some(rows.swap_remove(0))
+    })
+}
+
+/// Execute a statement. Returns the number of affected rows.
+pub fn db_execute(sql: &str) -> Result<u64, SdkError> {
+    db_execute_with_args(sql, &[] as &[JsonValue])
+}
+
+/// Execute a parameterized statement. Returns the number of affected rows.
 pub fn db_execute_with_args(sql: &str, args: &[impl serde::Serialize]) -> Result<u64, SdkError> {
     let args_json = serde_json::to_string(args)?;
     let result_json = unsafe { super::raw::db_execute(sql.to_string(), args_json)? };
     let resp: HostDbResponse = serde_json::from_str(&result_json)?;
-    let data = resp.into_result()?;
-    match data {
-        Some(v) => Ok(v.as_u64().unwrap_or(0)),
-        None => Ok(0),
-    }
+    Ok(parse_affected(resp.into_result()?))
 }
+
+// --- Transaction API ---
 
 #[derive(serde::Deserialize)]
 struct BeginResponse {
@@ -84,10 +107,10 @@ pub fn db_begin() -> Result<Transaction, SdkError> {
 
 /// An active database transaction handle.
 ///
-/// Methods mirror [`db_query`]/[`db_execute`] but execute within the transaction.
-/// [`commit()`](Transaction::commit) and [`rollback()`](Transaction::rollback)
-/// consume `self` to prevent use-after-end at compile time.
-/// If dropped without either, automatically rolls back.
+/// Methods mirror the free functions ([`db_query`], [`db_execute`], etc.) but
+/// execute within the transaction. [`commit()`](Transaction::commit) and
+/// [`rollback()`](Transaction::rollback) consume `self` to prevent use-after-end
+/// at compile time. If dropped without either, automatically rolls back.
 pub struct Transaction {
     id: String,
     finished: Cell<bool>,
@@ -109,11 +132,26 @@ impl Transaction {
         let result_json =
             unsafe { super::raw::db_query_in(self.id.clone(), sql.to_string(), args_json)? };
         let resp: HostDbResponse = serde_json::from_str(&result_json)?;
-        let data = resp.into_result()?;
-        match data {
-            Some(v) => Ok(serde_json::from_value(v)?),
-            None => Ok(Vec::new()),
-        }
+        parse_rows(resp.into_result()?)
+    }
+
+    /// Execute a SELECT query expecting at most one row.
+    pub fn query_one<T: DeserializeOwned>(&self, sql: &str) -> Result<Option<T>, SdkError> {
+        self.query_one_with_args(sql, &[] as &[JsonValue])
+    }
+
+    /// Execute a parameterized SELECT query expecting at most one row.
+    pub fn query_one_with_args<T: DeserializeOwned>(
+        &self,
+        sql: &str,
+        args: &[impl serde::Serialize],
+    ) -> Result<Option<T>, SdkError> {
+        let mut rows: Vec<T> = self.query_with_args(sql, args)?;
+        Ok(if rows.is_empty() {
+            None
+        } else {
+            Some(rows.swap_remove(0))
+        })
     }
 
     /// Execute a statement within this transaction. Returns affected row count.
@@ -131,11 +169,7 @@ impl Transaction {
         let result_json =
             unsafe { super::raw::db_execute_in(self.id.clone(), sql.to_string(), args_json)? };
         let resp: HostDbResponse = serde_json::from_str(&result_json)?;
-        let data = resp.into_result()?;
-        match data {
-            Some(v) => Ok(v.as_u64().unwrap_or(0)),
-            None => Ok(0),
-        }
+        Ok(parse_affected(resp.into_result()?))
     }
 
     /// Commit the transaction.
