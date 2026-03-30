@@ -8,16 +8,16 @@ pub mod interpret;
 pub mod operation;
 
 #[cfg(target_arch = "wasm32")]
-fn load_sandbox_config() -> config::SandboxConfig {
-    match host::config::get_global_config("sandbox") {
+fn load_sandbox_config(host: &Host) -> config::SandboxConfig {
+    match host.config.get_global("sandbox") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
         Err(_) => config::SandboxConfig::default(),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_comm_config(problem_id: i32) -> config::CommConfig {
-    match host::config::get_problem_config(problem_id, "communication") {
+fn load_comm_config(host: &Host, problem_id: i32) -> config::CommConfig {
+    match host.config.get_problem(problem_id, "communication") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
         Err(_) => config::CommConfig::default(),
     }
@@ -26,22 +26,27 @@ fn load_comm_config(problem_id: i32) -> config::CommConfig {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
-    host::registry::register_evaluator("communication", "evaluate_communication")?;
-    host::logger::log_info("Communication evaluator registered")?;
+    let host = Host::new();
+    host.registry
+        .register_evaluator("communication", "evaluate_communication")?;
+    host.log.info("Communication evaluator registered")?;
     Ok("ok".to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn evaluate_communication(input: String) -> FnResult<String> {
+    let host = Host::new();
     let req: BuildEvalOpsInput = serde_json::from_str(&input)?;
     let tc_id = req.test_case_id;
     let problem_id = req.problem_id;
 
-    let sandbox_config = load_sandbox_config();
-    let comm_config = load_comm_config(problem_id);
+    let sandbox_config = load_sandbox_config(&host);
+    let comm_config = load_comm_config(&host, problem_id);
 
-    let default_lang = host::language::get_language_config(&req.solution_language, "", &[])
+    let default_lang = host
+        .language
+        .get_config(&req.solution_language, "", &[])
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
     let primary_source = req
         .solution_source
@@ -55,12 +60,14 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
         .filter(|f| f.filename != primary_source.filename)
         .map(|f| f.filename.clone())
         .collect();
-    let contestant_lang = host::language::get_language_config(
-        &req.solution_language,
-        &primary_source.filename,
-        &contestant_extra,
-    )
-    .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let contestant_lang = host
+        .language
+        .get_config(
+            &req.solution_language,
+            &primary_source.filename,
+            &contestant_extra,
+        )
+        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     if comm_config.manager_sources.is_empty() {
         return Err(extism_pdk::Error::msg(
@@ -78,12 +85,10 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
         .skip(1)
         .map(|s| s.filename.clone())
         .collect();
-    let manager_lang = host::language::get_language_config(
-        &comm_config.manager_language,
-        mgr_filename,
-        &mgr_extra,
-    )
-    .map_err(|e| extism_pdk::Error::msg(format!("Manager language config: {e}")))?;
+    let manager_lang = host
+        .language
+        .get_config(&comm_config.manager_language, mgr_filename, &mgr_extra)
+        .map_err(|e| extism_pdk::Error::msg(format!("Manager language config: {e}")))?;
 
     let operations = operation::build_operation(
         &req,
@@ -95,10 +100,14 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
     )
     .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    let batch_id = host::operations::start_batch_tasks(&operations)
+    let batch_id = host
+        .operations
+        .start_batch(&operations)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    let result = host::operations::wait_for_result(&batch_id, sandbox_config.result_timeout_ms)
+    let result = host
+        .operations
+        .next_result(&batch_id, sandbox_config.result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let memory_limit_kb = u32::try_from(req.memory_limit_kb).unwrap_or(u32::MAX);

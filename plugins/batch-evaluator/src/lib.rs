@@ -6,8 +6,8 @@ use extism_pdk::{FnResult, plugin_fn};
 pub mod batch;
 
 #[cfg(target_arch = "wasm32")]
-fn load_sandbox_config() -> batch::SandboxConfig {
-    match host::config::get_global_config("sandbox") {
+fn load_sandbox_config(host: &Host) -> batch::SandboxConfig {
+    match host.config.get_global("sandbox") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
         Err(_) => batch::SandboxConfig::default(),
     }
@@ -16,20 +16,25 @@ fn load_sandbox_config() -> batch::SandboxConfig {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
-    host::registry::register_evaluator("batch", "evaluate_batch")?;
-    host::logger::log_info("Batch evaluator registered")?;
+    let host = Host::new();
+    host.registry
+        .register_evaluator("batch", "evaluate_batch")?;
+    host.log.info("Batch evaluator registered")?;
     Ok("ok".to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn evaluate_batch(input: String) -> FnResult<String> {
+    let host = Host::new();
     let req: BuildEvalOpsInput = serde_json::from_str(&input)?;
     let tc_id = req.test_case_id;
 
-    let sandbox_config = load_sandbox_config();
+    let sandbox_config = load_sandbox_config(&host);
 
-    let default_lang = host::language::get_language_config(&req.solution_language, "", &[])
+    let default_lang = host
+        .language
+        .get_config(&req.solution_language, "", &[])
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
     let primary_source = req
         .solution_source
@@ -43,20 +48,26 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
         .filter(|f| f.filename != primary_source.filename)
         .map(|f| f.filename.clone())
         .collect();
-    let lang = host::language::get_language_config(
-        &req.solution_language,
-        &primary_source.filename,
-        &extra_sources,
-    )
-    .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let lang = host
+        .language
+        .get_config(
+            &req.solution_language,
+            &primary_source.filename,
+            &extra_sources,
+        )
+        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let operations = batch::build_operation(&req, &lang, &sandbox_config)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    let batch_id = host::operations::start_batch_tasks(&operations)
+    let batch_id = host
+        .operations
+        .start_batch(&operations)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    let result = host::operations::wait_for_result(&batch_id, sandbox_config.result_timeout_ms)
+    let result = host
+        .operations
+        .next_result(&batch_id, sandbox_config.result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let checker_format = req.checker_format.as_deref().unwrap_or("exact");
@@ -69,9 +80,14 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
         checker_source: req.checker_source.clone(),
         config: req.checker_config.clone(),
     };
-    let verdict =
-        evaluator::interpret_sandbox_result(tc_id, &result, checker_format, &checker_input)
-            .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let verdict = evaluator::interpret_sandbox_result(
+        &host.checker,
+        tc_id,
+        &result,
+        checker_format,
+        &checker_input,
+    )
+    .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     Ok(serde_json::to_string(&verdict)?)
 }

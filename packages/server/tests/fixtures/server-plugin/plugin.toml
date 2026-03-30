@@ -32,7 +32,3 @@ method = "GET"
 handler = "reflect"
 permission = "submission:view_all"
 
-[[server.routes]]
-path = "/sql/transaction"
-method = "POST"
-handler = "sql_transaction"

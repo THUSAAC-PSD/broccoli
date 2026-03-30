@@ -8,7 +8,6 @@ extern "ExtismHost" {
     pub fn register_checker_format(input: String);
     pub fn db_query(sql: String, args: String) -> String;
     pub fn db_execute(sql: String, args: String) -> String;
-    pub fn db_transaction(queries_json: String) -> String;
     pub fn db_begin(input: String) -> String;
     pub fn db_query_in(txn_id: String, sql: String, args: String) -> String;
     pub fn db_execute_in(txn_id: String, sql: String, args: String) -> String;

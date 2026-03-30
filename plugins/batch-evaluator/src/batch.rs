@@ -85,7 +85,7 @@ impl SandboxConfig {
 
 /// Build a sandbox OperationTask from enriched evaluator input.
 ///
-/// Returns `Vec<OperationTask>` ready for `PluginHost::start_operation_batch()`.
+/// Returns `Vec<OperationTask>` ready for `host.operations.start_batch()`.
 pub fn build_operation(
     req: &BuildEvalOpsInput,
     lang: &ResolvedLanguage,

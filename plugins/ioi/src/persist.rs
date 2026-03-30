@@ -1,11 +1,11 @@
 use broccoli_server_sdk::prelude::*;
 
 use crate::config::round_score;
-use broccoli_server_sdk::evaluator::EvalOutcome;
+use crate::evaluate_batch::EvalOutcome;
 
 /// Persist the terminal submission update after evaluation.
 pub fn persist_results(
-    host: &impl PluginHost,
+    host: &Host,
     submission_id: i32,
     judge_epoch: i32,
     outcomes: &[EvalOutcome],
@@ -42,7 +42,7 @@ pub fn persist_results(
         None
     };
 
-    let affected = host.update_submission(&SubmissionUpdate {
+    let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
         judge_epoch,
         status: Some(status),
@@ -59,7 +59,7 @@ pub fn persist_results(
         return Err(SdkError::StaleEpoch);
     }
 
-    let _ = host.log_info(&format!(
+    let _ = host.log.info(&format!(
         "Submission {} judged: {:?}, score {}",
         submission_id,
         verdict,

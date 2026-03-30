@@ -1,4 +1,5 @@
 pub mod config;
+pub mod evaluate_batch;
 pub mod judge;
 pub mod persist;
 pub mod scoring;
@@ -76,8 +77,8 @@ fn plugin_error(status: u16, message: impl Into<String>) -> PluginHttpResponse {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_contest_route_info(contest_id: i32) -> Result<ContestRouteInfo, SdkError> {
-    let rows: Vec<ContestRouteInfo> = host::db::db_query(&format!(
+fn load_contest_route_info(host: &Host, contest_id: i32) -> Result<ContestRouteInfo, SdkError> {
+    let rows: Vec<ContestRouteInfo> = host.db.query(&format!(
         "SELECT contest_type, is_public, \
             ((activate_time IS NULL OR activate_time <= NOW()) AND \
              (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
@@ -94,13 +95,13 @@ fn load_contest_route_info(contest_id: i32) -> Result<ContestRouteInfo, SdkError
 }
 
 #[cfg(target_arch = "wasm32")]
-fn contest_has_problem(contest_id: i32, problem_id: i32) -> Result<bool, SdkError> {
+fn contest_has_problem(host: &Host, contest_id: i32, problem_id: i32) -> Result<bool, SdkError> {
     #[derive(Deserialize)]
     struct ExistsRow {
         exists: bool,
     }
 
-    let rows: Vec<ExistsRow> = host::db::db_query(&format!(
+    let rows: Vec<ExistsRow> = host.db.query(&format!(
         "SELECT EXISTS( \
             SELECT 1 FROM contest_problem \
             WHERE contest_id = {contest_id} AND problem_id = {problem_id} \
@@ -110,13 +111,13 @@ fn contest_has_problem(contest_id: i32, problem_id: i32) -> Result<bool, SdkErro
 }
 
 #[cfg(target_arch = "wasm32")]
-fn user_is_participant(contest_id: i32, user_id: i32) -> Result<bool, SdkError> {
+fn user_is_participant(host: &Host, contest_id: i32, user_id: i32) -> Result<bool, SdkError> {
     #[derive(Deserialize)]
     struct ExistsRow {
         exists: bool,
     }
 
-    let rows: Vec<ExistsRow> = host::db::db_query(&format!(
+    let rows: Vec<ExistsRow> = host.db.query(&format!(
         "SELECT EXISTS( \
             SELECT 1 FROM contest_user \
             WHERE contest_id = {contest_id} AND user_id = {user_id} \
@@ -127,6 +128,7 @@ fn user_is_participant(contest_id: i32, user_id: i32) -> Result<bool, SdkError> 
 
 #[cfg(target_arch = "wasm32")]
 fn can_view_contest(
+    host: &Host,
     req: &PluginHttpRequest,
     contest_id: i32,
     contest: &ContestRouteInfo,
@@ -141,7 +143,7 @@ fn can_view_contest(
         return Ok(true);
     }
     match req.user_id() {
-        Some(user_id) => user_is_participant(contest_id, user_id),
+        Some(user_id) => user_is_participant(host, contest_id, user_id),
         None => Ok(false),
     }
 }
@@ -157,28 +159,30 @@ fn tokens_enabled(config: &ContestConfig) -> bool {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_contest_config(contest_id: i32) -> Result<ContestConfig, SdkError> {
+fn load_contest_config(host: &Host, contest_id: i32) -> Result<ContestConfig, SdkError> {
     Ok(
-        serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+        serde_json::from_value(host.config.get_contest(contest_id, "contest")?.config)
             .unwrap_or_default(),
     )
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_task_config(contest_id: i32, problem_id: i32) -> Result<TaskConfig, SdkError> {
+fn load_task_config(host: &Host, contest_id: i32, problem_id: i32) -> Result<TaskConfig, SdkError> {
     Ok(serde_json::from_value(
-        host::config::get_contest_problem_config(contest_id, problem_id, "task")?.config,
+        host.config
+            .get_contest_problem(contest_id, problem_id, "task")?
+            .config,
     )
     .unwrap_or_default())
 }
 
 #[cfg(target_arch = "wasm32")]
 fn load_effective_subtasks(
+    host: &Host,
     problem_id: i32,
     task_config: &TaskConfig,
 ) -> Result<(Vec<TestCaseRow>, Vec<SubtaskDef>), SdkError> {
-    let host_impl = WasmHost;
-    let test_cases = host_impl.query_test_cases(problem_id)?;
+    let test_cases = host.submission.query_test_cases(problem_id)?;
     let subtasks = if task_config.subtasks.is_empty() {
         build_default_subtasks(&test_cases)
     } else {
@@ -190,6 +194,7 @@ fn load_effective_subtasks(
 
 #[cfg(target_arch = "wasm32")]
 fn viewer_has_token_feedback_for_submission(
+    host: &Host,
     req: &PluginHttpRequest,
     contest_id: i32,
     submission_id: i32,
@@ -198,27 +203,33 @@ fn viewer_has_token_feedback_for_submission(
         return Ok(false);
     };
 
-    let token_state = load_token_state(contest_id, user_id)?;
+    let token_state = load_token_state(host, contest_id, user_id)?;
     Ok(token_state.tokened_submission_ids.contains(&submission_id))
 }
 
 #[cfg(target_arch = "wasm32")]
-fn should_include_in_contest_aggregations(contest_id: i32, user_id: i32) -> Result<bool, SdkError> {
-    user_is_participant(contest_id, user_id)
+fn should_include_in_contest_aggregations(
+    host: &Host,
+    contest_id: i32,
+    user_id: i32,
+) -> Result<bool, SdkError> {
+    user_is_participant(host, contest_id, user_id)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
-    host::registry::register_contest_type("ioi", "handle_ioi_submission", "handle_ioi_code_run")?;
-    host::logger::log_info("IOI contest plugin registered")?;
+    let host = Host::new();
+    host.registry
+        .register_contest_type("ioi", "handle_ioi_submission", "handle_ioi_code_run")?;
+    host.log.info("IOI contest plugin registered")?;
     Ok("ok".into())
 }
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn handle_ioi_submission(input: String) -> FnResult<String> {
-    let host_impl = WasmHost;
+    let host = Host::new();
     let req: OnSubmissionInput = serde_json::from_str(&input)?;
 
     let output = match req.contest_id {
@@ -227,11 +238,11 @@ pub fn handle_ioi_submission(input: String) -> FnResult<String> {
             error_message: Some("IOI plugin requires contest_id".into()),
         },
         Some(id) => {
-            host::logger::log_info(format!(
+            host.log.info(&format!(
                 "IOI: Judging submission {} for problem {} in contest {}",
                 req.submission_id, req.problem_id, id
             ))?;
-            match run_judge(&host_impl, &req, id) {
+            match run_judge(&host, &req, id) {
                 Ok(out) => out,
                 Err(SdkError::StaleEpoch) => OnSubmissionOutput {
                     success: true,
@@ -250,7 +261,7 @@ pub fn handle_ioi_submission(input: String) -> FnResult<String> {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn handle_ioi_code_run(input: String) -> FnResult<String> {
-    let host = WasmHost;
+    let host = Host::new();
     Ok(broccoli_server_sdk::evaluator::handle_code_run(
         &host, &input,
     )?)
@@ -258,16 +269,18 @@ pub fn handle_ioi_code_run(input: String) -> FnResult<String> {
 
 #[cfg(target_arch = "wasm32")]
 fn run_judge(
-    host_impl: &WasmHost,
+    host: &Host,
     req: &OnSubmissionInput,
     contest_id: i32,
 ) -> Result<OnSubmissionOutput, SdkError> {
     let contest_config: ContestConfig =
-        serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+        serde_json::from_value(host.config.get_contest(contest_id, "contest")?.config)
             .unwrap_or_default();
 
     let task_config: TaskConfig = serde_json::from_value(
-        host::config::get_contest_problem_config(contest_id, req.problem_id, "task")?.config,
+        host.config
+            .get_contest_problem(contest_id, req.problem_id, "task")?
+            .config,
     )
     .unwrap_or_default();
 
@@ -289,7 +302,7 @@ fn run_judge(
         subtask_defs,
     };
 
-    let result = judge_with_context(host_impl, req, &ctx)?;
+    let result = judge_with_context(host, req, &ctx)?;
 
     if let Some(ref subtask_scores) = result.subtask_scores {
         let subtask_data: Vec<serde_json::Value> = ctx
@@ -306,11 +319,13 @@ fn run_judge(
             })
             .collect();
         let key = format!("subtask_scores:{}:{}", req.submission_id, req.problem_id);
-        host::storage::store_set(&key, &serde_json::to_string(&subtask_data)?)?;
+        host.storage
+            .set(&key, &serde_json::to_string(&subtask_data)?)?;
     }
 
     if result.submission_score.is_some() {
         update_task_score(
+            host,
             &contest_config,
             contest_id,
             req.problem_id,
@@ -324,17 +339,19 @@ fn run_judge(
 
 #[cfg(target_arch = "wasm32")]
 fn update_task_score(
+    host: &Host,
     config: &ContestConfig,
     contest_id: i32,
     problem_id: i32,
     user_id: i32,
     ctx: &JudgeContext,
 ) -> Result<(), SdkError> {
-    if !should_include_in_contest_aggregations(contest_id, user_id)? {
+    if !should_include_in_contest_aggregations(host, contest_id, user_id)? {
         return Ok(());
     }
 
     let task_score = compute_official_task_score(
+        host,
         config,
         contest_id,
         problem_id,
@@ -344,20 +361,22 @@ fn update_task_score(
     )?;
 
     let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-    host::storage::store_set(&key, &round_score(task_score).to_string())?;
+    host.storage
+        .set(&key, &round_score(task_score).to_string())?;
 
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
 fn recompute_sum_best_subtask(
+    host: &Host,
     contest_id: i32,
     problem_id: i32,
     user_id: i32,
     test_cases: &[TestCaseRow],
     subtask_defs: &[SubtaskDef],
 ) -> Result<f64, SdkError> {
-    let tc_results: Vec<TcResultRow> = host::db::db_query(&format!(
+    let tc_results: Vec<TcResultRow> = host.db.query(&format!(
         "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
@@ -366,7 +385,7 @@ fn recompute_sum_best_subtask(
         user_id, problem_id, contest_id
     ))?;
 
-    let tc_maxes: Vec<TcMaxScore> = host::db::db_query(&format!(
+    let tc_maxes: Vec<TcMaxScore> = host.db.query(&format!(
         "SELECT id as test_case_id, score as max_score \
          FROM test_case WHERE problem_id = {}",
         problem_id
@@ -410,6 +429,7 @@ fn recompute_sum_best_subtask(
 
 #[cfg(target_arch = "wasm32")]
 fn compute_official_task_score(
+    host: &Host,
     config: &ContestConfig,
     contest_id: i32,
     problem_id: i32,
@@ -419,7 +439,7 @@ fn compute_official_task_score(
 ) -> Result<f64, SdkError> {
     match config.scoring_mode {
         ScoringMode::MaxSubmission => {
-            let rows: Vec<MaxScore> = host::db::db_query(&format!(
+            let rows: Vec<MaxScore> = host.db.query(&format!(
                 "SELECT MAX(score) as max_score FROM submission \
                  WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
                  ",
@@ -432,16 +452,23 @@ fn compute_official_task_score(
             let (test_cases, subtask_defs) = match (test_cases, subtask_defs) {
                 (Some(test_cases), Some(subtask_defs)) => (test_cases, subtask_defs),
                 _ => {
-                    let task_config = load_task_config(contest_id, problem_id)?;
-                    owned = load_effective_subtasks(problem_id, &task_config)?;
+                    let task_config = load_task_config(host, contest_id, problem_id)?;
+                    owned = load_effective_subtasks(host, problem_id, &task_config)?;
                     (&owned.0[..], &owned.1[..])
                 }
             };
 
-            recompute_sum_best_subtask(contest_id, problem_id, user_id, test_cases, subtask_defs)
+            recompute_sum_best_subtask(
+                host,
+                contest_id,
+                problem_id,
+                user_id,
+                test_cases,
+                subtask_defs,
+            )
         }
         ScoringMode::BestTokenedOrLast => {
-            let token_state = load_token_state(contest_id, user_id)?;
+            let token_state = load_token_state(host, contest_id, user_id)?;
             let tokened_best = if token_state.tokened_submission_ids.is_empty() {
                 0.0
             } else {
@@ -450,7 +477,7 @@ fn compute_official_task_score(
                     .iter()
                     .map(|id| id.to_string())
                     .collect();
-                let rows: Vec<MaxScore> = host::db::db_query(&format!(
+                let rows: Vec<MaxScore> = host.db.query(&format!(
                     "SELECT MAX(score) as max_score FROM submission \
                      WHERE id IN ({}) AND problem_id = {}",
                     ids.join(","),
@@ -459,7 +486,7 @@ fn compute_official_task_score(
                 rows.first().and_then(|r| r.max_score).unwrap_or(0.0)
             };
 
-            let last_rows: Vec<SubmissionScore> = host::db::db_query(&format!(
+            let last_rows: Vec<SubmissionScore> = host.db.query(&format!(
                 "SELECT id, score FROM submission \
                  WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
                  ORDER BY created_at DESC LIMIT 1",
@@ -473,25 +500,31 @@ fn compute_official_task_score(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_token_state(contest_id: i32, user_id: i32) -> Result<TokenState, SdkError> {
+fn load_token_state(host: &Host, contest_id: i32, user_id: i32) -> Result<TokenState, SdkError> {
     let key = format!("tokens:{contest_id}:{user_id}");
-    match host::storage::store_get(&key)? {
+    match host.storage.get(&key)? {
         Some(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
         None => Ok(TokenState::default()),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn save_token_state(contest_id: i32, user_id: i32, state: &TokenState) -> Result<(), SdkError> {
+fn save_token_state(
+    host: &Host,
+    contest_id: i32,
+    user_id: i32,
+    state: &TokenState,
+) -> Result<(), SdkError> {
     let key = format!("tokens:{contest_id}:{user_id}");
     let json = serde_json::to_string(state).map_err(|e| SdkError::Serialization(e.to_string()))?;
-    host::storage::store_set(&key, &json)
+    host.storage.set(&key, &json)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_use_token(input: String) -> FnResult<String> {
-    let resp = match handle_use_token(&input) {
+    let host = Host::new();
+    let resp = match handle_use_token(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -503,7 +536,7 @@ pub fn api_use_token(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_use_token(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -532,7 +565,7 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
         problem_id: i32,
         contest_id: Option<i32>,
     }
-    let sub_rows: Vec<SubmissionInfo> = host::db::db_query(&format!(
+    let sub_rows: Vec<SubmissionInfo> = host.db.query(&format!(
         "SELECT user_id, problem_id, contest_id FROM submission WHERE id = {}",
         submission_id
     ))?;
@@ -557,7 +590,7 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
     }
     let problem_id = sub_info.problem_id;
 
-    let contest_config = load_contest_config(contest_id)?;
+    let contest_config = load_contest_config(host, contest_id)?;
 
     if !tokens_enabled(&contest_config) {
         return Ok(PluginHttpResponse {
@@ -567,7 +600,7 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
         });
     }
 
-    let elapsed_rows: Vec<ElapsedMinutes> = host::db::db_query(&format!(
+    let elapsed_rows: Vec<ElapsedMinutes> = host.db.query(&format!(
         "SELECT EXTRACT(EPOCH FROM (NOW() - start_time)) / 60 as elapsed_minutes \
          FROM contest WHERE id = {}",
         contest_id
@@ -578,7 +611,7 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
         .unwrap_or(0.0)
         .max(0.0) as u64;
 
-    let mut token_state = load_token_state(contest_id, user_id)?;
+    let mut token_state = load_token_state(host, contest_id, user_id)?;
 
     let avail = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
     if avail == 0 {
@@ -599,14 +632,22 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
 
     token_state.used += 1;
     token_state.tokened_submission_ids.push(submission_id);
-    save_token_state(contest_id, user_id, &token_state)?;
+    save_token_state(host, contest_id, user_id, &token_state)?;
 
-    let task_score =
-        compute_official_task_score(&contest_config, contest_id, problem_id, user_id, None, None)?;
+    let task_score = compute_official_task_score(
+        host,
+        &contest_config,
+        contest_id,
+        problem_id,
+        user_id,
+        None,
+        None,
+    )?;
 
-    if should_include_in_contest_aggregations(contest_id, user_id)? {
+    if should_include_in_contest_aggregations(host, contest_id, user_id)? {
         let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-        host::storage::store_set(&key, &round_score(task_score).to_string())?;
+        host.storage
+            .set(&key, &round_score(task_score).to_string())?;
     }
 
     let remaining = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
@@ -624,7 +665,8 @@ fn handle_use_token(input: &str) -> Result<PluginHttpResponse, SdkError> {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_contest_info(input: String) -> FnResult<String> {
-    let resp = match handle_contest_info(&input) {
+    let host = Host::new();
+    let resp = match handle_contest_info(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -636,7 +678,7 @@ pub fn api_contest_info(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_contest_info(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_contest_info(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -646,19 +688,19 @@ fn handle_contest_info(input: &str) -> Result<PluginHttpResponse, SdkError> {
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| SdkError::Other("Missing contest_id".into()))?;
 
-    let contest = match load_contest_route_info(contest_id) {
+    let contest = match load_contest_route_info(host, contest_id) {
         Ok(contest) => contest,
         Err(_) => return Ok(plugin_error(404, "Contest not found")),
     };
     if contest.contest_type.as_deref() != Some("ioi") {
         return Ok(plugin_error(404, "Not an IOI contest"));
     }
-    if !can_view_contest(&req, contest_id, &contest)? {
+    if !can_view_contest(host, &req, contest_id, &contest)? {
         return Ok(plugin_error(404, "Contest not found"));
     }
 
     let contest_config: ContestConfig =
-        serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+        serde_json::from_value(host.config.get_contest(contest_id, "contest")?.config)
             .unwrap_or_default();
 
     Ok(PluginHttpResponse {
@@ -675,7 +717,8 @@ fn handle_contest_info(input: &str) -> Result<PluginHttpResponse, SdkError> {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_task_config(input: String) -> FnResult<String> {
-    let resp = match handle_task_config(&input) {
+    let host = Host::new();
+    let resp = match handle_task_config(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -687,7 +730,7 @@ pub fn api_task_config(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_task_config(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_task_config(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -703,26 +746,27 @@ fn handle_task_config(input: &str) -> Result<PluginHttpResponse, SdkError> {
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
 
-    let contest = match load_contest_route_info(contest_id) {
+    let contest = match load_contest_route_info(host, contest_id) {
         Ok(contest) => contest,
         Err(_) => return Ok(plugin_error(404, "Contest not found")),
     };
     if contest.contest_type.as_deref() != Some("ioi") {
         return Ok(plugin_error(404, "Not an IOI contest"));
     }
-    if !contest_has_problem(contest_id, problem_id)? {
+    if !contest_has_problem(host, contest_id, problem_id)? {
         return Ok(plugin_error(404, "Contest problem not found"));
     }
     if contest.phase != "after" && req.user_id().is_none() {
         return Ok(plugin_error(401, "Authentication required during contest"));
     }
-    if !can_view_contest(&req, contest_id, &contest)? {
+    if !can_view_contest(host, &req, contest_id, &contest)? {
         return Ok(plugin_error(404, "Contest not found"));
     }
 
-    let contest_config = load_contest_config(contest_id)?;
-    let task_config = load_task_config(contest_id, problem_id)?;
-    let (test_cases_list, effective_subtasks) = load_effective_subtasks(problem_id, &task_config)?;
+    let contest_config = load_contest_config(host, contest_id)?;
+    let task_config = load_task_config(host, contest_id, problem_id)?;
+    let (test_cases_list, effective_subtasks) =
+        load_effective_subtasks(host, problem_id, &task_config)?;
 
     let expose_full_task_feedback = can_view_privileged_submission_feedback(&req)
         || (tokens_enabled(&contest_config) && req.user_id().is_some())
@@ -805,7 +849,8 @@ fn handle_task_config(input: &str) -> Result<PluginHttpResponse, SdkError> {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_submission_status(input: String) -> FnResult<String> {
-    let resp = match handle_submission_status(&input) {
+    let host = Host::new();
+    let resp = match handle_submission_status(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -817,7 +862,7 @@ pub fn api_submission_status(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_submission_status(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -847,7 +892,7 @@ fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError>
         verdict: Option<String>,
         score: Option<f64>,
     }
-    let last_rows: Vec<LastVerdict> = host::db::db_query(&format!(
+    let last_rows: Vec<LastVerdict> = host.db.query(&format!(
         "SELECT verdict, score FROM submission \
          WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
          AND status = 'Judged' AND verdict IS NOT NULL \
@@ -872,7 +917,8 @@ fn handle_submission_status(input: &str) -> Result<PluginHttpResponse, SdkError>
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_token_status(input: String) -> FnResult<String> {
-    let resp = match handle_token_status(&input) {
+    let host = Host::new();
+    let resp = match handle_token_status(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -884,7 +930,7 @@ pub fn api_token_status(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_token_status(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -902,13 +948,13 @@ fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
         .ok_or_else(|| SdkError::Other("Missing contest_id".into()))?;
 
     let contest_config: ContestConfig =
-        serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+        serde_json::from_value(host.config.get_contest(contest_id, "contest")?.config)
             .unwrap_or_default();
 
-    let token_state = load_token_state(contest_id, user_id)?;
+    let token_state = load_token_state(host, contest_id, user_id)?;
 
     // Query elapsed minutes for regenerating mode
-    let elapsed_rows: Vec<ElapsedMinutes> = host::db::db_query(&format!(
+    let elapsed_rows: Vec<ElapsedMinutes> = host.db.query(&format!(
         "SELECT EXTRACT(EPOCH FROM (NOW() - start_time)) / 60 as elapsed_minutes \
          FROM contest WHERE id = {}",
         contest_id
@@ -927,7 +973,7 @@ fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
     };
     let next_regen_at = match next_regen_elapsed_min(&contest_config.tokens, elapsed_min) {
         Some(next_elapsed_min) => {
-            let rows: Vec<NextRegenAtRow> = host::db::db_query(&format!(
+            let rows: Vec<NextRegenAtRow> = host.db.query(&format!(
                 "SELECT TO_CHAR((start_time + make_interval(mins => {})) AT TIME ZONE 'UTC', \
                  'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as next_regen_at \
                  FROM contest WHERE id = {}",
@@ -955,7 +1001,8 @@ fn handle_token_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_scoreboard(input: String) -> FnResult<String> {
-    let resp = match handle_scoreboard(&input) {
+    let host = Host::new();
+    let resp = match handle_scoreboard(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -967,7 +1014,7 @@ pub fn api_scoreboard(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_scoreboard(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -978,14 +1025,14 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
         .ok_or_else(|| SdkError::Other("Missing contest_id".into()))?;
 
     let contest_config: ContestConfig =
-        serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+        serde_json::from_value(host.config.get_contest(contest_id, "contest")?.config)
             .unwrap_or_default();
 
     #[derive(Deserialize)]
     struct Phase {
         phase: String,
     }
-    let phase_rows: Vec<Phase> = host::db::db_query(&format!(
+    let phase_rows: Vec<Phase> = host.db.query(&format!(
         "SELECT CASE \
             WHEN NOW() < start_time THEN 'before' \
             WHEN NOW() > end_time THEN 'after' \
@@ -1005,11 +1052,11 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
         }
     };
 
-    let contest = match load_contest_route_info(contest_id) {
+    let contest = match load_contest_route_info(host, contest_id) {
         Ok(contest) => contest,
         Err(_) => return Ok(plugin_error(404, "Contest not found")),
     };
-    if !can_view_contest(&req, contest_id, &contest)? {
+    if !can_view_contest(host, &req, contest_id, &contest)? {
         return Ok(plugin_error(404, "Contest not found"));
     }
 
@@ -1017,7 +1064,7 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
     struct ContestProblem {
         problem_id: i32,
     }
-    let problems: Vec<ContestProblem> = host::db::db_query(&format!(
+    let problems: Vec<ContestProblem> = host.db.query(&format!(
         "SELECT problem_id FROM contest_problem WHERE contest_id = {} ORDER BY position",
         contest_id
     ))?;
@@ -1026,12 +1073,14 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
     let mut max_scores: HashMap<i32, f64> = HashMap::new();
     for &pid in &problem_ids {
         let task_config: TaskConfig = serde_json::from_value(
-            host::config::get_contest_problem_config(contest_id, pid, "task")?.config,
+            host.config
+                .get_contest_problem(contest_id, pid, "task")?
+                .config,
         )
         .unwrap_or_default();
 
         let max: f64 = if task_config.subtasks.is_empty() {
-            let tc_rows: Vec<TcMaxScore> = host::db::db_query(&format!(
+            let tc_rows: Vec<TcMaxScore> = host.db.query(&format!(
                 "SELECT id as test_case_id, score as max_score \
                  FROM test_case WHERE problem_id = {}",
                 pid
@@ -1048,7 +1097,7 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
         user_id: i32,
         username: String,
     }
-    let participants: Vec<Participant> = host::db::db_query(&format!(
+    let participants: Vec<Participant> = host.db.query(&format!(
         "SELECT cu.user_id, u.username \
          FROM contest_user cu \
          JOIN \"user\" u ON u.id = cu.user_id \
@@ -1086,7 +1135,9 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
 
         for &pid in &problem_ids {
             let key = format!("task_score:{contest_id}:{pid}:{}", participant.user_id);
-            let score = host::storage::store_get(&key)?
+            let score = host
+                .storage
+                .get(&key)?
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
             total += score;
@@ -1142,7 +1193,8 @@ fn handle_scoreboard(input: &str) -> Result<PluginHttpResponse, SdkError> {
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_submission_subtask_scores(input: String) -> FnResult<String> {
-    let resp = match handle_submission_subtask_scores(&input) {
+    let host = Host::new();
+    let resp = match handle_submission_subtask_scores(&host, &input) {
         Ok(r) => r,
         Err(e) => PluginHttpResponse {
             status: 500,
@@ -1154,7 +1206,10 @@ pub fn api_submission_subtask_scores(input: String) -> FnResult<String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, SdkError> {
+fn handle_submission_subtask_scores(
+    host: &Host,
+    input: &str,
+) -> Result<PluginHttpResponse, SdkError> {
     let req: PluginHttpRequest =
         serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -1171,14 +1226,14 @@ fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, S
         .ok_or_else(|| SdkError::Other("Missing submission_id".into()))?;
 
     let contest_config: ContestConfig =
-        serde_json::from_value(host::config::get_contest_config(contest_id, "contest")?.config)
+        serde_json::from_value(host.config.get_contest(contest_id, "contest")?.config)
             .unwrap_or_default();
 
     #[derive(Deserialize)]
     struct Phase {
         phase: String,
     }
-    let phase_rows: Vec<Phase> = host::db::db_query(&format!(
+    let phase_rows: Vec<Phase> = host.db.query(&format!(
         "SELECT CASE \
             WHEN NOW() < start_time THEN 'before' \
             WHEN NOW() > end_time THEN 'after' \
@@ -1197,7 +1252,7 @@ fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, S
         problem_id: i32,
         user_id: i32,
     }
-    let sub_rows: Vec<SubInfo> = host::db::db_query(&format!(
+    let sub_rows: Vec<SubInfo> = host.db.query(&format!(
         "SELECT problem_id, user_id FROM submission WHERE id = {} AND contest_id = {}",
         submission_id, contest_id
     ))?;
@@ -1210,7 +1265,7 @@ fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, S
 
     if phase != "after" {
         match req.user_id() {
-            Some(uid) if uid == sub_info.user_id => {} // owner — allowed
+            Some(uid) if uid == sub_info.user_id => {} // owner -- allowed
             Some(_) if can_view_all_submissions => {}
             Some(_) => {
                 return Ok(PluginHttpResponse {
@@ -1232,14 +1287,16 @@ fn handle_submission_subtask_scores(input: &str) -> Result<PluginHttpResponse, S
     }
 
     let key = format!("subtask_scores:{}:{}", submission_id, problem_id);
-    let subtasks: serde_json::Value = host::storage::store_get(&key)?
+    let subtasks: serde_json::Value = host
+        .storage
+        .get(&key)?
         .map(|json| serde_json::from_str(&json).unwrap_or(serde_json::Value::Null))
         .unwrap_or(serde_json::Value::Null);
 
     let can_view_full_feedback = can_view_all_submissions
         || phase == "after"
         || (tokens_enabled(&contest_config)
-            && viewer_has_token_feedback_for_submission(&req, contest_id, submission_id)?);
+            && viewer_has_token_feedback_for_submission(host, &req, contest_id, submission_id)?);
 
     let can_view_subtask_scores = can_view_full_feedback
         || matches!(

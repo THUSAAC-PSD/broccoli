@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::error::SdkError;
-use crate::traits::PluginHost;
-use crate::types::*;
+use broccoli_server_sdk::Host;
+use broccoli_server_sdk::error::SdkError;
+use broccoli_server_sdk::types::*;
 
 /// Per-test-case outcome from evaluation, with raw (0..1) scores.
 #[derive(Debug, Clone)]
@@ -17,14 +17,8 @@ pub struct EvalOutcome {
     pub stderr: Option<String>,
 }
 
-/// Run batch evaluation for all test cases with incremental persistence.
-///
-/// Returns raw evaluator scores (0..1), NOT scaled by tc.score.
-///
-/// `scale_score(raw_score, test_case) -> final_db_score` allows plugins to
-/// apply domain-specific score scaling (e.g., IOI: `raw * tc.score`).
 pub fn evaluate_all(
-    host: &impl PluginHost,
+    host: &Host,
     req: &OnSubmissionInput,
     test_cases: &[TestCaseRow],
     submission_id: i32,
@@ -54,15 +48,13 @@ pub fn evaluate_all(
             .collect(),
     };
 
-    // tc_id -> TestCaseRow for score lookup
     let tc_map: HashMap<i32, &TestCaseRow> = test_cases.iter().map(|tc| (tc.id, tc)).collect();
 
-    // Clean up any stale TC results from a previous attempt (MQ redelivery).
-    let _ = host.delete_test_case_results(submission_id);
+    let _ = host.submission.delete_results(submission_id);
 
     let mut outcomes: Vec<EvalOutcome> = Vec::new();
 
-    let batch_id = match host.start_evaluate_batch(&batch_input) {
+    let batch_id = match host.eval.start_batch(&batch_input) {
         Ok(id) => id,
         Err(e) => {
             for tc in test_cases {
@@ -83,7 +75,7 @@ pub fn evaluate_all(
         }
     };
 
-    let affected = host.update_submission(&SubmissionUpdate {
+    let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
         judge_epoch: req.judge_epoch,
         status: Some(SubmissionStatus::Running),
@@ -91,12 +83,11 @@ pub fn evaluate_all(
     })?;
 
     if affected == 0 {
-        // Stale epoch or already terminal so stop gracefully
-        let _ = host.cancel_evaluate_batch(&batch_id);
+        let _ = host.eval.cancel_batch(&batch_id);
         return Err(SdkError::StaleEpoch);
     }
 
-    let _ = host.log_info(&format!(
+    let _ = host.log.info(&format!(
         "Started evaluate batch for {} test cases",
         test_cases.len()
     ));
@@ -105,7 +96,7 @@ pub fn evaluate_all(
     let mut timed_out = false;
 
     while collected < test_cases.len() {
-        match host.get_next_evaluate_result(&batch_id, 120_000) {
+        match host.eval.next_result(&batch_id, 120_000) {
             Ok(Some(verdict)) => {
                 let normalized = if verdict.score.is_finite() {
                     verdict.score.clamp(0.0, 1.0)
@@ -131,7 +122,7 @@ pub fn evaluate_all(
                 if outcome.verdict == Verdict::CompileError {
                     insert_tc_result(host, submission_id, &outcome, &tc_map, &scale_score)?;
                     outcomes.push(outcome);
-                    let _ = host.cancel_evaluate_batch(&batch_id);
+                    let _ = host.eval.cancel_batch(&batch_id);
                     break;
                 }
 
@@ -140,7 +131,7 @@ pub fn evaluate_all(
                 collected += 1;
             }
             Ok(None) => {
-                let _ = host.log_info(&format!(
+                let _ = host.log.info(&format!(
                     "Timeout waiting for result {}/{}",
                     collected + 1,
                     test_cases.len()
@@ -149,7 +140,7 @@ pub fn evaluate_all(
                 break;
             }
             Err(e) => {
-                let _ = host.log_info(&format!("Error polling result: {e:?}"));
+                let _ = host.log.info(&format!("Error polling result: {e:?}"));
                 timed_out = true;
                 break;
             }
@@ -174,15 +165,14 @@ pub fn evaluate_all(
                 outcomes.push(outcome);
             }
         }
-        let _ = host.cancel_evaluate_batch(&batch_id);
+        let _ = host.eval.cancel_batch(&batch_id);
     }
 
     Ok(outcomes)
 }
 
-/// Insert a single test case result row into the database.
 fn insert_tc_result(
-    host: &impl PluginHost,
+    host: &Host,
     submission_id: i32,
     outcome: &EvalOutcome,
     tc_map: &HashMap<i32, &TestCaseRow>,
@@ -195,11 +185,11 @@ fn insert_tc_result(
     };
     let is_custom = tc.map_or(false, |t| t.is_custom);
     let (tc_id, run_index) = if is_custom {
-        (None, Some(outcome.test_case_id)) // test_case_id is the 0-based run_index
+        (None, Some(outcome.test_case_id))
     } else {
         (Some(outcome.test_case_id), None)
     };
-    host.insert_test_case_results(&[TestCaseResultRow {
+    host.submission.insert_results(&[TestCaseResultRow {
         submission_id,
         test_case_id: tc_id,
         run_index,

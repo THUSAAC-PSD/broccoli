@@ -4,7 +4,7 @@ use serde::Deserialize;
 use crate::util::truncate;
 
 #[cfg(target_arch = "wasm32")]
-use broccoli_server_sdk::host;
+use broccoli_server_sdk::Host;
 
 // submission_files (language: cpp17): ("Shape.cpp", "Shape.h")   additional_files: ("cpp17" -> [(language: "cpp17" source: "main.cpp"), (language: "make" source: "Makefile")])
 
@@ -61,8 +61,8 @@ impl Default for TestlibConfig {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn load_testlib_config() -> TestlibConfig {
-    match host::config::get_global_config("testlib") {
+fn load_testlib_config(host: &Host) -> TestlibConfig {
+    match host.config.get_global("testlib") {
         Ok(r) => serde_json::from_value(r.config).unwrap_or_default(),
         Err(_) => TestlibConfig::default(),
     }
@@ -115,7 +115,7 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
 
 /// Dispatch testlib checker.
 #[cfg(target_arch = "wasm32")]
-pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
+pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> CheckerVerdict {
     let test_input = req.test_input.as_str();
     let expected_output = req.expected_output.as_str();
 
@@ -143,7 +143,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         .map(|f| (f.filename.as_str(), f.content.as_str()))
         .collect();
 
-    let config = load_testlib_config();
+    let config = load_testlib_config(host);
 
     let primary_file = files[0].0;
     let compile_cmd = match get_checker_compile_config(&config, primary_file) {
@@ -262,7 +262,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         priority: None,
     }];
 
-    let batch_id = match host::operations::start_batch_tasks(&operations) {
+    let batch_id = match host.operations.start_batch(&operations) {
         Ok(id) => id,
         Err(e) => {
             return CheckerVerdict {
@@ -273,7 +273,7 @@ pub fn dispatch_testlib_checker(req: &CheckerParseInput) -> CheckerVerdict {
         }
     };
 
-    let op_result = match host::operations::wait_for_result(&batch_id, 30000) {
+    let op_result = match host.operations.next_result(&batch_id, 30000) {
         Ok(r) => r,
         Err(e) => {
             return CheckerVerdict {

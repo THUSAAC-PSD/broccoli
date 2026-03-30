@@ -1,24 +1,26 @@
 use std::collections::HashSet;
 
+use crate::Host;
 use crate::error::SdkError;
-use crate::traits::PluginHost;
 use crate::types::*;
+
+/// Ready-made handler for on_code_run. Plugins call this from their WASM export.
+pub fn handle_code_run(host: &Host, input: &str) -> Result<String, SdkError> {
+    let req: OnCodeRunInput = serde_json::from_str(input)
+        .map_err(|e| SdkError::Serialization(format!("Failed to parse OnCodeRunInput: {e}")))?;
+    let output = evaluate_run(host, &req)?;
+    serde_json::to_string(&output)
+        .map_err(|e| SdkError::Serialization(format!("Failed to serialize OnCodeRunOutput: {e}")))
+}
 
 /// Evaluate a code run (custom test cases).
 ///
 /// Contest plugins should delegate to this function from their `on_code_run` handler.
-///
-/// Scores use raw evaluator output (0..1) without contest-specific scaling. For custom
-/// test cases without expected output, the "none" checker is applied by the server's
-/// evaluate host function, producing Accepted with stdout passthrough.
-pub fn evaluate_run(
-    host: &impl PluginHost,
-    req: &OnCodeRunInput,
-) -> Result<OnCodeRunOutput, SdkError> {
+pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput, SdkError> {
     let test_cases = &req.test_cases;
 
     if test_cases.is_empty() {
-        host.update_code_run(&CodeRunUpdate {
+        host.code_run.update(&CodeRunUpdate {
             code_run_id: req.id,
             status: Some(SubmissionStatus::Judged),
             verdict: Some(Some(Verdict::Accepted)),
@@ -59,7 +61,7 @@ pub fn evaluate_run(
 
     let mut verdicts: Vec<TcResult> = Vec::new();
 
-    let batch_id = match host.start_evaluate_batch(&batch_input) {
+    let batch_id = match host.eval.start_batch(&batch_input) {
         Ok(id) => id,
         Err(e) => {
             for tc in test_cases {
@@ -71,13 +73,13 @@ pub fn evaluate_run(
         }
     };
 
-    host.update_code_run(&CodeRunUpdate {
+    host.code_run.update(&CodeRunUpdate {
         code_run_id: req.id,
         status: Some(SubmissionStatus::Running),
         ..Default::default()
     })?;
 
-    let _ = host.log_info(&format!(
+    let _ = host.log.info(&format!(
         "Run: evaluating {} test case(s)",
         test_cases.len()
     ));
@@ -86,23 +88,21 @@ pub fn evaluate_run(
     let mut timed_out = false;
 
     while collected < test_cases.len() {
-        match host.get_next_evaluate_result(&batch_id, 120_000) {
+        match host.eval.next_result(&batch_id, 120_000) {
             Ok(Some(verdict)) => {
                 let r = TcResult::from_verdict(&verdict);
-
                 if r.verdict == Verdict::CompileError {
                     insert_code_run_tc_result(host, req.id, &r)?;
                     verdicts.push(r);
-                    let _ = host.cancel_evaluate_batch(&batch_id);
+                    let _ = host.eval.cancel_batch(&batch_id);
                     break;
                 }
-
                 insert_code_run_tc_result(host, req.id, &r)?;
                 verdicts.push(r);
                 collected += 1;
             }
             Ok(None) => {
-                let _ = host.log_info(&format!(
+                let _ = host.log.info(&format!(
                     "Timeout waiting for result {}/{}",
                     collected + 1,
                     test_cases.len()
@@ -111,7 +111,7 @@ pub fn evaluate_run(
                 break;
             }
             Err(e) => {
-                let _ = host.log_info(&format!("Error polling result: {e:?}"));
+                let _ = host.log.info(&format!("Error polling result: {e:?}"));
                 timed_out = true;
                 break;
             }
@@ -127,22 +127,12 @@ pub fn evaluate_run(
                 verdicts.push(r);
             }
         }
-        let _ = host.cancel_evaluate_batch(&batch_id);
+        let _ = host.eval.cancel_batch(&batch_id);
     }
 
     finalize_code_run(host, req.id, &verdicts)
 }
 
-/// Ready-made handler for on_code_run. Plugins call this from their WASM export.
-pub fn handle_code_run(host: &impl PluginHost, input: &str) -> Result<String, SdkError> {
-    let req: OnCodeRunInput = serde_json::from_str(input)
-        .map_err(|e| SdkError::Serialization(format!("Failed to parse OnCodeRunInput: {e}")))?;
-    let output = evaluate_run(host, &req)?;
-    serde_json::to_string(&output)
-        .map_err(|e| SdkError::Serialization(format!("Failed to serialize OnCodeRunOutput: {e}")))
-}
-
-/// Intermediate per-TC result used within evaluate_run.
 struct TcResult {
     test_case_id: i32,
     verdict: Verdict,
@@ -187,14 +177,8 @@ impl TcResult {
     }
 }
 
-/// Insert a single code run result row.
-fn insert_code_run_tc_result(
-    host: &impl PluginHost,
-    code_run_id: i32,
-    r: &TcResult,
-) -> Result<(), SdkError> {
-    // test_case_id is the 0-based index assigned by the server when resolving custom TCs.
-    host.insert_code_run_results(&[CodeRunResultRow {
+fn insert_code_run_tc_result(host: &Host, code_run_id: i32, r: &TcResult) -> Result<(), SdkError> {
+    host.code_run.insert_results(&[CodeRunResultRow {
         code_run_id,
         run_index: r.test_case_id,
         verdict: r.verdict.clone(),
@@ -207,9 +191,8 @@ fn insert_code_run_tc_result(
     }])
 }
 
-/// Determine final verdict/status from collected TC results and update the code run.
 fn finalize_code_run(
-    host: &impl PluginHost,
+    host: &Host,
     code_run_id: i32,
     results: &[TcResult],
 ) -> Result<OnCodeRunOutput, SdkError> {
@@ -242,7 +225,7 @@ fn finalize_code_run(
         None
     };
 
-    host.update_code_run(&CodeRunUpdate {
+    host.code_run.update(&CodeRunUpdate {
         code_run_id,
         status: Some(status),
         verdict: Some(db_verdict),
@@ -254,7 +237,7 @@ fn finalize_code_run(
         error_message: None,
     })?;
 
-    let _ = host.log_info(&format!(
+    let _ = host.log.info(&format!(
         "Code run {} complete: {:?}, score {:.2}",
         code_run_id, verdict, total_score
     ));
