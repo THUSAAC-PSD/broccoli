@@ -1,9 +1,10 @@
+use crate::Checker;
 use crate::error::SdkError;
-use crate::host;
 use crate::types::*;
 
 /// Interpret a sandbox operation result into a TestCaseVerdict.
 pub fn interpret_sandbox_result(
+    checker: &Checker,
     test_case_id: i32,
     result: &OperationResult,
     checker_format: &str,
@@ -162,7 +163,7 @@ pub fn interpret_sandbox_result(
     let exec_stdout = opt_nonempty(&exec_result.sandbox_result.stdout);
     let exec_stderr = opt_nonempty(&exec_result.sandbox_result.stderr);
 
-    match host::checker::run_checker(checker_format, &input) {
+    match checker.run(checker_format, &input) {
         Ok(v) => Ok(TestCaseVerdict {
             test_case_id,
             verdict: v.verdict,

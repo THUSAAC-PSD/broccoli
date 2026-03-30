@@ -36,7 +36,6 @@ extern "ExtismHost" {
     fn store_get(input: String) -> String;
     fn db_execute(sql: String, args: String) -> String;
     fn db_query(sql: String, args: String) -> String;
-    fn db_transaction(queries_json: String) -> String;
 }
 
 /// GET /reflect/{id}
@@ -131,32 +130,5 @@ pub fn sql_parameterized(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&PluginHttpResponse {
         status: 200,
         body: Some(serde_json::json!({ "found": rows.len() })),
-    })?)
-}
-
-/// POST /sql/transaction
-#[plugin_fn]
-pub fn sql_transaction(input: String) -> FnResult<String> {
-    let req: PluginHttpRequest = serde_json::from_str(&input)?;
-    let queries_json = serde_json::to_string(&req.body.unwrap_or_default())?;
-
-    let res_json = unsafe { db_transaction(queries_json)? };
-    let res: HostDbResponse = serde_json::from_str(&res_json)?;
-
-    if let Some(err) = res.error {
-        return Ok(serde_json::to_string(&PluginHttpResponse {
-            status: 400,
-            body: Some(serde_json::json!({
-                "code": "TRANSACTION_ERROR",
-                "message": err
-            })),
-        })?);
-    }
-
-    Ok(serde_json::to_string(&PluginHttpResponse {
-        status: 200,
-        body: Some(serde_json::json!({
-            "results": res.data
-        })),
     })?)
 }

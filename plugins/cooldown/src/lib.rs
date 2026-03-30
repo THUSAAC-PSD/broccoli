@@ -42,11 +42,14 @@ mod plugin {
     /// Resolve effective cooldown by cascading: contest_problem > contest > problem > default.
     /// Returns 0 for "disabled" (no cooldown enforced).
     fn resolve_cooldown(
+        host: &Host,
         contest_id: Option<i32>,
         problem_id: i32,
     ) -> Result<ResolvedCooldown, SdkError> {
         if let Some(cid) = contest_id {
-            let r = host::config::get_contest_problem_config(cid, problem_id, "cooldown")?;
+            let r = host
+                .config
+                .get_contest_problem(cid, problem_id, "cooldown")?;
             if let Some(secs) = try_extract(&r) {
                 return Ok(ResolvedCooldown {
                     cooldown_seconds: secs,
@@ -54,7 +57,7 @@ mod plugin {
                 });
             }
 
-            let r = host::config::get_contest_config(cid, "cooldown")?;
+            let r = host.config.get_contest(cid, "cooldown")?;
             if let Some(secs) = try_extract(&r) {
                 return Ok(ResolvedCooldown {
                     cooldown_seconds: secs,
@@ -63,7 +66,7 @@ mod plugin {
             }
         }
 
-        let r = host::config::get_problem_config(problem_id, "cooldown")?;
+        let r = host.config.get_problem(problem_id, "cooldown")?;
         if let Some(secs) = try_extract(&r) {
             return Ok(ResolvedCooldown {
                 cooldown_seconds: secs,
@@ -85,12 +88,13 @@ mod plugin {
 
     #[plugin_fn]
     pub fn check_cooldown(input: String) -> FnResult<String> {
+        let host = Host::new();
         let event: BeforeSubmissionEvent = serde_json::from_str(&input)?;
 
-        let resolved = match resolve_cooldown(event.contest_id, event.problem_id) {
+        let resolved = match resolve_cooldown(&host, event.contest_id, event.problem_id) {
             Ok(r) => r,
             Err(e) => {
-                let _ = host::logger::log_info(format!(
+                let _ = host.log.info(&format!(
                     "[cooldown] Failed to resolve config: {e}, using default (disabled)"
                 ));
                 ResolvedCooldown {
@@ -110,7 +114,7 @@ mod plugin {
             Some(cid) => format!("AND contest_id = {}", cid),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SecondsSinceLast> = host::db::db_query(&format!(
+        let rows: Vec<SecondsSinceLast> = host.db.query(&format!(
             "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",
@@ -162,7 +166,8 @@ mod plugin {
     // API: GET /api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status
     #[plugin_fn]
     pub fn get_cooldown_status(input: String) -> FnResult<String> {
-        let resp = match handle_cooldown_status(&input) {
+        let host = Host::new();
+        let resp = match handle_cooldown_status(&host, &input) {
             Ok(r) => r,
             Err(e) => PluginHttpResponse {
                 status: 500,
@@ -176,7 +181,8 @@ mod plugin {
     // API: GET /api/plugins/cooldown/problems/{problem_id}/status
     #[plugin_fn]
     pub fn get_cooldown_status_standalone(input: String) -> FnResult<String> {
-        let resp = match handle_cooldown_status(&input) {
+        let host = Host::new();
+        let resp = match handle_cooldown_status(&host, &input) {
             Ok(r) => r,
             Err(e) => PluginHttpResponse {
                 status: 500,
@@ -187,7 +193,7 @@ mod plugin {
         Ok(serde_json::to_string(&resp)?)
     }
 
-    fn handle_cooldown_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
+    fn handle_cooldown_status(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
         let req: PluginHttpRequest =
             serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -218,7 +224,7 @@ mod plugin {
                 is_participant: bool,
                 has_problem: bool,
             }
-            let access_rows: Vec<ContestAccess> = host::db::db_query(&format!(
+            let access_rows: Vec<ContestAccess> = host.db.query(&format!(
                 "SELECT \
                     ((activate_time IS NULL OR activate_time <= NOW()) AND \
                      (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
@@ -248,13 +254,13 @@ mod plugin {
             }
         }
 
-        let resolved = resolve_cooldown(contest_id, problem_id)?;
+        let resolved = resolve_cooldown(host, contest_id, problem_id)?;
 
         let contest_filter = match contest_id {
             Some(cid) => format!("AND contest_id = {}", cid),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SecondsSinceLast> = host::db::db_query(&format!(
+        let rows: Vec<SecondsSinceLast> = host.db.query(&format!(
             "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",

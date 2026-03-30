@@ -43,11 +43,12 @@ mod plugin {
     ///
     /// When `contest_id` is `None` (non-contest submission), only problem and default scopes apply.
     fn resolve_max_submissions(
+        host: &Host,
         contest_id: Option<i32>,
         problem_id: i32,
     ) -> Result<ResolvedLimit, SdkError> {
         if let Some(cid) = contest_id {
-            let r = host::config::get_contest_problem_config(cid, problem_id, "limits")?;
+            let r = host.config.get_contest_problem(cid, problem_id, "limits")?;
             if let Some(max) = try_extract(&r) {
                 return Ok(ResolvedLimit {
                     max_submissions: max,
@@ -55,7 +56,7 @@ mod plugin {
                 });
             }
 
-            let r = host::config::get_contest_config(cid, "limits")?;
+            let r = host.config.get_contest(cid, "limits")?;
             if let Some(max) = try_extract(&r) {
                 return Ok(ResolvedLimit {
                     max_submissions: max,
@@ -64,7 +65,7 @@ mod plugin {
             }
         }
 
-        let r = host::config::get_problem_config(problem_id, "limits")?;
+        let r = host.config.get_problem(problem_id, "limits")?;
         if let Some(max) = try_extract(&r) {
             return Ok(ResolvedLimit {
                 max_submissions: max,
@@ -88,12 +89,13 @@ mod plugin {
     /// Check whether the user has exceeded the submission limit for this problem.
     #[plugin_fn]
     pub fn check_limit(input: String) -> FnResult<String> {
+        let host = Host::new();
         let event: BeforeSubmissionEvent = serde_json::from_str(&input)?;
 
-        let resolved = match resolve_max_submissions(event.contest_id, event.problem_id) {
+        let resolved = match resolve_max_submissions(&host, event.contest_id, event.problem_id) {
             Ok(r) => r,
             Err(e) => {
-                let _ = host::logger::log_info(format!(
+                let _ = host.log.info(&format!(
                     "[submission-limit] Failed to resolve config: {e}, using default (unlimited)"
                 ));
                 ResolvedLimit {
@@ -116,7 +118,7 @@ mod plugin {
             Some(cid) => format!("AND contest_id = {}", cid),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SubmissionCount> = host::db::db_query(&format!(
+        let rows: Vec<SubmissionCount> = host.db.query(&format!(
             "SELECT COUNT(*) as count \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",
@@ -159,7 +161,8 @@ mod plugin {
 
     #[plugin_fn]
     pub fn get_limit_status(input: String) -> FnResult<String> {
-        let resp = match handle_limit_status(&input) {
+        let host = Host::new();
+        let resp = match handle_limit_status(&host, &input) {
             Ok(r) => r,
             Err(e) => PluginHttpResponse {
                 status: 500,
@@ -172,7 +175,8 @@ mod plugin {
 
     #[plugin_fn]
     pub fn get_limit_status_standalone(input: String) -> FnResult<String> {
-        let resp = match handle_limit_status(&input) {
+        let host = Host::new();
+        let resp = match handle_limit_status(&host, &input) {
             Ok(r) => r,
             Err(e) => PluginHttpResponse {
                 status: 500,
@@ -183,7 +187,7 @@ mod plugin {
         Ok(serde_json::to_string(&resp)?)
     }
 
-    fn handle_limit_status(input: &str) -> Result<PluginHttpResponse, SdkError> {
+    fn handle_limit_status(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
         let req: PluginHttpRequest =
             serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
 
@@ -214,7 +218,7 @@ mod plugin {
                 is_participant: bool,
                 has_problem: bool,
             }
-            let access_rows: Vec<ContestAccess> = host::db::db_query(&format!(
+            let access_rows: Vec<ContestAccess> = host.db.query(&format!(
                 "SELECT \
                     ((activate_time IS NULL OR activate_time <= NOW()) AND \
                      (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
@@ -244,14 +248,14 @@ mod plugin {
             }
         }
 
-        let resolved = resolve_max_submissions(contest_id, problem_id)?;
+        let resolved = resolve_max_submissions(host, contest_id, problem_id)?;
         let unlimited = resolved.max_submissions == 0;
 
         let contest_filter = match contest_id {
             Some(cid) => format!("AND contest_id = {}", cid),
             None => "AND contest_id IS NULL".to_string(),
         };
-        let rows: Vec<SubmissionCount> = host::db::db_query(&format!(
+        let rows: Vec<SubmissionCount> = host.db.query(&format!(
             "SELECT COUNT(*) as count \
              FROM submission \
              WHERE user_id = {} AND problem_id = {} {}",

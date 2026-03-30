@@ -6,7 +6,7 @@ use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, Statement,
     TransactionTrait,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use tracing::error;
 use uuid::Uuid;
@@ -127,50 +127,6 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
         Ok(None) => HostDbResponse::ok(serde_json::json!([])).to_json_string(),
         Err(e) => {
             error!("DB query error: {}", e);
-            HostDbResponse::err(e.to_string()).to_json_string()
-        }
-    }
-});
-
-#[derive(Deserialize)]
-struct TxQuery {
-    sql: String,
-    #[serde(default)]
-    args: Vec<JsonValue>,
-}
-
-// Executes multiple statements within a single database transaction.
-// Input is a JSON array of { "sql": "...", "args": [...] }.
-// Returns an array of affected rows, or aborts if any query fails.
-host_fn!(pub db_transaction(user_data: (String, DatabaseConnection); queries_json: String) -> String {
-    let user_data_guard = user_data.get()?;
-    let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-    let (_, db) = &*ctx;
-
-    let queries: Vec<TxQuery> = serde_json::from_str(&queries_json)
-        .map_err(|e| extism::Error::msg(format!("Invalid transaction JSON: {}", e)))?;
-
-    let result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let txn = db.begin().await?;
-            let mut results = Vec::with_capacity(queries.len());
-
-            for q in queries {
-                let values: Vec<sea_orm::Value> = q.args.into_iter().map(json_to_sea_value).collect();
-                let stmt = Statement::from_sql_and_values(DbBackend::Postgres, q.sql, values);
-                let res = txn.execute_raw(stmt).await?;
-                results.push(res.rows_affected());
-            }
-
-            txn.commit().await?;
-            Ok::<Vec<u64>, sea_orm::DbErr>(results)
-        })
-    });
-
-    match result {
-        Ok(rows) => HostDbResponse::ok(JsonValue::from(rows)).to_json_string(),
-        Err(e) => {
-            error!("DB transaction error: {}", e);
             HostDbResponse::err(e.to_string()).to_json_string()
         }
     }
