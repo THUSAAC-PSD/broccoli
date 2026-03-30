@@ -137,6 +137,19 @@ export const en: Record<string, string> = {
   'editor.keybindings': 'Keybinding mode',
   'editor.keybindingNormal': 'Normal',
 
+  // Code editor (custom test cases)
+  'editor.customInput': 'Custom Input',
+  'editor.inputPlaceholder': 'Input for your program...',
+  'editor.expectedOutput': 'Expected Output',
+  'editor.expectedOutputPlaceholder': 'Leave empty to just see output',
+  'editor.optional': 'optional',
+  'editor.running': 'Running...',
+  'editor.executed': 'Executed',
+  'editor.noOutput': 'No output',
+  'editor.emptyOutput': '(empty)',
+  'editor.compilationError': 'Compilation Error',
+  'editor.compilerOutput': 'Compiler Output',
+
   // Submission result
   'result.title': 'Result',
   'result.submitPrompt': 'Submit your code to see results',
@@ -631,6 +644,7 @@ export const en: Record<string, string> = {
   'toast.participant.bulkSuccess': 'Bulk enrollment completed successfully.',
   'toast.participant.bulkError': 'Bulk enrollment failed.',
   'toast.submission.submitted': 'Code submitted successfully.',
+  'toast.submission.running': 'Running code...',
   'toast.submission.error': 'Failed to submit code. Please try again.',
 
   // Plugins management

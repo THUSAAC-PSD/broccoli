@@ -1,6 +1,6 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type { Submission } from '@broccoli/web-sdk/submission';
+import type { CodeRun, Submission } from '@broccoli/web-sdk/submission';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ export interface SubmissionEntry {
   /** Unique client-side ID for this entry */
   id: number;
   submission: Submission | null;
+  codeRun: CodeRun | null;
   status: 'submitting' | 'polling' | 'done' | 'error';
   error: SubmissionError | null;
   /** True for "run code" entries */
@@ -117,7 +118,7 @@ export function useSubmissions({
     }
   }, []);
 
-  const startPolling = useCallback(
+  const startSubmissionPolling = useCallback(
     (entryId: number, submissionId: number) => {
       stopPolling(entryId);
 
@@ -157,6 +158,46 @@ export function useSubmissions({
     [apiClient, stopPolling],
   );
 
+  const startCodeRunPolling = useCallback(
+    (entryId: number, codeRunId: number) => {
+      stopPolling(entryId);
+
+      const interval = setInterval(async () => {
+        try {
+          const { data, error: fetchError } = await apiClient.GET(
+            '/code-runs/{id}',
+            { params: { path: { id: codeRunId } } },
+          );
+          if (fetchError) {
+            console.error('Failed to poll code run:', fetchError);
+            return;
+          }
+
+          setEntries((prev) =>
+            prev.map((e) => {
+              if (e.id !== entryId) return e;
+              const isDone = TERMINAL_STATUSES.has(data.status);
+              return {
+                ...e,
+                codeRun: data,
+                status: isDone ? 'done' : 'polling',
+              };
+            }),
+          );
+
+          if (TERMINAL_STATUSES.has(data.status)) {
+            stopPolling(entryId);
+          }
+        } catch (err) {
+          console.error('Code run polling error:', err);
+        }
+      }, POLL_INTERVAL_MS);
+
+      pollersRef.current.set(entryId, interval);
+    },
+    [apiClient, stopPolling],
+  );
+
   const submit = useCallback(
     async (files: SubmissionFile[], language: string, contestType?: string) => {
       const entryId = ++entryIdCounter;
@@ -164,6 +205,7 @@ export function useSubmissions({
       const newEntry: SubmissionEntry = {
         id: entryId,
         submission: null,
+        codeRun: null,
         status: 'submitting',
         error: null,
       };
@@ -213,7 +255,7 @@ export function useSubmissions({
         }
 
         toast.success(t('toast.submission.submitted'));
-        startPolling(entryId, data.id);
+        startSubmissionPolling(entryId, data.id);
       } catch (err) {
         console.error('Submission failed:', err);
         const submissionError = parseSubmissionError(err);
@@ -227,7 +269,7 @@ export function useSubmissions({
         toast.error(t('toast.submission.error'));
       }
     },
-    [apiClient, contestId, problemId, queryClient, startPolling, t],
+    [apiClient, contestId, problemId, queryClient, startSubmissionPolling, t],
   );
 
   const run = useCallback(
@@ -241,6 +283,7 @@ export function useSubmissions({
       const newEntry: SubmissionEntry = {
         id: entryId,
         submission: null,
+        codeRun: null,
         status: 'submitting',
         error: null,
         isRun: true,
@@ -255,11 +298,11 @@ export function useSubmissions({
       }));
 
       try {
-        let data: Submission;
+        let data: CodeRun;
 
         if (contestId) {
           const res = await apiClient.POST(
-            '/contests/{id}/problems/{problem_id}/submissions/run',
+            '/contests/{id}/problems/{problem_id}/code-runs',
             {
               params: {
                 path: { id: contestId, problem_id: problemId },
@@ -270,7 +313,7 @@ export function useSubmissions({
           if (res.error) throw res.error;
           data = res.data;
         } else {
-          const res = await apiClient.POST('/problems/{id}/submissions/run', {
+          const res = await apiClient.POST('/problems/{id}/code-runs', {
             params: { path: { id: problemId } },
             body: { files, language, custom_test_cases },
           });
@@ -281,15 +324,13 @@ export function useSubmissions({
         setEntries((prev) =>
           prev.map((e) =>
             e.id === entryId
-              ? { ...e, submission: data, status: 'polling' as const }
+              ? { ...e, codeRun: data, status: 'polling' as const }
               : e,
           ),
         );
 
-        toast.success(
-          t('toast.submission.running', { defaultValue: 'Running code...' }),
-        );
-        startPolling(entryId, data.id);
+        toast.success(t('toast.submission.running'));
+        startCodeRunPolling(entryId, data.id);
       } catch (err) {
         console.error('Run failed:', err);
         const submissionError = parseSubmissionError(err);
@@ -303,7 +344,7 @@ export function useSubmissions({
         toast.error(t('toast.submission.error'));
       }
     },
-    [apiClient, contestId, problemId, startPolling, t],
+    [apiClient, contestId, problemId, startCodeRunPolling, t],
   );
 
   const submissionEntries = entries.filter((e) => !e.isRun);

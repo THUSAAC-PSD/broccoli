@@ -335,6 +335,18 @@ pub mod routes {
         format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions")
     }
 
+    pub fn problem_code_runs(problem_id: i32) -> String {
+        format!("/api/v1/problems/{problem_id}/code-runs")
+    }
+
+    pub fn contest_problem_code_runs(contest_id: i32, problem_id: i32) -> String {
+        format!("/api/v1/contests/{contest_id}/problems/{problem_id}/code-runs")
+    }
+
+    pub fn code_run(id: i32) -> String {
+        format!("/api/v1/code-runs/{id}")
+    }
+
     pub fn contest_clarifications(contest_id: i32) -> String {
         format!("/api/v1/contests/{contest_id}/clarifications")
     }
@@ -583,9 +595,10 @@ impl TestApp {
             );
             contest_type_registry.write().await.insert(
                 "standard".into(),
-                server::registry::PluginHandler {
+                server::registry::ContestTypeHandlers {
                     plugin_id: "__test__".into(),
-                    function_name: "noop".into(),
+                    submission_fn: "noop".into(),
+                    code_run_fn: "noop".into(),
                 },
             );
         }

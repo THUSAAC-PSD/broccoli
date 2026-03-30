@@ -106,7 +106,6 @@ mod tests {
             time_limit_ms: 1000,
             memory_limit_kb: 262144,
             problem_type: "standard".into(),
-            mode: SubmissionMode::Submit,
             test_cases: vec![],
         }
     }

@@ -1,6 +1,7 @@
 use crate::error::SdkError;
 use crate::types::{
-    StartEvaluateBatchInput, SubmissionUpdate, TestCaseResultRow, TestCaseRow, TestCaseVerdict,
+    CodeRunResultRow, CodeRunUpdate, StartEvaluateBatchInput, SubmissionUpdate, TestCaseResultRow,
+    TestCaseRow, TestCaseVerdict,
 };
 
 /// Host function interface for contest-type plugins.
@@ -18,5 +19,7 @@ pub trait PluginHost {
     fn cancel_evaluate_batch(&self, batch_id: &str) -> Result<(), SdkError>;
     fn update_submission(&self, update: &SubmissionUpdate) -> Result<(), SdkError>;
     fn insert_test_case_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError>;
+    fn update_code_run(&self, update: &CodeRunUpdate) -> Result<(), SdkError>;
+    fn insert_code_run_results(&self, results: &[CodeRunResultRow]) -> Result<(), SdkError>;
     fn log_info(&self, msg: &str) -> Result<(), SdkError>;
 }

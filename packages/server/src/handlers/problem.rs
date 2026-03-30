@@ -21,6 +21,7 @@ use crate::models::problem::*;
 use crate::state::AppState;
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{is_sample_directory, split_dir_filename};
+use crate::utils::problem::find_problem;
 use crate::utils::soft_delete::SoftDeletable;
 
 #[utoipa::path(
@@ -962,13 +963,6 @@ pub fn test_case_body_limit() -> DefaultBodyLimit {
 /// Body limit layer for ZIP upload route (128MB).
 pub fn upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(128 * 1024 * 1024)
-}
-
-async fn find_problem<C: ConnectionTrait>(db: &C, id: i32) -> Result<problem::Model, AppError> {
-    problem::Entity::find_active_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Problem not found".into()))
 }
 
 async fn load_sample_test_cases<C: ConnectionTrait>(

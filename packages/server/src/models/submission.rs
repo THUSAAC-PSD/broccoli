@@ -3,7 +3,6 @@ use common::{SubmissionStatus, Verdict};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
-use crate::utils::filename::validate_flat_filename;
 
 use super::shared::Pagination;
 
@@ -60,27 +59,6 @@ pub struct CreateSubmissionRequest {
     pub contest_type: Option<String>,
 }
 
-/// Request body for running code against custom test cases.
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct RunCodeRequest {
-    /// Source files. At least one file required.
-    pub files: Vec<SubmissionFileDto>,
-    /// Programming language (e.g., "cpp", "java", "python3").
-    #[schema(example = "cpp")]
-    pub language: String,
-    /// Custom test cases to run against. At least one required.
-    pub custom_test_cases: Vec<CustomTestCaseInput>,
-}
-
-/// A custom test case for run code requests.
-#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct CustomTestCaseInput {
-    /// Input data to feed to stdin.
-    pub input: String,
-    /// Expected output. If omitted, output is shown but not checked.
-    pub expected_output: Option<String>,
-}
-
 /// Query parameters for submission listing.
 #[derive(Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -106,9 +84,6 @@ pub struct SubmissionListQuery {
     /// Sort direction: `asc` or `desc` (default).
     #[param(example = "desc")]
     pub sort_order: Option<String>,
-    /// Include run submissions in results. Default: false.
-    #[serde(default)]
-    pub include_runs: Option<bool>,
 }
 
 /// Full submission details.
@@ -134,11 +109,6 @@ pub struct SubmissionResponse {
     /// Contest type used for judging this submission.
     #[schema(example = "ioi")]
     pub contest_type: String,
-    /// Submission mode: "Submit" for formal submissions, "Run" for run-code executions.
-    pub mode: String,
-    /// Custom test cases (only populated for runs with custom test cases).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_test_cases: Option<Vec<CustomTestCaseInput>>,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Judge result if judging is complete, null otherwise.
@@ -169,8 +139,6 @@ pub struct SubmissionListItem {
     /// Contest type used for judging.
     #[schema(example = "ioi")]
     pub contest_type: String,
-    /// Submission mode: "Submit" for formal submissions, "Run" for run-code executions.
-    pub mode: String,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Total score if judged, null otherwise.
@@ -233,9 +201,6 @@ pub struct TestCaseResultResponse {
     pub memory_used: Option<i32>,
     /// DB test case ID. Null for custom run test cases.
     pub test_case_id: Option<i32>,
-    /// 0-based index for custom run test cases. Null for DB-backed test cases.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub run_index: Option<i32>,
     /// Test case input (only visible for sample test cases or when user has view_all permission).
     pub input: Option<String>,
     /// Expected output (only visible for sample test cases or when user has view_all permission).
@@ -288,7 +253,6 @@ impl From<crate::entity::test_case_result::Model> for TestCaseResultResponse {
             time_used: m.time_used,
             memory_used: m.memory_used,
             test_case_id: m.test_case_id,
-            run_index: m.run_index,
             input: None,
             expected_output: None,
             stdout: m.stdout,
@@ -296,78 +260,4 @@ impl From<crate::entity::test_case_result::Model> for TestCaseResultResponse {
             checker_output: m.checker_output,
         }
     }
-}
-
-/// Validate a run code request.
-pub fn validate_run_code(req: &RunCodeRequest, max_size: usize) -> Result<(), AppError> {
-    use std::collections::HashSet;
-
-    if req.files.is_empty() {
-        return Err(AppError::Validation("At least one file is required".into()));
-    }
-
-    let mut total_size = 0usize;
-    let mut seen_filenames = HashSet::with_capacity(req.files.len());
-
-    for file in &req.files {
-        let filename = validate_flat_filename(&file.filename)
-            .map_err(|e| AppError::Validation(e.message().into()))?;
-
-        if !seen_filenames.insert(filename) {
-            return Err(AppError::Validation(format!(
-                "Duplicate filename: '{}'",
-                filename
-            )));
-        }
-
-        if file.content.is_empty() {
-            return Err(AppError::Validation(format!(
-                "File '{}' cannot be empty",
-                filename
-            )));
-        }
-
-        total_size = total_size.saturating_add(file.content.len());
-    }
-
-    if total_size > max_size {
-        return Err(AppError::Validation(format!(
-            "Total submission size ({} bytes) exceeds maximum ({} bytes)",
-            total_size, max_size
-        )));
-    }
-
-    let language = req.language.trim();
-    if language.is_empty() {
-        return Err(AppError::Validation("Language is required".into()));
-    }
-
-    if req.custom_test_cases.is_empty() {
-        return Err(AppError::Validation(
-            "At least one custom test case is required".into(),
-        ));
-    }
-    if req.custom_test_cases.len() > 10 {
-        return Err(AppError::Validation(
-            "Maximum 10 custom test cases allowed".into(),
-        ));
-    }
-    for (i, tc) in req.custom_test_cases.iter().enumerate() {
-        if tc.input.len() > 1_048_576 {
-            return Err(AppError::Validation(format!(
-                "Custom test case {} input exceeds 1MB limit",
-                i
-            )));
-        }
-        if let Some(ref expected) = tc.expected_output
-            && expected.len() > 1_048_576
-        {
-            return Err(AppError::Validation(format!(
-                "Custom test case {} expected_output exceeds 1MB limit",
-                i
-            )));
-        }
-    }
-
-    Ok(())
 }

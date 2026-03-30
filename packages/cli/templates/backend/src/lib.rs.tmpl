@@ -9,7 +9,7 @@ pub fn init() -> FnResult<String> {
     // Register your plugin's capabilities here. Examples:
     //
     //   // Register a contest type (judging strategy):
-    //   host::registry::register_contest_type("my-type", "on_submission")?;
+    //   host::registry::register_contest_type("my-type", "on_submission", "on_code_run")?;
     //
     //   // Register an evaluator (test case execution):
     //   host::registry::register_evaluator("my-evaluator", "evaluate_test_case")?;

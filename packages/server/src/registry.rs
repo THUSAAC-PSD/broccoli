@@ -8,11 +8,19 @@ use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, oneshot};
 
 /// A handler reference pointing to a plugin function.
-/// Used for contest types, evaluators, and checker formats.
+/// Used for evaluators and checker formats.
 #[derive(Clone, Debug)]
 pub struct PluginHandler {
     pub plugin_id: String,
     pub function_name: String,
+}
+
+/// A contest type registration with both submission and code_run handlers.
+#[derive(Clone, Debug)]
+pub struct ContestTypeHandlers {
+    pub plugin_id: String,
+    pub submission_fn: String,
+    pub code_run_fn: String,
 }
 
 /// State for a batch of asynchronous results (generic over channel item type).
@@ -31,8 +39,8 @@ pub struct BatchState<T> {
     pub poisoned: AtomicBool,
 }
 
-/// contest_type -> handler registry
-pub type ContestTypeRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
+/// contest_type -> handlers registry
+pub type ContestTypeRegistry = Arc<RwLock<HashMap<String, ContestTypeHandlers>>>;
 
 /// problem_type -> handler registry
 pub type EvaluatorRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;

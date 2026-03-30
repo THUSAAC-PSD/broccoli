@@ -8,8 +8,8 @@ use sea_orm::{
 };
 use tracing::{error, info, warn};
 
-use crate::consumers::mark_submission_system_error;
-use crate::entity::{dead_letter_message, submission};
+use crate::consumers::{mark_code_run_system_error, mark_submission_system_error};
+use crate::entity::{code_run, dead_letter_message, submission};
 
 use super::DlqService;
 
@@ -51,22 +51,48 @@ async fn detect_and_handle_stuck_jobs(
         .all(db)
         .await?;
 
-    if stuck_submission_ids.is_empty() {
-        return Ok(());
+    if !stuck_submission_ids.is_empty() {
+        info!(
+            count = stuck_submission_ids.len(),
+            "Found stuck submissions, moving to DLQ"
+        );
+
+        for submission_id in stuck_submission_ids {
+            if let Err(e) = handle_stuck_submission(db, submission_id, config).await {
+                error!(
+                    submission_id,
+                    error = %e,
+                    "Failed to handle stuck submission"
+                );
+            }
+        }
     }
 
-    info!(
-        count = stuck_submission_ids.len(),
-        "Found stuck submissions, moving to DLQ"
-    );
+    let stuck_code_run_ids: Vec<i32> = code_run::Entity::find()
+        .select_only()
+        .column(code_run::Column::Id)
+        .filter(code_run::Column::Status.eq(SubmissionStatus::Pending))
+        .filter(code_run::Column::CreatedAt.lt(timeout_threshold))
+        .into_tuple()
+        .all(db)
+        .await?;
 
-    for submission_id in stuck_submission_ids {
-        if let Err(e) = handle_stuck_submission(db, submission_id, config).await {
-            error!(
-                submission_id,
-                error = %e,
-                "Failed to handle stuck submission"
-            );
+    if !stuck_code_run_ids.is_empty() {
+        info!(
+            count = stuck_code_run_ids.len(),
+            "Found stuck code runs, marking as SystemError"
+        );
+        for code_run_id in stuck_code_run_ids {
+            if let Err(e) = mark_code_run_system_error(
+                db,
+                code_run_id,
+                "STUCK_JOB",
+                "Job timed out waiting for worker",
+            )
+            .await
+            {
+                error!(code_run_id, error = %e, "Failed to mark stuck code run");
+            }
         }
     }
 

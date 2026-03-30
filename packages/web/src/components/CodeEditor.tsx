@@ -881,12 +881,12 @@ export function CodeEditor({
     }
   }, [latestRun?.status]);
 
-  const runResult = latestRun?.submission?.result;
+  const runResult = latestRun?.codeRun?.result;
   const runTcResults = runResult?.test_case_results ?? [];
   const activeTc = customTestCases[activeTestCase];
   const activeRunTc = runTcResults.find((r) => r.run_index === activeTestCase);
   const activeCustomTc =
-    latestRun?.submission?.custom_test_cases?.[activeTestCase];
+    latestRun?.codeRun?.custom_test_cases?.[activeTestCase];
   const activeHasExpected = activeCustomTc?.expected_output != null;
 
   const customInputPanel = (
@@ -902,7 +902,7 @@ export function CodeEditor({
           <ChevronRight className="h-3 w-3" />
         )}
         <Terminal className="h-3 w-3" />
-        {t('editor.customInput', { defaultValue: 'Custom Input' })}
+        {t('editor.customInput')}
       </button>
       {showCustomInput && (
         <div className="flex flex-col gap-2">
@@ -967,20 +967,16 @@ export function CodeEditor({
                   onChange={(e) =>
                     updateTestCase(activeTestCase, 'input', e.target.value)
                   }
-                  placeholder={t('editor.customInputPlaceholder', {
-                    defaultValue: 'Input for your program...',
-                  })}
+                  placeholder={t('editor.inputPlaceholder')}
                   spellCheck={false}
                   className="w-full resize-y rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring min-h-[4.5rem] max-h-[12rem]"
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">
-                  {t('editor.expectedOutput', {
-                    defaultValue: 'Expected Output',
-                  })}
+                  {t('editor.expectedOutput')}
                   <span className="ml-1 text-muted-foreground/60 font-normal">
-                    ({t('editor.optional', { defaultValue: 'optional' })})
+                    ({t('editor.optional')})
                   </span>
                 </label>
                 <textarea
@@ -992,9 +988,7 @@ export function CodeEditor({
                       e.target.value,
                     )
                   }
-                  placeholder={t('editor.expectedOutputPlaceholder', {
-                    defaultValue: 'Leave empty to just see output',
-                  })}
+                  placeholder={t('editor.expectedOutputPlaceholder')}
                   spellCheck={false}
                   className="w-full resize-y rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring min-h-[4.5rem] max-h-[12rem]"
                 />
@@ -1007,7 +1001,7 @@ export function CodeEditor({
             (latestRun.status === 'submitting' ||
               (latestRun.status === 'polling' && !runResult)) && (
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground animate-pulse">
-                {t('editor.running', { defaultValue: 'Running...' })}
+                {t('editor.running')}
               </div>
             )}
           {latestRun && latestRun.status === 'error' && latestRun.error && (
@@ -1018,9 +1012,9 @@ export function CodeEditor({
           {runResult && latestRun?.status === 'done' && activeRunTc && (
             <div className="rounded-md border bg-muted/30 overflow-hidden">
               <div className="flex items-center gap-3 px-3 py-1.5 border-b bg-muted/50 text-xs">
-                {latestRun.submission?.status === 'CompilationError' ? (
+                {latestRun.codeRun?.status === 'CompilationError' ? (
                   <span className="font-medium text-amber-600 dark:text-amber-400">
-                    Compilation Error
+                    {t('editor.compilationError')}
                   </span>
                 ) : activeHasExpected ? (
                   <span
@@ -1033,7 +1027,9 @@ export function CodeEditor({
                     {activeRunTc.verdict}
                   </span>
                 ) : (
-                  <span className="font-medium text-foreground">Executed</span>
+                  <span className="font-medium text-foreground">
+                    {t('editor.executed')}
+                  </span>
                 )}
                 {activeRunTc.time_used != null && (
                   <span className="text-muted-foreground">
@@ -1049,7 +1045,7 @@ export function CodeEditor({
               {runResult.compile_output && (
                 <div className="px-3 py-2 border-b">
                   <div className="text-xs font-medium text-muted-foreground mb-1">
-                    Compiler Output
+                    {t('editor.compilerOutput')}
                   </div>
                   <pre className="font-mono text-xs whitespace-pre-wrap text-foreground/80 max-h-[8rem] overflow-y-auto">
                     {runResult.compile_output}
@@ -1062,7 +1058,7 @@ export function CodeEditor({
                     stdout
                   </div>
                   <pre className="font-mono text-sm whitespace-pre-wrap text-foreground max-h-[10rem] overflow-y-auto">
-                    {activeRunTc.stdout || '(empty)'}
+                    {activeRunTc.stdout || t('editor.emptyOutput')}
                   </pre>
                 </div>
               )}
@@ -1080,7 +1076,7 @@ export function CodeEditor({
                 !activeRunTc.stdout &&
                 !activeRunTc.stderr && (
                   <div className="px-3 py-2 text-sm text-muted-foreground">
-                    {t('editor.noOutput', { defaultValue: 'No output' })}
+                    {t('editor.noOutput')}
                   </div>
                 )}
             </div>
@@ -1088,12 +1084,12 @@ export function CodeEditor({
           {/* Compilation error shown once (not per test case) */}
           {runResult &&
             latestRun?.status === 'done' &&
-            latestRun.submission?.status === 'CompilationError' &&
+            latestRun.codeRun?.status === 'CompilationError' &&
             !activeRunTc && (
               <div className="rounded-md border bg-muted/30 overflow-hidden">
                 <div className="flex items-center gap-3 px-3 py-1.5 border-b bg-muted/50 text-xs">
                   <span className="font-medium text-amber-600 dark:text-amber-400">
-                    Compilation Error
+                    {t('editor.compilationError')}
                   </span>
                 </div>
                 {runResult.compile_output && (

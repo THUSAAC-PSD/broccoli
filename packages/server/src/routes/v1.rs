@@ -19,6 +19,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/problems", problem_routes(submission_max_size))
         .nest("/contests", contest_routes(submission_max_size))
         .nest("/submissions", submission_routes())
+        .nest("/code-runs", code_run_routes())
         .nest("/dlq", dlq_routes())
 }
 
@@ -129,12 +130,15 @@ fn problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
             "/{id}/submissions",
             problem_submission_routes(submission_max_size),
         )
+        .nest(
+            "/{id}/code-runs",
+            problem_code_run_routes(submission_max_size),
+        )
 }
 
 fn problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::submission::create_submission))
-        .routes(routes!(handlers::submission::run_code))
         .layer(handlers::submission::submission_body_limit(
             submission_max_size,
         ))
@@ -258,12 +262,15 @@ fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState>
             "/{problem_id}/submissions",
             contest_problem_submission_routes(submission_max_size),
         )
+        .nest(
+            "/{problem_id}/code-runs",
+            contest_problem_code_run_routes(submission_max_size),
+        )
 }
 
 fn contest_problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::submission::create_contest_submission))
-        .routes(routes!(handlers::submission::run_contest_code))
         .layer(handlers::submission::submission_body_limit(
             submission_max_size,
         ))
@@ -317,6 +324,22 @@ fn contest_problem_config_routes() -> OpenApiRouter<AppState> {
             handlers::plugin_config::upsert_contest_problem_config,
             handlers::plugin_config::delete_contest_problem_config,
         ))
+}
+
+fn code_run_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(handlers::code_run::get_code_run))
+}
+
+fn problem_code_run_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::code_run::run_code))
+        .layer(handlers::code_run::code_run_body_limit(submission_max_size))
+}
+
+fn contest_problem_code_run_routes(submission_max_size: usize) -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::code_run::run_contest_code))
+        .layer(handlers::code_run::code_run_body_limit(submission_max_size))
 }
 
 fn dlq_routes() -> OpenApiRouter<AppState> {
