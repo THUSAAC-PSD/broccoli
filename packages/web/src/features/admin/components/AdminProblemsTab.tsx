@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 import {
@@ -82,6 +83,7 @@ export function ProblemFormDialog({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const apiClient = useApiClient();
+  const { getKey, resetKey } = useIdempotencyKey();
 
   const { data: attachments = [] } = useQuery({
     queryKey: attachmentsQueryKey(problem?.id ?? 0),
@@ -177,7 +179,10 @@ export function ProblemFormDialog({
           params: { path: { id: problem!.id } },
           body,
         })
-      : await apiClient.POST('/problems', { body });
+      : await apiClient.POST('/problems', {
+          headers: { 'Idempotency-Key': getKey() },
+          body,
+        });
 
     setLoading(false);
     if (result.error) {
@@ -188,6 +193,7 @@ export function ProblemFormDialog({
         ),
       );
     } else {
+      if (!isEdit) resetKey();
       toast.success(
         isEdit ? t('toast.problem.updated') : t('toast.problem.created'),
       );

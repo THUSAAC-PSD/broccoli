@@ -32,8 +32,9 @@ pub fn judge_with_context(
 ) -> Result<JudgeResult, SdkError> {
     if ctx.test_cases.is_empty() {
         let _ = host.log_info("No test cases found, marking as judged with score 0");
-        host.update_submission(&SubmissionUpdate {
+        let affected = host.update_submission(&SubmissionUpdate {
             submission_id: ctx.submission_id,
+            judge_epoch: req.judge_epoch,
             status: Some(SubmissionStatus::Judged),
             verdict: Some(Some(Verdict::Accepted)),
             score: Some(0.0),
@@ -43,6 +44,9 @@ pub fn judge_with_context(
             error_code: None,
             error_message: None,
         })?;
+        if affected == 0 {
+            return Err(SdkError::StaleEpoch);
+        }
         return Ok(JudgeResult {
             output: OnSubmissionOutput {
                 success: true,
@@ -53,9 +57,28 @@ pub fn judge_with_context(
         });
     }
 
-    let outcomes = evaluate_all(host, req, &ctx.test_cases, ctx.submission_id, |raw, tc| {
+    let outcomes = match evaluate_all(host, req, &ctx.test_cases, ctx.submission_id, |raw, tc| {
         round_score(raw * tc.score)
-    })?;
+    }) {
+        Ok(outcomes) => outcomes,
+        Err(SdkError::StaleEpoch) => {
+            // Submission was rejudged. This execution is stale. Stop gracefully
+            // without persisting anything (the new epoch's plugin will handle it).
+            let _ = host.log_info(&format!(
+                "Submission {} epoch {} is stale, stopping",
+                ctx.submission_id, req.judge_epoch
+            ));
+            return Ok(JudgeResult {
+                output: OnSubmissionOutput {
+                    success: true,
+                    error_message: None,
+                },
+                submission_score: None,
+                subtask_scores: None,
+            });
+        }
+        Err(e) => return Err(e),
+    };
 
     let id_to_label: HashMap<i32, String> = ctx
         .test_cases
@@ -77,7 +100,13 @@ pub fn judge_with_context(
 
     let submission_score = round_score(subtask_scores.iter().sum());
 
-    let output = persist_results(host, ctx.submission_id, &outcomes, submission_score)?;
+    let output = persist_results(
+        host,
+        ctx.submission_id,
+        req.judge_epoch,
+        &outcomes,
+        submission_score,
+    )?;
 
     Ok(JudgeResult {
         output,
@@ -107,6 +136,7 @@ mod tests {
             memory_limit_kb: 262144,
             problem_type: "standard".into(),
             test_cases: vec![],
+            judge_epoch: 0,
         }
     }
 

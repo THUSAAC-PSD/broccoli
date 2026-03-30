@@ -7,6 +7,7 @@ use broccoli_server_sdk::evaluator::EvalOutcome;
 pub fn persist_results(
     host: &impl PluginHost,
     submission_id: i32,
+    judge_epoch: i32,
     outcomes: &[EvalOutcome],
     submission_score: f64,
 ) -> Result<OnSubmissionOutput, SdkError> {
@@ -41,8 +42,9 @@ pub fn persist_results(
         None
     };
 
-    host.update_submission(&SubmissionUpdate {
+    let affected = host.update_submission(&SubmissionUpdate {
         submission_id,
+        judge_epoch,
         status: Some(status),
         verdict: Some(db_verdict),
         score: Some(round_score(submission_score)),
@@ -52,6 +54,10 @@ pub fn persist_results(
         error_code: None,
         error_message: None,
     })?;
+
+    if affected == 0 {
+        return Err(SdkError::StaleEpoch);
+    }
 
     let _ = host.log_info(&format!(
         "Submission {} judged: {:?}, score {}",

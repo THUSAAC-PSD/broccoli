@@ -24,6 +24,9 @@ pub struct OnSubmissionInput {
     /// Pre-resolved test cases.
     #[serde(default)]
     pub test_cases: Vec<TestCaseRow>,
+    /// Rejudge epoch. Stale results from a previous epoch are discarded.
+    #[serde(default)]
+    pub judge_epoch: i32,
 }
 
 /// Output from contest type plugin handler.

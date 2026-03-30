@@ -1,13 +1,22 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 use broccoli_server_sdk::types::HookEvent;
 use common::event::GenericEvent;
 use common::hook::{GenericHook, HookAction};
+use lru::LruCache;
 use plugin_core::hook::{HookMode, HookScope, PLUGIN_RUNTIME_ERROR_CODE, PluginHook};
 use plugin_core::traits::PluginManager;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use std::sync::LazyLock;
 use tokio::sync::RwLock;
+
+/// Process-local LRU cache for deduplicating background hook events.
+/// Prevents double-fired hooks when the same logical event is dispatched twice
+/// (e.g., from MQ redelivery or concurrent rejudge).
+static DISPATCHED_EVENTS: LazyLock<Mutex<LruCache<String, ()>>> =
+    LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())));
 
 use crate::entity::plugin_config;
 use crate::error::AppError;
@@ -249,7 +258,17 @@ pub fn dispatch_hooks_background(
     event_payload: serde_json::Value,
     enabled_plugins: Option<ResourceEnablements>,
     hook_registry: SharedHookRegistry,
+    event_id: Option<String>,
 ) {
+    if let Some(ref id) = event_id {
+        let mut cache = DISPATCHED_EVENTS.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.get(id).is_some() {
+            tracing::debug!(event_id = %id, topic, "Skipping duplicate background hook event");
+            return;
+        }
+        cache.put(id.clone(), ());
+    }
+
     tokio::spawn(async move {
         match dispatch_hooks(
             &topic,
@@ -284,10 +303,15 @@ pub fn dispatch_hooks_background(
 }
 
 /// Type-safe background dispatch. Serializes the event and fires in a background task.
+///
+/// `event_id`: Optional deterministic identifier for dedup. If provided, the same
+/// event_id will only be dispatched once (within the LRU cache window). Pass `None`
+/// for events that don't need dedup (backward compatible).
 pub fn dispatch_hooks_background_typed<E: HookEvent + Send + 'static>(
     event: E,
     enabled_plugins: Option<ResourceEnablements>,
     hook_registry: SharedHookRegistry,
+    event_id: Option<String>,
 ) {
     let topic = E::TOPIC.to_string();
     let payload = match serde_json::to_value(&event) {
@@ -297,7 +321,7 @@ pub fn dispatch_hooks_background_typed<E: HookEvent + Send + 'static>(
             return;
         }
     };
-    dispatch_hooks_background(topic, payload, enabled_plugins, hook_registry);
+    dispatch_hooks_background(topic, payload, enabled_plugins, hook_registry, event_id);
 }
 
 async fn dispatch_hooks_inner(

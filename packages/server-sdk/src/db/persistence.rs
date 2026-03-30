@@ -5,7 +5,7 @@ use crate::types::{CodeRunResultRow, CodeRunUpdate, SubmissionUpdate, TestCaseRe
 /// Update a submission.
 ///
 /// `judged_at = NOW()` is auto-added when the status is terminal (Judged/CompilationError).
-pub fn update_submission(update: &SubmissionUpdate) -> Result<(), SdkError> {
+pub fn update_submission(update: &SubmissionUpdate) -> Result<u64, SdkError> {
     let mut sets = Vec::new();
 
     if let Some(status) = &update.status {
@@ -75,15 +75,17 @@ pub fn update_submission(update: &SubmissionUpdate) -> Result<(), SdkError> {
     }
 
     if sets.is_empty() {
-        return Ok(());
+        return Ok(1);
     }
 
     let sql = format!(
-        "UPDATE submission SET {} WHERE id = {}",
+        "UPDATE submission SET {} WHERE id = {} AND judge_epoch = {} \
+         AND status NOT IN ('Judged', 'CompilationError', 'SystemError')",
         sets.join(", "),
-        update.submission_id
+        update.submission_id,
+        update.judge_epoch
     );
-    host::db::db_execute(&sql)
+    host::db::db_execute_with_args(&sql, &[] as &[u8])
 }
 
 /// Update a code_run row.
@@ -259,4 +261,13 @@ pub fn insert_test_case_results(results: &[TestCaseResultRow]) -> Result<(), Sdk
         host::db::db_execute(&sql)?;
     }
     Ok(())
+}
+
+/// Delete all test case results for a submission.
+pub fn delete_test_case_results(submission_id: i32) -> Result<(), SdkError> {
+    let sql = format!(
+        "DELETE FROM test_case_result WHERE submission_id = {}",
+        submission_id
+    );
+    host::db::db_execute(&sql)
 }

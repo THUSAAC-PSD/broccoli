@@ -52,6 +52,11 @@ pub struct Model {
     #[sea_orm(has_many)]
     pub test_case_results: HasMany<super::test_case_result::Entity>,
 
+    /// Monotonically increasing counter for rejudge race-condition prevention.
+    /// Stale plugin results from a previous epoch are silently discarded.
+    #[sea_orm(default_value = 0)]
+    pub judge_epoch: i32,
+
     pub created_at: DateTimeUtc,
     pub judged_at: Option<DateTimeUtc>,
 }

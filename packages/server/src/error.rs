@@ -54,6 +54,10 @@ pub enum AppError {
         /// Optional structured data from the plugin.
         details: Option<serde_json::Value>,
     },
+    /// Idempotency key is currently being processed by another request.
+    IdempotencyKeyInProgress,
+    /// Idempotency key was used with a different endpoint.
+    IdempotencyKeyMismatch(String),
     Internal(String),
 }
 
@@ -130,6 +134,17 @@ impl AppError {
                     },
                 )
             }
+            AppError::IdempotencyKeyInProgress => (
+                StatusCode::CONFLICT,
+                simple(
+                    "IDEMPOTENCY_KEY_IN_PROGRESS",
+                    "A request with this idempotency key is already being processed".into(),
+                ),
+            ),
+            AppError::IdempotencyKeyMismatch(msg) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                simple("IDEMPOTENCY_KEY_MISMATCH", msg),
+            ),
             AppError::Internal(detail) => {
                 tracing::error!("Internal error: {}", detail);
                 (

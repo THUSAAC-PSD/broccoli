@@ -213,12 +213,12 @@ impl PluginHost for MockHost {
         Ok(())
     }
 
-    fn update_submission(&self, update: &SubmissionUpdate) -> Result<(), SdkError> {
+    fn update_submission(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
         if let Some(err) = self.update_errors.borrow_mut().pop_front() {
             return Err(err);
         }
         self.submission_updates.borrow_mut().push(update.clone());
-        Ok(())
+        Ok(1) // Mock always succeeds (1 row affected)
     }
 
     fn insert_test_case_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
@@ -246,6 +246,11 @@ impl PluginHost for MockHost {
         self.code_run_result_inserts
             .borrow_mut()
             .extend_from_slice(results);
+        Ok(())
+    }
+
+    fn delete_test_case_results(&self, _submission_id: i32) -> Result<(), SdkError> {
+        self.tc_result_inserts.borrow_mut().clear();
         Ok(())
     }
 

@@ -1,4 +1,5 @@
 mod config;
+mod dedup;
 mod error;
 mod models;
 
@@ -14,6 +15,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
+use crate::dedup::RedisTaskDedup;
 use crate::error::WorkerError;
 use crate::models::worker::Worker;
 
@@ -40,6 +42,20 @@ async fn main() -> anyhow::Result<()> {
         "MQ connected"
     );
 
+    let dedup = match RedisTaskDedup::new(&config.mq.url, config.mq.dlq.stuck_job_timeout_secs) {
+        Ok(d) => {
+            info!(
+                "Task dedup initialized (TTL={}s)",
+                config.mq.dlq.stuck_job_timeout_secs
+            );
+            Some(Arc::new(d))
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to initialize task dedup, running without dedup");
+            None
+        }
+    };
+
     let op_dlq_queue = config.mq.operation_dlq_queue_name.clone();
     let dlq_config = config.mq.dlq.clone();
     let mq_for_handler = Arc::clone(&mq);
@@ -59,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
         let op_dlq_queue = op_dlq_queue.clone();
         let dlq_config = dlq_config.clone();
         let retry_tracker = Arc::clone(&retry_tracker);
+        let dedup = dedup.clone();
 
         let op_fut = mq.process_messages(
             &config.mq.operation_queue_name,
@@ -70,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
                 let dlq_queue = op_dlq_queue.clone();
                 let dlq_config = dlq_config.clone();
                 let retry_tracker = Arc::clone(&retry_tracker);
+                let dedup = dedup.clone();
                 async move {
                     process_message(
                         message,
@@ -78,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
                         &dlq_queue,
                         &dlq_config,
                         &retry_tracker,
+                        dedup.as_deref(),
                     )
                     .await
                 }
@@ -126,9 +145,17 @@ async fn process_message(
     dlq_queue: &str,
     dlq_config: &DlqConfig,
     retry_tracker: &Arc<Mutex<RetryTracker>>,
+    dedup: Option<&RedisTaskDedup>,
 ) -> Result<(), BroccoliError> {
     let task = message.payload;
     let task_id = task.id.clone();
+
+    if let Some(dedup) = dedup {
+        if !dedup.try_claim(&task_id).await {
+            info!(job_id = %task_id, "Task already claimed by another worker, skipping");
+            return Ok(());
+        }
+    }
 
     info!(
         job_id = %task_id,
@@ -217,6 +244,11 @@ async fn process_message(
                                 error = %dlq_err,
                                 "CRITICAL: Failed to publish to DLQ, message may be lost"
                             );
+                        }
+
+                        // Release dedup key so admin retries work
+                        if let Some(dedup) = dedup {
+                            dedup.release(&task_id).await;
                         }
 
                         cleanup_guard.defuse();

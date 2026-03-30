@@ -57,6 +57,9 @@ pub fn evaluate_all(
     // tc_id -> TestCaseRow for score lookup
     let tc_map: HashMap<i32, &TestCaseRow> = test_cases.iter().map(|tc| (tc.id, tc)).collect();
 
+    // Clean up any stale TC results from a previous attempt (MQ redelivery).
+    let _ = host.delete_test_case_results(submission_id);
+
     let mut outcomes: Vec<EvalOutcome> = Vec::new();
 
     let batch_id = match host.start_evaluate_batch(&batch_input) {
@@ -80,11 +83,18 @@ pub fn evaluate_all(
         }
     };
 
-    host.update_submission(&SubmissionUpdate {
+    let affected = host.update_submission(&SubmissionUpdate {
         submission_id,
+        judge_epoch: req.judge_epoch,
         status: Some(SubmissionStatus::Running),
         ..Default::default()
     })?;
+
+    if affected == 0 {
+        // Stale epoch or already terminal so stop gracefully
+        let _ = host.cancel_evaluate_batch(&batch_id);
+        return Err(SdkError::StaleEpoch);
+    }
 
     let _ = host.log_info(&format!(
         "Started evaluate batch for {} test cases",

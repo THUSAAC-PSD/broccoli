@@ -138,6 +138,10 @@ export function useSubmission({
       try {
         let data: Submission;
 
+        const idempotencyHeaders = {
+          'Idempotency-Key': crypto.randomUUID(),
+        };
+
         if (contestId) {
           const res = await apiClient.POST(
             '/contests/{id}/problems/{problem_id}/submissions',
@@ -146,6 +150,7 @@ export function useSubmission({
                 path: { id: contestId, problem_id: problemId },
               },
               body: { files, language },
+              headers: idempotencyHeaders,
             },
           );
           if (res.error) throw res.error;
@@ -154,6 +159,7 @@ export function useSubmission({
           const res = await apiClient.POST('/problems/{id}/submissions', {
             params: { path: { id: problemId } },
             body: { files, language, contest_type: contestType },
+            headers: idempotencyHeaders,
           });
           if (res.error) throw res.error;
           data = res.data;

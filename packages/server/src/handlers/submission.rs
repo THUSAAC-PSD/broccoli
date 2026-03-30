@@ -77,6 +77,7 @@ fn fire_after_submission_hooks(
         },
         enabled_plugins,
         state.registries.hook_registry.clone(),
+        Some(format!("after_submission:{}", submission_id)),
     );
 }
 
@@ -136,6 +137,10 @@ async fn fire_after_judging_hooks(
         },
         enabled_plugins,
         hook_registry,
+        Some(format!(
+            "after_judging:{}:{}",
+            submission_id, sub.judge_epoch
+        )),
     );
 }
 
@@ -170,11 +175,12 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
                 contest_type = ?contest_type,
                 "No plugin registered for contest type"
             );
-            let _ = crate::consumers::mark_submission_system_error(
+            let _ = crate::consumers::mark_submission_system_error_with_epoch(
                 &state.db,
                 submission.id,
                 "NO_HANDLER_REGISTERED",
                 &format!("No plugin registered for contest type {:?}", contest_type),
+                Some(submission.judge_epoch),
             )
             .await;
             return;
@@ -188,22 +194,24 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
         Ok(Some(p)) => p,
         Ok(None) => {
             error!(problem_id = submission.problem_id, "Problem not found");
-            let _ = crate::consumers::mark_submission_system_error(
+            let _ = crate::consumers::mark_submission_system_error_with_epoch(
                 &state.db,
                 submission.id,
                 "PROBLEM_NOT_FOUND",
                 &format!("Problem {} not found", submission.problem_id),
+                Some(submission.judge_epoch),
             )
             .await;
             return;
         }
         Err(e) => {
             error!(error = %e, "DB error fetching problem");
-            let _ = crate::consumers::mark_submission_system_error(
+            let _ = crate::consumers::mark_submission_system_error_with_epoch(
                 &state.db,
                 submission.id,
                 "DATABASE_ERROR",
                 &format!("Failed to fetch problem: {}", e),
+                Some(submission.judge_epoch),
             )
             .await;
             return;
@@ -214,11 +222,12 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
         Ok(f) => f,
         Err(e) => {
             error!(error = %e, "Failed to parse submission files");
-            let _ = crate::consumers::mark_submission_system_error(
+            let _ = crate::consumers::mark_submission_system_error_with_epoch(
                 &state.db,
                 submission.id,
                 "INVALID_FILES",
                 &format!("Failed to parse submission files: {}", e),
+                Some(submission.judge_epoch),
             )
             .await;
             return;
@@ -235,11 +244,12 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
             Ok(tcs) => tcs,
             Err(e) => {
                 error!(error = %e, "Failed to query test cases");
-                let _ = crate::consumers::mark_submission_system_error(
+                let _ = crate::consumers::mark_submission_system_error_with_epoch(
                     &state.db,
                     submission.id,
                     "DATABASE_ERROR",
                     &format!("Failed to query test cases: {}", e),
+                    Some(submission.judge_epoch),
                 )
                 .await;
                 return;
@@ -272,17 +282,19 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
         memory_limit_kb: problem.memory_limit,
         problem_type: problem.problem_type.clone(),
         test_cases: resolved_test_cases,
+        judge_epoch: submission.judge_epoch,
     };
 
     let input_bytes = match serde_json::to_vec(&input) {
         Ok(b) => b,
         Err(e) => {
             error!(error = %e, "Failed to serialize plugin input");
-            let _ = crate::consumers::mark_submission_system_error(
+            let _ = crate::consumers::mark_submission_system_error_with_epoch(
                 &state.db,
                 submission.id,
                 "SERIALIZATION_ERROR",
                 &format!("Failed to serialize input: {}", e),
+                Some(submission.judge_epoch),
             )
             .await;
             return;
@@ -295,6 +307,7 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
     let hook_registry = state.registries.hook_registry.clone();
     let db = state.db.clone();
     let submission_id = submission.id;
+    let judge_epoch = submission.judge_epoch;
     let user_id = submission.user_id;
     let problem_id = submission.problem_id;
     let contest_id = submission.contest_id;
@@ -322,13 +335,14 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
                                 error = ?output.error_message,
                                 "Plugin reported failure"
                             );
-                            let _ = crate::consumers::mark_submission_system_error(
+                            let _ = crate::consumers::mark_submission_system_error_with_epoch(
                                 &db,
                                 submission_id,
                                 "PLUGIN_ERROR",
                                 &output
                                     .error_message
                                     .unwrap_or_else(|| "Unknown plugin error".to_string()),
+                                Some(judge_epoch),
                             )
                             .await;
                         } else {
@@ -337,11 +351,12 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
                     }
                     Err(e) => {
                         error!(error = %e, "Failed to parse plugin output");
-                        let _ = crate::consumers::mark_submission_system_error(
+                        let _ = crate::consumers::mark_submission_system_error_with_epoch(
                             &db,
                             submission_id,
                             "PLUGIN_INVALID_OUTPUT",
                             &format!("Plugin returned invalid output: {}", e),
+                            Some(judge_epoch),
                         )
                         .await;
                     }
@@ -349,11 +364,12 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
             }
             Err(e) => {
                 error!(error = %e, "Plugin execution failed");
-                let _ = crate::consumers::mark_submission_system_error(
+                let _ = crate::consumers::mark_submission_system_error_with_epoch(
                     &db,
                     submission_id,
                     "PLUGIN_EXECUTION_ERROR",
                     &e.to_string(),
+                    Some(judge_epoch),
                 )
                 .await;
             }
@@ -411,6 +427,7 @@ async fn build_submission_list_items(
             problem_title: problem_model.title.clone(),
             contest_id: sub.contest_id,
             contest_type: sub.contest_type,
+            judge_epoch: sub.judge_epoch,
             created_at: sub.created_at,
             score: sub.score,
             time_used: sub.time_used,
@@ -641,6 +658,7 @@ async fn build_submission_response(
         problem_title: problem_model.title,
         contest_id: sub.contest_id,
         contest_type: sub.contest_type.clone(),
+        judge_epoch: sub.judge_epoch,
         created_at: sub.created_at,
         result: result_response,
     })
@@ -950,11 +968,13 @@ pub async fn rejudge_submission(
     active.status = Set(SubmissionStatus::Pending);
     active.verdict = Set(None);
     active.compile_output = Set(None);
+    active.error_code = Set(None);
     active.error_message = Set(None);
     active.score = Set(None);
     active.time_used = Set(None);
     active.memory_used = Set(None);
     active.judged_at = Set(None);
+    active.judge_epoch = Set(sub.judge_epoch.saturating_add(1));
     let updated = active.update(&txn).await?;
 
     txn.commit().await?;
@@ -1260,7 +1280,8 @@ pub async fn bulk_rejudge_submissions(
     for batch_ids in all_ids.chunks(BATCH_SIZE) {
         let txn = state.db.begin().await?;
 
-        let batch_submissions = submission::Entity::find()
+        // Lock rows for update (results discarded — we re-read after update for fresh epoch)
+        let _lock = submission::Entity::find()
             .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
             .lock(LockType::Update)
             .all(&txn)
@@ -1285,6 +1306,10 @@ pub async fn bulk_rejudge_submissions(
                 sea_orm::sea_query::Expr::value(Option::<String>::None),
             )
             .col_expr(
+                submission::Column::ErrorCode,
+                sea_orm::sea_query::Expr::value(Option::<String>::None),
+            )
+            .col_expr(
                 submission::Column::ErrorMessage,
                 sea_orm::sea_query::Expr::value(Option::<String>::None),
             )
@@ -1304,13 +1329,22 @@ pub async fn bulk_rejudge_submissions(
                 submission::Column::JudgedAt,
                 sea_orm::sea_query::Expr::value(Option::<chrono::DateTime<Utc>>::None),
             )
+            .col_expr(
+                submission::Column::JudgeEpoch,
+                sea_orm::sea_query::Expr::cust(
+                    "CASE WHEN judge_epoch < 2147483647 THEN judge_epoch + 1 ELSE 2147483647 END",
+                ),
+            )
             .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
             .exec(&txn)
             .await?;
 
-        for sub in batch_submissions {
-            all_enqueue_data.push(sub);
-        }
+        // Re-read after update to get the incremented judge_epoch
+        let updated_submissions = submission::Entity::find()
+            .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
+            .all(&txn)
+            .await?;
+        all_enqueue_data.extend(updated_submissions);
 
         txn.commit().await?;
     }
