@@ -172,6 +172,18 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Spawn hourly cleanup for expired idempotency keys (24h TTL)
+    {
+        let cleanup_db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                server::middleware::idempotency::cleanup_expired_keys(&cleanup_db).await;
+            }
+        });
+    }
+
     let state = AppState {
         plugins: manager,
         db: db.clone(),
@@ -214,6 +226,7 @@ async fn main() -> anyhow::Result<()> {
             .allow_headers([
                 HeaderName::from_static("content-type"),
                 HeaderName::from_static("authorization"),
+                HeaderName::from_static("idempotency-key"),
             ])
             .allow_credentials(true)
             .max_age(Duration::from_secs(app_config.server.cors.max_age)),

@@ -29,7 +29,7 @@ impl PluginHost for WasmHost {
         crate::host::evaluate::cancel_batch(batch_id)
     }
 
-    fn update_submission(&self, update: &SubmissionUpdate) -> Result<(), SdkError> {
+    fn update_submission(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
         crate::db::update_submission(update)
     }
 
@@ -43,6 +43,10 @@ impl PluginHost for WasmHost {
 
     fn insert_code_run_results(&self, results: &[CodeRunResultRow]) -> Result<(), SdkError> {
         crate::db::insert_code_run_results(results)
+    }
+
+    fn delete_test_case_results(&self, submission_id: i32) -> Result<(), SdkError> {
+        crate::db::delete_test_case_results(submission_id)
     }
 
     fn log_info(&self, msg: &str) -> Result<(), SdkError> {

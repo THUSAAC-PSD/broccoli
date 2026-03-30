@@ -1,5 +1,6 @@
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestSummary } from '@broccoli/web-sdk/contest';
+import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -270,6 +271,7 @@ function AddParticipantsTab({
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const { getKey, resetKey } = useIdempotencyKey();
   const [search, setSearch] = useState('');
   const [addingId, setAddingId] = useState<number | null>(null);
 
@@ -298,6 +300,7 @@ function AddParticipantsTab({
   async function handleAdd(userId: number) {
     setAddingId(userId);
     const { error } = await apiClient.POST('/contests/{id}/participants', {
+      headers: { 'Idempotency-Key': getKey() },
       params: { path: { id: contest.id } },
       body: { user_id: userId },
     });
@@ -305,6 +308,7 @@ function AddParticipantsTab({
     if (error) {
       toast.error(extractErrorMessage(error, t('toast.participant.addError')));
     } else {
+      resetKey();
       toast.success(t('toast.participant.added'));
       queryClient.invalidateQueries({
         queryKey: ['contest-participants', contest.id],
@@ -454,6 +458,7 @@ function BulkImportTab({
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const { getKey, resetKey } = useIdempotencyKey();
   const [jsonText, setJsonText] = useState('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -595,6 +600,7 @@ function BulkImportTab({
     const { data, error } = await apiClient.POST(
       '/contests/{id}/participants/bulk',
       {
+        headers: { 'Idempotency-Key': getKey() },
         params: { path: { id: contest.id } },
         body: {
           usernames: preview.willAdd.map((user) => user.username),
@@ -614,6 +620,7 @@ function BulkImportTab({
       return;
     }
 
+    resetKey();
     setResult(data);
     toast.success(t('toast.participant.bulkSuccess'));
     queryClient.invalidateQueries({

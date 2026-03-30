@@ -1,6 +1,10 @@
 import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
-import { type ServerTableParams, useRegistries } from '@broccoli/web-sdk/hooks';
+import {
+  type ServerTableParams,
+  useIdempotencyKey,
+  useRegistries,
+} from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { ProblemSummary } from '@broccoli/web-sdk/problem';
 import {
@@ -152,6 +156,7 @@ export function ContestFormDialog({
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const apiClient = useApiClient();
+  const { getKey, resetKey } = useIdempotencyKey();
   const { data: registries } = useRegistries();
 
   useEffect(() => {
@@ -239,7 +244,10 @@ export function ContestFormDialog({
           params: { path: { id: contest!.id } },
           body,
         })
-      : await apiClient.POST('/contests', { body });
+      : await apiClient.POST('/contests', {
+          headers: { 'Idempotency-Key': getKey() },
+          body,
+        });
 
     setLoading(false);
     if (result.error) {
@@ -250,6 +258,7 @@ export function ContestFormDialog({
         ),
       );
     } else {
+      if (!isEdit) resetKey();
       toast.success(
         isEdit ? t('toast.contest.updated') : t('toast.contest.created'),
       );
@@ -435,6 +444,7 @@ export function ContestProblemsDialog({
   const queryClient = useQueryClient();
   const contestProblemsKey = ['contest-problems', contest.id];
   const apiClient = useApiClient();
+  const { getKey, resetKey } = useIdempotencyKey();
 
   const { data: contestProblems = [], isLoading: loadingContestProblems } =
     useQuery({
@@ -507,6 +517,7 @@ export function ContestProblemsDialog({
     const { error: apiError } = await apiClient.POST(
       '/contests/{id}/problems',
       {
+        headers: { 'Idempotency-Key': getKey() },
         params: { path: { id: contest.id } },
         body: { problem_id: problemId, label: autoLabel },
       },
@@ -515,6 +526,7 @@ export function ContestProblemsDialog({
     if (apiError) {
       toast.error(extractErrorMessage(apiError, t('toast.problem.addError')));
     } else {
+      resetKey();
       toast.success(t('toast.problem.added'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
     }

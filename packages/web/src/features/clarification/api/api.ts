@@ -27,6 +27,7 @@ export async function createClarification(
   const { data, error } = await apiClient.POST(
     '/contests/{id}/clarifications',
     {
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
       params: { path: { id: contestId } },
       body,
     },
@@ -44,6 +45,7 @@ export async function replyClarification(
   const { data, error } = await apiClient.POST(
     '/contests/{id}/clarifications/{clarification_id}/reply',
     {
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
       params: { path: { id: contestId, clarification_id: clarificationId } },
       body,
     },

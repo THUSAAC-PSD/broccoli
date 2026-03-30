@@ -26,6 +26,8 @@ impl SubmissionStatus {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SubmissionUpdate {
     pub submission_id: i32,
+    /// Rejudge epoch. Used in the WHERE clause to discard stale updates.
+    pub judge_epoch: i32,
     pub status: Option<SubmissionStatus>,
     pub verdict: Option<Option<Verdict>>,
     pub score: Option<f64>,

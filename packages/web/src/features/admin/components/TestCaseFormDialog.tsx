@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Button,
@@ -41,6 +42,7 @@ export function TestCaseFormDialog({
   const { t } = useTranslation();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
+  const { getKey, resetKey } = useIdempotencyKey();
   const isEdit = !!testCaseId;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileOutputRef = useRef<HTMLInputElement>(null);
@@ -152,6 +154,7 @@ export function TestCaseFormDialog({
           body: updateBody,
         })
       : await apiClient.POST('/problems/{id}/test-cases', {
+          headers: { 'Idempotency-Key': getKey() },
           params: { path: { id: problemId } },
           body: createBody,
         });
@@ -165,6 +168,7 @@ export function TestCaseFormDialog({
         ),
       );
     } else {
+      if (!isEdit) resetKey();
       toast.success(
         isEdit ? t('toast.testCase.updated') : t('toast.testCase.created'),
       );

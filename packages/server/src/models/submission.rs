@@ -109,6 +109,9 @@ pub struct SubmissionResponse {
     /// Contest type used for judging this submission.
     #[schema(example = "ioi")]
     pub contest_type: String,
+    /// Rejudge epoch counter. Increments on each rejudge.
+    #[schema(example = 0)]
+    pub judge_epoch: i32,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Judge result if judging is complete, null otherwise.
@@ -139,6 +142,9 @@ pub struct SubmissionListItem {
     /// Contest type used for judging.
     #[schema(example = "ioi")]
     pub contest_type: String,
+    /// Rejudge epoch counter.
+    #[schema(example = 0)]
+    pub judge_epoch: i32,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     /// Total score if judged, null otherwise.

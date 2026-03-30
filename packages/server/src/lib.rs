@@ -9,6 +9,7 @@ pub mod handlers;
 pub mod hooks;
 pub mod host_funcs;
 pub mod manager;
+pub mod middleware;
 pub mod models;
 pub mod registry;
 pub mod routes;
@@ -67,6 +68,11 @@ impl Modify for SecurityAddon {
 /// Build the application router.
 pub fn build_router(state: AppState) -> axum::Router {
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
+
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        middleware::idempotency_middleware,
+    ));
 
     axum::Router::new()
         .nest("/api", router)

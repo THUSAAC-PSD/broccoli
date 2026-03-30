@@ -233,6 +233,10 @@ pub fn handle_ioi_submission(input: String) -> FnResult<String> {
             ))?;
             match run_judge(&host_impl, &req, id) {
                 Ok(out) => out,
+                Err(SdkError::StaleEpoch) => OnSubmissionOutput {
+                    success: true,
+                    error_message: None,
+                },
                 Err(e) => OnSubmissionOutput {
                     success: false,
                     error_message: Some(format!("{e:?}")),
