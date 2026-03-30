@@ -169,7 +169,8 @@ pub fn update_code_run(update: &CodeRunUpdate) -> Result<(), SdkError> {
         sets.join(", "),
         update.code_run_id
     );
-    host::db::db_execute(&sql)
+    host::db::db_execute(&sql)?;
+    Ok(())
 }
 
 /// Insert code run result rows into the database.
@@ -269,5 +270,6 @@ pub fn delete_test_case_results(submission_id: i32) -> Result<(), SdkError> {
         "DELETE FROM test_case_result WHERE submission_id = {}",
         submission_id
     );
-    host::db::db_execute(&sql)
+    host::db::db_execute(&sql)?;
+    Ok(())
 }
