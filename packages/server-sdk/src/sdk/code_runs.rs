@@ -57,7 +57,7 @@ impl CodeRuns {
         for r in results {
             let score_val = if r.score.is_finite() { r.score } else { 0.0 };
             rows.push(format!(
-                "({}, {}, {}, {}, {}, {}, {}, {}, {}, NOW())",
+                "({}, {}, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.code_run_id),
                 p.bind(r.run_index),
                 p.bind(r.verdict.to_db_str()),

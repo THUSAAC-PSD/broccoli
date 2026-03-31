@@ -87,7 +87,7 @@ impl Storage {
     /// modify it, and writes back. Retries automatically on contention.
     ///
     /// ```ignore
-    /// let state = host.storage.modify::<TokenState>(&key, |state| {
+    /// let state = host.storage.modify::<TokenState, _>(&key, |state| {
     ///     if state.available == 0 {
     ///         return Err(SdkError::Other("No tokens".into()));
     ///     }

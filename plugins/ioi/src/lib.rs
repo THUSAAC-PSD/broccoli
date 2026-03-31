@@ -642,7 +642,7 @@ fn handle_use_token(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkE
 
     let token_key = format!("tokens:{contest_id}:{user_id}");
     let tokens_config = contest_config.tokens.clone();
-    let token_state = host.storage.modify::<TokenState>(&token_key, |state| {
+    let token_state = host.storage.modify::<TokenState, _>(&token_key, |state| {
         if available_tokens(&tokens_config, state, elapsed_min) == 0 {
             return Err(SdkError::Other("NO_TOKENS_AVAILABLE".into()));
         }
