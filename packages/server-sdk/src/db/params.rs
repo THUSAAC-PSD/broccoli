@@ -5,17 +5,16 @@ use serde_json::Value as JsonValue;
 /// Use `bind()` to get the next `$N` placeholder and push the corresponding arg.
 /// The returned placeholder string embeds directly into `format!` SQL strings.
 ///
-/// For nullable values (`Option<T>`), wrap in `json!()` so `None` serializes as
-/// JSON null: `p.bind(json!(maybe_value))`. Non-optional types (`i32`, `&str`,
-/// `f64`) can be passed directly.
+/// For nullable values, use `json!()` to convert `Option<T>` -> JSON null, and
+/// add `::int` / `::text` casts in the SQL for nullable columns where Postgres
+/// needs a type hint.
 ///
 /// ```ignore
 /// let mut p = Params::new();
 /// let sql = format!(
-///     "UPDATE foo SET bar = {} WHERE id = {}",
+///     "INSERT INTO foo (name, score) VALUES ({}, {})",
 ///     p.bind("hello"), p.bind(42)
 /// );
-/// // sql = "UPDATE foo SET bar = $1 WHERE id = $2"
 /// db_execute_with_args(&sql, &p.into_args())?;
 /// ```
 pub struct Params {

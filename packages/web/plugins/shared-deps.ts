@@ -207,6 +207,22 @@ export function sharedDepsPlugin(): Plugin {
     },
 
     configureServer(server) {
+      // Force full page reload when Vite re-optimizes deps, because the
+      // import map in <head> is immutable once parsed by the browser.
+      // Without this, dynamically loaded plugins would resolve bare
+      // specifiers to stale pre-bundle URLs (old browserHash), loading
+      // duplicate module instances and breaking React context.
+      let lastBrowserHash = '';
+      server.watcher?.on('change', (path) => {
+        if (path.endsWith('_metadata.json') && path.includes('.vite/deps')) {
+          const newHash = readBrowserHash(config.cacheDir);
+          if (lastBrowserHash && newHash && newHash !== lastBrowserHash) {
+            server.ws.send({ type: 'full-reload' });
+          }
+          lastBrowserHash = newHash;
+        }
+      });
+
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith(DEV_SHIM_PREFIX)) return next();
 

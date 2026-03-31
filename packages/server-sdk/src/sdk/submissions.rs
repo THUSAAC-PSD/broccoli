@@ -71,7 +71,7 @@ impl Submissions {
         for r in results {
             let score_val = if r.score.is_finite() { r.score } else { 0.0 };
             rows.push(format!(
-                "({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, NOW())",
+                "({}, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.submission_id),
                 p.bind(json!(r.test_case_id)),
                 p.bind(json!(r.run_index)),
