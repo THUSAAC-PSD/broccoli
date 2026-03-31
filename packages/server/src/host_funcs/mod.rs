@@ -85,6 +85,17 @@ pub fn init_host_functions(
     });
 
     let db_clone = db.clone();
+    hr.register("storage", move |plugin_id| {
+        Function::new(
+            "store_delete",
+            [ValType::I64],
+            [],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            storage::store_delete,
+        )
+    });
+
+    let db_clone = db.clone();
     hr.register("sql", move |plugin_id| {
         Function::new(
             "db_execute",

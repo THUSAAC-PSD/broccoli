@@ -333,8 +333,8 @@ fn run_judge(
             })
             .collect();
         let key = format!("subtask_scores:{}:{}", req.submission_id, req.problem_id);
-        host.storage
-            .set(&key, &serde_json::to_string(&subtask_data)?)?;
+        let val = serde_json::to_string(&subtask_data)?;
+        host.storage.set(&[(&key, &val)])?;
     }
 
     if result.submission_score.is_some() {
@@ -375,8 +375,8 @@ fn update_task_score(
     )?;
 
     let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-    host.storage
-        .set(&key, &round_score(task_score).to_string())?;
+    let val = round_score(task_score).to_string();
+    host.storage.set(&[(&key, val.as_str())])?;
 
     Ok(())
 }
@@ -539,7 +539,7 @@ fn compute_official_task_score(
 #[cfg(target_arch = "wasm32")]
 fn load_token_state(host: &Host, contest_id: i32, user_id: i32) -> Result<TokenState, SdkError> {
     let key = format!("tokens:{contest_id}:{user_id}");
-    match host.storage.get(&key)? {
+    match host.storage.get_one(&key)? {
         Some(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
         None => Ok(TokenState::default()),
     }
@@ -685,8 +685,8 @@ fn handle_use_token(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkE
 
     if should_include_in_contest_aggregations(host, contest_id, user_id)? {
         let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-        host.storage
-            .set(&key, &round_score(task_score).to_string())?;
+        let val = round_score(task_score).to_string();
+        host.storage.set(&[(&key, val.as_str())])?;
     }
 
     let remaining = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
@@ -1179,19 +1179,30 @@ fn handle_scoreboard(host: &Host, input: &str) -> Result<PluginHttpResponse, Sdk
 
     let mut entries: Vec<RankEntry> = Vec::new();
 
-    for participant in &participants {
-        if (phase == "before" || phase == "during") && req.user_id() != Some(participant.user_id) {
-            continue;
-        }
+    let visible_participants: Vec<&Participant> = participants
+        .iter()
+        .filter(|p| !(phase == "before" || phase == "during") || req.user_id() == Some(p.user_id))
+        .collect();
 
+    let all_keys: Vec<String> = visible_participants
+        .iter()
+        .flat_map(|p| {
+            problem_ids
+                .iter()
+                .map(move |&pid| format!("task_score:{contest_id}:{pid}:{}", p.user_id))
+        })
+        .collect();
+    let key_refs: Vec<&str> = all_keys.iter().map(|s| s.as_str()).collect();
+    let all_scores = host.storage.get(&key_refs)?;
+
+    for participant in &visible_participants {
         let mut total = 0.0;
         let mut prob_scores = Vec::new();
 
         for &pid in &problem_ids {
             let key = format!("task_score:{contest_id}:{pid}:{}", participant.user_id);
-            let score = host
-                .storage
-                .get(&key)?
+            let score = all_scores
+                .get(&key)
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
             total += score;
@@ -1348,7 +1359,7 @@ fn handle_submission_subtask_scores(
     let key = format!("subtask_scores:{}:{}", submission_id, problem_id);
     let subtasks: serde_json::Value = host
         .storage
-        .get(&key)?
+        .get_one(&key)?
         .map(|json| serde_json::from_str(&json).unwrap_or(serde_json::Value::Null))
         .unwrap_or(serde_json::Value::Null);
 

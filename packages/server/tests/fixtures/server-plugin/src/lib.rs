@@ -62,8 +62,7 @@ pub fn kv_write(input: String) -> FnResult<String> {
     let val = req.body.and_then(|b| b.get("value").cloned()).unwrap();
 
     let store_input = serde_json::json!({
-        "key": key,
-        "value": val.as_str().unwrap(),
+        "entries": [{ "key": key, "value": val.as_str().unwrap() }],
     });
     unsafe {
         store_set(serde_json::to_string(&store_input)?)?;
@@ -80,12 +79,16 @@ pub fn kv_read(input: String) -> FnResult<String> {
     let req: PluginHttpRequest = serde_json::from_str(&input)?;
     let key = req.params.get("key").cloned().unwrap();
 
-    let store_input = serde_json::json!({ "key": key });
+    let store_input = serde_json::json!({ "keys": [key] });
     let raw = unsafe { store_get(serde_json::to_string(&store_input)?)? };
 
-    // Server returns {"value": "..."} or {"value": null}
+    // Server returns {"values": {"key": "value", ...}}
     let result: serde_json::Value = serde_json::from_str(&raw)?;
-    let (status, body) = match result.get("value").and_then(|v| v.as_str()) {
+    let (status, body) = match result
+        .get("values")
+        .and_then(|v| v.get(&key))
+        .and_then(|v| v.as_str())
+    {
         Some(v) => (200, serde_json::json!({ "value": v })),
         None => (404, serde_json::json!(null)),
     };
