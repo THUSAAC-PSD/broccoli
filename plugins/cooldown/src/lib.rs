@@ -1,84 +1,14 @@
 #[cfg(target_arch = "wasm32")]
 mod plugin {
     use broccoli_server_sdk::prelude::*;
+    use broccoli_server_sdk::types::ConfigSource;
     use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
-
-    use broccoli_server_sdk::types::ConfigResult;
 
     #[derive(Debug, Default, Deserialize)]
     struct CooldownConfig {
         #[serde(default)]
         cooldown_seconds: Option<u32>,
-    }
-
-    /// Where a resolved config value came from.
-    #[derive(Debug, Clone, Serialize)]
-    #[serde(rename_all = "snake_case")]
-    enum ConfigSource {
-        ContestProblem,
-        Contest,
-        Problem,
-        Default,
-    }
-
-    struct ResolvedCooldown {
-        cooldown_seconds: u32,
-        source: ConfigSource,
-    }
-
-    /// Try to extract a cooldown value from a config result.
-    ///
-    /// Returns `None` if the config is a manifest default (allowing cascade to continue).
-    fn try_extract(result: &ConfigResult) -> Option<u32> {
-        if result.is_default {
-            return None;
-        }
-        serde_json::from_value::<CooldownConfig>(result.config.clone())
-            .ok()
-            .and_then(|c| c.cooldown_seconds)
-    }
-
-    /// Resolve effective cooldown by cascading: contest_problem > contest > problem > default.
-    /// Returns 0 for "disabled" (no cooldown enforced).
-    fn resolve_cooldown(
-        host: &Host,
-        contest_id: Option<i32>,
-        problem_id: i32,
-    ) -> Result<ResolvedCooldown, SdkError> {
-        if let Some(cid) = contest_id {
-            let r = host
-                .config
-                .get_contest_problem(cid, problem_id, "cooldown")?;
-            if let Some(secs) = try_extract(&r) {
-                return Ok(ResolvedCooldown {
-                    cooldown_seconds: secs,
-                    source: ConfigSource::ContestProblem,
-                });
-            }
-
-            let r = host.config.get_contest(cid, "cooldown")?;
-            if let Some(secs) = try_extract(&r) {
-                return Ok(ResolvedCooldown {
-                    cooldown_seconds: secs,
-                    source: ConfigSource::Contest,
-                });
-            }
-        }
-
-        let r = host.config.get_problem(problem_id, "cooldown")?;
-        if let Some(secs) = try_extract(&r) {
-            return Ok(ResolvedCooldown {
-                cooldown_seconds: secs,
-                source: ConfigSource::Problem,
-            });
-        }
-
-        let fallback: CooldownConfig = serde_json::from_value(r.config).unwrap_or_default();
-        Ok(ResolvedCooldown {
-            cooldown_seconds: fallback.cooldown_seconds.unwrap_or(0),
-            source: ConfigSource::Default,
-        })
     }
 
     #[derive(Deserialize)]
@@ -91,20 +21,31 @@ mod plugin {
         let host = Host::new();
         let event: BeforeSubmissionEvent = serde_json::from_str(&input)?;
 
-        let resolved = match resolve_cooldown(&host, event.contest_id, event.problem_id) {
-            Ok(r) => r,
+        let eff = match host
+            .config
+            .get_effective("cooldown", event.problem_id, event.contest_id)
+        {
+            Ok(e) => e,
             Err(e) => {
                 let _ = host.log.info(&format!(
                     "[cooldown] Failed to resolve config: {e}, using default (disabled)"
                 ));
-                ResolvedCooldown {
-                    cooldown_seconds: 0,
-                    source: ConfigSource::Default,
-                }
+                return Ok(serde_json::to_string(
+                    &serde_json::json!({"action": "pass"}),
+                )?);
             }
         };
 
-        if resolved.cooldown_seconds == 0 {
+        if !eff.is_enabled {
+            return Ok(serde_json::to_string(
+                &serde_json::json!({"action": "pass"}),
+            )?);
+        }
+
+        let config: CooldownConfig = eff.parse_config().unwrap_or_default();
+        let cooldown = config.cooldown_seconds.unwrap_or(0);
+
+        if cooldown == 0 {
             return Ok(serde_json::to_string(
                 &serde_json::json!({"action": "pass"}),
             )?);
@@ -129,7 +70,7 @@ mod plugin {
             .and_then(|r| r.seconds_since_last)
             .map(|s| s.max(0) as u64);
 
-        // First submission, so no cooldown
+        // First submission — no cooldown
         if seconds_since_last.is_none() {
             return Ok(serde_json::to_string(
                 &serde_json::json!({"action": "pass"}),
@@ -137,8 +78,8 @@ mod plugin {
         }
 
         let elapsed = seconds_since_last.unwrap();
-        if elapsed < resolved.cooldown_seconds as u64 {
-            let remaining = resolved.cooldown_seconds as u64 - elapsed;
+        if elapsed < cooldown as u64 {
+            let remaining = cooldown as u64 - elapsed;
             let resp = serde_json::json!({
                 "action": "reject",
                 "code": "COOLDOWN_ACTIVE",
@@ -146,7 +87,7 @@ mod plugin {
                 "status_code": 429,
                 "details": {
                     "remaining_seconds": remaining,
-                    "cooldown_seconds": resolved.cooldown_seconds,
+                    "cooldown_seconds": cooldown,
                 }
             });
             return Ok(serde_json::to_string(&resp)?);
@@ -159,10 +100,11 @@ mod plugin {
 
     #[derive(Serialize)]
     struct CooldownStatusResponse {
+        /// Whether the cooldown plugin is enabled for this resource.
+        enabled: bool,
         cooldown_seconds: u32,
         seconds_since_last: Option<i64>,
         can_submit: bool,
-        /// Where the effective cooldown came from: "contest_problem", "contest", "problem", or "default"
         source: ConfigSource,
     }
 
@@ -266,7 +208,26 @@ mod plugin {
             }
         }
 
-        let resolved = resolve_cooldown(host, contest_id, problem_id)?;
+        let eff = host
+            .config
+            .get_effective("cooldown", problem_id, contest_id)?;
+
+        if !eff.is_enabled {
+            return Ok(PluginHttpResponse {
+                status: 200,
+                headers: None,
+                body: Some(serde_json::to_value(CooldownStatusResponse {
+                    enabled: false,
+                    cooldown_seconds: 0,
+                    seconds_since_last: None,
+                    can_submit: true,
+                    source: eff.source,
+                })?),
+            });
+        }
+
+        let config: CooldownConfig = eff.parse_config().unwrap_or_default();
+        let cooldown = config.cooldown_seconds.unwrap_or(0);
 
         let mut p = Params::new();
         let contest_filter = match contest_id {
@@ -286,12 +247,12 @@ mod plugin {
             .query_one_with_args::<SecondsSinceLast>(&sql, &p.into_args())?
             .and_then(|r| r.seconds_since_last);
 
-        let can_submit = if resolved.cooldown_seconds == 0 {
+        let can_submit = if cooldown == 0 {
             true
         } else {
             match seconds_since_last {
                 None => true, // first submission
-                Some(s) => s.max(0) as u64 >= resolved.cooldown_seconds as u64,
+                Some(s) => s.max(0) as u64 >= cooldown as u64,
             }
         };
 
@@ -299,10 +260,11 @@ mod plugin {
             status: 200,
             headers: None,
             body: Some(serde_json::to_value(CooldownStatusResponse {
-                cooldown_seconds: resolved.cooldown_seconds,
+                enabled: true,
+                cooldown_seconds: cooldown,
                 seconds_since_last,
                 can_submit,
-                source: resolved.source,
+                source: eff.source,
             })?),
         })
     }

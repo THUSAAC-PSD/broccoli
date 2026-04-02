@@ -160,7 +160,9 @@ fn config_get_fn(
     .map_err(|e| extism::Error::msg(format!("DB error in config_get: {}", e)))?;
 
     let output_value = match result {
-        Some(row) => serde_json::json!({ "config": row.config, "is_default": false }),
+        Some(row) => {
+            serde_json::json!({ "config": row.config, "is_default": false, "enabled": row.enabled })
+        }
         None => {
             // No explicit config, so we build defaults from the plugin manifest's schema
             let defaults = registry
@@ -173,7 +175,7 @@ fn config_get_fn(
                 })
                 .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
-            serde_json::json!({ "config": defaults, "is_default": true })
+            serde_json::json!({ "config": defaults, "is_default": true, "enabled": null })
         }
     };
 
@@ -221,7 +223,7 @@ fn config_set_fn(
                 ref_id: Set(ref_id),
                 namespace: Set(namespace),
                 config: Set(input.config),
-                enabled: Set(true),
+                enabled: Set(None),
                 position: Set(0),
                 updated_at: Set(Utc::now()),
             };

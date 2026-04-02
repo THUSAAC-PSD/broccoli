@@ -1,84 +1,14 @@
 #[cfg(target_arch = "wasm32")]
 mod plugin {
     use broccoli_server_sdk::prelude::*;
+    use broccoli_server_sdk::types::ConfigSource;
     use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
-
-    use broccoli_server_sdk::types::ConfigResult;
 
     #[derive(Debug, Default, Deserialize)]
     struct LimitsConfig {
         #[serde(default)]
         max_submissions: Option<u32>,
-    }
-
-    /// Where a resolved config value came from.
-    #[derive(Debug, Clone, Serialize)]
-    #[serde(rename_all = "snake_case")]
-    enum ConfigSource {
-        ContestProblem,
-        Contest,
-        Problem,
-        Default,
-    }
-
-    struct ResolvedLimit {
-        max_submissions: u32,
-        source: ConfigSource,
-    }
-
-    /// Try to extract a limit value from a config result.
-    /// Returns `None` if the config is a manifest default (allowing cascade to continue).
-    fn try_extract(result: &ConfigResult) -> Option<u32> {
-        if result.is_default {
-            return None;
-        }
-        serde_json::from_value::<LimitsConfig>(result.config.clone())
-            .ok()
-            .and_then(|c| c.max_submissions)
-    }
-
-    /// Resolve effective max_submissions by cascading: contest_problem > contest > problem > default.
-    /// Returns 0 for "unlimited" (no limit enforced).
-    ///
-    /// When `contest_id` is `None` (non-contest submission), only problem and default scopes apply.
-    fn resolve_max_submissions(
-        host: &Host,
-        contest_id: Option<i32>,
-        problem_id: i32,
-    ) -> Result<ResolvedLimit, SdkError> {
-        if let Some(cid) = contest_id {
-            let r = host.config.get_contest_problem(cid, problem_id, "limits")?;
-            if let Some(max) = try_extract(&r) {
-                return Ok(ResolvedLimit {
-                    max_submissions: max,
-                    source: ConfigSource::ContestProblem,
-                });
-            }
-
-            let r = host.config.get_contest(cid, "limits")?;
-            if let Some(max) = try_extract(&r) {
-                return Ok(ResolvedLimit {
-                    max_submissions: max,
-                    source: ConfigSource::Contest,
-                });
-            }
-        }
-
-        let r = host.config.get_problem(problem_id, "limits")?;
-        if let Some(max) = try_extract(&r) {
-            return Ok(ResolvedLimit {
-                max_submissions: max,
-                source: ConfigSource::Problem,
-            });
-        }
-
-        // Manifest defaults (from plugin.toml [config.limits.properties.max_submissions] default)
-        let fallback: LimitsConfig = serde_json::from_value(r.config).unwrap_or_default();
-        Ok(ResolvedLimit {
-            max_submissions: fallback.max_submissions.unwrap_or(0),
-            source: ConfigSource::Default,
-        })
     }
 
     #[derive(Deserialize)]
@@ -92,21 +22,32 @@ mod plugin {
         let host = Host::new();
         let event: BeforeSubmissionEvent = serde_json::from_str(&input)?;
 
-        let resolved = match resolve_max_submissions(&host, event.contest_id, event.problem_id) {
-            Ok(r) => r,
+        let eff = match host
+            .config
+            .get_effective("limits", event.problem_id, event.contest_id)
+        {
+            Ok(e) => e,
             Err(e) => {
                 let _ = host.log.info(&format!(
                     "[submission-limit] Failed to resolve config: {e}, using default (unlimited)"
                 ));
-                ResolvedLimit {
-                    max_submissions: 0,
-                    source: ConfigSource::Default,
-                }
+                return Ok(serde_json::to_string(
+                    &serde_json::json!({"action": "pass"}),
+                )?);
             }
         };
 
+        if !eff.is_enabled {
+            return Ok(serde_json::to_string(
+                &serde_json::json!({"action": "pass"}),
+            )?);
+        }
+
+        let config: LimitsConfig = eff.parse_config().unwrap_or_default();
+        let max = config.max_submissions.unwrap_or(0);
+
         // 0 means unlimited
-        if resolved.max_submissions == 0 {
+        if max == 0 {
             return Ok(serde_json::to_string(
                 &serde_json::json!({"action": "pass"}),
             )?);
@@ -132,15 +73,15 @@ mod plugin {
             .map(|r| r.count)
             .unwrap_or(0) as u32;
 
-        if count >= resolved.max_submissions {
+        if count >= max {
             let resp = serde_json::json!({
                 "action": "reject",
                 "code": "SUBMISSION_LIMIT_EXCEEDED",
-                "message": format!("Submission limit reached ({}/{})", count, resolved.max_submissions),
+                "message": format!("Submission limit reached ({}/{})", count, max),
                 "status_code": 429,
                 "details": {
                     "submissions_made": count,
-                    "max_submissions": resolved.max_submissions,
+                    "max_submissions": max,
                 }
             });
             return Ok(serde_json::to_string(&resp)?);
@@ -156,11 +97,12 @@ mod plugin {
 
     #[derive(Serialize)]
     struct LimitStatusResponse {
+        /// Whether the submission-limit plugin is enabled for this resource.
+        enabled: bool,
         submissions_made: u32,
         max_submissions: u32,
         remaining: Option<u32>,
         unlimited: bool,
-        /// Where the effective limit came from: "contest_problem", "contest", "problem", or "default"
         source: ConfigSource,
     }
 
@@ -262,8 +204,28 @@ mod plugin {
             }
         }
 
-        let resolved = resolve_max_submissions(host, contest_id, problem_id)?;
-        let unlimited = resolved.max_submissions == 0;
+        let eff = host
+            .config
+            .get_effective("limits", problem_id, contest_id)?;
+
+        if !eff.is_enabled {
+            return Ok(PluginHttpResponse {
+                status: 200,
+                headers: None,
+                body: Some(serde_json::to_value(LimitStatusResponse {
+                    enabled: false,
+                    submissions_made: 0,
+                    max_submissions: 0,
+                    remaining: None,
+                    unlimited: true,
+                    source: eff.source,
+                })?),
+            });
+        }
+
+        let config: LimitsConfig = eff.parse_config().unwrap_or_default();
+        let max = config.max_submissions.unwrap_or(0);
+        let unlimited = max == 0;
 
         let mut p = Params::new();
         let contest_filter = match contest_id {
@@ -283,21 +245,23 @@ mod plugin {
             .query_one_with_args::<SubmissionCount>(&sql, &p.into_args())?
             .map(|r| r.count)
             .unwrap_or(0) as u32;
+
         let remaining = if unlimited {
             None
         } else {
-            Some(resolved.max_submissions.saturating_sub(count))
+            Some(max.saturating_sub(count))
         };
 
         Ok(PluginHttpResponse {
             status: 200,
             headers: None,
             body: Some(serde_json::to_value(LimitStatusResponse {
+                enabled: true,
                 submissions_made: count,
-                max_submissions: resolved.max_submissions,
+                max_submissions: max,
                 remaining,
                 unlimited,
-                source: resolved.source,
+                source: eff.source,
             })?),
         })
     }

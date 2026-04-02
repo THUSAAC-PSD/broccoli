@@ -1,6 +1,7 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
+import { useSubmitGating } from '@broccoli/web-sdk/submission';
 import { useTheme } from '@broccoli/web-sdk/theme';
 import {
   Button,
@@ -261,6 +262,8 @@ export function CodeEditor({
   submissionFormat,
 }: CodeEditorProps) {
   const { t } = useTranslation();
+  const gating = useSubmitGating();
+  const isGated = gating?.isBlocked ?? false;
   const apiClient = useApiClient();
   const { data: supportedLanguages = [] } = useQuery({
     queryKey: ['supported-languages'],
@@ -1107,12 +1110,21 @@ export function CodeEditor({
   );
 
   const actionButtons = (
-    <div className="flex gap-2 justify-end">
-      <Button variant="outline" onClick={handleRun}>
-        <Play className="mr-2 h-4 w-4" />
-        {t('editor.run')}
-      </Button>
-      <Button onClick={handleSubmit}>{t('editor.submit')}</Button>
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={handleRun}>
+          <Play className="mr-2 h-4 w-4" />
+          {t('editor.run')}
+        </Button>
+        <Button onClick={handleSubmit} disabled={isGated}>
+          {t('editor.submit')}
+        </Button>
+      </div>
+      {isGated && gating?.blockReason && (
+        <span className="text-xs text-muted-foreground">
+          {gating.blockReason}
+        </span>
+      )}
     </div>
   );
 

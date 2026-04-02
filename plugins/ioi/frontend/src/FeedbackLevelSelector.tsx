@@ -1,4 +1,6 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { ConfigFieldSlotProps } from '@broccoli/web-sdk/slot';
+import { InheritedAnnotation, InheritedBadge } from '@broccoli/web-sdk/slot';
 import {
   Label,
   Select,
@@ -10,13 +12,6 @@ import {
 
 import { getConfiguredTokenMode } from './config-rules';
 import type { FeedbackLevel } from './types';
-
-interface FeedbackLevelSelectorProps {
-  value: unknown;
-  schema: { title?: string; description?: string };
-  onChange: (value: unknown) => void;
-  formValues?: unknown;
-}
 
 const FEEDBACK_OPTIONS: ReadonlyArray<{
   value: FeedbackLevel;
@@ -36,21 +31,34 @@ export function FeedbackLevelSelector({
   schema,
   onChange,
   formValues,
-}: FeedbackLevelSelectorProps) {
+  showAsPlaceholder,
+  inheritedValue,
+  inheritedSource,
+}: ConfigFieldSlotProps) {
   const { t } = useTranslation();
   const tokenMode = getConfiguredTokenMode(formValues);
   const tokenEnabled = tokenMode !== 'none';
-  const selectedValue =
-    typeof value === 'string' &&
-    FEEDBACK_OPTIONS.some((option) => option.value === value)
+  const selectedValue = showAsPlaceholder
+    ? undefined
+    : typeof value === 'string' &&
+        FEEDBACK_OPTIONS.some((option) => option.value === value)
       ? value
       : 'full';
+  const inheritedDisplay =
+    showAsPlaceholder && typeof inheritedValue === 'string'
+      ? inheritedValue
+      : undefined;
 
   return (
     <div className="flex flex-col gap-2">
-      <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
-        {schema.title ?? t('ioi.feedbackLevel.label')}
-      </Label>
+      <div className="flex items-center gap-2">
+        <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
+          {schema.title ?? t('ioi.feedbackLevel.label')}
+        </Label>
+        {showAsPlaceholder && inheritedSource && (
+          <InheritedBadge source={inheritedSource} />
+        )}
+      </div>
       {schema.description && (
         <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}
@@ -59,7 +67,9 @@ export function FeedbackLevelSelector({
 
       <Select value={selectedValue} onValueChange={(v) => onChange(v)}>
         <SelectTrigger>
-          <SelectValue />
+          <SelectValue
+            placeholder={inheritedDisplay ?? t('ioi.feedbackLevel.label')}
+          />
         </SelectTrigger>
         <SelectContent>
           {FEEDBACK_OPTIONS.map((option) => (
@@ -75,6 +85,13 @@ export function FeedbackLevelSelector({
           ? t('ioi.feedbackLevel.tokenEnabledHint')
           : t('ioi.feedbackLevel.tokenDisabledHint')}
       </p>
+      {inheritedSource && (
+        <InheritedAnnotation
+          source={inheritedSource}
+          value={String(inheritedValue ?? '')}
+          isOverride={!showAsPlaceholder}
+        />
+      )}
     </div>
   );
 }

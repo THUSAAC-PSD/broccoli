@@ -133,7 +133,7 @@ async fn list_config_inner<C: ConnectionTrait>(
                 plugin_id: schema.plugin_id.clone(),
                 namespace: schema.namespace.clone(),
                 config: serde_json::Value::Null,
-                enabled: true,
+                enabled: None,
                 position: 0,
                 updated_at: None,
                 json_schema: Some(schema.json_schema.clone()),
@@ -192,15 +192,17 @@ async fn upsert_config_inner<C: ConnectionTrait>(
     ref_id: &str,
     namespace: &str,
     config: serde_json::Value,
-    enabled: bool,
+    enabled: Option<bool>,
     position: i32,
     plugin_id: &str,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     let now = Utc::now();
+    let namespace_str = namespace.to_string();
+
     let active = plugin_config::ActiveModel {
         scope: Set(scope.to_string()),
         ref_id: Set(ref_id.to_string()),
-        namespace: Set(namespace.to_string()),
+        namespace: Set(namespace_str.clone()),
         config: Set(config.clone()),
         enabled: Set(enabled),
         position: Set(position),
@@ -227,7 +229,7 @@ async fn upsert_config_inner<C: ConnectionTrait>(
 
     Ok(Json(PluginConfigResponse {
         plugin_id: plugin_id.to_string(),
-        namespace: strip_namespace_prefix(namespace).to_string(),
+        namespace: strip_namespace_prefix(&namespace_str).to_string(),
         config,
         enabled,
         position,

@@ -154,7 +154,8 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
         .all(db)
         .await?;
 
-    let mut best: HashMap<String, (u8, bool, i32)> = HashMap::new(); // pid -> (priority, enabled, position)
+    // pid -> (priority, enabled, position)
+    let mut best: HashMap<String, (u8, Option<bool>, i32)> = HashMap::new();
 
     for r in rows {
         let pid = extract_plugin_id(&r.namespace).to_string();
@@ -164,14 +165,22 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
             .and_modify(|(cur_pri, enabled, pos)| {
                 match pri.cmp(cur_pri) {
                     std::cmp::Ordering::Greater => {
-                        // More specific scope: replace entirely
+                        // More specific scope.
+                        // Use its position, but only replace enabled if it's explicitly set (Some).
+                        // None means "inherit", so keep the parent's value.
                         *cur_pri = pri;
-                        *enabled = r.enabled;
+                        if r.enabled.is_some() {
+                            *enabled = r.enabled;
+                        }
                         *pos = r.position;
                     }
                     std::cmp::Ordering::Equal => {
                         // Same scope: aggregate (any-enabled, min-position)
-                        *enabled = *enabled || r.enabled;
+                        *enabled = match (*enabled, r.enabled) {
+                            (Some(true), _) | (_, Some(true)) => Some(true),
+                            (Some(false), _) | (_, Some(false)) => Some(false),
+                            _ => *enabled, // preserve existing if both None
+                        };
                         *pos = (*pos).min(r.position);
                     }
                     std::cmp::Ordering::Less => {
@@ -184,7 +193,7 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
 
     Ok(best
         .into_iter()
-        .filter(|(_, (_, enabled, _))| *enabled)
+        .filter(|(_, (_, enabled, _))| *enabled == Some(true))
         .map(|(pid, (_, _, pos))| (pid, pos))
         .collect())
 }

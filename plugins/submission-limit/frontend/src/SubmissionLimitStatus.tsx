@@ -1,9 +1,11 @@
 /**
  * Shows submission count / limit on the problem detail sidebar.
- * Hidden when no limit is configured (unlimited).
+ * Hidden when no limit is configured (unlimited) or plugin is not enabled.
  */
 import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { useSubmitGate } from '@broccoli/web-sdk/submission';
 import { cn } from '@broccoli/web-sdk/utils';
 import { useEffect, useState } from 'react';
 
@@ -14,10 +16,12 @@ interface Props {
 }
 
 interface LimitStatus {
+  enabled?: boolean;
   submissions_made: number;
   max_submissions: number;
   remaining: number | null;
   unlimited: boolean;
+  source?: string;
 }
 
 const PLUGIN_BASE = '/api/v1/p/submission-limit/api/plugins/submission-limit';
@@ -28,13 +32,14 @@ export function SubmissionLimitStatus({
   problemId,
 }: Props) {
   const apiFetch = useApiFetch();
+  const { accessToken } = useAuth();
   const { t } = useTranslation();
   const [status, setStatus] = useState<LimitStatus | null>(null);
 
   const submissionId = submission?.id;
 
   useEffect(() => {
-    if (!problemId) return;
+    if (!problemId || !accessToken) return;
 
     let cancelled = false;
 
@@ -56,11 +61,17 @@ export function SubmissionLimitStatus({
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, contestId, problemId, submissionId]);
+  }, [apiFetch, accessToken, contestId, problemId, submissionId]);
+
+  useSubmitGate(
+    'submission-limit',
+    status?.enabled === true && !status.unlimited && status.remaining === 0,
+    t('limit.reached'),
+  );
 
   if (!problemId || !status) return null;
 
-  if (status.unlimited) return null;
+  if (status.enabled === false || status.unlimited) return null;
 
   const { submissions_made, max_submissions, remaining } = status;
   const pct = Math.min((submissions_made / max_submissions) * 100, 100);
@@ -105,6 +116,11 @@ export function SubmissionLimitStatus({
           style={{ width: `${pct}%` }}
         />
       </div>
+      {status.source && status.source !== 'default' && (
+        <div className="mt-1.5 text-[11px] text-muted-foreground opacity-60">
+          ({t(`limit.source.${status.source}`)})
+        </div>
+      )}
     </div>
   );
 }

@@ -1,201 +1,48 @@
 /**
- * Displays config inheritance info above the config form fields.
+ * Config inheritance display for the cooldown plugin.
  */
-import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { cn } from '@broccoli/web-sdk/utils';
-import { useEffect, useState } from 'react';
-
-type ConfigScope =
-  | { scope: 'plugin'; pluginId: string }
-  | { scope: 'contest'; contestId: number }
-  | { scope: 'problem'; problemId: number }
-  | { scope: 'contest_problem'; contestId: number; problemId: number };
-
-interface JsonSchema {
-  properties?: Record<string, { default?: unknown }>;
-}
+import { ConfigInheritanceInfo } from '@broccoli/web-sdk/plugin';
 
 interface Props {
-  scope?: ConfigScope;
+  scope?: { scope: string; [key: string]: unknown };
   pluginId?: string;
   namespace?: string;
-  schema?: JsonSchema;
+  schema?: { properties?: Record<string, { default?: unknown }> };
   hasExplicitValue?: (path: string | string[]) => boolean;
+  inherited?: {
+    contest?: { values: Record<string, unknown> | null; enabled: boolean };
+    problem?: { values: Record<string, unknown> | null; enabled: boolean };
+  };
 }
 
-interface ParentValues {
-  contest: number | null;
-  problem: number | null;
-}
-
-interface Effective {
-  value: number;
-  source: string;
-}
-
-function formatCooldown(
-  v: number,
-  t: (key: string, params?: Record<string, string | number>) => string,
-): string {
-  return v === 0
-    ? t('cooldown.disabled')
-    : t('cooldown.secondsValue', { seconds: v });
-}
-
-/** Resolve the effective inherited value. Contest \> Problem. */
-function resolveEffective(
-  values: ParentValues,
-  t: (key: string) => string,
-): Effective | null {
-  if (values.contest !== null)
-    return { value: values.contest, source: t('cooldown.contest') };
-  if (values.problem !== null)
-    return { value: values.problem, source: t('cooldown.problem') };
-  return null;
-}
-
-export function CooldownConfigInfo({
-  scope,
-  pluginId,
-  namespace,
-  schema,
-  hasExplicitValue,
-}: Props) {
-  const apiClient = useApiClient();
+export function CooldownConfigInfo(props: Props) {
   const { t } = useTranslation();
-  const [parentValues, setParentValues] = useState<ParentValues | null>(null);
-
-  const isContestProblem = scope?.scope === 'contest_problem';
-  const isContest = scope?.scope === 'contest';
-
-  useEffect(() => {
-    if (!pluginId || !namespace || !isContestProblem) return;
-
-    let cancelled = false;
-    const s = scope as { contestId: number; problemId: number };
-
-    Promise.all([
-      apiClient
-        .GET('/contests/{id}/config/{plugin_id}/{namespace}', {
-          params: {
-            path: {
-              id: s.contestId,
-              plugin_id: pluginId,
-              namespace,
-            },
-          },
-        })
-        .then(({ data }) =>
-          data?.config
-            ? (data.config as Record<string, string | number>)
-            : null,
-        )
-        .catch(() => null),
-      apiClient
-        .GET('/problems/{id}/config/{plugin_id}/{namespace}', {
-          params: {
-            path: {
-              id: s.problemId,
-              plugin_id: pluginId,
-              namespace,
-            },
-          },
-        })
-        .then(({ data }) =>
-          data?.config
-            ? (data.config as Record<string, string | number>)
-            : null,
-        )
-        .catch(() => null),
-    ]).then(([contestCfg, problemCfg]) => {
-      if (cancelled) return;
-      setParentValues({
-        contest: extractCooldown(contestCfg),
-        problem: extractCooldown(problemCfg),
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiClient, scope, pluginId, namespace, isContestProblem]);
-
-  const schemaDefault = schema?.properties?.cooldown_seconds?.default;
-  const defaultLabel =
-    typeof schemaDefault === 'number' ? formatCooldown(schemaDefault, t) : null;
-
-  if (!isContestProblem && !isContest) return null;
-
-  // Contest scope: simple hint
-  if (isContest) {
-    return (
-      <p className="m-0 text-xs text-muted-foreground">
-        {t('cooldown.contestScopeHint')}
-      </p>
-    );
-  }
-
-  // Contest-problem scope
-  const effective = parentValues ? resolveEffective(parentValues, t) : null;
-  const hasLocalOverride = hasExplicitValue?.('cooldown_seconds') ?? false;
-
-  // Rows: Contest then Problem (explicit priority order)
-  const rows: { label: string; value: number | null }[] = parentValues
-    ? [
-        { label: t('cooldown.contest'), value: parentValues.contest },
-        { label: t('cooldown.problem'), value: parentValues.problem },
-      ]
-    : [];
 
   return (
-    <div
-      className={cn(
-        'text-xs text-muted-foreground flex flex-col',
-        rows.length > 0 ? 'gap-1.5' : 'gap-0',
-      )}
-    >
-      <p className="m-0">
-        {!hasLocalOverride && effective
-          ? t('cooldown.inheritInfo', {
-              value: formatCooldown(effective.value, t),
-              source: effective.source,
-            })
-          : t('cooldown.overrideInfo')}
-      </p>
-      {rows.length > 0 && (
-        <div className="flex flex-col gap-0.5">
-          {rows.map((row) => (
-            <div key={row.label} className="flex gap-1.5 items-baseline">
-              <span className="font-medium min-w-[52px]">{row.label}:</span>
-              {row.value === null ? (
-                <span className="italic text-[11px]">
-                  {defaultLabel
-                    ? t('cooldown.notSetWithDefault', { default: defaultLabel })
-                    : t('cooldown.notSet')}
-                </span>
-              ) : (
-                <code className="bg-muted px-1.5 rounded text-[11px]">
-                  {formatCooldown(row.value, t)}
-                </code>
-              )}
-              {!hasLocalOverride && row.label === effective?.source && (
-                <span className="text-[11px] text-primary">
-                  ← {t('cooldown.active')}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <ConfigInheritanceInfo
+      {...props}
+      scope={
+        props.scope as Parameters<typeof ConfigInheritanceInfo>[0]['scope']
+      }
+      fieldKey="cooldown_seconds"
+      formatValue={(v) =>
+        v === 0
+          ? t('cooldown.disabled')
+          : t('cooldown.secondsValue', { seconds: v as number })
+      }
+      labels={{
+        contest: t('cooldown.contest'),
+        problem: t('cooldown.problem'),
+        contestHint: t('cooldown.contestScopeHint'),
+        inheritInfo: (value, source) =>
+          t('cooldown.inheritInfo', { value, source }),
+        overrideInfo: t('cooldown.overrideInfo'),
+        notSet: t('cooldown.notSet'),
+        notSetWithDefault: (def) =>
+          t('cooldown.notSetWithDefault', { default: def }),
+        active: t('cooldown.active'),
+      }}
+    />
   );
-}
-
-function extractCooldown(
-  config: Record<string, string | number> | null,
-): number | null {
-  if (!config) return null;
-  const v = config.cooldown_seconds;
-  return typeof v === 'number' ? v : null;
 }

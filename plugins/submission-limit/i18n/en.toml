@@ -23,3 +23,6 @@
 'limit.notSet' = 'not set'
 'limit.notSetWithDefault' = 'not set (default: {default})'
 'limit.active' = 'active'
+'limit.source.problem' = 'from problem'
+'limit.source.contest' = 'from contest'
+'limit.source.contest_problem' = 'override'

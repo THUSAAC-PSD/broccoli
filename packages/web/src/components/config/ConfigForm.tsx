@@ -7,12 +7,13 @@ import { RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SchemaFields } from './SchemaFields';
-import type { ConfigScope, JsonSchema } from './types';
+import type { ConfigScope, InheritedConfig, JsonSchema } from './types';
 import {
   deepMerge,
   extractDefaults,
   hasOwnDescendantValue,
   hasOwnValueAtPath,
+  resolveInheritedValue,
   validateAll,
 } from './utils';
 
@@ -23,6 +24,7 @@ export interface ConfigFormProps {
   open: boolean;
   pluginId?: string;
   scope?: ConfigScope;
+  inherited?: InheritedConfig;
   getConfig: () => Promise<Record<string, unknown>>;
   putConfig: (config: Record<string, unknown>) => Promise<{ error?: unknown }>;
   deleteConfig: () => Promise<{ error?: unknown }>;
@@ -34,6 +36,7 @@ export function ConfigForm({
   open,
   pluginId,
   scope,
+  inherited,
   getConfig,
   putConfig,
   deleteConfig,
@@ -42,10 +45,24 @@ export function ConfigForm({
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const jsonSchema = schema.json_schema as JsonSchema;
-  const defaults = useMemo(() => extractDefaults(jsonSchema), [jsonSchema]);
+  const schemaDefaults = useMemo(
+    () => extractDefaults(jsonSchema),
+    [jsonSchema],
+  );
+
+  const defaults = useMemo(() => {
+    if (!inherited) return schemaDefaults;
+    const merged = { ...schemaDefaults };
+    for (const key of Object.keys(merged)) {
+      const iv = resolveInheritedValue(key, inherited);
+      if (iv !== null) merged[key] = iv.value;
+    }
+    return merged;
+  }, [schemaDefaults, inherited]);
 
   const [values, setValues] = useState<Record<string, unknown>>(defaults);
   const [storedValues, setStoredValues] = useState<Record<string, unknown>>({});
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -75,6 +92,16 @@ export function ConfigForm({
       .finally(() => setLoadingData(false));
   }, [open, schema.namespace]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (
+      !loadingData &&
+      !hasOwnDescendantValue(storedValues, []) &&
+      dirtyFields.size === 0
+    ) {
+      setValues(deepMerge(defaults, storedValues));
+    }
+  }, [defaults]); // eslint-disable-line react-hooks/exhaustive-deps -- only re-sync when defaults change (i.e., inherited arrived)
+
   const isUsingDefaultsOnly = useMemo(
     () => !hasOwnDescendantValue(storedValues, []),
     [storedValues],
@@ -88,7 +115,20 @@ export function ConfigForm({
     [storedValues],
   );
 
+  const isDirty = useCallback(
+    (path: string[]) => dirtyFields.has(path.join('.')),
+    [dirtyFields],
+  );
+
   const updateValue = useCallback((path: string[], value: unknown) => {
+    const dotPath = path.join('.');
+    setDirtyFields((prev) => {
+      if (prev.has(dotPath)) return prev;
+      const next = new Set(prev);
+      next.add(dotPath);
+      return next;
+    });
+
     setValues((prev) => {
       if (path.length === 0) return prev;
       const next = structuredClone(prev);
@@ -107,7 +147,6 @@ export function ConfigForm({
       return next;
     });
 
-    const dotPath = path.join('.');
     setErrors((prev) => {
       if (!prev[dotPath]) return prev;
       const next = { ...prev };
@@ -128,13 +167,25 @@ export function ConfigForm({
     setLoading(true);
     setMessage(null);
 
-    const { error } = await putConfig(values);
+    const dirtyTopKeys = new Set<string>();
+    for (const dp of dirtyFields) {
+      dirtyTopKeys.add(dp.split('.')[0]);
+    }
+    const payload: Record<string, unknown> = {};
+    for (const key of Object.keys(values)) {
+      if (Object.hasOwn(storedValues, key) || dirtyTopKeys.has(key)) {
+        payload[key] = values[key];
+      }
+    }
+
+    const { error } = await putConfig(payload);
 
     setLoading(false);
     if (error) {
       setMessage({ type: 'error', text: t('plugins.config.saveError') });
     } else {
-      setStoredValues(values);
+      setStoredValues(payload);
+      setDirtyFields(new Set());
       setMessage({ type: 'success', text: t('plugins.config.saveSuccess') });
       if (invalidateQueryKeys) {
         for (const key of invalidateQueryKeys) {
@@ -146,6 +197,7 @@ export function ConfigForm({
 
   function handleReset() {
     setValues(defaults);
+    setDirtyFields(new Set());
     setErrors({});
     setMessage(null);
   }
@@ -162,6 +214,7 @@ export function ConfigForm({
     } else {
       setStoredValues({});
       setValues(defaults);
+      setDirtyFields(new Set());
       setErrors({});
       setMessage({
         type: 'success',
@@ -203,6 +256,7 @@ export function ConfigForm({
             storedValues,
             schema: jsonSchema,
             isUsingDefaultsOnly,
+            inherited,
             hasExplicitValue: (path: string | string[]) =>
               isExplicitValue(Array.isArray(path) ? path : [path]),
           }}
@@ -228,6 +282,8 @@ export function ConfigForm({
           scope={scope}
           isExplicitValue={isExplicitValue}
           hasExplicitDescendant={hasExplicitDescendant}
+          isDirty={isDirty}
+          inherited={inherited}
         />
       </div>
 
@@ -262,6 +318,7 @@ export function ConfigForm({
             onClick={handleDelete}
             disabled={loading}
             className="text-destructive hover:text-destructive"
+            title={t('plugins.config.deleteHint')}
           >
             <Trash2 className="h-3.5 w-3.5 mr-1.5" />
             {t('plugins.config.delete')}

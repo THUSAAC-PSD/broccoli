@@ -11,6 +11,7 @@ export function NumericInput({
   precision,
   unit,
   id,
+  inheritedPlaceholder,
 }: Readonly<{
   value: number | undefined;
   onChange: (v: number | undefined) => void;
@@ -21,6 +22,7 @@ export function NumericInput({
   precision?: number;
   unit?: string;
   id?: string;
+  inheritedPlaceholder?: string;
 }>) {
   const [text, setText] = useState(value !== undefined ? String(value) : '');
   const [focused, setFocused] = useState(false);
@@ -135,7 +137,7 @@ export function NumericInput({
           onFocus={() => setFocused(true)}
           onKeyDown={handleKeyDown}
           className="flex h-9 w-full rounded-l-md border border-r-0 border-input bg-transparent px-3 py-1 text-sm tabular-nums shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50"
-          placeholder={integer ? '0' : '0.0'}
+          placeholder={inheritedPlaceholder ?? (integer ? '0' : '0.0')}
         />
         {(rangeHint || unit) && (
           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/60 pointer-events-none select-none tabular-nums">

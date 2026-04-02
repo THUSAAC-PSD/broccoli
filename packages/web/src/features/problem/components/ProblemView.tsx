@@ -3,6 +3,7 @@ import { useAuth } from '@broccoli/web-sdk/auth';
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
+import { SubmitGatingProvider } from '@broccoli/web-sdk/submission';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -357,67 +358,69 @@ export default function ProblemView({
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {copiedNotice && (
-        <div
-          className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-sm"
-          style={{ top: copiedNotice.top, left: copiedNotice.left }}
-        >
-          {copiedNotice.text || t('problem.copiedSimple')}
-        </div>
-      )}
-
-      <ProblemViewHeader
-        problem={problem}
-        headerId={headerId}
-        contestId={contestId}
-      />
-
-      <ProblemContentTabs
-        activeTab={activeTab}
-        onTabChange={setRouteTab}
-        canEdit={canEdit}
-        onEdit={() => setRouteTab('edit')}
-        descriptionContent={
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="mx-auto max-w-4xl">
-              <ProblemDescriptionTab
-                problem={problem}
-                isLoading={isLoading}
-                hasError={!!error}
-                sampleContents={sampleContents}
-                copiedKey={copiedKey}
-                onCopySample={onCopySample}
-                onDownloadSample={onDownloadSample}
-              />
-            </div>
+    <SubmitGatingProvider>
+      <div className="flex flex-col flex-1 min-h-0">
+        {copiedNotice && (
+          <div
+            className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-sm"
+            style={{ top: copiedNotice.top, left: copiedNotice.left }}
+          >
+            {copiedNotice.text || t('problem.copiedSimple')}
           </div>
-        }
-        codingContent={
-          <ProblemCodingTab
-            isCodeFullscreen={isCodeFullscreen}
-            onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
-            onSubmit={handleSubmit}
-            onRun={handleRun}
-            latestRun={submissions.latestRun}
-            storageKey={storageKey}
-            contestType={effectiveContestType}
-            onContestTypeChange={!contestId ? setContestType : undefined}
-            contestTypes={
-              !contestId ? (registries?.contest_types ?? []) : undefined
-            }
-            submissionFormat={problem?.submission_format}
-            latestSubmission={latestSubmission}
-            submissionHistory={submissionHistory}
-            submissions={submissions.submissionEntries}
-            isSubmitting={isSubmitting}
-            overviewVisibleCount={RECENT_SUBMISSION_OVERVIEW_COUNT}
-            submissionDetailLinkBuilder={submissionDetailLinkBuilder}
-            contestId={contestId}
-            problemId={problemId}
-          />
-        }
-      />
-    </div>
+        )}
+
+        <ProblemViewHeader
+          problem={problem}
+          headerId={headerId}
+          contestId={contestId}
+        />
+
+        <ProblemContentTabs
+          activeTab={activeTab}
+          onTabChange={setRouteTab}
+          canEdit={canEdit}
+          onEdit={() => setRouteTab('edit')}
+          descriptionContent={
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="mx-auto max-w-4xl">
+                <ProblemDescriptionTab
+                  problem={problem}
+                  isLoading={isLoading}
+                  hasError={!!error}
+                  sampleContents={sampleContents}
+                  copiedKey={copiedKey}
+                  onCopySample={onCopySample}
+                  onDownloadSample={onDownloadSample}
+                />
+              </div>
+            </div>
+          }
+          codingContent={
+            <ProblemCodingTab
+              isCodeFullscreen={isCodeFullscreen}
+              onToggleFullscreen={() => setIsCodeFullscreen(!isCodeFullscreen)}
+              onSubmit={handleSubmit}
+              onRun={handleRun}
+              latestRun={submissions.latestRun}
+              storageKey={storageKey}
+              contestType={effectiveContestType}
+              onContestTypeChange={!contestId ? setContestType : undefined}
+              contestTypes={
+                !contestId ? (registries?.contest_types ?? []) : undefined
+              }
+              submissionFormat={problem?.submission_format}
+              latestSubmission={latestSubmission}
+              submissionHistory={submissionHistory}
+              submissions={submissions.submissionEntries}
+              isSubmitting={isSubmitting}
+              overviewVisibleCount={RECENT_SUBMISSION_OVERVIEW_COUNT}
+              submissionDetailLinkBuilder={submissionDetailLinkBuilder}
+              contestId={contestId}
+              problemId={problemId}
+            />
+          }
+        />
+      </div>
+    </SubmitGatingProvider>
   );
 }

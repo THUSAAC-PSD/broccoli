@@ -3,18 +3,12 @@
  * Three IOI scoring eras, rendered as a horizontal timeline with selectable cards.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { ConfigFieldSlotProps } from '@broccoli/web-sdk/slot';
+import { InheritedAnnotation, InheritedBadge } from '@broccoli/web-sdk/slot';
 import { Label } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 
 import { getConfiguredTokenMode } from './config-rules';
-
-interface ScoringModeSelectorProps {
-  value: unknown;
-  schema: { title?: string; description?: string };
-  onChange: (value: unknown) => void;
-  formValues?: unknown;
-  setFieldValue?: (path: string[], value: unknown) => void;
-}
 
 const MODES = [
   {
@@ -49,9 +43,16 @@ export function ScoringModeSelector({
   onChange,
   formValues,
   setFieldValue,
-}: ScoringModeSelectorProps) {
+  showAsPlaceholder,
+  inheritedValue,
+  inheritedSource,
+}: ConfigFieldSlotProps) {
   const { t } = useTranslation();
   const selected = typeof value === 'string' ? value : '';
+  const inherited =
+    showAsPlaceholder && typeof inheritedValue === 'string'
+      ? inheritedValue
+      : null;
   const tokenMode = getConfiguredTokenMode(formValues);
 
   const handleSelect = (mode: string) => {
@@ -68,9 +69,14 @@ export function ScoringModeSelector({
 
   return (
     <div className="flex flex-col gap-2.5 col-span-2">
-      <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
-        {schema.title ?? t('ioi.scoringMode.label')}
-      </Label>
+      <div className="flex items-center gap-2">
+        <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
+          {schema.title ?? t('ioi.scoringMode.label')}
+        </Label>
+        {showAsPlaceholder && inheritedSource && (
+          <InheritedBadge source={inheritedSource} />
+        )}
+      </div>
       {schema.description && (
         <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}
@@ -84,10 +90,12 @@ export function ScoringModeSelector({
 
         <div className="grid grid-cols-3 gap-3 relative z-[1]">
           {MODES.map((mode) => {
-            const isSelected = selected === mode.key;
-            const accentColor = isSelected
-              ? mode.accent
-              : 'var(--muted-foreground, #9ca3af)';
+            const isSelected = !showAsPlaceholder && selected === mode.key;
+            const isInherited = inherited === mode.key;
+            const accentColor =
+              isSelected || isInherited
+                ? mode.accent
+                : 'var(--muted-foreground, #9ca3af)';
 
             return (
               <button
@@ -128,14 +136,19 @@ export function ScoringModeSelector({
                 <div
                   className={cn(
                     'rounded-lg p-3 flex-1 transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]',
+                    isInherited && !isSelected && 'opacity-50',
                   )}
                   style={{
                     border: isSelected
                       ? `1.5px solid ${mode.accent}`
-                      : '1px solid var(--border, #e5e7eb)',
+                      : isInherited
+                        ? `1.5px dashed ${mode.accent}40`
+                        : '1px solid var(--border, #e5e7eb)',
                     background: isSelected
                       ? `color-mix(in srgb, ${mode.accent} 4%, var(--card, #fff))`
-                      : 'var(--card, #fff)',
+                      : isInherited
+                        ? `color-mix(in srgb, ${mode.accent} 2%, var(--card, #fff))`
+                        : 'var(--card, #fff)',
                   }}
                 >
                   {/* Formula badge */}
@@ -183,6 +196,13 @@ export function ScoringModeSelector({
             {t('ioi.scoringMode.explanation')}
           </p>
         </details>
+        {inheritedSource && (
+          <InheritedAnnotation
+            source={inheritedSource}
+            value={String(inheritedValue ?? '')}
+            isOverride={!showAsPlaceholder}
+          />
+        )}
       </div>
     </div>
   );

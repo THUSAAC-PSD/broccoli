@@ -2,7 +2,9 @@
  * Shows cooldown timer status on the problem detail sidebar.
  */
 import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { useSubmitGate } from '@broccoli/web-sdk/submission';
 import { cn } from '@broccoli/web-sdk/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -13,15 +15,18 @@ interface Props {
 }
 
 interface CooldownStatusData {
+  enabled?: boolean;
   cooldown_seconds: number;
   seconds_since_last: number | null;
   can_submit: boolean;
+  source?: string;
 }
 
 const PLUGIN_BASE = '/api/v1/p/cooldown/api/plugins/cooldown';
 
 export function CooldownStatus({ submission, contestId, problemId }: Props) {
   const apiFetch = useApiFetch();
+  const { accessToken } = useAuth();
   const { t } = useTranslation();
   const [data, setData] = useState<CooldownStatusData | null>(null);
   const [remaining, setRemaining] = useState<number>(0);
@@ -55,9 +60,9 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
     }
   }, [apiFetch, contestId, problemId]);
 
-  // Fetch on mount and when submission changes
+  // Fetch on mount, when submission changes, and when auth token becomes available
   useEffect(() => {
-    if (!problemId) return;
+    if (!problemId || !accessToken) return;
 
     let cancelled = false;
 
@@ -69,12 +74,13 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [contestId, problemId, submissionId, fetchStatus]);
+  }, [contestId, problemId, submissionId, accessToken, fetchStatus]);
 
+  const isCounting = remaining > 0;
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
 
-    if (remaining > 0) {
+    if (isCounting) {
       timerRef.current = setInterval(() => {
         setRemaining((prev) => {
           if (prev <= 1) {
@@ -90,12 +96,14 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [fetchStatus, remaining > 0]);
+  }, [fetchStatus, isCounting]);
+
+  const isCooldownBlocked = data?.enabled === true && remaining > 0;
+  useSubmitGate('cooldown', isCooldownBlocked, t('cooldown.cooldownActive'));
 
   if (!problemId || !data) return null;
 
-  // Cooldown disabled — don't show the panel
-  if (data.cooldown_seconds === 0) return null;
+  if (data.enabled === false || data.cooldown_seconds === 0) return null;
 
   const isReady = remaining === 0;
   const pct =
@@ -139,6 +147,11 @@ export function CooldownStatus({ submission, contestId, problemId }: Props) {
 
       <div className="mt-2 text-[11px] text-muted-foreground">
         {t('cooldown.betweenSubmissions', { seconds: data.cooldown_seconds })}
+        {data.source && data.source !== 'default' && (
+          <span className="ml-1 opacity-60">
+            ({t(`cooldown.source.${data.source}`)})
+          </span>
+        )}
       </div>
     </div>
   );
