@@ -675,9 +675,22 @@ export const en: Record<string, string> = {
   'plugins.config.deleteSuccess': 'Configuration reset to defaults.',
   'plugins.config.deleteError': 'Failed to delete configuration.',
   'plugins.config.enabled': 'Plugin enabled',
+  'plugins.config.pluginStatus': 'Plugin status',
+  'plugins.config.inherit': 'Inherit',
+  'plugins.config.enabledLabel': 'Enabled',
+  'plugins.config.disabledLabel': 'Disabled',
+  'plugins.config.inheritHint':
+    'No explicit setting — inherits from the cascade.',
+  'plugins.config.enabledHint': 'Plugin is active for this scope.',
+  'plugins.config.disabledHint':
+    'Plugin is explicitly disabled. Config is preserved.',
   'plugins.config.defaultBadge': 'Default',
+  'plugins.config.overridesAnnotation': 'Overrides {value} from {source}',
+  'plugins.config.inheritedFromAnnotation': 'from {source}',
   'plugins.config.unsetNotice':
-    'This configuration is currently unset. The values below are schema defaults until you save an override.',
+    'No configuration saved for this scope. Values shown are defaults.',
+  'plugins.config.deleteHint':
+    'Removes this configuration and reverts to inherited values.',
   'sidebar.plugins': 'Plugins',
   'plugins.detail.title': 'Plugin Details',
   'plugins.detail.server': 'Server',

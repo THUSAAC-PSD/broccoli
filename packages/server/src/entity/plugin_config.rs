@@ -19,8 +19,9 @@ pub struct Model {
     pub config: Json,
 
     /// Whether this plugin is enabled for the given scope.
-    #[sea_orm(default_value = true)]
-    pub enabled: bool,
+    /// `None` = unset (inherit from cascade), `Some(true)` = enabled, `Some(false)` = disabled.
+    #[sea_orm(nullable)]
+    pub enabled: Option<bool>,
 
     /// Hook execution order (lower runs first). Defaults to 0.
     #[sea_orm(default_value = 0)]

@@ -4,18 +4,12 @@
  * token budget indicator.
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { ConfigFieldSlotProps } from '@broccoli/web-sdk/slot';
+import { InheritedBadge } from '@broccoli/web-sdk/slot';
 import { Input, Label } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 
 import { getConfiguredScoringMode } from './config-rules';
-
-interface TokenConfigPanelProps {
-  value: unknown;
-  schema: { title?: string; description?: string };
-  onChange: (value: unknown) => void;
-  formValues?: unknown;
-  setFieldValue?: (path: string[], value: unknown) => void;
-}
 
 interface TokenValue {
   mode?: string;
@@ -47,7 +41,9 @@ export function TokenConfigPanel({
   schema,
   onChange,
   formValues,
-}: TokenConfigPanelProps) {
+  showAsPlaceholder,
+  inheritedSource,
+}: ConfigFieldSlotProps) {
   const { t } = useTranslation();
   const val: TokenValue = (
     typeof value === 'object' && value !== null ? value : {}
@@ -76,8 +72,13 @@ export function TokenConfigPanel({
     >
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="text-[11px] font-semibold uppercase tracking-wide opacity-55">
-          {schema.title ?? t('ioi.tokenConfig.title')}
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide opacity-55">
+            {schema.title ?? t('ioi.tokenConfig.title')}
+          </div>
+          {showAsPlaceholder && inheritedSource && (
+            <InheritedBadge source={inheritedSource} />
+          )}
         </div>
         {isActive && (
           <div className="flex items-center gap-1.5 flex-wrap">

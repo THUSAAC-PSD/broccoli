@@ -12,7 +12,7 @@ mod verdict;
 
 pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
 pub use code_run::{OnCodeRunInput, OnCodeRunOutput};
-pub use config::ConfigResult;
+pub use config::{CascadeLevel, CascadeLevels, ConfigResult, ConfigSource, EffectiveConfig};
 pub use evaluate::{
     BuildEvalOpsInput, ResolvedLanguage, StartEvaluateBatchInput, StartEvaluateCaseInput,
     TestCaseVerdict,

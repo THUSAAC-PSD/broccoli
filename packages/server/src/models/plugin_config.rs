@@ -14,7 +14,8 @@ pub struct PluginConfigResponse {
     /// Config JSON blob
     pub config: serde_json::Value,
     /// Whether this plugin is enabled for the given scope.
-    pub enabled: bool,
+    /// `null` = unset (inherit from cascade), `true` = enabled, `false` = disabled.
+    pub enabled: Option<bool>,
     /// Hook execution order (lower runs first).
     pub position: i32,
     /// Last update timestamp. `null` when no config has been saved yet (using defaults).
@@ -32,16 +33,13 @@ pub struct PluginConfigResponse {
 pub struct UpsertPluginConfigRequest {
     /// Config JSON blob to store
     pub config: serde_json::Value,
-    /// Whether this plugin is enabled. Defaults to true if omitted (backward compat).
-    #[serde(default = "default_true")]
-    pub enabled: bool,
+    /// Whether this plugin is enabled for this scope.
+    /// `true` = enabled, `false` = disabled, `null`/absent = unset (inherit from cascade).
+    #[schema(value_type = Option<bool>)]
+    pub enabled: Option<bool>,
     /// Hook execution order (lower runs first). Defaults to 0 if omitted.
     #[serde(default)]
     pub position: i32,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// Helper functions to build scope-specific ref_id strings.

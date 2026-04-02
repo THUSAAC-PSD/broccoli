@@ -8,17 +8,16 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  Switch,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConfigForm } from './ConfigForm';
-import type { ConfigScope } from './types';
+import type { ConfigScope, InheritedConfig } from './types';
 
 type ConfigSchemaResponse = PluginDetail['config_schemas'][number];
 type PluginDetailResponse = PluginDetail;
@@ -28,7 +27,7 @@ interface ConfigEntry {
   plugin_id: string;
   namespace: string;
   config: unknown;
-  enabled: boolean;
+  enabled: boolean | null;
   position: number;
   updated_at: string | null;
   json_schema?: Record<string, unknown>;
@@ -103,7 +102,7 @@ function buildConfigCallbacks(
         },
         putConfig: async (
           config: Record<string, unknown>,
-          enabled?: boolean,
+          enabled?: boolean | null,
         ) => {
           const { error } = await apiClient.PUT(
             '/contests/{id}/config/{plugin_id}/{namespace}',
@@ -144,7 +143,7 @@ function buildConfigCallbacks(
         },
         putConfig: async (
           config: Record<string, unknown>,
-          enabled?: boolean,
+          enabled?: boolean | null,
         ) => {
           const { error } = await apiClient.PUT(
             '/problems/{id}/config/{plugin_id}/{namespace}',
@@ -484,8 +483,9 @@ function SinglePluginContent({
 
   const showEnabledToggle =
     scope.scope === 'contest' || scope.scope === 'problem';
-  const [enabled, setEnabled] = useState(true);
-  const enabledRef = useRef(true);
+  // 'unset' (no config row), true, or false.
+  const [enabled, setEnabled] = useState<'unset' | boolean>('unset');
+  const enabledRef = useRef<'unset' | boolean>('unset');
   enabledRef.current = enabled;
 
   useEffect(() => {
@@ -493,7 +493,7 @@ function SinglePluginContent({
     const firstNs = schemas[0].namespace;
 
     // Load enabled from the first namespace's config row
-    let req: Promise<{ data?: { enabled: boolean }; error?: unknown }>;
+    let req: Promise<{ data?: { enabled: boolean | null }; error?: unknown }>;
     if (scope.scope === 'contest') {
       req = apiClient.GET('/contests/{id}/config/{plugin_id}/{namespace}', {
         params: {
@@ -520,9 +520,13 @@ function SinglePluginContent({
 
     req
       .then(({ data }) => {
-        setEnabled(data?.enabled ?? true);
+        if (data?.enabled == null) {
+          setEnabled('unset');
+        } else {
+          setEnabled(data.enabled);
+        }
       })
-      .catch(() => setEnabled(true));
+      .catch(() => setEnabled('unset'));
   }, [open, showEnabledToggle, schemas, apiClient, scope, pluginId]);
 
   useEffect(() => {
@@ -530,6 +534,77 @@ function SinglePluginContent({
       setLocalNamespace(schemas[0].namespace);
     }
   }, [open, schemas, controlledNamespace]);
+
+  const [inheritedByNamespace, setInheritedByNamespace] = useState<
+    Record<string, InheritedConfig>
+  >({});
+
+  useEffect(() => {
+    if (!open || scope.scope !== 'contest_problem' || schemas.length === 0)
+      return;
+
+    let cancelled = false;
+    const s = scope as { contestId: number; problemId: number };
+
+    Promise.all(
+      schemas.map(async (schema) => {
+        const [contestRes, problemRes] = await Promise.all([
+          apiClient
+            .GET('/contests/{id}/config/{plugin_id}/{namespace}', {
+              params: {
+                path: {
+                  id: s.contestId,
+                  plugin_id: pluginId,
+                  namespace: schema.namespace,
+                },
+              },
+            })
+            .catch(() => ({ data: undefined })),
+          apiClient
+            .GET('/problems/{id}/config/{plugin_id}/{namespace}', {
+              params: {
+                path: {
+                  id: s.problemId,
+                  plugin_id: pluginId,
+                  namespace: schema.namespace,
+                },
+              },
+            })
+            .catch(() => ({ data: undefined })),
+        ]);
+
+        const inherited: InheritedConfig = {
+          contest: contestRes.data
+            ? {
+                values:
+                  (contestRes.data.config as Record<string, unknown>) ?? null,
+                enabled:
+                  (contestRes.data as { enabled?: boolean | null }).enabled ===
+                  true,
+              }
+            : undefined,
+          problem: problemRes.data
+            ? {
+                values:
+                  (problemRes.data.config as Record<string, unknown>) ?? null,
+                enabled:
+                  (problemRes.data as { enabled?: boolean | null }).enabled ===
+                  true,
+              }
+            : undefined,
+        };
+
+        return [schema.namespace, inherited] as const;
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setInheritedByNamespace(Object.fromEntries(entries));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, scope, pluginId, schemas, apiClient]);
 
   const rawCallbacks = useMemo(
     () =>
@@ -542,6 +617,14 @@ function SinglePluginContent({
     [apiClient, scope, pluginId, schemas],
   );
 
+  // The enabled toggle is form-local state — persisted via the form's Save
+  // button, not auto-saved. This avoids a race condition where the toggle's
+  // read-modify-write overlaps with a concurrent form save on slow networks.
+  const handleEnabledChange = useCallback((newEnabled: 'unset' | boolean) => {
+    setEnabled(newEnabled);
+    enabledRef.current = newEnabled;
+  }, []);
+
   const callbacksByNamespace = useMemo(() => {
     if (!showEnabledToggle) return rawCallbacks;
     return Object.fromEntries(
@@ -549,31 +632,57 @@ function SinglePluginContent({
         ns,
         {
           ...cbs,
-          putConfig: (config: Record<string, unknown>) =>
-            (
+          putConfig: (config: Record<string, unknown>) => {
+            const enabledValue = enabledRef.current;
+            return (
               cbs.putConfig as (
                 c: Record<string, unknown>,
                 e?: boolean,
               ) => Promise<{ error?: unknown }>
-            )(config, enabledRef.current),
+            )(config, enabledValue === 'unset' ? undefined : enabledValue);
+          },
         },
       ]),
     );
   }, [rawCallbacks, showEnabledToggle]);
 
   const enabledToggle = showEnabledToggle ? (
-    <div className="flex items-center justify-between rounded-lg border p-3">
-      <Label
-        htmlFor={`plugin-enabled-${pluginId}`}
-        className="text-sm font-medium"
-      >
-        {t('plugins.config.enabled')}
+    <div className="rounded-lg border p-3 space-y-2">
+      <Label className="text-sm font-medium">
+        {t('plugins.config.pluginStatus')}
       </Label>
-      <Switch
-        id={`plugin-enabled-${pluginId}`}
-        checked={enabled}
-        onCheckedChange={setEnabled}
-      />
+      <div className="grid grid-cols-3 rounded-lg border border-border overflow-hidden bg-muted text-center divide-x divide-border">
+        {(
+          [
+            { key: 'unset', label: t('plugins.config.inherit') },
+            { key: true, label: t('plugins.config.enabledLabel') },
+            { key: false, label: t('plugins.config.disabledLabel') },
+          ] as const
+        ).map((opt) => {
+          const isCurrent = enabled === opt.key;
+          return (
+            <button
+              key={String(opt.key)}
+              type="button"
+              onClick={() => handleEnabledChange(opt.key as 'unset' | boolean)}
+              className={`py-2 px-2 text-xs border-none transition-all duration-150 cursor-pointer ${
+                isCurrent
+                  ? 'bg-card font-semibold opacity-100'
+                  : 'bg-transparent opacity-60 hover:opacity-80'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-muted-foreground m-0">
+        {enabled === 'unset'
+          ? t('plugins.config.inheritHint')
+          : enabled
+            ? t('plugins.config.enabledHint')
+            : t('plugins.config.disabledHint')}
+      </p>
     </div>
   ) : null;
 
@@ -586,6 +695,7 @@ function SinglePluginContent({
           open={open}
           pluginId={pluginId}
           scope={scope}
+          inherited={inheritedByNamespace[schemas[0].namespace]}
           {...callbacksByNamespace[schemas[0].namespace]}
           invalidateQueryKeys={invalidateKeys}
         />
@@ -611,6 +721,7 @@ function SinglePluginContent({
               open={open && activeNs === s.namespace}
               pluginId={pluginId}
               scope={scope}
+              inherited={inheritedByNamespace[s.namespace]}
               {...callbacksByNamespace[s.namespace]}
               invalidateQueryKeys={invalidateKeys}
             />

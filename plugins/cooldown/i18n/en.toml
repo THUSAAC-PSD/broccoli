@@ -17,3 +17,6 @@
 'cooldown.notSet' = 'not set'
 'cooldown.notSetWithDefault' = 'not set (default: {default})'
 'cooldown.active' = 'active'
+'cooldown.source.problem' = 'from problem'
+'cooldown.source.contest' = 'from contest'
+'cooldown.source.contest_problem' = 'override'

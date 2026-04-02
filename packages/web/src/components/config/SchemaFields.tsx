@@ -1,5 +1,10 @@
 import { SchemaField } from './SchemaField';
-import type { ConfigScope, JsonSchema, JsonSchemaProperty } from './types';
+import type {
+  ConfigScope,
+  InheritedConfig,
+  JsonSchema,
+  JsonSchemaProperty,
+} from './types';
 
 export function SchemaFields({
   schema,
@@ -13,6 +18,8 @@ export function SchemaFields({
   scope,
   isExplicitValue,
   hasExplicitDescendant,
+  isDirty,
+  inherited,
 }: Readonly<{
   schema: JsonSchema;
   values: Record<string, unknown>;
@@ -25,6 +32,8 @@ export function SchemaFields({
   scope?: ConfigScope;
   isExplicitValue: (path: string[]) => boolean;
   hasExplicitDescendant: (path: string[]) => boolean;
+  isDirty?: (path: string[]) => boolean;
+  inherited?: InheritedConfig;
 }>) {
   if (!schema.properties) return null;
 
@@ -63,6 +72,8 @@ export function SchemaFields({
                   scope={scope}
                   isExplicitValue={isExplicitValue}
                   hasExplicitDescendant={hasExplicitDescendant}
+                  isDirty={isDirty}
+                  inherited={inherited}
                 />
               </div>
             );
@@ -86,6 +97,8 @@ export function SchemaFields({
           scope={scope}
           isExplicitValue={isExplicitValue}
           hasExplicitDescendant={hasExplicitDescendant}
+          isDirty={isDirty}
+          inherited={inherited}
         />
       ))}
     </div>

@@ -28,3 +28,9 @@ export type ConfigScope =
   | { scope: 'contest'; contestId: number }
   | { scope: 'problem'; problemId: number }
   | { scope: 'contest_problem'; contestId: number; problemId: number };
+
+export type {
+  InheritedConfig,
+  InheritedValue,
+  ParentScopeConfig,
+} from '@broccoli/web-sdk/slot';

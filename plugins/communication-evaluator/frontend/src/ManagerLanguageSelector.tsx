@@ -1,5 +1,7 @@
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import type { ConfigFieldSlotProps } from '@broccoli/web-sdk/slot';
+import { InheritedAnnotation, InheritedBadge } from '@broccoli/web-sdk/slot';
 import {
   Label,
   Select,
@@ -9,22 +11,27 @@ import {
   SelectValue,
 } from '@broccoli/web-sdk/ui';
 
-interface ManagerLanguageSelectorProps {
-  value: unknown;
-  schema: { title?: string; description?: string };
-  onChange: (value: unknown) => void;
-}
-
 export function ManagerLanguageSelector({
   value,
   schema,
   onChange,
-}: ManagerLanguageSelectorProps) {
+  showAsPlaceholder,
+  inheritedValue,
+  inheritedSource,
+}: ConfigFieldSlotProps) {
   const { t } = useTranslation();
   const { data, isLoading } = useRegistries();
   const languages = data?.languages ?? [];
 
-  const selectedValue = typeof value === 'string' ? value : '';
+  const selectedValue = showAsPlaceholder
+    ? ''
+    : typeof value === 'string'
+      ? value
+      : '';
+  const inheritedDisplay =
+    showAsPlaceholder && typeof inheritedValue === 'string'
+      ? inheritedValue
+      : undefined;
 
   // If current value is not in the list, show it as fallback to prevent data loss
   const hasCurrentValue =
@@ -32,9 +39,14 @@ export function ManagerLanguageSelector({
 
   return (
     <div className="flex flex-col gap-2">
-      <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
-        {schema.title ?? t('admin.additionalFiles.language')}
-      </Label>
+      <div className="flex items-center gap-2">
+        <Label className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
+          {schema.title ?? t('admin.additionalFiles.language')}
+        </Label>
+        {showAsPlaceholder && inheritedSource && (
+          <InheritedBadge source={inheritedSource} />
+        )}
+      </div>
       {schema.description && (
         <p className="text-xs opacity-50 m-0 leading-normal">
           {schema.description}
@@ -49,9 +61,11 @@ export function ManagerLanguageSelector({
         <SelectTrigger>
           <SelectValue
             placeholder={
-              isLoading
-                ? t('admin.loading')
-                : t('admin.submissionFormat.language')
+              inheritedDisplay
+                ? inheritedDisplay
+                : isLoading
+                  ? t('admin.loading')
+                  : t('admin.submissionFormat.language')
             }
           />
         </SelectTrigger>
@@ -66,6 +80,13 @@ export function ManagerLanguageSelector({
           )}
         </SelectContent>
       </Select>
+      {inheritedSource && (
+        <InheritedAnnotation
+          source={inheritedSource}
+          value={String(inheritedValue ?? '')}
+          isOverride={!showAsPlaceholder}
+        />
+      )}
     </div>
   );
 }

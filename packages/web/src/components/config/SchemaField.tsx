@@ -1,13 +1,19 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import { Slot } from '@broccoli/web-sdk/slot';
+import {
+  InheritedAnnotation,
+  InheritedBadge,
+  resolveInheritedValue,
+  Slot,
+} from '@broccoli/web-sdk/slot';
 import { Button, Input, Label, Switch } from '@broccoli/web-sdk/ui';
+import { cn } from '@broccoli/web-sdk/utils';
 import { Minus, Plus } from 'lucide-react';
 
 import { BlobRefField } from './BlobRefField';
 import { FieldError } from './FieldError';
 import { NumericInput } from './NumericInput';
 import { SchemaFields } from './SchemaFields';
-import type { ConfigScope, JsonSchemaProperty } from './types';
+import type { ConfigScope, InheritedConfig, JsonSchemaProperty } from './types';
 import { defaultForType } from './utils';
 
 function DefaultBadge() {
@@ -32,6 +38,8 @@ export function SchemaField({
   scope,
   isExplicitValue,
   hasExplicitDescendant,
+  isDirty,
+  inherited,
 }: Readonly<{
   name: string;
   prop: JsonSchemaProperty;
@@ -45,6 +53,8 @@ export function SchemaField({
   scope?: ConfigScope;
   isExplicitValue: (path: string[]) => boolean;
   hasExplicitDescendant: (path: string[]) => boolean;
+  isDirty?: (path: string[]) => boolean;
+  inherited?: InheritedConfig;
 }>) {
   const { t } = useTranslation();
   const fieldId = `cfg-${path.join('-')}`;
@@ -53,6 +63,28 @@ export function SchemaField({
   const error = errors[dotPath];
   const isFieldExplicit = isExplicitValue(path);
   const hasFieldOverride = hasExplicitDescendant(path);
+  const isFieldDirty = isDirty?.(path) ?? false;
+
+  const inheritedResult = resolveInheritedValue(name, inherited);
+  const showAsPlaceholder = !isFieldExplicit && !isFieldDirty;
+
+  const badge = (() => {
+    if (isFieldExplicit || isFieldDirty) return null;
+    if (inheritedResult)
+      return <InheritedBadge source={inheritedResult.source} />;
+    return <DefaultBadge />;
+  })();
+
+  const annotation = (() => {
+    if (!inheritedResult) return null;
+    return (
+      <InheritedAnnotation
+        source={inheritedResult.source}
+        value={String(inheritedResult.value)}
+        isOverride={isFieldExplicit || isFieldDirty}
+      />
+    );
+  })();
 
   const slotName =
     pluginId && namespace
@@ -77,6 +109,11 @@ export function SchemaField({
           scope,
           isExplicitValue: isFieldExplicit,
           hasExplicitDescendant: hasFieldOverride,
+          isDirty: isFieldDirty,
+          inherited,
+          showAsPlaceholder,
+          inheritedValue: inheritedResult?.value,
+          inheritedSource: inheritedResult?.source,
         }}
       >
         {defaultField}
@@ -133,6 +170,8 @@ export function SchemaField({
               scope={scope}
               isExplicitValue={isExplicitValue}
               hasExplicitDescendant={hasExplicitDescendant}
+              isDirty={isDirty}
+              inherited={inherited}
             />
           </div>
         </div>
@@ -141,6 +180,11 @@ export function SchemaField({
 
     // Boolean -> horizontal settings-style card with switch on the right
     if (prop.type === 'boolean') {
+      const inheritedBoolLabel =
+        showAsPlaceholder && inheritedResult
+          ? `(${String(inheritedResult.value)})`
+          : undefined;
+
       return (
         <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
           <div className="space-y-0.5">
@@ -151,13 +195,19 @@ export function SchemaField({
               >
                 {label}
               </Label>
-              {!isFieldExplicit && <DefaultBadge />}
+              {badge}
+              {inheritedBoolLabel && (
+                <span className="text-[10px] text-muted-foreground/50 italic">
+                  {inheritedBoolLabel}
+                </span>
+              )}
             </div>
             {prop.description && (
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {prop.description}
               </p>
             )}
+            {annotation}
           </div>
           <Switch
             id={fieldId}
@@ -170,6 +220,11 @@ export function SchemaField({
 
     // String enum -> styled select
     if (prop.type === 'string' && prop.enum) {
+      const selectPlaceholder =
+        showAsPlaceholder && inheritedResult
+          ? String(inheritedResult.value)
+          : undefined;
+
       return (
         <div className="flex flex-col gap-1.5">
           <div className="space-y-1">
@@ -180,7 +235,7 @@ export function SchemaField({
               >
                 {label}
               </Label>
-              {!isFieldExplicit && <DefaultBadge />}
+              {badge}
             </div>
             {prop.description && (
               <p className="text-xs text-muted-foreground">
@@ -191,10 +246,20 @@ export function SchemaField({
           <div>
             <select
               id={fieldId}
-              value={typeof value === 'string' ? value : ''}
+              value={
+                showAsPlaceholder ? '' : typeof value === 'string' ? value : ''
+              }
               onChange={(e) => updateValue(path, e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+              className={cn(
+                'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring',
+                showAsPlaceholder && 'text-muted-foreground',
+              )}
             >
+              {selectPlaceholder && (
+                <option value="" disabled>
+                  {selectPlaceholder}
+                </option>
+              )}
               {prop.enum.map((opt) => (
                 <option key={String(opt)} value={String(opt)}>
                   {String(opt)}
@@ -202,6 +267,7 @@ export function SchemaField({
               ))}
             </select>
             <FieldError message={error} />
+            {annotation}
           </div>
         </div>
       );
@@ -209,6 +275,11 @@ export function SchemaField({
 
     // Number / integer -> custom NumericInput
     if (prop.type === 'number' || prop.type === 'integer') {
+      const inheritedPlaceholder =
+        showAsPlaceholder && inheritedResult
+          ? String(inheritedResult.value)
+          : undefined;
+
       return (
         <div className="flex flex-col gap-1.5">
           <div className="space-y-1">
@@ -219,7 +290,7 @@ export function SchemaField({
               >
                 {label}
               </Label>
-              {!isFieldExplicit && <DefaultBadge />}
+              {badge}
             </div>
             {prop.description && (
               <p className="text-xs text-muted-foreground">
@@ -230,7 +301,13 @@ export function SchemaField({
           <div>
             <NumericInput
               id={fieldId}
-              value={typeof value === 'number' ? value : undefined}
+              value={
+                showAsPlaceholder
+                  ? undefined
+                  : typeof value === 'number'
+                    ? value
+                    : undefined
+              }
               onChange={(v) => updateValue(path, v)}
               min={prop.minimum}
               max={prop.maximum}
@@ -238,8 +315,10 @@ export function SchemaField({
               step={prop.multipleOf}
               precision={prop['x-precision']}
               unit={prop['x-unit']}
+              inheritedPlaceholder={inheritedPlaceholder}
             />
             <FieldError message={error} />
+            {annotation}
           </div>
         </div>
       );
@@ -282,6 +361,8 @@ export function SchemaField({
                     scope={scope}
                     isExplicitValue={isExplicitValue}
                     hasExplicitDescendant={hasExplicitDescendant}
+                    isDirty={isDirty}
+                    inherited={inherited}
                   />
                 </div>
                 <Button
@@ -319,33 +400,46 @@ export function SchemaField({
     }
 
     // Default: string input
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Label
-              htmlFor={fieldId}
-              className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
-            >
-              {label}
-            </Label>
-            {!isFieldExplicit && <DefaultBadge />}
+    {
+      const stringPlaceholder =
+        showAsPlaceholder && inheritedResult
+          ? String(inheritedResult.value)
+          : undefined;
+
+      return (
+        <div className="flex flex-col gap-1.5">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor={fieldId}
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+              >
+                {label}
+              </Label>
+              {badge}
+            </div>
+            {prop.description && (
+              <p className="text-xs text-muted-foreground">
+                {prop.description}
+              </p>
+            )}
           </div>
-          {prop.description && (
-            <p className="text-xs text-muted-foreground">{prop.description}</p>
-          )}
+          <div>
+            <Input
+              id={fieldId}
+              value={
+                showAsPlaceholder ? '' : typeof value === 'string' ? value : ''
+              }
+              onChange={(e) => updateValue(path, e.target.value)}
+              placeholder={stringPlaceholder}
+              minLength={prop.minLength}
+              maxLength={prop.maxLength}
+            />
+            <FieldError message={error} />
+            {annotation}
+          </div>
         </div>
-        <div>
-          <Input
-            id={fieldId}
-            value={typeof value === 'string' ? value : ''}
-            onChange={(e) => updateValue(path, e.target.value)}
-            minLength={prop.minLength}
-            maxLength={prop.maxLength}
-          />
-          <FieldError message={error} />
-        </div>
-      </div>
-    );
+      );
+    }
   }
 }

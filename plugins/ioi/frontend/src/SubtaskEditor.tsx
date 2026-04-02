@@ -3,6 +3,8 @@
  */
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { TestCaseSummary } from '@broccoli/web-sdk/problem';
+import type { ConfigFieldSlotProps } from '@broccoli/web-sdk/slot';
+import { InheritedBadge } from '@broccoli/web-sdk/slot';
 
 type TestCaseListItem = TestCaseSummary;
 import {
@@ -62,13 +64,6 @@ function getPortalOffset(portalTarget: HTMLElement): {
   const probeRect = probe.getBoundingClientRect();
   portalTarget.removeChild(probe);
   return { dx: probeRect.left, dy: probeRect.top };
-}
-
-interface SubtaskEditorProps {
-  value: unknown;
-  schema: { title?: string; description?: string };
-  onChange: (value: unknown) => void;
-  scope?: { scope: string; problemId?: number; contestId?: number };
 }
 
 interface SubtaskValue {
@@ -867,7 +862,9 @@ export function SubtaskEditor({
   schema,
   onChange,
   scope,
-}: SubtaskEditorProps) {
+  showAsPlaceholder,
+  inheritedSource,
+}: ConfigFieldSlotProps) {
   const { t } = useTranslation();
   const subtasks: SubtaskValue[] = Array.isArray(value)
     ? (value as Record<string, unknown>[]).map((raw) => ({
@@ -1301,10 +1298,13 @@ export function SubtaskEditor({
       className="flex flex-col gap-3 col-span-2"
     >
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
+        <div className="flex items-center gap-2">
           <span className="text-[11px] font-bold uppercase tracking-widest opacity-45">
             {schema.title ?? t('ioi.subtask.title')}
           </span>
+          {showAsPlaceholder && inheritedSource && (
+            <InheritedBadge source={inheritedSource} />
+          )}
           {problemId && !tcLoading && testCases.length > 0 && (
             <span className={cn(monoClass, 'text-[10px] opacity-30 ml-2.5')}>
               {testCases.length !== 1

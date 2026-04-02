@@ -1,5 +1,7 @@
 import type { JsonSchema, JsonSchemaProperty } from './types';
 
+export { resolveInheritedValue } from '@broccoli/web-sdk/slot';
+
 export function extractDefaults(schema: JsonSchema): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   if (!schema.properties) return result;
