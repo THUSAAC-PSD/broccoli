@@ -27,7 +27,7 @@ use server::entity::{user, user_role};
 use server::manager::ServerManager;
 use server::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    OperationBatches, OperationWaiters,
+    LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
@@ -557,6 +557,8 @@ impl TestApp {
         let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
         let evaluator_registry: EvaluatorRegistry = Arc::new(RwLock::new(HashMap::new()));
         let checker_format_registry: CheckerFormatRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let language_resolver_registry: LanguageResolverRegistry =
+            Arc::new(RwLock::new(HashMap::new()));
         let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
         let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
         let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
@@ -570,6 +572,7 @@ impl TestApp {
             contest_type_registry.clone(),
             evaluator_registry.clone(),
             checker_format_registry.clone(),
+            language_resolver_registry.clone(),
             evaluate_batches.clone(),
             app_config.clone(),
             blob_store.clone(),
@@ -613,6 +616,7 @@ impl TestApp {
                 contest_type_registry,
                 evaluator_registry,
                 checker_format_registry,
+                language_resolver_registry,
                 operation_batches,
                 operation_waiters,
                 evaluate_batches,

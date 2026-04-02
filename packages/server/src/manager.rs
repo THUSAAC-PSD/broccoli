@@ -14,7 +14,7 @@ use crate::config::AppConfig;
 use crate::host_funcs;
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    OperationBatches, OperationWaiters,
+    LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 
 pub struct ServerManager {
@@ -34,6 +34,7 @@ impl ServerManager {
         contest_type_registry: ContestTypeRegistry,
         evaluator_registry: EvaluatorRegistry,
         checker_format_registry: CheckerFormatRegistry,
+        language_resolver_registry: LanguageResolverRegistry,
         evaluate_batches: EvaluateBatches,
         app_config: AppConfig,
         blob_store: Arc<dyn BlobStore>,
@@ -52,6 +53,7 @@ impl ServerManager {
             contest_type_registry,
             evaluator_registry,
             checker_format_registry,
+            language_resolver_registry,
             evaluate_batches,
             manager.clone() as Arc<dyn PluginManager>,
             app_config,

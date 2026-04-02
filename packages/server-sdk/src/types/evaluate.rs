@@ -151,3 +151,78 @@ impl TestCaseVerdict {
         }
     }
 }
+
+/// Input to a language resolver plugin function.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResolveLanguageInput {
+    pub language_id: String,
+    /// Filenames submitted by the contestant (e.g. ["solution.cpp"]).
+    pub submitted_files: Vec<String>,
+    /// Filenames provided by the judge as additional files (e.g. ["grader.cpp", "grader.h"]).
+    pub additional_files: Vec<String>,
+    /// Per-problem language configuration from plugin config system. Null if not set.
+    pub problem_config: Option<serde_json::Value>,
+}
+
+/// Output from a language resolver plugin function.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResolveLanguageOutput {
+    /// Compilation specification. None for interpreted languages.
+    pub compile: Option<CompileSpec>,
+    /// Execution specification.
+    pub run: RunSpec,
+}
+
+/// How to compile the source files.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CompileSpec {
+    /// Fully resolved compile command, e.g. ["g++", "-O2", "solution.cpp", "grader.cpp", "-o", "solution"].
+    pub command: Vec<String>,
+    /// ALL files whose contents influence the compilation output (for cache key computation).
+    /// Includes headers and other files not on the command line.
+    /// If empty, the evaluator should default to all files in the sandbox.
+    pub cache_inputs: Vec<String>,
+    /// Expected output artifacts from compilation.
+    /// Can be exact filenames ("solution") or glob patterns ("*.class").
+    /// Globs are resolved relative to the sandbox working directory only.
+    pub outputs: Vec<OutputSpec>,
+}
+
+/// A compilation output specification - either an exact filename or a glob pattern.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", content = "pattern")]
+pub enum OutputSpec {
+    /// Exact filename, e.g. "solution".
+    File(String),
+    /// Glob pattern resolved relative to sandbox workdir, e.g. "*.class".
+    Glob(String),
+}
+
+impl OutputSpec {
+    pub fn validate(&self) -> Result<(), String> {
+        let (value, kind) = match self {
+            OutputSpec::File(v) => (v.as_str(), "filename"),
+            OutputSpec::Glob(v) => (v.as_str(), "glob"),
+        };
+        if value.is_empty() {
+            return Err(format!("Output {kind} must not be empty"));
+        }
+        if value.contains("..") || value.starts_with('/') || value.contains('\\') {
+            return Err(format!(
+                "Output {kind} '{value}' contains unsafe path components"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// How to run the compiled/interpreted program.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RunSpec {
+    /// Fully resolved run command, e.g. ["./solution"] or ["python3", "grader.py"].
+    pub command: Vec<String>,
+    /// Files needed in the execution environment beyond compilation outputs.
+    /// For interpreted languages: all source files (e.g. ["grader.py", "solution.py"]).
+    /// For compiled languages: typically empty (binary is a compile output).
+    pub extra_files: Vec<String>,
+}
