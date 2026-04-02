@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
     let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
     let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
     let checker_format_registry = Arc::new(RwLock::new(HashMap::new()));
+    let language_resolver_registry = Arc::new(RwLock::new(HashMap::new()));
     let operation_batches = Arc::new(DashMap::new());
     let operation_waiters = Arc::new(DashMap::new());
     let evaluate_batches = Arc::new(DashMap::new());
@@ -151,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
         contest_type_registry.clone(),
         evaluator_registry.clone(),
         checker_format_registry.clone(),
+        language_resolver_registry.clone(),
         evaluate_batches.clone(),
         app_config.clone(),
         blob_store.clone(),
@@ -194,6 +196,7 @@ async fn main() -> anyhow::Result<()> {
             contest_type_registry: contest_type_registry.clone(),
             evaluator_registry: evaluator_registry.clone(),
             checker_format_registry: checker_format_registry.clone(),
+            language_resolver_registry: language_resolver_registry.clone(),
             operation_batches: operation_batches.clone(),
             operation_waiters: operation_waiters.clone(),
             evaluate_batches: evaluate_batches.clone(),

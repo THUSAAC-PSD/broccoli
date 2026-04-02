@@ -11,7 +11,7 @@ use crate::config::AppConfig;
 use crate::hooks::SharedHookRegistry;
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    OperationBatches, OperationWaiters,
+    LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 
 /// A pending device authorization request (RFC 8628).
@@ -32,6 +32,7 @@ pub struct RegistryState {
     pub contest_type_registry: ContestTypeRegistry,
     pub evaluator_registry: EvaluatorRegistry,
     pub checker_format_registry: CheckerFormatRegistry,
+    pub language_resolver_registry: LanguageResolverRegistry,
     pub operation_batches: OperationBatches,
     pub operation_waiters: OperationWaiters,
     pub evaluate_batches: EvaluateBatches,

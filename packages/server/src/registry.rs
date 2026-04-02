@@ -48,6 +48,9 @@ pub type EvaluatorRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
 /// checker_format -> handler registry
 pub type CheckerFormatRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
 
+/// language_id -> handler registry for language resolver plugins
+pub type LanguageResolverRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
+
 /// batch_id -> batch state registry (operation dispatch)
 pub type OperationBatches = Arc<DashMap<String, BatchState<TaskResult>>>;
 

@@ -11,7 +11,7 @@ pub mod storage;
 use crate::config::AppConfig;
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    OperationBatches, OperationWaiters,
+    LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 use common::storage::BlobStore;
 use extism::{Function, UserData, ValType};
@@ -32,6 +32,7 @@ pub fn init_host_functions(
     contest_type_registry: ContestTypeRegistry,
     evaluator_registry: EvaluatorRegistry,
     checker_format_registry: CheckerFormatRegistry,
+    language_resolver_registry: LanguageResolverRegistry,
     evaluate_batches: EvaluateBatches,
     plugin_manager: Arc<dyn PluginManager>,
     config: AppConfig,
@@ -202,12 +203,14 @@ pub fn init_host_functions(
     let contest_reg = contest_type_registry.clone();
     let eval_reg = evaluator_registry.clone();
     let checker_reg = checker_format_registry.clone();
+    let lang_resolver_reg = language_resolver_registry;
     hr.register_many("plugin:register", move |plugin_id| {
         registry::create_registry_functions(
             plugin_id.to_string(),
             contest_reg.clone(),
             eval_reg.clone(),
             checker_reg.clone(),
+            lang_resolver_reg.clone(),
         )
     });
 
