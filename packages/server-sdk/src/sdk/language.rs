@@ -1,5 +1,5 @@
 use crate::error::SdkError;
-use crate::types::ResolvedLanguage;
+use crate::types::{ResolveLanguageInput, ResolveLanguageOutput, ResolvedLanguage};
 
 pub struct Language {
     #[cfg(not(target_arch = "wasm32"))]
@@ -23,6 +23,12 @@ impl Language {
             unsafe { crate::host::raw::get_language_config(serde_json::to_string(&input)?)? };
         Ok(serde_json::from_str(&response_json)?)
     }
+
+    pub fn resolve(&self, input: &ResolveLanguageInput) -> Result<ResolveLanguageOutput, SdkError> {
+        let response_json =
+            unsafe { crate::host::raw::resolve_language(serde_json::to_string(input)?)? };
+        Ok(serde_json::from_str(&response_json)?)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -43,6 +49,13 @@ impl Language {
         _submitted_filename: &str,
         _extra_sources: &[String],
     ) -> Result<ResolvedLanguage, SdkError> {
+        Err(SdkError::Other("Mock language not implemented".into()))
+    }
+
+    pub fn resolve(
+        &self,
+        _input: &ResolveLanguageInput,
+    ) -> Result<ResolveLanguageOutput, SdkError> {
         Err(SdkError::Other("Mock language not implemented".into()))
     }
 }

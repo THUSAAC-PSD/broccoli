@@ -53,6 +53,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
                 solution_language: req.language.clone(),
                 time_limit_ms: req.time_limit_ms,
                 memory_limit_kb: req.memory_limit_kb,
+                contest_id: req.contest_id,
                 inline_input: tc.inline_input.clone(),
                 inline_expected_output: tc.inline_expected_output.clone(),
             })

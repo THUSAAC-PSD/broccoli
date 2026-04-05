@@ -1,0 +1,146 @@
+name = "standard-languages"
+version = "0.1.0"
+description = "Language resolution for standard competitive programming languages (C, C++, Python, Java)"
+
+[server]
+entry = "standard_languages.wasm"
+permissions = ["logger", "plugin:register", "config:read"]
+
+[web]
+root = "frontend/dist"
+entry = "index.js"
+
+[web.components]
+CompileInfoBanner = "CompileInfoBanner"
+
+[translations]
+en = "i18n/en.toml"
+
+[[web.slots]]
+name = "config.form.standard-languages.compilation"
+position = "prepend"
+component = "CompileInfoBanner"
+
+[config.compilation]
+description = "Compiler and interpreter paths and default flags"
+scopes = ["plugin", "contest", "problem", "contest_problem"]
+
+[config.compilation.properties.cpp]
+type = "object"
+title = "C++"
+
+[config.compilation.properties.cpp.properties.compiler]
+type = "string"
+title = "Compiler Path"
+default = "/usr/bin/g++"
+
+[config.compilation.properties.cpp.properties.flags]
+type = "array"
+title = "Compile Flags"
+default = ["-O2", "-std=c++17"]
+items = { type = "string" }
+
+[config.compilation.properties.c]
+type = "object"
+title = "C"
+
+[config.compilation.properties.c.properties.compiler]
+type = "string"
+title = "Compiler Path"
+default = "/usr/bin/gcc"
+
+[config.compilation.properties.c.properties.flags]
+type = "array"
+title = "Compile Flags"
+default = ["-O2", "-std=c17"]
+items = { type = "string" }
+
+[config.compilation.properties.python3]
+type = "object"
+title = "Python 3"
+
+[config.compilation.properties.python3.properties.interpreter]
+type = "string"
+title = "Interpreter Path"
+default = "/usr/bin/python3"
+
+[config.compilation.properties.java]
+type = "object"
+title = "Java"
+
+[config.compilation.properties.java.properties.compiler]
+type = "string"
+title = "Compiler Command"
+default = "javac"
+
+[config.compilation.properties.java.properties.runner]
+type = "string"
+title = "Runtime Command"
+default = "java"
+
+[config.compilation.properties.java.properties.flags]
+type = "array"
+title = "Compile Flags"
+default = []
+items = { type = "string" }
+
+[config.entry-points]
+description = "Per-language entry point and extra compile flag overrides"
+scopes = ["problem"]
+
+[config.entry-points.properties.cpp]
+type = "object"
+title = "C++"
+
+[config.entry-points.properties.cpp.properties.entry_point]
+type = "string"
+title = "Entry Point"
+description = "File containing main(). Leave empty to use the default."
+
+[config.entry-points.properties.cpp.properties.extra_compile_flags]
+type = "array"
+title = "Extra Compile Flags"
+description = "Additional flags appended to the compile command."
+default = []
+items = { type = "string" }
+
+[config.entry-points.properties.c]
+type = "object"
+title = "C"
+
+[config.entry-points.properties.c.properties.entry_point]
+type = "string"
+title = "Entry Point"
+description = "File containing main(). Leave empty to use the default."
+
+[config.entry-points.properties.c.properties.extra_compile_flags]
+type = "array"
+title = "Extra Compile Flags"
+description = "Additional flags appended to the compile command."
+default = []
+items = { type = "string" }
+
+[config.entry-points.properties.python3]
+type = "object"
+title = "Python 3"
+
+[config.entry-points.properties.python3.properties.entry_point]
+type = "string"
+title = "Entry Point"
+description = "File to run. Leave empty to use the default."
+
+[config.entry-points.properties.java]
+type = "object"
+title = "Java"
+
+[config.entry-points.properties.java.properties.entry_point]
+type = "string"
+title = "Entry Point"
+description = "File containing main(). Leave empty to use the default."
+
+[config.entry-points.properties.java.properties.extra_compile_flags]
+type = "array"
+title = "Extra Compile Flags"
+description = "Additional flags appended to the compile command."
+default = []
+items = { type = "string" }

@@ -21,6 +21,8 @@ pub struct StartEvaluateCaseInput {
     pub solution_language: String,
     pub time_limit_ms: i32,
     pub memory_limit_kb: i32,
+    #[serde(default)]
+    pub contest_id: Option<i32>,
     /// Inline input data for custom run test cases.
     #[serde(default)]
     pub inline_input: Option<String>,
@@ -38,6 +40,8 @@ pub struct BuildEvalOpsInput {
     pub solution_language: String,
     pub time_limit_ms: i32,
     pub memory_limit_kb: i32,
+    #[serde(default)]
+    pub contest_id: Option<i32>,
 
     /// Test case input (stdin content). Server-enriched.
     #[serde(default)]
@@ -160,8 +164,22 @@ pub struct ResolveLanguageInput {
     pub submitted_files: Vec<String>,
     /// Filenames provided by the judge as additional files (e.g. ["grader.cpp", "grader.h"]).
     pub additional_files: Vec<String>,
-    /// Per-problem language configuration from plugin config system. Null if not set.
-    pub problem_config: Option<serde_json::Value>,
+    /// Problem ID for config cascade. When set, the resolver may read its own
+    /// per-problem config (entry points, extra flags). Pass None for non-problem
+    /// contexts (e.g. checker compilation).
+    #[serde(default)]
+    pub problem_id: Option<i32>,
+    /// Contest ID for config cascade. When set, the resolver may read its own
+    /// per-contest config (compiler flags, standards).
+    #[serde(default)]
+    pub contest_id: Option<i32>,
+    /// Opaque overrides passed to the resolver plugin. The schema is defined
+    /// by each resolver — callers must know what the target resolver expects.
+    ///
+    /// For `standard-languages`, the expected shape is
+    /// `{ "compiler": "...", "flags": ["..."] }`.
+    #[serde(default)]
+    pub overrides: Option<serde_json::Value>,
 }
 
 /// Output from a language resolver plugin function.
@@ -189,7 +207,7 @@ pub struct CompileSpec {
 }
 
 /// A compilation output specification - either an exact filename or a glob pattern.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "pattern")]
 pub enum OutputSpec {
     /// Exact filename, e.g. "solution".

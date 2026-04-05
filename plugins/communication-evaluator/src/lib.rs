@@ -1,6 +1,8 @@
 #[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
 #[cfg(target_arch = "wasm32")]
+use broccoli_server_sdk::types::ResolveLanguageInput;
+#[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
 
 pub mod config;
@@ -44,29 +46,21 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
     let sandbox_config = load_sandbox_config(&host);
     let comm_config = load_comm_config(&host, problem_id);
 
-    let default_lang = host
-        .language
-        .get_config(&req.solution_language, "", &[])
-        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
-    let primary_source = req
+    let submitted_files: Vec<String> = req
         .solution_source
         .iter()
-        .find(|f| f.filename == default_lang.source_filename)
-        .or_else(|| req.solution_source.first())
-        .ok_or_else(|| extism_pdk::Error::msg("No contestant source file provided"))?;
-    let contestant_extra: Vec<String> = req
-        .solution_source
-        .iter()
-        .filter(|f| f.filename != primary_source.filename)
         .map(|f| f.filename.clone())
         .collect();
     let contestant_lang = host
         .language
-        .get_config(
-            &req.solution_language,
-            &primary_source.filename,
-            &contestant_extra,
-        )
+        .resolve(&ResolveLanguageInput {
+            language_id: req.solution_language.clone(),
+            submitted_files,
+            additional_files: vec![],
+            problem_id: Some(problem_id),
+            contest_id: req.contest_id,
+            overrides: None,
+        })
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     if comm_config.manager_sources.is_empty() {
@@ -77,18 +71,22 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
         .into());
     }
 
-    // Primary file = first entry, used for language resolution
-    let mgr_filename = &comm_config.manager_sources[0].filename;
-    let mgr_extra: Vec<String> = comm_config
+    let mgr_files: Vec<String> = comm_config
         .manager_sources
         .iter()
-        .skip(1)
         .map(|s| s.filename.clone())
         .collect();
     let manager_lang = host
         .language
-        .get_config(&comm_config.manager_language, mgr_filename, &mgr_extra)
-        .map_err(|e| extism_pdk::Error::msg(format!("Manager language config: {e}")))?;
+        .resolve(&ResolveLanguageInput {
+            language_id: comm_config.manager_language.clone(),
+            submitted_files: mgr_files,
+            additional_files: vec![],
+            problem_id: Some(problem_id),
+            contest_id: req.contest_id,
+            overrides: None,
+        })
+        .map_err(|e| extism_pdk::Error::msg(format!("Manager language resolve: {e}")))?;
 
     let operations = operation::build_operation(
         &req,

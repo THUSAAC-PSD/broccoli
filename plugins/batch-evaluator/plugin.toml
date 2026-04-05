@@ -4,7 +4,7 @@ description = "Batch problem evaluator for Broccoli judge — compile, run, chec
 
 [server]
 entry = "batch_evaluator.wasm"
-permissions = ["logger", "plugin:register", "operations:dispatch", "checker:run", "language:config", "config:read"]
+permissions = ["logger", "plugin:register", "operations:dispatch", "checker:run", "language:resolve", "config:read"]
 
 [config.sandbox]
 description = "Sandbox resource limits for compilation and execution steps"
