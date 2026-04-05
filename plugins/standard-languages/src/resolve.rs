@@ -5,7 +5,35 @@ use std::path::Path;
 
 use crate::EntryPointConfig;
 
-/// IDs of all standard languages this plugin registers.
+pub struct LanguageMeta {
+    pub id: &'static str,
+    pub display_name: &'static str,
+    pub default_filename: &'static str,
+}
+
+pub const LANGUAGES: &[LanguageMeta] = &[
+    LanguageMeta {
+        id: "c",
+        display_name: "C",
+        default_filename: "solution.c",
+    },
+    LanguageMeta {
+        id: "cpp",
+        display_name: "C++",
+        default_filename: "solution.cpp",
+    },
+    LanguageMeta {
+        id: "python3",
+        display_name: "Python 3",
+        default_filename: "solution.py",
+    },
+    LanguageMeta {
+        id: "java",
+        display_name: "Java",
+        default_filename: "Main.java",
+    },
+];
+
 pub const LANGUAGE_IDS: &[&str] = &["c", "cpp", "python3", "java"];
 
 fn default_source(lang: &str) -> &str {

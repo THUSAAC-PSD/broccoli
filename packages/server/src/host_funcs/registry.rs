@@ -1,6 +1,6 @@
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeHandlers, ContestTypeRegistry, EvaluatorRegistry,
-    LanguageResolverRegistry, PluginHandler,
+    LanguageResolverEntry, LanguageResolverRegistry, PluginHandler,
 };
 use extism::{Function, UserData, Val, ValType};
 use serde::Deserialize;
@@ -40,6 +40,18 @@ struct RegisterLanguageResolverInput {
     language_id: String,
     /// Function name in this plugin that implements resolution.
     function_name: String,
+    /// Human-friendly display name (e.g. "C++", "Python 3").
+    /// Defaults to `language_id` if not provided.
+    #[serde(default)]
+    display_name: String,
+    /// Default source filename (e.g. "solution.cpp").
+    /// Defaults to "solution.txt" if not provided.
+    #[serde(default = "default_source_filename")]
+    default_filename: String,
+}
+
+fn default_source_filename() -> String {
+    "solution.txt".to_string()
 }
 
 /// Named context for registry host functions.
@@ -273,20 +285,42 @@ fn register_language_resolver_fn(
             data.language_resolver_registry.clone(),
         )
     };
-    register_handler::<RegisterLanguageResolverInput>(
-        plugin,
-        inputs,
-        _outputs,
-        &plugin_id,
-        &registry,
-        |input| (&input.language_id, &input.function_name),
-        |input| {
-            validate_registry_id(&input.language_id, "language_id")?;
-            if input.function_name.is_empty() {
-                return Err(extism::Error::msg("function_name must not be empty"));
-            }
-            Ok(())
-        },
-        "Language resolver",
-    )
+
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: RegisterLanguageResolverInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    validate_registry_id(&input.language_id, "language_id")?;
+    if input.function_name.is_empty() {
+        return Err(extism::Error::msg("function_name must not be empty"));
+    }
+
+    let display_name = if input.display_name.is_empty() {
+        input.language_id.clone()
+    } else {
+        input.display_name
+    };
+
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let mut registry = registry.write().await;
+            registry.insert(
+                input.language_id.clone(),
+                LanguageResolverEntry {
+                    plugin_id: plugin_id.to_string(),
+                    function_name: input.function_name.clone(),
+                    display_name,
+                    default_filename: input.default_filename,
+                },
+            );
+            tracing::info!(
+                plugin_id = %plugin_id,
+                language_id = %input.language_id,
+                handler = %input.function_name,
+                "Language resolver registered"
+            );
+        })
+    });
+
+    Ok(())
 }

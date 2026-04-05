@@ -340,7 +340,15 @@ pub async fn run_code(
     let txn = state.db.begin().await?;
     let problem = find_problem(&txn, problem_id).await?;
 
-    validate_run_language(&payload.files, &payload.language, &state.config.languages)?;
+    let known_languages: std::collections::HashSet<String> = state
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    validate_run_language(&payload.language, &known_languages)?;
 
     let contest_type = problem.default_contest_type.clone();
     let custom_tcs_json =
@@ -429,7 +437,15 @@ pub async fn run_contest_code(
     require_contest_running(&auth_user, &contest_model, now)?;
     require_contest_participant(&state.db, &auth_user, &contest_model).await?;
 
-    validate_run_language(&payload.files, &payload.language, &state.config.languages)?;
+    let known_languages: std::collections::HashSet<String> = state
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    validate_run_language(&payload.language, &known_languages)?;
 
     let custom_tcs_json =
         serde_json::to_value(&payload.custom_test_cases).unwrap_or(serde_json::Value::Null);

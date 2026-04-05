@@ -17,9 +17,13 @@ const CONFIG_ENTRY_POINTS: &str = "entry-points";
 pub fn init() -> FnResult<String> {
     let host = Host::new();
 
-    for lang_id in resolve::LANGUAGE_IDS {
-        host.registry
-            .register_language_resolver(lang_id, "resolve_standard_language")?;
+    for lang in resolve::LANGUAGES {
+        host.registry.register_language_resolver(
+            lang.id,
+            "resolve_standard_language",
+            lang.display_name,
+            lang.default_filename,
+        )?;
     }
 
     host.log.info("Standard languages plugin initialized")?;

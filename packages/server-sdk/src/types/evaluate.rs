@@ -3,15 +3,6 @@ use serde::{Deserialize, Serialize};
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
-/// Fully resolved language config for one submission.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolvedLanguage {
-    pub compile_cmd: Option<Vec<String>>,
-    pub run_cmd: Vec<String>,
-    pub source_filename: String,
-    pub binary_name: String,
-}
-
 /// Contest/plugin-facing input for starting evaluation of one test case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartEvaluateCaseInput {

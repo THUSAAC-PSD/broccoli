@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use common::language::{LanguageDefinition, resolve_language};
-
 use crate::error::AppError;
 use crate::models::submission::{SubmissionFile, SubmissionFileDto};
 use crate::utils::filename::validate_flat_filename;
@@ -61,15 +59,16 @@ pub fn validate_submission_contract(
     files: &[SubmissionFileDto],
     language: &str,
     submission_format: Option<HashMap<String, Vec<String>>>,
-    languages: &HashMap<String, LanguageDefinition>,
+    known_languages: &HashSet<String>,
 ) -> Result<(), AppError> {
     let language = language.trim();
-    let submitted_filename = files
-        .first()
-        .map(|file| file.filename.as_str())
-        .unwrap_or_default();
 
-    resolve_language(language, submitted_filename, languages, &[]).map_err(AppError::Validation)?;
+    if !known_languages.is_empty() && !known_languages.contains(language) {
+        return Err(AppError::Validation(format!(
+            "Unsupported language: '{}'",
+            language
+        )));
+    }
 
     let Some(submission_format) = submission_format else {
         return Ok(());
@@ -126,17 +125,16 @@ pub fn files_from_json(value: &serde_json::Value) -> Vec<SubmissionFileDto> {
 
 /// Validate language for run code requests.
 pub fn validate_run_language(
-    files: &[SubmissionFileDto],
     language: &str,
-    languages: &HashMap<String, LanguageDefinition>,
+    known_languages: &HashSet<String>,
 ) -> Result<(), AppError> {
     let language = language.trim();
-    let submitted_filename = files
-        .first()
-        .map(|file| file.filename.as_str())
-        .unwrap_or_default();
-
-    resolve_language(language, submitted_filename, languages, &[]).map_err(AppError::Validation)?;
+    if !known_languages.is_empty() && !known_languages.contains(language) {
+        return Err(AppError::Validation(format!(
+            "Unsupported language: '{}'",
+            language
+        )));
+    }
     Ok(())
 }
 
@@ -144,18 +142,8 @@ pub fn validate_run_language(
 mod tests {
     use super::*;
 
-    fn create_language_definitions() -> HashMap<String, LanguageDefinition> {
-        HashMap::from([(
-            "cpp".to_string(),
-            LanguageDefinition {
-                compile_cmd: None,
-                run_cmd: vec!["./{binary}".to_string()],
-                source_filename: "solution.cpp".to_string(),
-                binary_name: "solution".to_string(),
-                version_cmd: None,
-                basename_fallback: "solution".to_string(),
-            },
-        )])
+    fn known_languages() -> HashSet<String> {
+        HashSet::from(["cpp".to_string(), "c".to_string(), "python3".to_string()])
     }
 
     #[test]
@@ -214,7 +202,7 @@ mod tests {
         }];
         let mut submission_format = HashMap::new();
         submission_format.insert("cpp".into(), vec!["solution.cpp".into()]);
-        let languages = create_language_definitions();
+        let languages = known_languages();
         assert!(
             validate_submission_contract(&files, "cpp", Some(submission_format), &languages)
                 .is_ok()
@@ -222,15 +210,15 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_submission_contract_missing_language() {
+    fn test_validate_submission_contract_unsupported_language() {
         let files = vec![SubmissionFileDto {
-            filename: "solution.cpp".into(),
-            content: "int main() {}".into(),
+            filename: "solution.rs".into(),
+            content: "fn main() {}".into(),
         }];
         let submission_format = HashMap::new();
-        let languages = HashMap::new();
+        let languages = known_languages();
         assert!(
-            validate_submission_contract(&files, "cpp", Some(submission_format), &languages)
+            validate_submission_contract(&files, "rust", Some(submission_format), &languages)
                 .is_err()
         );
     }
@@ -243,7 +231,7 @@ mod tests {
         }];
         let mut submission_format = HashMap::new();
         submission_format.insert("cpp".into(), vec!["solution.cpp".into()]);
-        let languages = create_language_definitions();
+        let languages = known_languages();
         assert!(
             validate_submission_contract(&files, "cpp", Some(submission_format), &languages)
                 .is_err()
@@ -286,5 +274,23 @@ mod tests {
         let json = serde_json::json!([]);
         let parsed_files = files_from_json(&json);
         assert!(parsed_files.is_empty());
+    }
+
+    #[test]
+    fn test_validate_run_language_known() {
+        let languages = known_languages();
+        assert!(validate_run_language("cpp", &languages).is_ok());
+    }
+
+    #[test]
+    fn test_validate_run_language_unknown() {
+        let languages = known_languages();
+        assert!(validate_run_language("brainfuck", &languages).is_err());
+    }
+
+    #[test]
+    fn test_validate_run_language_empty_set_allows_any() {
+        let languages = HashSet::new();
+        assert!(validate_run_language("anything", &languages).is_ok());
     }
 }

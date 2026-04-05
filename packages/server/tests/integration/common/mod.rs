@@ -17,7 +17,6 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tokio::sync::{Mutex, OnceCell, RwLock};
 
-use common::language::LanguageDefinition;
 use common::storage::config::create_blob_store;
 use server::config::{
     AppConfig, AuthConfig, BlobStoreConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig,
@@ -51,80 +50,6 @@ extern "C" fn cleanup_container() {
             .args(["rm", "-f", "-v", id])
             .output();
     }
-}
-
-fn test_languages() -> HashMap<String, LanguageDefinition> {
-    HashMap::from([
-        (
-            "cpp".to_string(),
-            LanguageDefinition {
-                compile_cmd: Some(vec![
-                    "g++".to_string(),
-                    "{source}".to_string(),
-                    "-O2".to_string(),
-                    "-std=c++17".to_string(),
-                    "-o".to_string(),
-                    "{binary}".to_string(),
-                ]),
-                run_cmd: vec!["./{binary}".to_string()],
-                source_filename: "solution.cpp".to_string(),
-                binary_name: "solution".to_string(),
-                version_cmd: None,
-                basename_fallback: "solution".to_string(),
-            },
-        ),
-        (
-            "c".to_string(),
-            LanguageDefinition {
-                compile_cmd: Some(vec![
-                    "gcc".to_string(),
-                    "{source}".to_string(),
-                    "-O2".to_string(),
-                    "-std=c11".to_string(),
-                    "-o".to_string(),
-                    "{binary}".to_string(),
-                ]),
-                run_cmd: vec!["./{binary}".to_string()],
-                source_filename: "solution.c".to_string(),
-                binary_name: "solution".to_string(),
-                version_cmd: None,
-                basename_fallback: "solution".to_string(),
-            },
-        ),
-        (
-            "java".to_string(),
-            LanguageDefinition {
-                compile_cmd: Some(vec!["javac".to_string(), "{source}".to_string()]),
-                run_cmd: vec!["java".to_string(), "{basename}".to_string()],
-                source_filename: "{basename}.java".to_string(),
-                binary_name: "{basename}.class".to_string(),
-                version_cmd: None,
-                basename_fallback: "Main".to_string(),
-            },
-        ),
-        (
-            "python3".to_string(),
-            LanguageDefinition {
-                compile_cmd: None,
-                run_cmd: vec!["python3".to_string(), "{source}".to_string()],
-                source_filename: "solution.py".to_string(),
-                binary_name: "solution.py".to_string(),
-                version_cmd: None,
-                basename_fallback: "solution".to_string(),
-            },
-        ),
-        (
-            "javascript".to_string(),
-            LanguageDefinition {
-                compile_cmd: None,
-                run_cmd: vec!["node".to_string(), "{source}".to_string()],
-                source_filename: "solution.js".to_string(),
-                binary_name: "solution.js".to_string(),
-                version_cmd: None,
-                basename_fallback: "solution".to_string(),
-            },
-        ),
-    ])
 }
 
 /// Start (or reuse) the shared PostgreSQL container, create and initialize a
@@ -550,7 +475,6 @@ impl TestApp {
                 enabled: false,
                 ..Default::default()
             },
-            languages: test_languages(),
             batch_max_age_secs: 600,
         };
 

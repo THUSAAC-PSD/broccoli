@@ -1,25 +1,10 @@
 use axum::{Json, extract::State};
-use common::language::resolve_language;
 use plugin_core::registry::PluginStatus;
 use tracing::instrument;
 
 use crate::error::AppError;
 use crate::models::plugin::{ActivePluginResponse, LanguageRegistryItem, RegistriesResponse};
 use crate::state::AppState;
-
-fn display_name_for_language(id: &str) -> String {
-    match id {
-        "cpp" => "C++".to_string(),
-        "c" => "C".to_string(),
-        "python3" => "Python 3".to_string(),
-        "javascript" => "JavaScript".to_string(),
-        "typescript" => "TypeScript".to_string(),
-        "rust" => "Rust".to_string(),
-        "go" => "Go".to_string(),
-        "java" => "Java".to_string(),
-        _ => id.to_string(),
-    }
-}
 
 #[utoipa::path(
     get,
@@ -67,18 +52,15 @@ pub async fn list_registries(
     contest_types.sort();
 
     let mut languages: Vec<LanguageRegistryItem> = state
-        .config
-        .languages
-        .keys()
-        .map(|id| {
-            let default_filename = resolve_language(id, "", &state.config.languages, &[])
-                .map(|resolved| resolved.source_filename)
-                .unwrap_or_else(|_| "solution.txt".to_string());
-            LanguageRegistryItem {
-                id: id.clone(),
-                name: display_name_for_language(id),
-                default_filename,
-            }
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .iter()
+        .map(|(id, entry)| LanguageRegistryItem {
+            id: id.clone(),
+            name: entry.display_name.clone(),
+            default_filename: entry.default_filename.clone(),
         })
         .collect();
     languages.sort_by(|a, b| a.id.cmp(&b.id));

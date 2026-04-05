@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
 
@@ -69,8 +67,6 @@ pub struct AppConfig {
     pub storage: BlobStoreConfig,
     #[serde(default)]
     pub mq: MqAppConfig,
-    #[serde(default)]
-    pub languages: HashMap<String, common::language::LanguageDefinition>,
     /// Maximum age for plugin batch operations in seconds before reaping. Default: 600 (10 min).
     #[serde(default = "default_batch_max_age_secs")]
     pub batch_max_age_secs: u64,

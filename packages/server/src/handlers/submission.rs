@@ -709,11 +709,19 @@ pub async fn create_submission(
     let txn = state.db.begin().await?;
 
     let problem = find_problem(&txn, problem_id).await?;
+    let known_languages: std::collections::HashSet<String> = state
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
     validate_submission_contract(
         &payload.files,
         &payload.language,
         problem.get_submission_format(),
-        &state.config.languages,
+        &known_languages,
     )?;
 
     let contest_type = match payload.contest_type {
@@ -1051,11 +1059,19 @@ pub async fn create_contest_submission(
     let now = Utc::now();
     require_contest_running(&auth_user, &contest_model, now)?;
     require_contest_participant(&state.db, &auth_user, &contest_model).await?;
+    let known_languages: std::collections::HashSet<String> = state
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
     validate_submission_contract(
         &payload.files,
         &payload.language,
         problem.get_submission_format(),
-        &state.config.languages,
+        &known_languages,
     )?;
 
     let enabled_plugins =
