@@ -203,14 +203,14 @@ pub fn init_host_functions(
     let contest_reg = contest_type_registry.clone();
     let eval_reg = evaluator_registry.clone();
     let checker_reg = checker_format_registry.clone();
-    let lang_resolver_reg = language_resolver_registry;
+    let lang_reg = language_resolver_registry.clone();
     hr.register_many("plugin:register", move |plugin_id| {
         registry::create_registry_functions(
             plugin_id.to_string(),
             contest_reg.clone(),
             eval_reg.clone(),
             checker_reg.clone(),
-            lang_resolver_reg.clone(),
+            lang_reg.clone(),
         )
     });
 
@@ -258,9 +258,21 @@ pub fn init_host_functions(
         checker::create_checker_function(plugin_id.to_string(), pm.clone(), checker_reg.clone())
     });
 
-    let languages = config.languages;
+    let languages = config.languages.clone();
     hr.register("language:config", move |plugin_id| {
         language::create_language_function(plugin_id.to_string(), languages.clone())
+    });
+
+    let languages_for_resolve = config.languages;
+    let lang_reg = language_resolver_registry;
+    let pm_for_resolve = plugin_manager.clone();
+    hr.register("language:resolve", move |plugin_id| {
+        language::create_resolve_language_function(
+            plugin_id.to_string(),
+            languages_for_resolve.clone(),
+            lang_reg.clone(),
+            pm_for_resolve.clone(),
+        )
     });
 
     let db_clone = db.clone();

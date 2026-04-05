@@ -314,6 +314,7 @@ fn start_evaluate_batch_fn(
                     solution_language: tc.solution_language,
                     time_limit_ms: tc.time_limit_ms,
                     memory_limit_kb: tc.memory_limit_kb,
+                    contest_id: tc.contest_id,
                     test_input,
                     expected_output,
                     checker_format: tc_checker_format,

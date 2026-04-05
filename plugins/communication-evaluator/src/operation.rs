@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask, ResolvedLanguage,
-    RunOptions, SessionFile, Step, StepCacheConfig,
+    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask, OutputSpec,
+    ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig,
 };
 
 use crate::config::{CommConfig, CommunicationMode, ManagerSourceEntry, SandboxConfig};
@@ -8,8 +8,8 @@ use crate::config::{CommConfig, CommunicationMode, ManagerSourceEntry, SandboxCo
 /// Build the communication operation for one test case.
 pub fn build_operation(
     req: &BuildEvalOpsInput,
-    contestant_lang: &ResolvedLanguage,
-    manager_lang: &ResolvedLanguage,
+    contestant_lang: &ResolveLanguageOutput,
+    manager_lang: &ResolveLanguageOutput,
     manager_files: &[ManagerSourceEntry],
     comm_config: &CommConfig,
     sandbox_config: &SandboxConfig,
@@ -69,12 +69,9 @@ pub fn build_operation(
         files_in: manager_files_in,
     });
 
-    let primary_source = req
-        .solution_source
-        .iter()
-        .find(|s| s.filename == contestant_lang.source_filename)
-        .or_else(|| req.solution_source.first())
-        .ok_or("No contestant source file provided")?;
+    if req.solution_source.is_empty() {
+        return Err("No contestant source file provided".into());
+    }
 
     for i in 0..n {
         let mut files_in: Vec<(String, SessionFile)> = Vec::new();
@@ -90,14 +87,6 @@ pub fn build_operation(
                 ));
             }
         }
-        if seen.insert(contestant_lang.source_filename.clone()) {
-            files_in.push((
-                contestant_lang.source_filename.clone(),
-                SessionFile::Content {
-                    content: primary_source.content.clone(),
-                },
-            ));
-        }
 
         environments.push(Environment {
             id: format!("contestant_{i}"),
@@ -107,13 +96,22 @@ pub fn build_operation(
 
     let mut steps = Vec::new();
 
-    if let Some(compile_cmd) = &manager_lang.compile_cmd {
-        let manager_cache_inputs: Vec<String> =
-            manager_files.iter().map(|f| f.filename.clone()).collect();
+    if let Some(compile) = &manager_lang.compile {
+        let cache_outputs: Vec<String> = compile
+            .outputs
+            .iter()
+            .map(|o| match o {
+                OutputSpec::File(f) => f.clone(),
+                OutputSpec::Glob(g) => g.clone(),
+            })
+            .collect();
+        let mut collect = cache_outputs.clone();
+        collect.push("compile_stderr.txt".to_string());
+
         steps.push(Step {
             id: "compile_manager".to_string(),
             env_ref: "manager_env".to_string(),
-            argv: compile_cmd.clone(),
+            argv: compile.command.clone(),
             conf: RunOptions {
                 resource_limits: sandbox_config.compile_limits(),
                 wait: true,
@@ -127,38 +125,32 @@ pub fn build_operation(
                     path: "compile_stderr.txt".to_string(),
                 },
             },
-            collect: vec![
-                manager_lang.binary_name.clone(),
-                "compile_stderr.txt".to_string(),
-            ],
+            collect,
             depends_on: vec![],
             cache: Some(StepCacheConfig {
-                key_inputs: manager_cache_inputs,
-                outputs: vec![manager_lang.binary_name.clone()],
+                key_inputs: compile.cache_inputs.clone(),
+                outputs: cache_outputs,
             }),
         });
     }
 
-    let contestant_compile_inputs: Vec<String> = {
-        let mut inputs = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for source in &req.solution_source {
-            if seen.insert(source.filename.clone()) {
-                inputs.push(source.filename.clone());
-            }
-        }
-        if seen.insert(contestant_lang.source_filename.clone()) {
-            inputs.push(contestant_lang.source_filename.clone());
-        }
-        inputs
-    };
-
     for i in 0..n {
-        if let Some(compile_cmd) = &contestant_lang.compile_cmd {
+        if let Some(compile) = &contestant_lang.compile {
+            let cache_outputs: Vec<String> = compile
+                .outputs
+                .iter()
+                .map(|o| match o {
+                    OutputSpec::File(f) => f.clone(),
+                    OutputSpec::Glob(g) => g.clone(),
+                })
+                .collect();
+            let mut collect = cache_outputs.clone();
+            collect.push("compile_stderr.txt".to_string());
+
             steps.push(Step {
                 id: format!("compile_contestant_{i}"),
                 env_ref: format!("contestant_{i}"),
-                argv: compile_cmd.clone(),
+                argv: compile.command.clone(),
                 conf: RunOptions {
                     resource_limits: sandbox_config.compile_limits(),
                     wait: true,
@@ -172,30 +164,27 @@ pub fn build_operation(
                         path: "compile_stderr.txt".to_string(),
                     },
                 },
-                collect: vec![
-                    contestant_lang.binary_name.clone(),
-                    "compile_stderr.txt".to_string(),
-                ],
+                collect,
                 depends_on: vec![],
                 cache: Some(StepCacheConfig {
-                    key_inputs: contestant_compile_inputs.clone(),
-                    outputs: vec![contestant_lang.binary_name.clone()],
+                    key_inputs: compile.cache_inputs.clone(),
+                    outputs: cache_outputs,
                 }),
             });
         }
     }
 
     let mut all_compile_deps: Vec<String> = Vec::new();
-    if manager_lang.compile_cmd.is_some() {
+    if manager_lang.compile.is_some() {
         all_compile_deps.push("compile_manager".to_string());
     }
-    if contestant_lang.compile_cmd.is_some() {
+    if contestant_lang.compile.is_some() {
         for i in 0..n {
             all_compile_deps.push(format!("compile_contestant_{i}"));
         }
     }
 
-    let mut manager_argv = manager_lang.run_cmd.clone();
+    let mut manager_argv = manager_lang.run.command.clone();
     for i in 0..n {
         // argv order: write-to-contestant pipe first, read-from-contestant pipe second.
         // Manager code opens argv[1+2*i] for writing and argv[2+2*i] for reading.
@@ -242,7 +231,7 @@ pub fn build_operation(
                     },
                     stderr: IOTarget::Inherit,
                 };
-                let mut argv = contestant_lang.run_cmd.clone();
+                let mut argv = contestant_lang.run.command.clone();
                 argv.push(i.to_string());
                 (io, argv)
             }
@@ -252,7 +241,7 @@ pub fn build_operation(
                     stdout: IOTarget::Null,
                     stderr: IOTarget::Inherit,
                 };
-                let mut argv = contestant_lang.run_cmd.clone();
+                let mut argv = contestant_lang.run.command.clone();
                 argv.push(format!("channels/m_to_c{i}"));
                 argv.push(format!("channels/c{i}_to_m"));
                 argv.push(i.to_string());
@@ -288,7 +277,7 @@ pub fn build_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::SourceFile;
+    use broccoli_server_sdk::types::{CompileSpec, RunSpec, SourceFile};
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -301,6 +290,7 @@ mod tests {
             solution_language: "cpp".to_string(),
             time_limit_ms: 2000,
             memory_limit_kb: 262144,
+            contest_id: None,
             test_input: "5\n1 2 3 4 5\n".to_string(),
             expected_output: String::new(),
             checker_format: None,
@@ -309,33 +299,43 @@ mod tests {
         }
     }
 
-    fn compiled_lang() -> ResolvedLanguage {
-        ResolvedLanguage {
-            compile_cmd: Some(vec![
-                "/usr/bin/g++".to_string(),
-                "-O2".to_string(),
-                "solution.cpp".to_string(),
-                "-o".to_string(),
-                "solution".to_string(),
-            ]),
-            run_cmd: vec!["./solution".to_string()],
-            source_filename: "solution.cpp".to_string(),
-            binary_name: "solution".to_string(),
+    fn compiled_lang() -> ResolveLanguageOutput {
+        ResolveLanguageOutput {
+            compile: Some(CompileSpec {
+                command: vec![
+                    "/usr/bin/g++".to_string(),
+                    "-O2".to_string(),
+                    "solution.cpp".to_string(),
+                    "-o".to_string(),
+                    "solution".to_string(),
+                ],
+                cache_inputs: vec!["main.cpp".to_string()],
+                outputs: vec![OutputSpec::File("solution".to_string())],
+            }),
+            run: RunSpec {
+                command: vec!["./solution".to_string()],
+                extra_files: vec![],
+            },
         }
     }
 
-    fn manager_lang() -> ResolvedLanguage {
-        ResolvedLanguage {
-            compile_cmd: Some(vec![
-                "/usr/bin/g++".to_string(),
-                "-O2".to_string(),
-                "manager.cpp".to_string(),
-                "-o".to_string(),
-                "manager".to_string(),
-            ]),
-            run_cmd: vec!["./manager".to_string()],
-            source_filename: "manager.cpp".to_string(),
-            binary_name: "manager".to_string(),
+    fn manager_lang() -> ResolveLanguageOutput {
+        ResolveLanguageOutput {
+            compile: Some(CompileSpec {
+                command: vec![
+                    "/usr/bin/g++".to_string(),
+                    "-O2".to_string(),
+                    "manager.cpp".to_string(),
+                    "-o".to_string(),
+                    "manager".to_string(),
+                ],
+                cache_inputs: vec!["manager.cpp".to_string()],
+                outputs: vec![OutputSpec::File("manager".to_string())],
+            }),
+            run: RunSpec {
+                command: vec!["./manager".to_string()],
+                extra_files: vec![],
+            },
         }
     }
 
@@ -461,17 +461,13 @@ mod tests {
             _ => panic!("expected Blob for manager.h"),
         }
 
-        // Compile cache should include both filenames
         let compile_mgr = ops[0]
             .tasks
             .iter()
             .find(|s| s.id == "compile_manager")
             .unwrap();
         let cache = compile_mgr.cache.as_ref().unwrap();
-        assert_eq!(
-            cache.key_inputs,
-            vec!["manager.cpp".to_string(), "manager.h".to_string()]
-        );
+        assert_eq!(cache.key_inputs, vec!["manager.cpp".to_string()]);
     }
 
     #[test]

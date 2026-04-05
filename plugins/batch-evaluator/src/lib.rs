@@ -1,6 +1,8 @@
 #[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
 #[cfg(target_arch = "wasm32")]
+use broccoli_server_sdk::types::ResolveLanguageInput;
+#[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
 
 pub mod batch;
@@ -32,32 +34,24 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
 
     let sandbox_config = load_sandbox_config(&host);
 
-    let default_lang = host
-        .language
-        .get_config(&req.solution_language, "", &[])
-        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
-    let primary_source = req
+    let submitted_files: Vec<String> = req
         .solution_source
         .iter()
-        .find(|file| file.filename == default_lang.source_filename)
-        .or_else(|| req.solution_source.first())
-        .ok_or_else(|| extism_pdk::Error::msg("No source file provided"))?;
-    let extra_sources: Vec<String> = req
-        .solution_source
-        .iter()
-        .filter(|f| f.filename != primary_source.filename)
         .map(|f| f.filename.clone())
         .collect();
-    let lang = host
+    let resolved = host
         .language
-        .get_config(
-            &req.solution_language,
-            &primary_source.filename,
-            &extra_sources,
-        )
+        .resolve(&ResolveLanguageInput {
+            language_id: req.solution_language.clone(),
+            submitted_files,
+            additional_files: vec![],
+            problem_id: Some(req.problem_id),
+            contest_id: req.contest_id,
+            overrides: None,
+        })
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
-    let operations = batch::build_operation(&req, &lang, &sandbox_config)
+    let operations = batch::build_operation(&req, &resolved, &sandbox_config)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let batch_id = host

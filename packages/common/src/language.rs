@@ -58,9 +58,7 @@ pub struct ResolvedLanguage {
 /// Resolve a `LanguageDefinition` to concrete commands and filenames for one submission.
 ///
 /// `extra_sources` lists additional source filenames (e.g. grader stubs) that
-/// should be compiled together with the primary source. When `{source}` appears
-/// as an entire argument in `compile_cmd`, it expands to the primary source
-/// filename followed by all extra sources.
+/// should be compiled together with the primary source.
 ///
 /// Returns `Err` if the language ID is unknown or if any required field
 /// is empty after expansion.
@@ -107,11 +105,11 @@ pub fn resolve_language(
             .replace("{source}", &source_filename)
             .replace("{binary}", &binary_name)
     };
-    let expand_cmd = |cmd: &[String]| {
+    // In compile commands, standalone {source} expands to primary + all extra sources.
+    let expand_compile_cmd = |cmd: &[String]| {
         let mut result = Vec::new();
         for arg in cmd {
             if arg == "{source}" {
-                // Expand to primary source + all extra sources
                 result.push(source_filename.clone());
                 result.extend(extra_sources.iter().cloned());
             } else {
@@ -120,10 +118,14 @@ pub fn resolve_language(
         }
         result
     };
+    // In run commands, {source} expands to just the primary source filename.
+    // Extra sources are available in the sandbox but not passed as arguments.
+    let expand_run_cmd =
+        |cmd: &[String]| -> Vec<String> { cmd.iter().map(|arg| expand(arg)).collect() };
 
     Ok(ResolvedLanguage {
-        compile_cmd: def.compile_cmd.as_deref().map(expand_cmd),
-        run_cmd: expand_cmd(&def.run_cmd),
+        compile_cmd: def.compile_cmd.as_deref().map(expand_compile_cmd),
+        run_cmd: expand_run_cmd(&def.run_cmd),
         source_filename,
         binary_name,
     })

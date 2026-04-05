@@ -21,6 +21,8 @@ extern "ExtismHost" {
     pub fn cancel_operation_batch(input: String);
     pub fn run_checker(input: String) -> String;
     pub fn get_language_config(input: String) -> String;
+    pub fn resolve_language(input: String) -> String;
+    pub fn register_language_resolver(input: String);
     pub fn store_get(input: String) -> String;
     pub fn store_set(input: String);
     pub fn store_compare_and_set(input: String) -> String;

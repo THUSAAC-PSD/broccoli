@@ -39,6 +39,19 @@ impl Registry {
         unsafe { crate::host::raw::register_checker_format(serde_json::to_string(&input)?)? };
         Ok(())
     }
+
+    pub fn register_language_resolver(
+        &self,
+        language_id: &str,
+        function_name: &str,
+    ) -> Result<(), SdkError> {
+        let input = serde_json::json!({
+            "language_id": language_id,
+            "function_name": function_name,
+        });
+        unsafe { crate::host::raw::register_language_resolver(serde_json::to_string(&input)?)? };
+        Ok(())
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -71,6 +84,14 @@ impl Registry {
     }
 
     pub fn register_checker_format(&self, _format: &str, _handler: &str) -> Result<(), SdkError> {
+        Ok(())
+    }
+
+    pub fn register_language_resolver(
+        &self,
+        _language_id: &str,
+        _function_name: &str,
+    ) -> Result<(), SdkError> {
         Ok(())
     }
 }

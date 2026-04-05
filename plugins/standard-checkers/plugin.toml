@@ -1,14 +1,46 @@
 name = "standard-checkers"
 version = "0.1.0"
-description = "Standard output comparison checkers for Broccoli judge"
+description = "Standard output comparison checkers for Broccoli judge. Depends on the standard-languages plugin for language resolution."
 
 [server]
 entry = "standard_checkers.wasm"
-permissions = ["logger", "plugin:register", "operations:dispatch", "config:read"]
+permissions = ["logger", "plugin:register", "operations:dispatch", "config:read", "language:resolve"]
 
 [config.testlib]
-description = "Testlib checker compiler settings and resource limits"
+description = "Testlib checker compiler and resource limit settings."
 scopes = ["plugin"]
+
+[config.testlib.properties.cpp]
+type = "object"
+title = "C++ Checker Compiler"
+description = "Compiler settings for C++ testlib checkers"
+
+[config.testlib.properties.cpp.properties.compiler]
+type = "string"
+title = "Compiler Path"
+default = "/usr/bin/g++"
+
+[config.testlib.properties.cpp.properties.flags]
+type = "array"
+title = "Compiler Flags"
+default = ["-O2", "-std=c++17"]
+items = { type = "string" }
+
+[config.testlib.properties.c]
+type = "object"
+title = "C Checker Compiler"
+description = "Compiler settings for C testlib checkers"
+
+[config.testlib.properties.c.properties.compiler]
+type = "string"
+title = "Compiler Path"
+default = "/usr/bin/gcc"
+
+[config.testlib.properties.c.properties.flags]
+type = "array"
+title = "Compiler Flags"
+default = ["-O2", "-std=c11"]
+items = { type = "string" }
 
 [config.testlib.properties.compile_time_limit_s]
 type = "number"
@@ -48,34 +80,3 @@ min = 0
 step = 1024
 unit = "KB"
 
-[config.testlib.properties.cpp]
-type = "object"
-title = "C++ Compiler"
-description = "C++ compiler configuration"
-
-[config.testlib.properties.cpp.properties.compiler]
-type = "string"
-title = "Compiler Path"
-default = "/usr/bin/g++"
-
-[config.testlib.properties.cpp.properties.flags]
-type = "array"
-title = "Compiler Flags"
-default = ["-O2", "-std=c++17"]
-items = { type = "string" }
-
-[config.testlib.properties.c]
-type = "object"
-title = "C Compiler"
-description = "C compiler configuration"
-
-[config.testlib.properties.c.properties.compiler]
-type = "string"
-title = "Compiler Path"
-default = "/usr/bin/gcc"
-
-[config.testlib.properties.c.properties.flags]
-type = "array"
-title = "Compiler Flags"
-default = ["-O2", "-std=c11"]
-items = { type = "string" }

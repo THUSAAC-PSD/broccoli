@@ -162,6 +162,7 @@ fn register_contest_type_fn(
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
     let key = input.contest_type;
+    validate_registry_id(&key, "contest_type")?;
 
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {

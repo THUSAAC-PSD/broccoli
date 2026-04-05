@@ -6,34 +6,16 @@ use crate::util::truncate;
 #[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::Host;
 
-// submission_files (language: cpp17): ("Shape.cpp", "Shape.h")   additional_files: ("cpp17" -> [(language: "cpp17" source: "main.cpp"), (language: "make" source: "Makefile")])
-
-/// Compiler configuration for a single language.
+/// Compiler configuration for checker binaries (`standard-languages` plugin).
 #[derive(Deserialize, Clone)]
 #[serde(default)]
-pub struct CompilerConfig {
+pub struct CheckerCompilerConfig {
     pub compiler: String,
     pub flags: Vec<String>,
 }
 
-/// Testlib checker configuration, loaded from plugin global config.
-/// All fields have sensible defaults so zero-config deployments work unchanged.
-#[derive(Deserialize, Clone)]
-#[serde(default)]
-pub struct TestlibConfig {
-    pub cpp: CompilerConfig,
-    pub c: CompilerConfig,
-    pub compile_time_limit_s: f64,
-    pub compile_memory_limit_kb: u32,
-    pub run_time_limit_s: f64,
-    pub run_memory_limit_kb: u32,
-}
-
-impl Default for CompilerConfig {
+impl Default for CheckerCompilerConfig {
     fn default() -> Self {
-        // Defaults to C++ since it's the most common case.
-        // Callers building a TestlibConfig override both `c` and `cpp` via
-        // the TestlibConfig Default impl anyway.
         Self {
             compiler: "/usr/bin/g++".into(),
             flags: vec!["-O2".into(), "-std=c++17".into()],
@@ -41,14 +23,26 @@ impl Default for CompilerConfig {
     }
 }
 
+/// Testlib checker configuration, loaded from plugin global config.
+#[derive(Deserialize, Clone)]
+#[serde(default)]
+pub struct TestlibConfig {
+    pub cpp: CheckerCompilerConfig,
+    pub c: CheckerCompilerConfig,
+    pub compile_time_limit_s: f64,
+    pub compile_memory_limit_kb: u32,
+    pub run_time_limit_s: f64,
+    pub run_memory_limit_kb: u32,
+}
+
 impl Default for TestlibConfig {
     fn default() -> Self {
         Self {
-            cpp: CompilerConfig {
+            cpp: CheckerCompilerConfig {
                 compiler: "/usr/bin/g++".into(),
                 flags: vec!["-O2".into(), "-std=c++17".into()],
             },
-            c: CompilerConfig {
+            c: CheckerCompilerConfig {
                 compiler: "/usr/bin/gcc".into(),
                 flags: vec!["-O2".into(), "-std=c11".into()],
             },
@@ -57,6 +51,23 @@ impl Default for TestlibConfig {
             run_time_limit_s: 5.0,
             run_memory_limit_kb: 256 * 1024,
         }
+    }
+}
+
+/// Map checker source file extension to a language ID for the resolver.
+pub fn checker_language_id(primary_filename: &str) -> Result<&str, String> {
+    if primary_filename.ends_with(".cpp")
+        || primary_filename.ends_with(".cc")
+        || primary_filename.ends_with(".cxx")
+    {
+        Ok("cpp")
+    } else if primary_filename.ends_with(".c") {
+        Ok("c")
+    } else {
+        Err(format!(
+            "Unsupported checker source language for '{}'. Only C (.c) and C++ (.cpp/.cc/.cxx) are supported.",
+            primary_filename
+        ))
     }
 }
 
@@ -138,16 +149,11 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         };
     }
 
-    let files: Vec<(&str, &str)> = checker_source
-        .iter()
-        .map(|f| (f.filename.as_str(), f.content.as_str()))
-        .collect();
+    let filenames: Vec<String> = checker_source.iter().map(|f| f.filename.clone()).collect();
+    let primary_file = &filenames[0];
 
-    let config = load_testlib_config(host);
-
-    let primary_file = files[0].0;
-    let compile_cmd = match get_checker_compile_config(&config, primary_file) {
-        Ok(cmd) => cmd,
+    let lang_id = match checker_language_id(primary_file) {
+        Ok(id) => id,
         Err(e) => {
             return CheckerVerdict {
                 verdict: Verdict::SystemError,
@@ -157,12 +163,41 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         }
     };
 
+    let config = load_testlib_config(host);
+
+    let checker_compiler = match lang_id {
+        "cpp" => &config.cpp,
+        "c" => &config.c,
+        _ => &config.cpp, // unreachable for testlib (always C/C++)
+    };
+
+    let resolved = match host.language.resolve(&ResolveLanguageInput {
+        language_id: lang_id.to_string(),
+        submitted_files: filenames,
+        additional_files: vec![],
+        problem_id: None,
+        contest_id: None,
+        overrides: Some(serde_json::json!({
+            "compiler": checker_compiler.compiler,
+            "flags": checker_compiler.flags,
+        })),
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            return CheckerVerdict {
+                verdict: Verdict::SystemError,
+                score: 0.0,
+                message: Some(format!("Failed to resolve checker language: {e}")),
+            };
+        }
+    };
+
     let mut files_in = Vec::new();
-    for (filename, content) in &files {
+    for source in checker_source {
         files_in.push((
-            (*filename).to_string(),
+            source.filename.clone(),
             SessionFile::Content {
-                content: (*content).to_string(),
+                content: source.content.clone(),
             },
         ));
     }
@@ -185,79 +220,104 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         },
     ));
 
-    let key_inputs: Vec<String> = files.iter().map(|(f, _)| (*f).to_string()).collect();
+    let mut steps = Vec::new();
+
+    if let Some(compile) = &resolved.compile {
+        let cache_outputs: Vec<String> = compile
+            .outputs
+            .iter()
+            .map(|o| match o {
+                OutputSpec::File(f) => f.clone(),
+                OutputSpec::Glob(g) => g.clone(),
+            })
+            .collect();
+        let mut collect = cache_outputs.clone();
+        collect.push("checker_compile.log".to_string());
+        collect.push("checker_compile_err.log".to_string());
+
+        steps.push(Step {
+            id: "compile_checker".to_string(),
+            env_ref: "checker_sandbox".to_string(),
+            argv: compile.command.clone(),
+            conf: RunOptions {
+                resource_limits: ResourceLimits {
+                    time_limit: Some(config.compile_time_limit_s),
+                    memory_limit: Some(config.compile_memory_limit_kb),
+                    process_limit: Some(64),
+                    ..Default::default()
+                },
+                env_rules: vec![EnvRule::FullEnv],
+                ..Default::default()
+            },
+            io: IOConfig {
+                stdin: IOTarget::Null,
+                stdout: IOTarget::File {
+                    path: "checker_compile.log".to_string(),
+                },
+                stderr: IOTarget::File {
+                    path: "checker_compile_err.log".to_string(),
+                },
+            },
+            collect,
+            depends_on: vec![],
+            cache: Some(StepCacheConfig {
+                key_inputs: compile.cache_inputs.clone(),
+                outputs: cache_outputs,
+            }),
+        });
+    }
+
+    let checker_binary = resolved
+        .compile
+        .as_ref()
+        .and_then(|c| c.outputs.first())
+        .map(|o| match o {
+            OutputSpec::File(f) => format!("./{f}"),
+            OutputSpec::Glob(_) => "./checker".to_string(), // unreachable since it's always C/C++
+        })
+        .unwrap_or_else(|| "./checker".to_string());
+
+    steps.push(Step {
+        id: "check".to_string(),
+        env_ref: "checker_sandbox".to_string(),
+        argv: vec![
+            checker_binary,
+            "input.txt".to_string(),
+            "output.txt".to_string(),
+            "answer.txt".to_string(),
+        ],
+        conf: RunOptions {
+            resource_limits: ResourceLimits {
+                time_limit: Some(config.run_time_limit_s),
+                memory_limit: Some(config.run_memory_limit_kb),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        io: IOConfig {
+            stdin: IOTarget::Null,
+            stdout: IOTarget::File {
+                path: "checker_out.txt".to_string(),
+            },
+            stderr: IOTarget::File {
+                path: "checker_err.txt".to_string(),
+            },
+        },
+        collect: vec!["checker_out.txt".to_string(), "checker_err.txt".to_string()],
+        depends_on: if resolved.compile.is_some() {
+            vec!["compile_checker".to_string()]
+        } else {
+            vec![]
+        },
+        cache: None,
+    });
 
     let operations = vec![OperationTask {
         environments: vec![Environment {
             id: "checker_sandbox".to_string(),
             files_in,
         }],
-        tasks: vec![
-            Step {
-                id: "compile_checker".to_string(),
-                env_ref: "checker_sandbox".to_string(),
-                argv: compile_cmd,
-                conf: RunOptions {
-                    resource_limits: ResourceLimits {
-                        time_limit: Some(config.compile_time_limit_s),
-                        memory_limit: Some(config.compile_memory_limit_kb),
-                        process_limit: Some(64),
-                        ..Default::default()
-                    },
-                    env_rules: vec![EnvRule::FullEnv],
-                    ..Default::default()
-                },
-                io: IOConfig {
-                    stdin: IOTarget::Null,
-                    stdout: IOTarget::File {
-                        path: "checker_compile.log".to_string(),
-                    },
-                    stderr: IOTarget::File {
-                        path: "checker_compile_err.log".to_string(),
-                    },
-                },
-                collect: vec![
-                    "checker".to_string(),
-                    "checker_compile.log".to_string(),
-                    "checker_compile_err.log".to_string(),
-                ],
-                depends_on: vec![],
-                cache: Some(StepCacheConfig {
-                    key_inputs,
-                    outputs: vec!["checker".to_string()],
-                }),
-            },
-            Step {
-                id: "check".to_string(),
-                env_ref: "checker_sandbox".to_string(),
-                argv: vec![
-                    "./checker".to_string(),
-                    "input.txt".to_string(),
-                    "output.txt".to_string(),
-                    "answer.txt".to_string(),
-                ],
-                conf: RunOptions {
-                    resource_limits: ResourceLimits {
-                        time_limit: Some(config.run_time_limit_s),
-                        memory_limit: Some(config.run_memory_limit_kb),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                io: IOConfig {
-                    stdin: IOTarget::Null,
-                    stdout: IOTarget::File {
-                        path: "checker_out.txt".to_string(),
-                    },
-                    stderr: IOTarget::File {
-                        path: "checker_err.txt".to_string(),
-                    },
-                },
-                collect: vec!["checker_out.txt".to_string(), "checker_err.txt".to_string()],
-                depends_on: vec!["compile_checker".to_string()],
-                cache: None,
-            },
-        ],
+        tasks: steps,
         channels: vec![],
         priority: None,
     }];
@@ -322,33 +382,6 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
             message: Some("Checker operation completed but no check result found".into()),
         },
     }
-}
-
-/// Resolve compile command from config and primary source filename.
-pub fn get_checker_compile_config(
-    config: &TestlibConfig,
-    primary_filename: &str,
-) -> Result<Vec<String>, String> {
-    let lang = if primary_filename.ends_with(".cpp")
-        || primary_filename.ends_with(".cc")
-        || primary_filename.ends_with(".cxx")
-    {
-        &config.cpp
-    } else if primary_filename.ends_with(".c") {
-        &config.c
-    } else {
-        return Err(format!(
-            "Unsupported checker source language for '{}'. Only C (.c) and C++ (.cpp/.cc/.cxx) are supported.",
-            primary_filename
-        ));
-    };
-
-    let mut cmd = vec![lang.compiler.clone()];
-    cmd.extend(lang.flags.iter().cloned());
-    cmd.push("-o".into());
-    cmd.push("checker".into());
-    cmd.push(primary_filename.into());
-    Ok(cmd)
 }
 
 fn extract_testlib_message(stderr: &str) -> Option<String> {
@@ -448,57 +481,30 @@ mod tests {
     }
 
     #[test]
-    fn compile_config_cpp_defaults() {
-        let config = TestlibConfig::default();
-        let cmd = get_checker_compile_config(&config, "checker.cpp").unwrap();
-        assert_eq!(cmd[0], "/usr/bin/g++");
-        assert!(cmd.contains(&"checker.cpp".to_string()));
+    fn checker_language_id_cpp() {
+        assert_eq!(checker_language_id("checker.cpp").unwrap(), "cpp");
+        assert_eq!(checker_language_id("checker.cc").unwrap(), "cpp");
+        assert_eq!(checker_language_id("checker.cxx").unwrap(), "cpp");
     }
 
     #[test]
-    fn compile_config_c_defaults() {
-        let config = TestlibConfig::default();
-        let cmd = get_checker_compile_config(&config, "checker.c").unwrap();
-        assert_eq!(cmd[0], "/usr/bin/gcc");
+    fn checker_language_id_c() {
+        assert_eq!(checker_language_id("checker.c").unwrap(), "c");
     }
 
     #[test]
-    fn compile_config_unsupported() {
-        let config = TestlibConfig::default();
-        let err = get_checker_compile_config(&config, "checker.py").unwrap_err();
+    fn checker_language_id_unsupported() {
+        let err = checker_language_id("checker.py").unwrap_err();
         assert!(err.contains("Unsupported"));
     }
 
     #[test]
-    fn compile_config_custom_compiler() {
-        let config = TestlibConfig {
-            cpp: CompilerConfig {
-                compiler: "/usr/local/bin/g++-13".into(),
-                flags: vec!["-O3".into(), "-std=c++20".into()],
-            },
-            ..Default::default()
-        };
-        let cmd = get_checker_compile_config(&config, "checker.cpp").unwrap();
-        assert_eq!(cmd[0], "/usr/local/bin/g++-13");
-        assert!(cmd.contains(&"-O3".to_string()));
-        assert!(cmd.contains(&"-std=c++20".to_string()));
-        assert!(cmd.contains(&"checker.cpp".to_string()));
-    }
-
-    #[test]
-    fn compile_config_cc_extension() {
-        let config = TestlibConfig::default();
-        let cmd = get_checker_compile_config(&config, "checker.cc").unwrap();
-        assert_eq!(cmd[0], "/usr/bin/g++");
-    }
-
-    #[test]
     fn testlib_config_partial_deserialize() {
-        let json = serde_json::json!({"cpp": {"compiler": "/opt/g++"}});
+        let json = serde_json::json!({"compile_time_limit_s": 20.0});
         let config: TestlibConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(config.cpp.compiler, "/opt/g++");
+        assert_eq!(config.compile_time_limit_s, 20.0);
         // Unspecified fields use defaults
-        assert_eq!(config.c.compiler, "/usr/bin/gcc");
-        assert_eq!(config.compile_time_limit_s, 10.0);
+        assert_eq!(config.run_time_limit_s, 5.0);
+        assert_eq!(config.compile_memory_limit_kb, 512 * 1024);
     }
 }

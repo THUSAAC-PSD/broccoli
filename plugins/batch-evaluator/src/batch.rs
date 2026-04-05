@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Environment, IOConfig, IOTarget, OperationTask, ResolvedLanguage,
-    ResourceLimits, RunOptions, SessionFile, Step, StepCacheConfig,
+    BuildEvalOpsInput, Environment, IOConfig, IOTarget, OperationTask, OutputSpec,
+    ResolveLanguageOutput, ResourceLimits, RunOptions, SessionFile, Step, StepCacheConfig,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -88,23 +88,18 @@ impl SandboxConfig {
 /// Returns `Vec<OperationTask>` ready for `host.operations.start_batch()`.
 pub fn build_operation(
     req: &BuildEvalOpsInput,
-    lang: &ResolvedLanguage,
+    lang: &ResolveLanguageOutput,
     config: &SandboxConfig,
 ) -> Result<Vec<OperationTask>, String> {
-    let primary_source = req
-        .solution_source
-        .iter()
-        .find(|source| source.filename == lang.source_filename)
-        .or_else(|| req.solution_source.first())
-        .ok_or("No source file provided")?;
+    if req.solution_source.is_empty() {
+        return Err("No source file provided".into());
+    }
 
     let mut files_in = Vec::new();
-    let mut compile_inputs = Vec::new();
     let mut seen_filenames = HashSet::new();
 
     for source in &req.solution_source {
         if seen_filenames.insert(source.filename.clone()) {
-            compile_inputs.push(source.filename.clone());
             files_in.push((
                 source.filename.clone(),
                 SessionFile::Content {
@@ -112,16 +107,6 @@ pub fn build_operation(
                 },
             ));
         }
-    }
-
-    if seen_filenames.insert(lang.source_filename.clone()) {
-        compile_inputs.push(lang.source_filename.clone());
-        files_in.push((
-            lang.source_filename.clone(),
-            SessionFile::Content {
-                content: primary_source.content.clone(),
-            },
-        ));
     }
 
     files_in.push((
@@ -145,11 +130,23 @@ pub fn build_operation(
     let mut steps = Vec::new();
 
     // Compile step (only for compiled languages)
-    if let Some(compile_cmd) = &lang.compile_cmd {
+    if let Some(compile) = &lang.compile {
+        let cache_outputs: Vec<String> = compile
+            .outputs
+            .iter()
+            .map(|o| match o {
+                OutputSpec::File(f) => f.clone(),
+                OutputSpec::Glob(g) => g.clone(),
+            })
+            .collect();
+
+        let mut collect = cache_outputs.clone();
+        collect.push("compile_stderr.txt".to_string());
+
         let compile_step = Step {
             id: "compile".to_string(),
             env_ref: "sandbox".to_string(),
-            argv: compile_cmd.clone(),
+            argv: compile.command.clone(),
             conf: RunOptions {
                 resource_limits: config.compile_limits(),
                 wait: true,
@@ -163,18 +160,18 @@ pub fn build_operation(
                     path: "compile_stderr.txt".to_string(),
                 },
             },
-            collect: vec![lang.binary_name.clone(), "compile_stderr.txt".to_string()],
+            collect,
             depends_on: vec![],
             cache: Some(StepCacheConfig {
-                key_inputs: compile_inputs.clone(),
-                outputs: vec![lang.binary_name.clone()],
+                key_inputs: compile.cache_inputs.clone(),
+                outputs: cache_outputs,
             }),
         };
         steps.push(compile_step);
     }
 
     // Exec step
-    let exec_depends = if lang.compile_cmd.is_some() {
+    let exec_depends = if lang.compile.is_some() {
         vec!["compile".to_string()]
     } else {
         vec![]
@@ -183,7 +180,7 @@ pub fn build_operation(
     let exec_step = Step {
         id: "exec".to_string(),
         env_ref: "sandbox".to_string(),
-        argv: lang.run_cmd.clone(),
+        argv: lang.run.command.clone(),
         conf: RunOptions {
             resource_limits: config.exec_limits(time_limit_s, memory_limit_kb),
             wait: true,
@@ -220,7 +217,7 @@ pub fn build_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::SourceFile;
+    use broccoli_server_sdk::types::{CompileSpec, RunSpec, SourceFile};
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -233,6 +230,7 @@ mod tests {
             solution_language: "cpp".to_string(),
             time_limit_ms: 1000,
             memory_limit_kb: 262144,
+            contest_id: None,
             test_input: "hello\n".to_string(),
             expected_output: "world\n".to_string(),
             checker_format: Some("exact".to_string()),
@@ -241,27 +239,33 @@ mod tests {
         }
     }
 
-    fn compiled_lang() -> ResolvedLanguage {
-        ResolvedLanguage {
-            compile_cmd: Some(vec![
-                "/usr/bin/g++".to_string(),
-                "-O2".to_string(),
-                "solution.cpp".to_string(),
-                "-o".to_string(),
-                "solution".to_string(),
-            ]),
-            run_cmd: vec!["./solution".to_string()],
-            source_filename: "solution.cpp".to_string(),
-            binary_name: "solution".to_string(),
+    fn compiled_lang() -> ResolveLanguageOutput {
+        ResolveLanguageOutput {
+            compile: Some(CompileSpec {
+                command: vec![
+                    "/usr/bin/g++".to_string(),
+                    "-O2".to_string(),
+                    "solution.cpp".to_string(),
+                    "-o".to_string(),
+                    "solution".to_string(),
+                ],
+                cache_inputs: vec!["main.cpp".to_string(), "solution.cpp".to_string()],
+                outputs: vec![OutputSpec::File("solution".to_string())],
+            }),
+            run: RunSpec {
+                command: vec!["./solution".to_string()],
+                extra_files: vec![],
+            },
         }
     }
 
-    fn interpreted_lang() -> ResolvedLanguage {
-        ResolvedLanguage {
-            compile_cmd: None,
-            run_cmd: vec!["/usr/bin/python3".to_string(), "solution.py".to_string()],
-            source_filename: "solution.py".to_string(),
-            binary_name: "solution.py".to_string(),
+    fn interpreted_lang() -> ResolveLanguageOutput {
+        ResolveLanguageOutput {
+            compile: None,
+            run: RunSpec {
+                command: vec!["/usr/bin/python3".to_string(), "solution.py".to_string()],
+                extra_files: vec!["solution.py".to_string()],
+            },
         }
     }
 
@@ -318,7 +322,7 @@ mod tests {
         let source_file = env
             .files_in
             .iter()
-            .find(|(name, _)| name == "solution.cpp")
+            .find(|(name, _)| name == "main.cpp")
             .expect("source file not found");
         match &source_file.1 {
             SessionFile::Content { content } => {
@@ -341,7 +345,6 @@ mod tests {
 
         assert!(env.files_in.iter().any(|(name, _)| name == "main.cpp"));
         assert!(env.files_in.iter().any(|(name, _)| name == "helper.hpp"));
-        assert!(env.files_in.iter().any(|(name, _)| name == "solution.cpp"));
 
         let compile = &ops[0].tasks[0];
         let cache = compile
@@ -350,11 +353,7 @@ mod tests {
             .expect("compile step missing cache config");
         assert_eq!(
             cache.key_inputs,
-            vec![
-                "main.cpp".to_string(),
-                "helper.hpp".to_string(),
-                "solution.cpp".to_string(),
-            ]
+            vec!["main.cpp".to_string(), "solution.cpp".to_string(),]
         );
     }
 

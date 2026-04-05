@@ -4,7 +4,7 @@ description = "CMS-style communication evaluator — manager + N contestant proc
 
 [server]
 entry = "communication_evaluator.wasm"
-permissions = ["logger", "plugin:register", "operations:dispatch", "language:config", "config:read"]
+permissions = ["logger", "plugin:register", "operations:dispatch", "language:resolve", "config:read"]
 
 [web]
 root = "frontend/dist"

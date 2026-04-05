@@ -16,11 +16,38 @@ export interface InheritedConfig {
   problem?: ParentScopeConfig;
 }
 
-type ConfigScope =
+export type ConfigScope =
   | { scope: 'plugin'; pluginId: string }
   | { scope: 'contest'; contestId: number }
   | { scope: 'problem'; problemId: number }
   | { scope: 'contest_problem'; contestId: number; problemId: number };
+
+/**
+ * Props passed to plugin config form slot components.
+ *
+ * These are available in `slotProps` when a plugin registers a component
+ * for a `config.form.{pluginId}.{namespace}` slot.
+ */
+export interface ConfigFormSlotProps {
+  /** Current config scope being edited. */
+  scope?: ConfigScope;
+  /** Plugin ID that owns this config namespace. */
+  pluginId: string;
+  /** Config namespace (e.g. "compilation"). */
+  namespace: string;
+  /** Current form values (with schema defaults filled in). */
+  values: Record<string, unknown>;
+  /** Values explicitly stored in the DB (without defaults). */
+  storedValues: Record<string, unknown> | null;
+  /** JSON schema for this config namespace. */
+  schema: Record<string, unknown>;
+  /** Whether no explicit values are stored (all values are schema defaults). */
+  isUsingDefaultsOnly: boolean;
+  /** Inherited config from parent scopes. */
+  inherited?: InheritedConfig;
+  /** Check whether a field path has an explicit value in the DB. */
+  hasExplicitValue: (path: string | string[]) => boolean;
+}
 
 /**
  * Props passed to plugin config field slot components.
