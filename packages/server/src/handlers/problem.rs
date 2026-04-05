@@ -66,7 +66,15 @@ pub async fn create_problem(
         &state.registries.checker_format_registry,
     )
     .await?;
-    validate_submission_format(payload.submission_format.as_ref(), &state.config.languages)?;
+    let known_languages: std::collections::HashSet<String> = state
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    validate_submission_format(payload.submission_format.as_ref(), &known_languages)?;
     validate_contest_type(
         &default_contest_type,
         &state.registries.contest_type_registry,
@@ -252,7 +260,15 @@ pub async fn update_problem(
         validate_checker_format(cf, &state.registries.checker_format_registry).await?;
     }
     if let Some(Some(ref sf)) = payload.submission_format {
-        validate_submission_format(Some(sf), &state.config.languages)?;
+        let known_languages: std::collections::HashSet<String> = state
+            .registries
+            .language_resolver_registry
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect();
+        validate_submission_format(Some(sf), &known_languages)?;
     }
     if let Some(ref ct) = payload.default_contest_type {
         validate_contest_type(ct, &state.registries.contest_type_registry).await?;

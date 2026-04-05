@@ -48,8 +48,19 @@ pub type EvaluatorRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
 /// checker_format -> handler registry
 pub type CheckerFormatRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
 
-/// language_id -> handler registry for language resolver plugins
-pub type LanguageResolverRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
+/// A language resolver registration with metadata for the UI.
+#[derive(Clone, Debug)]
+pub struct LanguageResolverEntry {
+    pub plugin_id: String,
+    pub function_name: String,
+    /// Human-friendly display name (e.g. "C++", "Python 3").
+    pub display_name: String,
+    /// Default source filename for this language (e.g. "solution.cpp").
+    pub default_filename: String,
+}
+
+/// language_id -> resolver registry for language resolver plugins
+pub type LanguageResolverRegistry = Arc<RwLock<HashMap<String, LanguageResolverEntry>>>;
 
 /// batch_id -> batch state registry (operation dispatch)
 pub type OperationBatches = Arc<DashMap<String, BatchState<TaskResult>>>;

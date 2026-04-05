@@ -44,10 +44,14 @@ impl Registry {
         &self,
         language_id: &str,
         function_name: &str,
+        display_name: &str,
+        default_filename: &str,
     ) -> Result<(), SdkError> {
         let input = serde_json::json!({
             "language_id": language_id,
             "function_name": function_name,
+            "display_name": display_name,
+            "default_filename": default_filename,
         });
         unsafe { crate::host::raw::register_language_resolver(serde_json::to_string(&input)?)? };
         Ok(())
@@ -91,6 +95,8 @@ impl Registry {
         &self,
         _language_id: &str,
         _function_name: &str,
+        _display_name: &str,
+        _default_filename: &str,
     ) -> Result<(), SdkError> {
         Ok(())
     }

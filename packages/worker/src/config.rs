@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
@@ -107,9 +105,6 @@ pub struct WorkerAppConfig {
     pub mq: MqAppConfig,
     #[serde(default)]
     pub storage: StorageConfig,
-    /// Language definitions. Overrides built-in defaults; built-ins fill any gaps.
-    #[serde(default)]
-    pub languages: HashMap<String, common::language::LanguageDefinition>,
 }
 
 impl WorkerAppConfig {

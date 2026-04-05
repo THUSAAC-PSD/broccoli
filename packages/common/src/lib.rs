@@ -2,7 +2,6 @@ pub mod config;
 pub mod dlq;
 pub mod event;
 pub mod hook;
-pub mod language;
 pub mod mq;
 pub mod retry;
 pub mod storage;

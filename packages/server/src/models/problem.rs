@@ -3,7 +3,6 @@ use std::str::FromStr;
 use axum::body::Bytes;
 use axum_typed_multipart::{TryFromField, TryFromMultipart};
 use chrono::{DateTime, Utc};
-use common::language::LanguageDefinition;
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -596,7 +595,7 @@ pub fn validate_update_problem(req: &UpdateProblemRequest) -> Result<(), AppErro
 
 pub fn validate_submission_format(
     submission_format: Option<&HashMap<String, Vec<String>>>,
-    valid_languages: &HashMap<String, LanguageDefinition>,
+    known_languages: &HashSet<String>,
 ) -> Result<(), AppError> {
     let Some(submission_format) = submission_format else {
         return Ok(());
@@ -613,7 +612,7 @@ pub fn validate_submission_format(
                 "submission_format language ids must be non-empty".into(),
             ));
         }
-        if !valid_languages.is_empty() && !valid_languages.contains_key(trimmed_language_id) {
+        if !known_languages.is_empty() && !known_languages.contains(trimmed_language_id) {
             return Err(AppError::Validation(format!(
                 "submission_format contains unsupported language '{}'",
                 trimmed_language_id
