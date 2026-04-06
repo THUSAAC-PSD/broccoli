@@ -98,6 +98,17 @@ pub fn build_operation(
     let mut files_in = Vec::new();
     let mut seen_filenames = HashSet::new();
 
+    for af in &req.additional_file_refs {
+        if seen_filenames.insert(af.filename.clone()) {
+            files_in.push((
+                af.filename.clone(),
+                SessionFile::Blob {
+                    hash: af.blob_hash.clone(),
+                },
+            ));
+        }
+    }
+
     for source in &req.solution_source {
         if seen_filenames.insert(source.filename.clone()) {
             files_in.push((

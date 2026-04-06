@@ -155,7 +155,6 @@ async fn main() -> anyhow::Result<()> {
         language_resolver_registry.clone(),
         evaluate_batches.clone(),
         app_config.clone(),
-        blob_store.clone(),
     )
     .context("Failed to initialize plugin manager")?;
 

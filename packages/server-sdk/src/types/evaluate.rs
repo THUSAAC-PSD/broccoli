@@ -28,6 +28,8 @@ pub struct StartEvaluateCaseInput {
 pub struct BuildEvalOpsInput {
     pub problem_id: i32,
     pub test_case_id: i32,
+    /// Contestant-submitted source files only. Does NOT include judge-provided
+    /// additional files. Those are in `additional_file_refs` as blob references.
     pub solution_source: Vec<SourceFile>,
     pub solution_language: String,
     pub time_limit_ms: i32,
@@ -51,10 +53,10 @@ pub struct BuildEvalOpsInput {
     #[serde(default)]
     pub checker_source: Option<Vec<SourceFile>>,
 
-    /// Metadata for judge-provided additional files (grader stubs, headers).
-    /// These files are already merged into `solution_source`, but `SourceFile`
-    /// has no `content_type` field — this parallel list is the only way to pass
-    /// MIME type hints to the language resolver.
+    /// Judge-provided additional files (grader stubs, headers) as blob references.
+    /// Evaluator plugins MUST add these as `SessionFile::Blob` entries BEFORE
+    /// contestant `solution_source` entries to prevent contestants from shadowing
+    /// judge files.
     #[serde(default)]
     pub additional_file_refs: Vec<FileRef>,
 }
@@ -155,13 +157,16 @@ impl TestCaseVerdict {
     }
 }
 
-/// A reference to a file with optional metadata.
+/// A reference to a judge-provided additional file with blob store hash.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileRef {
     pub filename: String,
     /// MIME content type when known (e.g. "text/x-c", "application/octet-stream").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Content-addressed blob hash. Resolved by the worker's blob store
+    /// at sandbox setup time via `SessionFile::Blob`.
+    pub blob_hash: String,
 }
 
 /// Input to a language resolver plugin function.

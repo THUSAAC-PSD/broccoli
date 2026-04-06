@@ -77,6 +77,17 @@ pub fn build_operation(
         let mut files_in: Vec<(String, SessionFile)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
+        for af in &req.additional_file_refs {
+            if seen.insert(af.filename.clone()) {
+                files_in.push((
+                    af.filename.clone(),
+                    SessionFile::Blob {
+                        hash: af.blob_hash.clone(),
+                    },
+                ));
+            }
+        }
+
         for source in &req.solution_source {
             if seen.insert(source.filename.clone()) {
                 files_in.push((

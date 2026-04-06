@@ -1,4 +1,3 @@
-use common::storage::BlobStore;
 use mq::MqQueue;
 use plugin_core::config::PluginConfig;
 use plugin_core::host::HostFunctionRegistry;
@@ -37,7 +36,6 @@ impl ServerManager {
         language_resolver_registry: LanguageResolverRegistry,
         evaluate_batches: EvaluateBatches,
         app_config: AppConfig,
-        blob_store: Arc<dyn BlobStore>,
     ) -> Result<Arc<Self>, anyhow::Error> {
         let manager = Arc::new(Self {
             state: PluginManagerState::new(config),
@@ -57,7 +55,6 @@ impl ServerManager {
             evaluate_batches,
             manager.clone() as Arc<dyn PluginManager>,
             app_config,
-            blob_store,
         );
 
         manager
