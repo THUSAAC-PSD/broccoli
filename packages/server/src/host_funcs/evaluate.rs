@@ -1,6 +1,5 @@
 use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
-use common::storage::{BlobStore, ContentHash};
 use common::submission_dispatch::{
     BuildEvalOpsInput, FileRef, SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
 };
@@ -36,7 +35,6 @@ struct EvaluateContext {
     evaluate_batches: EvaluateBatches,
     evaluator_slots: Arc<Semaphore>,
     db: DatabaseConnection,
-    blob_store: Arc<dyn BlobStore>,
 }
 
 type EvaluateUserData = EvaluateContext;
@@ -48,7 +46,6 @@ pub fn create_evaluate_functions(
     evaluate_batches: EvaluateBatches,
     evaluator_slots: Arc<Semaphore>,
     db: DatabaseConnection,
-    blob_store: Arc<dyn BlobStore>,
 ) -> Vec<Function> {
     let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext {
         plugin_id,
@@ -57,7 +54,6 @@ pub fn create_evaluate_functions(
         evaluate_batches,
         evaluator_slots,
         db,
-        blob_store,
     });
 
     vec![
@@ -102,7 +98,6 @@ fn start_evaluate_batch_fn(
         evaluate_batches,
         evaluator_slots,
         db,
-        blob_store,
     ) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
@@ -115,7 +110,6 @@ fn start_evaluate_batch_fn(
             guard.evaluate_batches.clone(),
             guard.evaluator_slots.clone(),
             guard.db.clone(),
-            guard.blob_store.clone(),
         )
     };
 
@@ -167,104 +161,74 @@ fn start_evaluate_batch_fn(
             ));
         }
 
-        let (
-            tc_data_map,
-            problem_model,
-            checker_config_model,
-            additional_source_files,
-            additional_file_refs,
-        ) = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                // Get test case input + expected_output (only for DB-backed TCs)
-                let tc_models = if tc_ids.is_empty() {
-                    Vec::new()
-                } else {
-                    test_case::Entity::find()
-                        .filter(test_case::Column::Id.is_in(tc_ids))
+        let (tc_data_map, problem_model, checker_config_model, additional_file_refs) =
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    // Get test case input + expected_output (only for DB-backed TCs)
+                    let tc_models = if tc_ids.is_empty() {
+                        Vec::new()
+                    } else {
+                        test_case::Entity::find()
+                            .filter(test_case::Column::Id.is_in(tc_ids))
+                            .all(&db)
+                            .await
+                            .map_err(|e| {
+                                extism::Error::msg(format!("Failed to query test case data: {}", e))
+                            })?
+                    };
+
+                    let tc_data: HashMap<i32, (String, String)> = tc_models
+                        .into_iter()
+                        .map(|m| (m.id, (m.input, m.expected_output)))
+                        .collect();
+
+                    // Get problem checker info
+                    let problem_model = problem::Entity::find_by_id(problem_id)
+                        .one(&db)
+                        .await
+                        .map_err(|e| {
+                            extism::Error::msg(format!("Failed to query problem: {}", e))
+                        })?;
+
+                    // Get checker config (namespaced under the calling plugin's ID)
+                    let checker_ns = format!("{}:checker", caller_plugin_id);
+                    let checker_config = plugin_config::Entity::find_by_id((
+                        "problem".to_string(),
+                        problem_id.to_string(),
+                        checker_ns,
+                    ))
+                    .one(&db)
+                    .await
+                    .map_err(|e| {
+                        extism::Error::msg(format!("Failed to query checker config: {}", e))
+                    })?;
+
+                    let af_models = additional_file::Entity::find()
+                        .filter(additional_file::Column::ProblemId.eq(problem_id))
+                        .filter(additional_file::Column::Language.eq(solution_language.as_str()))
                         .all(&db)
                         .await
                         .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query test case data: {}", e))
-                        })?
-                };
+                            extism::Error::msg(format!("Failed to query additional_files: {}", e))
+                        })?;
 
-                let tc_data: HashMap<i32, (String, String)> = tc_models
-                    .into_iter()
-                    .map(|m| (m.id, (m.input, m.expected_output)))
-                    .collect();
+                    let additional_file_refs: Vec<FileRef> = af_models
+                        .into_iter()
+                        .map(|r| FileRef {
+                            filename: r.path,
+                            content_type: r.content_type,
+                            blob_hash: r.content_hash,
+                        })
+                        .collect();
 
-                // Get problem checker info
-                let problem_model = problem::Entity::find_by_id(problem_id)
-                    .one(&db)
-                    .await
-                    .map_err(|e| extism::Error::msg(format!("Failed to query problem: {}", e)))?;
-
-                // Get checker config (namespaced under the calling plugin's ID)
-                let checker_ns = format!("{}:checker", caller_plugin_id);
-                let checker_config = plugin_config::Entity::find_by_id((
-                    "problem".to_string(),
-                    problem_id.to_string(),
-                    checker_ns,
-                ))
-                .one(&db)
-                .await
-                .map_err(|e| {
-                    extism::Error::msg(format!("Failed to query checker config: {}", e))
-                })?;
-
-                let af_models = additional_file::Entity::find()
-                    .filter(additional_file::Column::ProblemId.eq(problem_id))
-                    .filter(additional_file::Column::Language.eq(solution_language.as_str()))
-                    .all(&db)
-                    .await
-                    .map_err(|e| {
-                        extism::Error::msg(format!("Failed to query additional_files: {}", e))
-                    })?;
-
-                let additional_file_refs: Vec<FileRef> = af_models
-                    .iter()
-                    .map(|r| FileRef {
-                        filename: r.path.clone(),
-                        content_type: r.content_type.clone(),
-                    })
-                    .collect();
-
-                let mut additional_source_files: Vec<SourceFile> = Vec::new();
-                for r in af_models {
-                    let hash = ContentHash::from_hex(&r.content_hash).map_err(|e| {
-                        extism::Error::msg(format!(
-                            "Invalid content hash for additional_file '{}': {}",
-                            r.path, e
-                        ))
-                    })?;
-                    let content_bytes = blob_store.get(&hash).await.map_err(|e| {
-                        extism::Error::msg(format!(
-                            "Failed to read additional_file blob {}: {}",
-                            r.content_hash, e
-                        ))
-                    })?;
-                    let content = String::from_utf8(content_bytes).map_err(|e| {
-                        extism::Error::msg(format!(
-                            "additional_file '{}' is not valid UTF-8: {}",
-                            r.path, e
-                        ))
-                    })?;
-
-                    additional_source_files.push(SourceFile {
-                        filename: r.path,
-                        content,
-                    });
-                }
-
-                Ok::<_, extism::Error>((
-                    tc_data,
-                    problem_model,
-                    checker_config,
-                    additional_source_files,
-                    additional_file_refs,
-                ))
-            })
-        })?;
+                    Ok::<_, extism::Error>((
+                        tc_data,
+                        problem_model,
+                        checker_config,
+                        additional_file_refs,
+                    ))
+                })
+            })?;
 
         let problem_model = problem_model
             .ok_or_else(|| extism::Error::msg(format!("Problem {} not found", problem_id)))?;
@@ -292,13 +256,6 @@ fn start_evaluate_batch_fn(
             .test_cases
             .into_iter()
             .map(|tc| {
-                // Judge-supplied additional_files go FIRST so they take
-                // precedence over user-submitted files with the same name.
-                // Evaluators keep the first occurrence of each filename, so
-                // this prevents contestants from shadowing judge stubs.
-                let mut merged_source = additional_source_files.clone();
-                merged_source.extend(tc.solution_source);
-
                 let (test_input, expected_output, tc_checker_format) =
                     if let Some(ref inline) = tc.inline_input {
                         let expected = tc.inline_expected_output.clone().unwrap_or_default();
@@ -322,7 +279,7 @@ fn start_evaluate_batch_fn(
                 Ok::<_, extism::Error>(BuildEvalOpsInput {
                     problem_id: tc.problem_id,
                     test_case_id: tc.test_case_id,
-                    solution_source: merged_source,
+                    solution_source: tc.solution_source,
                     solution_language: tc.solution_language,
                     time_limit_ms: tc.time_limit_ms,
                     memory_limit_kb: tc.memory_limit_kb,
