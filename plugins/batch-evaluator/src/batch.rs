@@ -148,7 +148,10 @@ pub fn build_operation(
             env_ref: "sandbox".to_string(),
             argv: compile.command.clone(),
             conf: RunOptions {
-                resource_limits: config.compile_limits(),
+                resource_limits: compile
+                    .resource_limits
+                    .clone()
+                    .unwrap_or_else(|| config.compile_limits()),
                 wait: true,
                 env_rules: vec![],
                 ..Default::default()
@@ -236,6 +239,7 @@ mod tests {
             checker_format: Some("exact".to_string()),
             checker_config: None,
             checker_source: None,
+            additional_file_refs: vec![],
         }
     }
 
@@ -251,6 +255,7 @@ mod tests {
                 ],
                 cache_inputs: vec!["main.cpp".to_string(), "solution.cpp".to_string()],
                 outputs: vec![OutputSpec::File("solution".to_string())],
+                resource_limits: None,
             }),
             run: RunSpec {
                 command: vec!["./solution".to_string()],

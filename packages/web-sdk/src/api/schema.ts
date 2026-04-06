@@ -2953,6 +2953,15 @@ export interface components {
        */
       default_filename: string;
       /**
+       * @description File extensions this language handles (lowercase, no dot prefix).
+       * @example [
+       *       "cpp",
+       *       "cc",
+       *       "cxx"
+       *     ]
+       */
+      extensions: string[];
+      /**
        * @description Language identifier used in submission payloads.
        * @example cpp
        */
@@ -2962,6 +2971,11 @@ export interface components {
        * @example C++
        */
       name: string;
+      /**
+       * @description Starter template code shown in the editor for new files.
+       * @example #include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n
+       */
+      template: string;
     };
     /** @description Request body for user login. */
     LoginRequest: {

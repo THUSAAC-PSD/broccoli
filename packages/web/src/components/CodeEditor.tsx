@@ -43,6 +43,7 @@ const FALLBACK_LANGUAGE: Language = {
   name: 'Plain Text',
   defaultFilename: 'solution.txt',
   template: '',
+  extensions: [],
 };
 
 export interface EditorFile {
@@ -98,33 +99,18 @@ const EXT_TO_MONACO: Record<string, string> = {
   yaml: 'yaml',
 };
 
-const EXT_TO_LANGUAGE_ID: Record<string, string> = {
-  cpp: 'cpp',
-  cc: 'cpp',
-  cxx: 'cpp',
-  'c++': 'cpp',
-  hpp: 'cpp',
-  c: 'c',
-  h: 'c',
-  py: 'python3',
-  java: 'java',
-  js: 'javascript',
-  mjs: 'javascript',
-  cjs: 'javascript',
-  ts: 'typescript',
-  rs: 'rust',
-  go: 'go',
-};
-
 function getMonacoLanguage(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
   return EXT_TO_MONACO[ext] ?? 'plaintext';
 }
 
-function detectLanguageFromFiles(files: EditorFile[]): string | null {
+function detectLanguageFromFiles(
+  files: EditorFile[],
+  dynamicExtMap: Record<string, string>,
+): string | null {
   for (const file of files) {
     const ext = file.filename.split('.').pop()?.toLowerCase() ?? '';
-    const langId = EXT_TO_LANGUAGE_ID[ext];
+    const langId = dynamicExtMap[ext];
     if (langId) return langId;
   }
   return null;
@@ -280,6 +266,16 @@ export function CodeEditor({
     });
     return configured.length > 0 ? configured : supportedLanguages;
   }, [submissionFormat, supportedLanguages]);
+
+  const dynamicExtMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const lang of availableLanguages) {
+      for (const ext of lang.extensions) {
+        if (!map[ext]) map[ext] = lang.id;
+      }
+    }
+    return map;
+  }, [availableLanguages]);
 
   const isSubmissionFormatLocked = useMemo(
     () =>
@@ -505,7 +501,7 @@ export function CodeEditor({
       if (newFiles.length === 0) return;
 
       // Detect language from uploaded files
-      const detectedLang = detectLanguageFromFiles(newFiles);
+      const detectedLang = detectLanguageFromFiles(newFiles, dynamicExtMap);
       if (detectedLang) {
         const lang = availableLanguages.find((l) => l.id === detectedLang);
         if (lang) setSelectedLanguage(lang);
@@ -529,7 +525,7 @@ export function CodeEditor({
       // Activate the first new file
       setActiveFileId(newFiles[0].id);
     },
-    [availableLanguages, selectedLanguage, submissionFormat],
+    [availableLanguages, dynamicExtMap, selectedLanguage, submissionFormat],
   );
 
   const processUploadedFiles = useCallback(

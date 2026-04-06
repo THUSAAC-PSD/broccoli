@@ -1,4 +1,4 @@
-use broccoli_server_sdk::types::{OutputSpec, ResolveLanguageInput};
+use broccoli_server_sdk::types::{FileRef, OutputSpec, ResolveLanguageInput};
 
 use crate::EntryPointConfig;
 use crate::resolve;
@@ -220,4 +220,39 @@ fn entry_point_override_cpp() {
     // Primary source comes first, extras follow
     assert!(compile.command.contains(&"grader.cpp".to_string()));
     assert!(compile.command.contains(&"solution.cpp".to_string()));
+}
+
+#[test]
+fn cpp_with_additional_file_refs() {
+    let mut input = req("cpp", vec!["solution.cpp"]);
+    input.additional_files = vec![
+        FileRef {
+            filename: "grader.cpp".into(),
+            content_type: Some("text/x-c++src".into()),
+        },
+        FileRef {
+            filename: "grader.h".into(),
+            content_type: Some("text/x-c".into()),
+        },
+    ];
+    let result = resolve::resolve_cpp(&input, None, "/usr/bin/g++", &default_cpp_flags(), &[]);
+    let compile = result.compile.unwrap();
+    assert!(compile.command.contains(&"grader.cpp".to_string()));
+    assert!(compile.command.contains(&"grader.h".to_string()));
+    assert_eq!(
+        compile.cache_inputs,
+        vec!["solution.cpp", "grader.cpp", "grader.h"]
+    );
+}
+
+#[test]
+fn compile_spec_has_no_resource_limits_by_default() {
+    let result = resolve::resolve_cpp(
+        &req("cpp", vec!["solution.cpp"]),
+        None,
+        "/usr/bin/g++",
+        &default_cpp_flags(),
+        &[],
+    );
+    assert!(result.compile.unwrap().resource_limits.is_none());
 }

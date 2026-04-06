@@ -48,6 +48,12 @@ struct RegisterLanguageResolverInput {
     /// Defaults to "solution.txt" if not provided.
     #[serde(default = "default_source_filename")]
     default_filename: String,
+    /// File extensions this language handles (lowercase, no dot prefix).
+    #[serde(default)]
+    extensions: Vec<String>,
+    /// Starter template code shown in the editor for new files.
+    #[serde(default)]
+    template: String,
 }
 
 fn default_source_filename() -> String {
@@ -301,6 +307,13 @@ fn register_language_resolver_fn(
         input.display_name
     };
 
+    let extensions: Vec<String> = input
+        .extensions
+        .into_iter()
+        .map(|e| e.trim_start_matches('.').to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .collect();
+
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             let mut registry = registry.write().await;
@@ -311,6 +324,8 @@ fn register_language_resolver_fn(
                     function_name: input.function_name.clone(),
                     display_name,
                     default_filename: input.default_filename,
+                    extensions,
+                    template: input.template,
                 },
             );
             tracing::info!(

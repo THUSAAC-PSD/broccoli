@@ -113,7 +113,10 @@ pub fn build_operation(
             env_ref: "manager_env".to_string(),
             argv: compile.command.clone(),
             conf: RunOptions {
-                resource_limits: sandbox_config.compile_limits(),
+                resource_limits: compile
+                    .resource_limits
+                    .clone()
+                    .unwrap_or_else(|| sandbox_config.compile_limits()),
                 wait: true,
                 env_rules: vec![],
                 ..Default::default()
@@ -152,7 +155,10 @@ pub fn build_operation(
                 env_ref: format!("contestant_{i}"),
                 argv: compile.command.clone(),
                 conf: RunOptions {
-                    resource_limits: sandbox_config.compile_limits(),
+                    resource_limits: compile
+                        .resource_limits
+                        .clone()
+                        .unwrap_or_else(|| sandbox_config.compile_limits()),
                     wait: true,
                     env_rules: vec![],
                     ..Default::default()
@@ -296,6 +302,7 @@ mod tests {
             checker_format: None,
             checker_config: None,
             checker_source: None,
+            additional_file_refs: vec![],
         }
     }
 
@@ -311,6 +318,7 @@ mod tests {
                 ],
                 cache_inputs: vec!["main.cpp".to_string()],
                 outputs: vec![OutputSpec::File("solution".to_string())],
+                resource_limits: None,
             }),
             run: RunSpec {
                 command: vec!["./solution".to_string()],
@@ -331,6 +339,7 @@ mod tests {
                 ],
                 cache_inputs: vec!["manager.cpp".to_string()],
                 outputs: vec![OutputSpec::File("manager".to_string())],
+                resource_limits: None,
             }),
             run: RunSpec {
                 command: vec!["./manager".to_string()],

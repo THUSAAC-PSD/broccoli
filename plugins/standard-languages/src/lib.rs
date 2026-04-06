@@ -23,6 +23,8 @@ pub fn init() -> FnResult<String> {
             "resolve_standard_language",
             lang.display_name,
             lang.default_filename,
+            lang.extensions,
+            lang.template,
         )?;
     }
 
