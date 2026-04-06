@@ -61,6 +61,8 @@ pub async fn list_registries(
             id: id.clone(),
             name: entry.display_name.clone(),
             default_filename: entry.default_filename.clone(),
+            extensions: entry.extensions.clone(),
+            template: entry.template.clone(),
         })
         .collect();
     languages.sort_by(|a, b| a.id.cmp(&b.id));

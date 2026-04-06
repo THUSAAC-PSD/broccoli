@@ -57,6 +57,10 @@ pub struct LanguageResolverEntry {
     pub display_name: String,
     /// Default source filename for this language (e.g. "solution.cpp").
     pub default_filename: String,
+    /// File extensions this language handles (lowercase, no dot prefix).
+    pub extensions: Vec<String>,
+    /// Starter template code shown in the editor for new files.
+    pub template: String,
 }
 
 /// language_id -> resolver registry for language resolver plugins

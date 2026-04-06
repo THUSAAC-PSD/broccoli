@@ -14,8 +14,9 @@ pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
 pub use code_run::{OnCodeRunInput, OnCodeRunOutput};
 pub use config::{CascadeLevel, CascadeLevels, ConfigResult, ConfigSource, EffectiveConfig};
 pub use evaluate::{
-    BuildEvalOpsInput, CompileSpec, OutputSpec, ResolveLanguageInput, ResolveLanguageOutput,
-    RunSpec, StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseVerdict,
+    BuildEvalOpsInput, CompileSpec, FileRef, OutputSpec, ResolveLanguageInput,
+    ResolveLanguageOutput, RunSpec, StartEvaluateBatchInput, StartEvaluateCaseInput,
+    TestCaseVerdict,
 };
 pub use hook_events::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent, HookEvent};
 pub use http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};

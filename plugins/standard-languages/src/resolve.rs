@@ -9,6 +9,8 @@ pub struct LanguageMeta {
     pub id: &'static str,
     pub display_name: &'static str,
     pub default_filename: &'static str,
+    pub extensions: &'static [&'static str],
+    pub template: &'static str,
 }
 
 pub const LANGUAGES: &[LanguageMeta] = &[
@@ -16,21 +18,29 @@ pub const LANGUAGES: &[LanguageMeta] = &[
         id: "c",
         display_name: "C",
         default_filename: "solution.c",
+        extensions: &["c"],
+        template: "#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}\n",
     },
     LanguageMeta {
         id: "cpp",
         display_name: "C++",
         default_filename: "solution.cpp",
+        extensions: &["cpp", "cc", "cxx", "c++"],
+        template: "#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}\n",
     },
     LanguageMeta {
         id: "python3",
         display_name: "Python 3",
         default_filename: "solution.py",
+        extensions: &["py"],
+        template: "# Your code here\n",
     },
     LanguageMeta {
         id: "java",
         display_name: "Java",
         default_filename: "Main.java",
+        extensions: &["java"],
+        template: "public class Main {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}\n",
     },
 ];
 
@@ -86,8 +96,8 @@ fn resolve_primary<'a>(
 fn collect_files<'a>(req: &'a ResolveLanguageInput) -> Vec<&'a str> {
     req.submitted_files
         .iter()
-        .chain(req.additional_files.iter())
         .map(|s| s.as_str())
+        .chain(req.additional_files.iter().map(|f| f.filename.as_str()))
         .collect()
 }
 
@@ -127,6 +137,7 @@ fn resolve_compiled(
             command,
             cache_inputs,
             outputs: vec![OutputSpec::File(basename.clone())],
+            resource_limits: None,
         }),
         run: RunSpec {
             command: vec![format!("./{basename}")],
@@ -219,6 +230,7 @@ pub fn resolve_java(
             cache_inputs,
             // javac may produce multiple .class files (inner classes)
             outputs: vec![OutputSpec::Glob("*.class".into())],
+            resource_limits: None,
         }),
         run: RunSpec {
             command: vec![runner.to_string(), "-cp".into(), ".".into(), basename],

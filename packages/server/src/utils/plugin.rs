@@ -29,6 +29,11 @@ pub async fn purge_plugin_registrations(registries: &RegistryState, plugin_id: &
         .await
         .retain(|_, h| h.plugin_id != plugin_id);
     registries
+        .language_resolver_registry
+        .write()
+        .await
+        .retain(|_, h| h.plugin_id != plugin_id);
+    registries
         .hook_registry
         .write()
         .await

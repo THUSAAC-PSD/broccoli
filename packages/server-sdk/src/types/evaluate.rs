@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::operation::ResourceLimits;
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
@@ -49,6 +50,13 @@ pub struct BuildEvalOpsInput {
     /// Checker source files (for custom/testlib checkers). Server-enriched.
     #[serde(default)]
     pub checker_source: Option<Vec<SourceFile>>,
+
+    /// Metadata for judge-provided additional files (grader stubs, headers).
+    /// These files are already merged into `solution_source`, but `SourceFile`
+    /// has no `content_type` field — this parallel list is the only way to pass
+    /// MIME type hints to the language resolver.
+    #[serde(default)]
+    pub additional_file_refs: Vec<FileRef>,
 }
 
 /// Input for start_evaluate_batch host function.
@@ -147,14 +155,23 @@ impl TestCaseVerdict {
     }
 }
 
+/// A reference to a file with optional metadata.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileRef {
+    pub filename: String,
+    /// MIME content type when known (e.g. "text/x-c", "application/octet-stream").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+}
+
 /// Input to a language resolver plugin function.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResolveLanguageInput {
     pub language_id: String,
     /// Filenames submitted by the contestant (e.g. ["solution.cpp"]).
     pub submitted_files: Vec<String>,
-    /// Filenames provided by the judge as additional files (e.g. ["grader.cpp", "grader.h"]).
-    pub additional_files: Vec<String>,
+    /// Files provided by the judge as additional files (e.g. grader stubs, headers).
+    pub additional_files: Vec<FileRef>,
     /// Problem ID for config cascade. When set, the resolver may read its own
     /// per-problem config (entry points, extra flags). Pass None for non-problem
     /// contexts (e.g. checker compilation).
@@ -195,6 +212,10 @@ pub struct CompileSpec {
     /// Can be exact filenames ("solution") or glob patterns ("*.class").
     /// Globs are resolved relative to the sandbox working directory only.
     pub outputs: Vec<OutputSpec>,
+    /// Resource limits for compilation. When set, the evaluator should use
+    /// these instead of its default compile limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_limits: Option<ResourceLimits>,
 }
 
 /// A compilation output specification - either an exact filename or a glob pattern.

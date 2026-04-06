@@ -46,9 +46,15 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
     let sandbox_config = load_sandbox_config(&host);
     let comm_config = load_comm_config(&host, problem_id);
 
+    let additional_filenames: std::collections::HashSet<&str> = req
+        .additional_file_refs
+        .iter()
+        .map(|f| f.filename.as_str())
+        .collect();
     let submitted_files: Vec<String> = req
         .solution_source
         .iter()
+        .filter(|f| !additional_filenames.contains(f.filename.as_str()))
         .map(|f| f.filename.clone())
         .collect();
     let contestant_lang = host
@@ -56,7 +62,7 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
         .resolve(&ResolveLanguageInput {
             language_id: req.solution_language.clone(),
             submitted_files,
-            additional_files: vec![],
+            additional_files: req.additional_file_refs.clone(),
             problem_id: Some(problem_id),
             contest_id: req.contest_id,
             overrides: None,

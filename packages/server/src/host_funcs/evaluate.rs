@@ -2,7 +2,7 @@ use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
 use common::storage::{BlobStore, ContentHash};
 use common::submission_dispatch::{
-    BuildEvalOpsInput, SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
+    BuildEvalOpsInput, FileRef, SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
 };
 use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
@@ -167,92 +167,104 @@ fn start_evaluate_batch_fn(
             ));
         }
 
-        let (tc_data_map, problem_model, checker_config_model, additional_source_files) =
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    // Get test case input + expected_output (only for DB-backed TCs)
-                    let tc_models = if tc_ids.is_empty() {
-                        Vec::new()
-                    } else {
-                        test_case::Entity::find()
-                            .filter(test_case::Column::Id.is_in(tc_ids))
-                            .all(&db)
-                            .await
-                            .map_err(|e| {
-                                extism::Error::msg(format!("Failed to query test case data: {}", e))
-                            })?
-                    };
-
-                    let tc_data: HashMap<i32, (String, String)> = tc_models
-                        .into_iter()
-                        .map(|m| (m.id, (m.input, m.expected_output)))
-                        .collect();
-
-                    // Get problem checker info
-                    let problem_model = problem::Entity::find_by_id(problem_id)
-                        .one(&db)
-                        .await
-                        .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query problem: {}", e))
-                        })?;
-
-                    // Get checker config (namespaced under the calling plugin's ID)
-                    let checker_ns = format!("{}:checker", caller_plugin_id);
-                    let checker_config = plugin_config::Entity::find_by_id((
-                        "problem".to_string(),
-                        problem_id.to_string(),
-                        checker_ns,
-                    ))
-                    .one(&db)
-                    .await
-                    .map_err(|e| {
-                        extism::Error::msg(format!("Failed to query checker config: {}", e))
-                    })?;
-
-                    let af_models = additional_file::Entity::find()
-                        .filter(additional_file::Column::ProblemId.eq(problem_id))
-                        .filter(additional_file::Column::Language.eq(solution_language.as_str()))
+        let (
+            tc_data_map,
+            problem_model,
+            checker_config_model,
+            additional_source_files,
+            additional_file_refs,
+        ) = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                // Get test case input + expected_output (only for DB-backed TCs)
+                let tc_models = if tc_ids.is_empty() {
+                    Vec::new()
+                } else {
+                    test_case::Entity::find()
+                        .filter(test_case::Column::Id.is_in(tc_ids))
                         .all(&db)
                         .await
                         .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query additional_files: {}", e))
-                        })?;
+                            extism::Error::msg(format!("Failed to query test case data: {}", e))
+                        })?
+                };
 
-                    let mut additional_source_files: Vec<SourceFile> = Vec::new();
-                    for r in af_models {
-                        let hash = ContentHash::from_hex(&r.content_hash).map_err(|e| {
-                            extism::Error::msg(format!(
-                                "Invalid content hash for additional_file '{}': {}",
-                                r.path, e
-                            ))
-                        })?;
-                        let content_bytes = blob_store.get(&hash).await.map_err(|e| {
-                            extism::Error::msg(format!(
-                                "Failed to read additional_file blob {}: {}",
-                                r.content_hash, e
-                            ))
-                        })?;
-                        let content = String::from_utf8(content_bytes).map_err(|e| {
-                            extism::Error::msg(format!(
-                                "additional_file '{}' is not valid UTF-8: {}",
-                                r.path, e
-                            ))
-                        })?;
+                let tc_data: HashMap<i32, (String, String)> = tc_models
+                    .into_iter()
+                    .map(|m| (m.id, (m.input, m.expected_output)))
+                    .collect();
 
-                        additional_source_files.push(SourceFile {
-                            filename: r.path,
-                            content,
-                        });
-                    }
+                // Get problem checker info
+                let problem_model = problem::Entity::find_by_id(problem_id)
+                    .one(&db)
+                    .await
+                    .map_err(|e| extism::Error::msg(format!("Failed to query problem: {}", e)))?;
 
-                    Ok::<_, extism::Error>((
-                        tc_data,
-                        problem_model,
-                        checker_config,
-                        additional_source_files,
-                    ))
-                })
-            })?;
+                // Get checker config (namespaced under the calling plugin's ID)
+                let checker_ns = format!("{}:checker", caller_plugin_id);
+                let checker_config = plugin_config::Entity::find_by_id((
+                    "problem".to_string(),
+                    problem_id.to_string(),
+                    checker_ns,
+                ))
+                .one(&db)
+                .await
+                .map_err(|e| {
+                    extism::Error::msg(format!("Failed to query checker config: {}", e))
+                })?;
+
+                let af_models = additional_file::Entity::find()
+                    .filter(additional_file::Column::ProblemId.eq(problem_id))
+                    .filter(additional_file::Column::Language.eq(solution_language.as_str()))
+                    .all(&db)
+                    .await
+                    .map_err(|e| {
+                        extism::Error::msg(format!("Failed to query additional_files: {}", e))
+                    })?;
+
+                let additional_file_refs: Vec<FileRef> = af_models
+                    .iter()
+                    .map(|r| FileRef {
+                        filename: r.path.clone(),
+                        content_type: r.content_type.clone(),
+                    })
+                    .collect();
+
+                let mut additional_source_files: Vec<SourceFile> = Vec::new();
+                for r in af_models {
+                    let hash = ContentHash::from_hex(&r.content_hash).map_err(|e| {
+                        extism::Error::msg(format!(
+                            "Invalid content hash for additional_file '{}': {}",
+                            r.path, e
+                        ))
+                    })?;
+                    let content_bytes = blob_store.get(&hash).await.map_err(|e| {
+                        extism::Error::msg(format!(
+                            "Failed to read additional_file blob {}: {}",
+                            r.content_hash, e
+                        ))
+                    })?;
+                    let content = String::from_utf8(content_bytes).map_err(|e| {
+                        extism::Error::msg(format!(
+                            "additional_file '{}' is not valid UTF-8: {}",
+                            r.path, e
+                        ))
+                    })?;
+
+                    additional_source_files.push(SourceFile {
+                        filename: r.path,
+                        content,
+                    });
+                }
+
+                Ok::<_, extism::Error>((
+                    tc_data,
+                    problem_model,
+                    checker_config,
+                    additional_source_files,
+                    additional_file_refs,
+                ))
+            })
+        })?;
 
         let problem_model = problem_model
             .ok_or_else(|| extism::Error::msg(format!("Problem {} not found", problem_id)))?;
@@ -320,6 +332,7 @@ fn start_evaluate_batch_fn(
                     checker_format: tc_checker_format,
                     checker_config: checker_config_value.clone(),
                     checker_source: parsed_checker_source.clone(),
+                    additional_file_refs: additional_file_refs.clone(),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?

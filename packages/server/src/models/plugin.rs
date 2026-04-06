@@ -13,6 +13,14 @@ pub struct LanguageRegistryItem {
     /// Default source filename derived from the language config.
     #[schema(example = "solution.cpp")]
     pub default_filename: String,
+    /// File extensions this language handles (lowercase, no dot prefix).
+    #[schema(example = json!(["cpp", "cc", "cxx"]))]
+    pub extensions: Vec<String>,
+    /// Starter template code shown in the editor for new files.
+    #[schema(
+        example = "#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n"
+    )]
+    pub template: String,
 }
 
 /// Available registry values for problem types, checker formats, and contest types.
