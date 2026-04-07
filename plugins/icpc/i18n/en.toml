@@ -1,0 +1,23 @@
+# IcpcScoreboard
+'icpc.scoreboard.loading' = 'Loading scoreboard...'
+'icpc.scoreboard.loadError' = 'Failed to load scoreboard'
+'icpc.scoreboard.phase.before' = 'Not started'
+'icpc.scoreboard.phase.during' = 'In progress'
+'icpc.scoreboard.phase.after' = 'Finished'
+'icpc.scoreboard.autoRefresh' = 'Auto-refresh'
+'icpc.scoreboard.lastUpdated' = '{seconds}s ago'
+'icpc.scoreboard.empty.before' = 'Contest has not started yet'
+'icpc.scoreboard.empty.during' = 'No submissions yet'
+'icpc.scoreboard.empty.after' = 'No participants'
+'icpc.scoreboard.header.rank' = '#'
+'icpc.scoreboard.header.team' = 'Team'
+'icpc.scoreboard.header.solved' = '='
+'icpc.scoreboard.header.penalty' = 'Penalty'
+
+# IcpcContestInfo
+'icpc.contestInfo.title' = 'ACM-ICPC Style'
+'icpc.contestInfo.description' = 'Ranked by problems solved, then total time penalty. Each wrong submission adds {penalty_minutes} minutes of penalty.'
+'icpc.contestInfo.ceCount' = 'Compilation errors count as attempts.'
+'icpc.contestInfo.ceNoCount' = 'Compilation errors do not count as attempts.'
+'icpc.contestInfo.penaltyPerAttempt' = '{penalty_minutes} min/attempt'
+'icpc.contestInfo.testDetailsVisible' = 'Test details visible'

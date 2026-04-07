@@ -2,6 +2,9 @@ name = "icpc"
 version = "0.1.0"
 description = "ICPC-style contest plugin with binary pass/fail judging and time-penalty scoring"
 
+[translations]
+en = "i18n/en.toml"
+
 [server]
 entry = "icpc.wasm"
 permissions = [
