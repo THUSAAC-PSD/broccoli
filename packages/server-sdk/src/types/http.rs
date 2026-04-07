@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,27 @@ impl PluginHttpRequest {
         self.auth
             .as_ref()
             .is_some_and(|auth| auth.permissions.iter().any(|p| p == permission))
+    }
+
+    /// Extract a typed path parameter by name.
+    ///
+    /// Returns `SdkError::Other` if the parameter is missing or cannot be parsed.
+    pub fn param<T: FromStr>(&self, name: &str) -> Result<T, crate::error::SdkError> {
+        self.params
+            .get(name)
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| {
+                crate::error::SdkError::Other(format!("Missing or invalid param: {name}"))
+            })
+    }
+
+    /// Require an authenticated user, returning their user_id.
+    ///
+    /// Returns `SdkError::Other` if the user is not authenticated.
+    /// Callers in API handlers should `.map_err()` to convert to a 401 response.
+    pub fn require_user_id(&self) -> Result<i32, crate::error::SdkError> {
+        self.user_id()
+            .ok_or_else(|| crate::error::SdkError::Other("Authentication required".into()))
     }
 }
 
