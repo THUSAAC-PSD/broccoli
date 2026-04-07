@@ -111,101 +111,29 @@ mod plugin {
     // API: GET /api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status
     #[plugin_fn]
     pub fn get_cooldown_status(input: String) -> FnResult<String> {
-        let host = Host::new();
-        let resp = match handle_cooldown_status(&host, &input) {
-            Ok(r) => r,
-            Err(e) => PluginHttpResponse {
-                status: 500,
-                headers: None,
-                body: Some(serde_json::json!({ "error": format!("{e:?}") })),
-            },
-        };
-        Ok(serde_json::to_string(&resp)?)
+        run_api_handler(&input, handle_cooldown_status)
     }
 
     // API: GET /api/plugins/cooldown/problems/{problem_id}/status
     #[plugin_fn]
     pub fn get_cooldown_status_standalone(input: String) -> FnResult<String> {
-        let host = Host::new();
-        let resp = match handle_cooldown_status(&host, &input) {
-            Ok(r) => r,
-            Err(e) => PluginHttpResponse {
-                status: 500,
-                headers: None,
-                body: Some(serde_json::json!({ "error": format!("{e:?}") })),
-            },
-        };
-        Ok(serde_json::to_string(&resp)?)
+        run_api_handler(&input, handle_cooldown_status)
     }
 
-    fn handle_cooldown_status(host: &Host, input: &str) -> Result<PluginHttpResponse, SdkError> {
-        let req: PluginHttpRequest =
-            serde_json::from_str(input).map_err(|e| SdkError::Serialization(e.to_string()))?;
-
-        let user_id = match req.user_id() {
-            Some(id) => id,
-            None => {
-                return Ok(PluginHttpResponse {
-                    status: 401,
-                    headers: None,
-                    body: Some(serde_json::json!({ "error": "Authentication required" })),
-                });
-            }
-        };
+    fn handle_cooldown_status(
+        host: &Host,
+        req: &PluginHttpRequest,
+    ) -> Result<PluginHttpResponse, ApiError> {
+        let user_id = req
+            .require_user_id()
+            .map_err(|_| PluginHttpResponse::error(401, "Authentication required"))?;
 
         let contest_id: Option<i32> = req.params.get("contest_id").and_then(|s| s.parse().ok());
-
-        let problem_id: i32 = req
-            .params
-            .get("problem_id")
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| SdkError::Other("Missing problem_id".into()))?;
+        let problem_id: i32 = req.param("problem_id")?;
 
         // Contest access check (only when contest_id is present)
         if let Some(contest_id) = contest_id {
-            #[derive(Deserialize)]
-            struct ContestAccess {
-                is_active: bool,
-                is_participant: bool,
-                has_problem: bool,
-            }
-            let mut p = Params::new();
-            let sql = format!(
-                "SELECT \
-                    ((activate_time IS NULL OR activate_time <= NOW()) AND \
-                     (deactivate_time IS NULL OR deactivate_time > NOW())) AS is_active, \
-                    EXISTS(SELECT 1 FROM contest_user WHERE contest_id = {} AND user_id = {}) AS is_participant, \
-                    EXISTS(SELECT 1 FROM contest_problem WHERE contest_id = {} AND problem_id = {}) AS has_problem \
-                 FROM contest WHERE id = {}",
-                p.bind(contest_id),
-                p.bind(user_id),
-                p.bind(contest_id),
-                p.bind(problem_id),
-                p.bind(contest_id),
-            );
-            let access = match host
-                .db
-                .query_one_with_args::<ContestAccess>(&sql, &p.into_args())?
-            {
-                Some(access) => access,
-                None => {
-                    return Ok(PluginHttpResponse {
-                        status: 404,
-                        headers: None,
-                        body: Some(serde_json::json!({ "error": "Contest not found" })),
-                    });
-                }
-            };
-            if !access.has_problem
-                || (!req.has_permission("contest:manage")
-                    && (!access.is_active || !access.is_participant))
-            {
-                return Ok(PluginHttpResponse {
-                    status: 404,
-                    headers: None,
-                    body: Some(serde_json::json!({ "error": "Contest not found" })),
-                });
-            }
+            contest::check_problem_access(host, req, contest_id, user_id, problem_id)?;
         }
 
         let eff = host

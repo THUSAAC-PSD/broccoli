@@ -73,6 +73,7 @@ build-plugins *args:
     cargo run -p broccoli-cli -- plugin build plugins/ioi {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/cooldown {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/submission-limit {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/icpc {{args}}
 
 # Build all WASM plugins (release)
 build-plugins-release:
@@ -81,6 +82,7 @@ build-plugins-release:
     cargo run -p broccoli-cli -- plugin build plugins/ioi --install --release
     cargo run -p broccoli-cli -- plugin build plugins/cooldown --install --release
     cargo run -p broccoli-cli -- plugin build plugins/submission-limit --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/icpc --install --release
 
 # Build a single WASM plugin (e.g., just build-plugin plugins/standard-checkers)
 build-plugin path *args:

@@ -1,0 +1,68 @@
+name = "icpc"
+version = "0.1.0"
+description = "ICPC-style contest plugin with binary pass/fail judging and time-penalty scoring"
+
+[server]
+entry = "icpc.wasm"
+permissions = [
+    "logger",
+    "plugin:register",
+    "sql",
+    "evaluator:evaluate",
+    "config:read",
+    "storage",
+]
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/icpc/contests/{contest_id}/standings"
+handler = "api_standings"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/icpc/contests/{contest_id}/info"
+handler = "api_contest_info"
+
+[config.contest]
+description = "ICPC contest-level configuration"
+scopes = ["contest"]
+
+[config.contest.properties.penalty_minutes]
+type = "integer"
+title = "Penalty Minutes"
+description = "Minutes added per wrong submission before AC"
+default = 20
+min = 0
+max = 1440
+
+[config.contest.properties.count_compile_error]
+type = "boolean"
+title = "Count Compile Errors"
+description = "Whether compilation errors count as penalty attempts"
+default = false
+
+[config.contest.properties.show_test_details]
+type = "boolean"
+title = "Show Test Details"
+description = "Whether contestants see per-test-case verdicts"
+default = false
+
+[web]
+root = "web/dist"
+entry = "index.js"
+css = ["styles.css"]
+
+[web.components]
+IcpcScoreboard = "IcpcScoreboard"
+IcpcContestInfo = "IcpcContestInfo"
+
+# Contestant-facing slots
+[[web.slots]]
+name = "ranking.content"
+position = "wrap"
+component = "IcpcScoreboard"
+
+[[web.slots]]
+name = "contest-overview.content"
+position = "prepend"
+component = "IcpcContestInfo"
