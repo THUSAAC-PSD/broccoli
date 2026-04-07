@@ -1,3 +1,4 @@
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Label, Switch } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -15,6 +16,7 @@ interface IcpcScoreboardProps {
 const MEDAL_COLORS = ['#D4AF37', '#A8A8A8', '#CD7F32'] as const;
 
 function PhaseBar({ phase }: { phase: string }) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn(
@@ -37,10 +39,10 @@ function PhaseBar({ phase }: { phase: string }) {
         )}
       />
       {phase === 'before'
-        ? 'Not started'
+        ? t('icpc.scoreboard.phase.before')
         : phase === 'during'
-          ? 'In progress'
-          : 'Finished'}
+          ? t('icpc.scoreboard.phase.during')
+          : t('icpc.scoreboard.phase.after')}
     </div>
   );
 }
@@ -112,6 +114,7 @@ function ProblemCellView({ cell }: { cell: ProblemCell | undefined }) {
 export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
   const { isIcpc, isLoading: guardLoading } = useIsIcpcContest(contestId);
   const api = useIcpcApi();
+  const { t } = useTranslation();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [now, setNow] = useState(Date.now());
 
@@ -141,7 +144,7 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
   if (isError && !standings) {
     return (
       <div className="p-6 text-center rounded-md bg-red-500/[0.06] text-red-600 text-[13px]">
-        Failed to load scoreboard
+        {t('icpc.scoreboard.loadError')}
       </div>
     );
   }
@@ -149,7 +152,7 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
   if (isLoading || !standings) {
     return (
       <div className="p-6 text-center text-muted-foreground">
-        Loading scoreboard...
+        {t('icpc.scoreboard.loading')}
       </div>
     );
   }
@@ -165,12 +168,14 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
         <PhaseBar phase={phase} />
         <div className="flex items-center gap-3">
           {dataUpdatedAt > 0 && (
-            <span className="text-[11px] opacity-50">{secondsAgo}s ago</span>
+            <span className="text-[11px] opacity-50">
+              {t('icpc.scoreboard.lastUpdated', { seconds: secondsAgo })}
+            </span>
           )}
           {phase === 'during' && (
             <Label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer font-normal">
               <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
-              Auto-refresh
+              {t('icpc.scoreboard.autoRefresh')}
             </Label>
           )}
         </div>
@@ -179,10 +184,10 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
       {rows.length === 0 ? (
         <div className="py-12 text-center text-muted-foreground">
           {phase === 'before'
-            ? 'Contest has not started yet'
+            ? t('icpc.scoreboard.empty.before')
             : phase === 'during'
-              ? 'No submissions yet'
-              : 'No participants'}
+              ? t('icpc.scoreboard.empty.during')
+              : t('icpc.scoreboard.empty.after')}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -193,22 +198,22 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
                   className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
                   style={{ width: 50 }}
                 >
-                  #
+                  {t('icpc.scoreboard.header.rank')}
                 </th>
                 <th className="py-2 px-3 text-left font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap">
-                  Team
+                  {t('icpc.scoreboard.header.team')}
                 </th>
                 <th
                   className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
                   style={{ width: 60 }}
                 >
-                  =
+                  {t('icpc.scoreboard.header.solved')}
                 </th>
                 <th
                   className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
                   style={{ width: 70 }}
                 >
-                  Penalty
+                  {t('icpc.scoreboard.header.penalty')}
                 </th>
                 {problem_labels.map((label) => (
                   <th

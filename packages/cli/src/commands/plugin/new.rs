@@ -23,8 +23,8 @@ const TMPL_GITIGNORE: &str = include_str!("../../../templates/backend/.gitignore
 const TMPL_PACKAGE_JSON: &str = include_str!("../../../templates/frontend/package.json.tmpl");
 const TMPL_TSCONFIG: &str = include_str!("../../../templates/frontend/tsconfig.json.tmpl");
 const TMPL_INDEX_TSX: &str = include_str!("../../../templates/frontend/src/index.tsx.tmpl");
+const TMPL_I18N_EN: &str = include_str!("../../../templates/i18n/en.toml.tmpl");
 const STATIC_STYLES_CSS: &str = include_str!("../../../templates/frontend/src/styles.css");
-const STATIC_TAILWIND_CONFIG: &str = include_str!("../../../templates/frontend/tailwind.config.js");
 const STATIC_POSTCSS_CONFIG: &str = include_str!("../../../templates/frontend/postcss.config.js");
 
 #[derive(Args)]
@@ -113,6 +113,10 @@ pub fn run(args: NewPluginArgs) -> Result<()> {
             _ => "",
         };
         write_frontend_files(&fe_root, &vars, prefix, &mut created_files)?;
+
+        // i18n template (at plugin root, not inside frontend dir)
+        write_template(TMPL_I18N_EN, &output_dir.join("i18n/en.toml"), &vars)?;
+        created_files.push("i18n/en.toml".into());
     }
 
     print_summary(&args.name, kind, &output_dir, &created_files);
@@ -207,7 +211,6 @@ fn write_frontend_files(
     // Static files (no template variables, written as-is)
     let static_files: &[(&str, &str)] = &[
         ("src/styles.css", STATIC_STYLES_CSS),
-        ("tailwind.config.js", STATIC_TAILWIND_CONFIG),
         ("postcss.config.js", STATIC_POSTCSS_CONFIG),
     ];
 

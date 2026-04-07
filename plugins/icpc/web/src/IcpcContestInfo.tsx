@@ -1,3 +1,4 @@
+import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { useParams } from 'react-router';
 
@@ -7,6 +8,7 @@ export function IcpcContestInfo() {
   const { contestId } = useParams();
   const cId = contestId ? Number(contestId) : undefined;
   const { isIcpc, contestInfo, isLoading } = useIsIcpcContest(cId);
+  const { t } = useTranslation();
 
   if (isLoading || !isIcpc || !contestInfo) return null;
 
@@ -20,25 +22,28 @@ export function IcpcContestInfo() {
           ICPC
         </Badge>
         <span className="text-sm font-semibold text-foreground">
-          ACM-ICPC Style
+          {t('icpc.contestInfo.title')}
         </span>
       </div>
 
       <div className="text-xs text-muted-foreground mb-2.5">
-        Ranked by problems solved, then total time penalty. Each wrong
-        submission adds {contestInfo.penalty_minutes} minutes of penalty.
+        {t('icpc.contestInfo.description', {
+          penalty_minutes: contestInfo.penalty_minutes,
+        })}{' '}
         {contestInfo.count_compile_error
-          ? ' Compilation errors count as attempts.'
-          : ' Compilation errors do not count as attempts.'}
+          ? t('icpc.contestInfo.ceCount')
+          : t('icpc.contestInfo.ceNoCount')}
       </div>
 
       <div className="flex flex-wrap gap-4 text-xs text-muted-foreground justify-start">
         <span className="inline-flex items-center gap-1 rounded bg-muted text-[11px] font-medium px-1.5 py-0.5">
-          {contestInfo.penalty_minutes} min/attempt
+          {t('icpc.contestInfo.penaltyPerAttempt', {
+            penalty_minutes: contestInfo.penalty_minutes,
+          })}
         </span>
         {contestInfo.show_test_details && (
           <span className="inline-flex items-center gap-1 rounded bg-muted text-[11px] font-medium px-1.5 py-0.5">
-            Test details visible
+            {t('icpc.contestInfo.testDetailsVisible')}
           </span>
         )}
       </div>
