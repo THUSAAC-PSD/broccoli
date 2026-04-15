@@ -4,7 +4,8 @@ import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import sharedDepsMap from 'virtual:shared-deps-map';
 
-import { reportVitals } from '~/lib/telemetry';
+import { ErrorReporter } from '~/components/error-reporter';
+import { reportError, reportVitals } from '~/lib/telemetry';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -13,6 +14,32 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     reportVitals();
+  }, []);
+
+  useEffect(() => {
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      reportError({
+        message: event.reason?.message ?? String(event.reason),
+        stack: event.reason?.stack,
+      });
+    };
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    const onError = (event: ErrorEvent) => {
+      reportError({
+        message: event.message,
+        stack: event.error?.stack,
+        url: event.filename
+          ? `${event.filename}:${event.lineno}:${event.colno}`
+          : undefined,
+      });
+    };
+    window.addEventListener('error', onError);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      window.removeEventListener('error', onError);
+    };
   }, []);
 
   return (
@@ -58,5 +85,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
-  return <Outlet />;
+  return (
+    <ErrorReporter>
+      <Outlet />
+    </ErrorReporter>
+  );
 }
