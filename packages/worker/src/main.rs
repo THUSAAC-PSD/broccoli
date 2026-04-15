@@ -21,9 +21,9 @@ use crate::models::worker::Worker;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_target(false).init();
-
     let config = config::WorkerAppConfig::load().context("Failed to load config")?;
+
+    let _telemetry_guard = common::observability::init_tracing(&config.observability);
     info!("Worker starting: {}", config.worker.id);
 
     let mq = Arc::new(
