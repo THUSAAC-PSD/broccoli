@@ -53,3 +53,11 @@ temp_dir = ""
 [plugin]
 plugins_dir = "./plugins"
 enable_wasi = true
+
+[observability]
+log_format = "pretty"       # "pretty" for dev, "json" for production
+log_filter = "info"          # tracing_subscriber::EnvFilter syntax (e.g. "info,server=debug,hyper=warn")
+
+[observability.otlp]
+endpoint = ""               # OTLP gRPC endpoint, e.g. "http://localhost:4317" — empty = disabled
+service_name = "broccoli-server"  # "broccoli-worker" for workers
