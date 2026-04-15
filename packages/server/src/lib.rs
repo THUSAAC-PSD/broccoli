@@ -134,16 +134,12 @@ pub fn build_router(state: AppState) -> axum::Router {
                     );
 
                     if request.headers().contains_key("traceparent") {
-                        let mut headers = std::collections::HashMap::new();
-                        for (name, value) in request.headers() {
-                            if let Ok(v) = value.to_str() {
-                                headers.insert(name.as_str().to_string(), v.to_string());
-                            }
-                        }
-                        let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
-                            prop.extract(&headers)
-                        });
+                        use opentelemetry_http::HeaderExtractor;
                         use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+                        let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
+                            prop.extract(&HeaderExtractor(request.headers()))
+                        });
                         let _ = span.set_parent(parent_cx);
                     }
 
