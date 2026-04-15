@@ -8,11 +8,13 @@ scrape_configs:
           - host.docker.internal:3000
     metrics_path: /metrics
 
-  - job_name: broccoli-worker
-    static_configs:
-      - targets:
-          - host.docker.internal:9090
-    metrics_path: /metrics
+  # Worker metrics endpoint is not yet implemented. Uncomment when
+  # the worker exposes /metrics on port 9091.
+  # - job_name: broccoli-worker
+  #   static_configs:
+  #     - targets:
+  #         - host.docker.internal:9091
+  #   metrics_path: /metrics
 
   - job_name: otel-collector
     static_configs:
