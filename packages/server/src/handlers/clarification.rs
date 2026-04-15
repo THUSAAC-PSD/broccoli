@@ -14,7 +14,6 @@ use crate::models::clarification::*;
 use crate::state::AppState;
 use crate::utils::contest::{check_contest_access, find_contest};
 
-/// Fetches usernames for a set of user IDs to avoid N+1 queries.
 async fn resolve_usernames(
     db: &DatabaseConnection,
     user_ids: &HashSet<i32>,
@@ -71,7 +70,6 @@ pub async fn list_clarifications(
         select = select.filter(clarification::Column::ClarificationType.eq(type_filter.as_str()));
     }
 
-    // Visibility filter for non-admins
     if !is_admin {
         select = select.filter(
             Condition::any()
@@ -374,7 +372,6 @@ pub async fn reply_clarification(
 
     txn.commit().await?;
 
-    // Load all replies to construct the response
     let reply_rows = clarification_reply::Entity::find()
         .filter(clarification_reply::Column::ClarificationId.eq(clarification_id))
         .order_by_asc(clarification_reply::Column::CreatedAt)
@@ -484,7 +481,6 @@ pub async fn toggle_reply_public(
 
     let txn = state.db.begin().await?;
 
-    // Verify parent clarification belongs to the contest
     let parent = clarification::Entity::find_by_id(clarification_id)
         .filter(clarification::Column::ContestId.eq(contest_id))
         .one(&txn)

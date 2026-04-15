@@ -9,12 +9,9 @@ pub struct Model {
     pub id: i32,
 
     pub clarification_id: i32,
-    /// The user who wrote this reply.
     pub author_id: i32,
-    /// Reply body.
     #[sea_orm(column_type = "Text")]
     pub content: String,
-    /// Whether this reply is visible to all participants.
     #[sea_orm(default_value = false)]
     pub is_public: bool,
 

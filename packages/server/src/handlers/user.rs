@@ -36,8 +36,6 @@ pub async fn list_users(
 ) -> Result<Json<Vec<UserResponse>>, AppError> {
     auth_user.require_permission("user:manage")?;
 
-    // NOTE: load() does not exist in EntityTrait, so we have to manually filter out deleted users
-    // here instead of using load_active().
     let users = user::Entity::load()
         .filter(user::Column::DeletedAt.is_null())
         .order_by_asc(user::Column::Id)
@@ -125,15 +123,12 @@ pub async fn update_user(
         let password_hash = hash::hash_password(&password)
             .map_err(|_| AppError::Validation("Failed to hash password".into()))?;
         active.password = Set(password_hash);
-        // Revoke all existing refresh tokens for the user to force re-login with the new
-        // password.
         refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
     }
     let updated_user = active.update(&txn).await?;
 
     txn.commit().await?;
 
-    // Load roles after update.
     let user_with_roles = user::Entity::load()
         .filter(user::Column::Id.eq(updated_user.id))
         .with(role::Entity)
@@ -177,7 +172,6 @@ pub async fn delete_user(
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 
-    // Fetch IDs of all contests the user is currently registered in.
     let contest_ids: Vec<i32> = contest_user::Entity::find()
         .filter(contest_user::Column::UserId.eq(id))
         .select_only()
@@ -194,8 +188,6 @@ pub async fn delete_user(
             .all(&txn)
             .await?;
 
-        // Block deletion if the user is in a running or under-judgement contest.
-        // "Active" = started but not yet fully deactivated (covers Running and Under Judgement).
         for c in &contests {
             if c.start_time <= now && c.deactivate_time.is_none_or(|dt| dt > now) {
                 return Err(AppError::Conflict(format!(
@@ -205,7 +197,6 @@ pub async fn delete_user(
             }
         }
 
-        // Unregister from future (not-yet-started) contests before soft-deleting the user.
         let future_ids: Vec<i32> = contests
             .iter()
             .filter(|c| c.start_time > now)
@@ -270,8 +261,6 @@ pub async fn assign_role(
 
     let txn = state.db.begin().await?;
     user_model.assign_role(&txn, role_model.name).await?;
-    // Revoke all existing refresh tokens for the user to ensure new permissions take effect
-    // immediately.
     refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
     txn.commit().await?;
 

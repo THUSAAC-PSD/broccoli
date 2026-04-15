@@ -12,7 +12,7 @@ pub struct Model {
 
     pub title: String,
     #[sea_orm(column_type = "Text")]
-    pub description: String, // in Markdown
+    pub description: String,
 
     pub activate_time: Option<DateTimeUtc>,
     pub deactivate_time: Option<DateTimeUtc>,
@@ -22,22 +22,15 @@ pub struct Model {
     #[sea_orm(default_value = false)]
     pub is_public: bool,
 
-    /// When true, all participants can see each other's submissions.
-    /// When false, participants can only see their own submissions.
     #[sea_orm(default_value = false)]
     pub submissions_visible: bool,
 
-    /// When true, participants can see compile output/errors for their submissions during contest.
-    /// When false, compile output is hidden until contest ends.
     #[sea_orm(default_value = true)]
     pub show_compile_output: bool,
 
-    /// When true, the participants list is visible to all who can view the contest.
-    /// When false, only admins can see the participants list.
     #[sea_orm(default_value = true)]
     pub show_participants_list: bool,
 
-    /// Contest type (e.g., "ioi", "icpc", "pvp"). Plugin dispatcher uses this to route submissions.
     pub contest_type: Option<String>,
 
     #[sea_orm(has_many, via = "contest_user")]

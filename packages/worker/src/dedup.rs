@@ -5,7 +5,6 @@ use tracing::warn;
 
 pub struct RedisTaskDedup {
     client: redis::Client,
-    /// Cached multiplexed connection. Re-created on failure.
     conn: Mutex<Option<MultiplexedConnection>>,
     ttl_secs: u64,
     prefix: String,
@@ -22,7 +21,6 @@ impl RedisTaskDedup {
         })
     }
 
-    /// Get or create the cached multiplexed connection.
     async fn get_conn(&self) -> Result<MultiplexedConnection, redis::RedisError> {
         let mut guard = self.conn.lock().await;
         if let Some(ref conn) = *guard {
@@ -33,14 +31,11 @@ impl RedisTaskDedup {
         Ok(conn)
     }
 
-    /// Invalidate the cached connection (e.g., on error).
     async fn invalidate_conn(&self) {
         let mut guard = self.conn.lock().await;
         *guard = None;
     }
 
-    /// Try to claim a task. Returns `true` if this worker should process it.
-    /// Returns `true` on Redis failure (fail-open).
     pub async fn try_claim(&self, task_id: &str) -> bool {
         let key = format!("{}{}", self.prefix, task_id);
         let mut conn = match self.get_conn().await {
@@ -61,8 +56,8 @@ impl RedisTaskDedup {
             .await;
 
         match result {
-            Ok(true) => true,   // Key set, we claimed it
-            Ok(false) => false, // Key already existed, another worker claimed it
+            Ok(true) => true,
+            Ok(false) => false,
             Err(e) => {
                 warn!(task_id, error = %e, "Redis dedup claim failed, proceeding (fail-open)");
                 self.invalidate_conn().await;
@@ -71,7 +66,6 @@ impl RedisTaskDedup {
         }
     }
 
-    /// Release a claimed task (e.g., before sending to DLQ so admin retries work).
     pub async fn release(&self, task_id: &str) {
         let key = format!("{}{}", self.prefix, task_id);
         let mut conn = match self.get_conn().await {
@@ -94,32 +88,24 @@ impl RedisTaskDedup {
 mod tests {
     use super::*;
 
-    // Integration tests require a running Redis instance.
-    //
-    // Run with: cargo test -p worker -- --ignored dedup
     #[tokio::test]
     #[ignore]
     async fn claim_and_release() {
         let dedup = RedisTaskDedup::new("redis://localhost:6379", 60).unwrap();
         let task_id = format!("test-{}", uuid::Uuid::new_v4());
 
-        // First claim succeeds
         assert!(dedup.try_claim(&task_id).await);
 
-        // Second claim fails (already claimed)
         assert!(!dedup.try_claim(&task_id).await);
 
-        // Release and reclaim
         dedup.release(&task_id).await;
         assert!(dedup.try_claim(&task_id).await);
 
-        // Cleanup
         dedup.release(&task_id).await;
     }
 
     #[tokio::test]
     async fn fail_open_on_bad_url() {
-        // Invalid Redis URL, should fail-open (return true)
         let dedup = RedisTaskDedup::new("redis://nonexistent:9999", 60).unwrap();
         assert!(dedup.try_claim("test-task").await);
     }

@@ -4,7 +4,6 @@ use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
 use std::sync::Arc;
 
-/// (plugin_id, plugin_manager, checker_format_registry)
 type CheckerUserData = (String, Arc<dyn PluginManager>, CheckerFormatRegistry);
 
 pub fn create_checker_function(

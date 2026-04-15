@@ -4,8 +4,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use common::storage::{BlobStore, ContentHash};
 
-/// Ensure a cached file is world-readable so sandbox processes and
-/// subsequent `tokio::fs::copy` calls don't hit "Permission denied".
 #[cfg(unix)]
 fn ensure_readable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -22,17 +20,13 @@ fn ensure_readable(path: &Path) {
 #[cfg(not(unix))]
 fn ensure_readable(_path: &Path) {}
 
-/// Abstracts file fetch/upload for the worker.
 #[async_trait]
 pub trait FileCacher: Send + Sync {
-    /// Fetch a blob by content hash and write it to `dest`.
     async fn fetch_to_path(&self, content_hash: &str, dest: &Path) -> Result<(), String>;
 
-    /// Upload a file and return its content hash hex string.
     async fn upload_from_path(&self, src: &Path) -> Result<String, String>;
 }
 
-/// No-op implementation for tests.
 pub struct NoopFileCacher;
 
 #[async_trait]
@@ -45,8 +39,6 @@ impl FileCacher for NoopFileCacher {
     }
 }
 
-/// RAII guard that removes a fetch lock entry on drop, preventing HashMap leaks
-/// when a download fails partway through.
 struct FetchLockCleanup<'a>(&'a BlobStoreFileCacher, String);
 
 impl Drop for FetchLockCleanup<'_> {
@@ -55,15 +47,12 @@ impl Drop for FetchLockCleanup<'_> {
     }
 }
 
-/// File cacher backed by a [`BlobStore`] with LRU disk cache.
 pub struct BlobStoreFileCacher {
     store: Arc<dyn BlobStore>,
     cache_dir: PathBuf,
     max_cache_size: u64,
 
-    /// LRU cache state and total size tracking.
     state: tokio::sync::Mutex<CacheState>,
-    /// Per-file lock to prevent concurrent downloads of the same file.
     fetch_locks: std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -82,7 +71,6 @@ impl BlobStoreFileCacher {
             .await
             .map_err(|e| format!("Failed to create cache dir: {e}"))?;
 
-        // Scan existing cache entries and sort by modification time to approximate LRU on restart.
         let mut entries_vec = Vec::new();
         let mut total_size: u64 = 0;
         let mut rd = tokio::fs::read_dir(&cache_dir)
@@ -94,20 +82,17 @@ impl BlobStoreFileCacher {
                 && meta.is_file()
             {
                 let name = entry.file_name().to_string_lossy().to_string();
-                // Skip temporary files from partial downloads.
                 if name.ends_with(".tmp") {
                     let _ = tokio::fs::remove_file(entry.path()).await;
                     continue;
                 }
                 let size = meta.len();
-                // Use modified time for sorting, fallback to 0 if unavailable
                 let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 entries_vec.push((name, size, mtime));
                 total_size += size;
             }
         }
 
-        // Sort oldest first
         entries_vec.sort_by_key(|(_, _, mtime)| *mtime);
 
         let mut entries = lru::LruCache::unbounded();
@@ -126,7 +111,6 @@ impl BlobStoreFileCacher {
             fetch_locks: std::sync::Mutex::new(std::collections::HashMap::new()),
         };
 
-        // Evict if over limit on startup.
         cacher.evict_if_needed().await;
 
         Ok(cacher)
@@ -172,18 +156,15 @@ impl BlobStoreFileCacher {
         }
     }
 
-    /// Add an entry to the cache and perform eviction if needed.
     async fn record_cache_entry(&self, hash_hex: String, size: u64) {
         {
             let mut state = self.state.lock().await;
-            // It might already exist, get its old size
             let old_size = state.entries.put(hash_hex, size).unwrap_or(0);
             state.total_size = state.total_size + size - old_size;
         }
         self.evict_if_needed().await;
     }
 
-    /// Mark an entry as most recently used.
     async fn touch(&self, hash_hex: &str) {
         let mut state = self.state.lock().await;
         state.entries.get(hash_hex);
@@ -193,12 +174,10 @@ impl BlobStoreFileCacher {
 #[async_trait]
 impl FileCacher for BlobStoreFileCacher {
     async fn fetch_to_path(&self, content_hash: &str, dest: &Path) -> Result<(), String> {
-        // Validate hash format.
         let hash = ContentHash::from_hex(content_hash).map_err(|e| e.to_string())?;
         let hash_hex = hash.to_hex();
         let cached = self.cache_path(&hash_hex);
 
-        // First non-blocking check for cache hit
         if cached.exists() {
             self.touch(&hash_hex).await;
             ensure_readable(&cached);
@@ -208,16 +187,10 @@ impl FileCacher for BlobStoreFileCacher {
             return Ok(());
         }
 
-        // Acquire lock for this specific hash to prevent concurrent downloads.
-        // Declare _cleanup BEFORE _guard so it drops AFTER the mutex releases
-        // (Rust drops in reverse declaration order). This ensures the HashMap
-        // entry outlives the lock, so concurrent waiters don't see a missing
-        // entry between mutex release and entry removal.
         let lock = self.get_fetch_lock(&hash_hex);
         let _cleanup = FetchLockCleanup(self, hash_hex.clone());
         let _guard = lock.lock().await;
 
-        // Check again in case another task downloaded it while we were waiting
         if cached.exists() {
             self.touch(&hash_hex).await;
             ensure_readable(&cached);
@@ -227,7 +200,6 @@ impl FileCacher for BlobStoreFileCacher {
             return Ok(());
         }
 
-        // Cache miss — fetch from store directly to a temporary file in cache dir
         let temp_path = self.cache_dir.join(format!("{}.tmp", uuid::Uuid::new_v4()));
         let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
             format!(
@@ -246,7 +218,6 @@ impl FileCacher for BlobStoreFileCacher {
         let file_size = tokio::io::copy(&mut reader, &mut temp_file)
             .await
             .map_err(|e| {
-                // Try to clean up temp file on failure
                 let temp_path_clone = temp_path.clone();
                 tokio::spawn(async move {
                     let _ = tokio::fs::remove_file(temp_path_clone).await;
@@ -254,7 +225,6 @@ impl FileCacher for BlobStoreFileCacher {
                 format!("Failed to stream blob to cache: {e}")
             })?;
 
-        // Rename temp file to final cache file atomically
         tokio::fs::rename(&temp_path, &cached).await.map_err(|e| {
             let temp_path_clone = temp_path.clone();
             tokio::spawn(async move {
@@ -263,12 +233,9 @@ impl FileCacher for BlobStoreFileCacher {
             format!("Failed to finalize cache file: {e}")
         })?;
 
-        // Successfully downloaded, update cache state
         ensure_readable(&cached);
         self.record_cache_entry(hash_hex.clone(), file_size).await;
 
-        // Always copy (never hard-link) so the caller can change dest permissions
-        // without corrupting the cached file's permissions.
         tokio::fs::copy(&cached, dest)
             .await
             .map_err(|e| format!("Failed to copy to dest: {e}"))?;
@@ -293,16 +260,12 @@ impl FileCacher for BlobStoreFileCacher {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Also cache it locally if not already present.
         let hash_hex = hash.to_hex();
         let cached = self.cache_path(&hash_hex);
 
         if !cached.exists() {
-            // Copy source to cache (don't hard-link — isolate sandbox cleanup can
-            // alter permissions/ownership on the original inode).
             let cached_ok = tokio::fs::copy(src, &cached).await.is_ok();
             if cached_ok {
-                // Ensure the cached file is readable regardless of sandbox permissions.
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -362,12 +325,10 @@ mod tests {
     async fn upload_and_fetch_round_trip() {
         let (cacher, dir, _store) = temp_cacher(10 * 1024 * 1024).await;
 
-        // Write a file and upload it.
         let src = dir.path().join("source.txt");
         tokio::fs::write(&src, b"hello blob").await.unwrap();
         let hash = cacher.upload_from_path(&src).await.unwrap();
 
-        // Fetch it back.
         let dest = dir.path().join("fetched.txt");
         cacher.fetch_to_path(&hash, &dest).await.unwrap();
 
@@ -383,7 +344,6 @@ mod tests {
         tokio::fs::write(&src, b"cached data").await.unwrap();
         let hash = cacher.upload_from_path(&src).await.unwrap();
 
-        // Fetch twice — second should use cache.
         let d1 = dir.path().join("d1");
         let d2 = dir.path().join("d2");
         cacher.fetch_to_path(&hash, &d1).await.unwrap();
@@ -395,10 +355,8 @@ mod tests {
 
     #[tokio::test]
     async fn eviction_keeps_cache_under_limit() {
-        // Cache limit = 20 bytes.
         let (cacher, dir, _store) = temp_cacher(20).await;
 
-        // Upload three 10-byte files — total would be 30, limit is 20.
         for i in 0..3u8 {
             let src = dir.path().join(format!("f{i}"));
             tokio::fs::write(&src, vec![i; 10]).await.unwrap();

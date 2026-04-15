@@ -11,7 +11,6 @@ use crate::auth;
 
 #[derive(Args)]
 pub struct LoginArgs {
-    /// Broccoli server URL
     #[arg(long, default_value = "http://localhost:3000", env = "BROCCOLI_URL")]
     pub server: String,
 }
@@ -69,7 +68,6 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
     println!("    {}", style(&device_code_resp.user_code).bold().yellow());
     println!();
 
-    // Best-effort open in browser
     let _ = open::that(&device_code_resp.verification_url);
 
     let interval = Duration::from_secs(device_code_resp.interval);
@@ -122,7 +120,6 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
             match error.as_str() {
                 "authorization_pending" => continue,
                 "slow_down" => {
-                    // Back off a bit
                     thread::sleep(Duration::from_secs(1));
                     continue;
                 }

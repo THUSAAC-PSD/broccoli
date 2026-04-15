@@ -1,17 +1,11 @@
 use std::fmt;
 
-/// Errors that can occur during blob storage operations.
 #[derive(Debug)]
 pub enum StorageError {
-    /// The requested blob was not found.
     NotFound(String),
-    /// An I/O error occurred.
     Io(std::io::Error),
-    /// The provided content hash is invalid.
     InvalidHash(String),
-    /// The blob exceeds the configured size limit.
     SizeLimitExceeded { actual: u64, limit: u64 },
-    /// A storage backend error (database, S3, etc.).
     Backend(String),
 }
 

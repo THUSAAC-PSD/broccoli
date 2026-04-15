@@ -1,6 +1,5 @@
 use anyhow::{Result, bail};
 
-/// Template variables used for string replacement in template files.
 pub struct TemplateVars {
     pub plugin_name: String,
     pub plugin_name_snake: String,
@@ -10,7 +9,6 @@ pub struct TemplateVars {
     pub web_root: String,
 }
 
-/// Validate that a plugin name is valid kebab-case.
 pub fn validate_plugin_name(name: &str) -> Result<()> {
     if name.is_empty() {
         bail!("Plugin name cannot be empty");
@@ -34,12 +32,10 @@ pub fn validate_plugin_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Convert kebab-case to snake_case: `my-plugin` -> `my_plugin`
 pub fn to_snake_case(name: &str) -> String {
     name.replace('-', "_")
 }
 
-/// Convert kebab-case to PascalCase: `my-plugin` -> `MyPlugin`
 pub fn to_pascal_case(name: &str) -> String {
     name.split('-')
         .map(|segment| {

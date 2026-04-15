@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-/// Resolved credentials for authenticating with a Broccoli server.
 pub struct Credentials {
     pub server: String,
     pub token: String,
@@ -31,7 +30,6 @@ pub fn resolve_credentials(
     server: Option<&str>,
     token: Option<&str>,
 ) -> anyhow::Result<Credentials> {
-    // If both are provided explicitly, use them
     if let (Some(s), Some(t)) = (server, token) {
         return Ok(Credentials {
             server: s.to_string(),
@@ -39,7 +37,6 @@ pub fn resolve_credentials(
         });
     }
 
-    // Check env vars
     let env_server = std::env::var("BROCCOLI_URL").ok();
     let env_token = std::env::var("BROCCOLI_TOKEN").ok();
 
@@ -53,7 +50,6 @@ pub fn resolve_credentials(
         });
     }
 
-    // Load saved credentials
     let creds_path = credentials_path();
     if creds_path.exists() {
         let content =
@@ -82,7 +78,6 @@ pub fn resolve_credentials(
     );
 }
 
-/// Saves credentials for a server to ~/.config/broccoli/credentials.json.
 pub fn save_credentials(server: &str, token: &str) -> anyhow::Result<()> {
     let creds_path = credentials_path();
 
@@ -109,7 +104,6 @@ pub fn save_credentials(server: &str, token: &str) -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(&file)?;
     std::fs::write(&creds_path, &content).context("Failed to write credentials file")?;
 
-    // Set file permissions to 0600 (owner-only read/write)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -204,8 +204,6 @@ async fn process_message(
                             "Max retries exhausted, sending to DLQ"
                         );
 
-                        // Publish an error TaskResult so the waiting plugin receives
-                        // a failure notification instead of hanging until timeout.
                         let error_result = common::worker::TaskResult {
                             task_id: task_id.clone(),
                             success: false,
@@ -246,7 +244,6 @@ async fn process_message(
                             );
                         }
 
-                        // Release dedup key so admin retries work
                         if let Some(dedup) = dedup {
                             dedup.release(&task_id).await;
                         }

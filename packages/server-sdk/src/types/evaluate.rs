@@ -4,7 +4,6 @@ use super::operation::ResourceLimits;
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
-/// Contest/plugin-facing input for starting evaluation of one test case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartEvaluateCaseInput {
     pub problem_id: i32,
@@ -15,21 +14,16 @@ pub struct StartEvaluateCaseInput {
     pub memory_limit_kb: i32,
     #[serde(default)]
     pub contest_id: Option<i32>,
-    /// Inline input data for custom run test cases.
     #[serde(default)]
     pub inline_input: Option<String>,
-    /// Inline expected output for custom run test cases.
     #[serde(default)]
     pub inline_expected_output: Option<String>,
 }
 
-/// Server-enriched input forwarded to the evaluator plugin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildEvalOpsInput {
     pub problem_id: i32,
     pub test_case_id: i32,
-    /// Contestant-submitted source files only. Does NOT include judge-provided
-    /// additional files. Those are in `additional_file_refs` as blob references.
     pub solution_source: Vec<SourceFile>,
     pub solution_language: String,
     pub time_limit_ms: i32,
@@ -37,46 +31,33 @@ pub struct BuildEvalOpsInput {
     #[serde(default)]
     pub contest_id: Option<i32>,
 
-    /// Test case input (stdin content). Server-enriched.
     #[serde(default)]
     pub test_input: String,
-    /// Expected output for checker. Server-enriched.
     #[serde(default)]
     pub expected_output: String,
-    /// Checker format name (e.g. "exact", "tokens"). Server-enriched.
     #[serde(default)]
     pub checker_format: Option<String>,
-    /// Opaque checker config blob. Server-enriched.
     #[serde(default)]
     pub checker_config: Option<serde_json::Value>,
-    /// Checker source files (for custom/testlib checkers). Server-enriched.
     #[serde(default)]
     pub checker_source: Option<Vec<SourceFile>>,
 
-    /// Judge-provided additional files (grader stubs, headers) as blob references.
-    /// Evaluator plugins MUST add these as `SessionFile::Blob` entries BEFORE
-    /// contestant `solution_source` entries to prevent contestants from shadowing
-    /// judge files.
     #[serde(default)]
     pub additional_file_refs: Vec<FileRef>,
 }
 
-/// Input for start_evaluate_batch host function.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartEvaluateBatchInput {
     pub problem_type: String,
     pub test_cases: Vec<StartEvaluateCaseInput>,
 }
 
-/// Verdict for a single test case, returned by evaluator's evaluate function.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestCaseVerdict {
     pub test_case_id: i32,
     pub verdict: Verdict,
     pub score: f64,
-    /// Time used, in milliseconds.
     pub time_used_ms: Option<i64>,
-    /// Memory used, in kilobytes.
     pub memory_used_kb: Option<i64>,
     pub message: Option<String>,
     #[serde(default)]
@@ -86,7 +67,6 @@ pub struct TestCaseVerdict {
 }
 
 impl TestCaseVerdict {
-    /// Convenience constructor: Accepted with default time/memory.
     pub fn accepted(tc_id: i32) -> Self {
         Self {
             test_case_id: tc_id,
@@ -100,7 +80,6 @@ impl TestCaseVerdict {
         }
     }
 
-    /// Convenience constructor: WrongAnswer with default time/memory.
     pub fn wrong_answer(tc_id: i32) -> Self {
         Self {
             test_case_id: tc_id,
@@ -114,7 +93,6 @@ impl TestCaseVerdict {
         }
     }
 
-    /// Convenience constructor: TimeLimitExceeded.
     pub fn tle(tc_id: i32) -> Self {
         Self {
             test_case_id: tc_id,
@@ -128,7 +106,6 @@ impl TestCaseVerdict {
         }
     }
 
-    /// Convenience constructor: CompileError.
     pub fn compile_error(tc_id: i32) -> Self {
         Self {
             test_case_id: tc_id,
@@ -142,7 +119,6 @@ impl TestCaseVerdict {
         }
     }
 
-    /// Convenience constructor: SystemError.
     pub fn system_error(tc_id: i32) -> Self {
         Self {
             test_case_id: tc_id,
@@ -157,79 +133,46 @@ impl TestCaseVerdict {
     }
 }
 
-/// A reference to a judge-provided additional file with blob store hash.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileRef {
     pub filename: String,
-    /// MIME content type when known (e.g. "text/x-c", "application/octet-stream").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
-    /// Content-addressed blob hash. Resolved by the worker's blob store
-    /// at sandbox setup time via `SessionFile::Blob`.
     pub blob_hash: String,
 }
 
-/// Input to a language resolver plugin function.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResolveLanguageInput {
     pub language_id: String,
-    /// Filenames submitted by the contestant (e.g. ["solution.cpp"]).
     pub submitted_files: Vec<String>,
-    /// Files provided by the judge as additional files (e.g. grader stubs, headers).
     pub additional_files: Vec<FileRef>,
-    /// Problem ID for config cascade. When set, the resolver may read its own
-    /// per-problem config (entry points, extra flags). Pass None for non-problem
-    /// contexts (e.g. checker compilation).
     #[serde(default)]
     pub problem_id: Option<i32>,
-    /// Contest ID for config cascade. When set, the resolver may read its own
-    /// per-contest config (compiler flags, standards).
     #[serde(default)]
     pub contest_id: Option<i32>,
-    /// Opaque overrides passed to the resolver plugin. The schema is defined
-    /// by each resolver — callers must know what the target resolver expects.
-    ///
-    /// For `standard-languages`, the expected shape is
-    /// `{ "compiler": "...", "flags": ["..."] }`.
     #[serde(default)]
     pub overrides: Option<serde_json::Value>,
 }
 
-/// Output from a language resolver plugin function.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResolveLanguageOutput {
-    /// Compilation specification. None for interpreted languages.
     pub compile: Option<CompileSpec>,
-    /// Execution specification.
     pub run: RunSpec,
 }
 
-/// How to compile the source files.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CompileSpec {
-    /// Fully resolved compile command, e.g. ["g++", "-O2", "solution.cpp", "grader.cpp", "-o", "solution"].
     pub command: Vec<String>,
-    /// ALL files whose contents influence the compilation output (for cache key computation).
-    /// Includes headers and other files not on the command line.
-    /// If empty, the evaluator should default to all files in the sandbox.
     pub cache_inputs: Vec<String>,
-    /// Expected output artifacts from compilation.
-    /// Can be exact filenames ("solution") or glob patterns ("*.class").
-    /// Globs are resolved relative to the sandbox working directory only.
     pub outputs: Vec<OutputSpec>,
-    /// Resource limits for compilation. When set, the evaluator should use
-    /// these instead of its default compile limits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_limits: Option<ResourceLimits>,
 }
 
-/// A compilation output specification - either an exact filename or a glob pattern.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "pattern")]
 pub enum OutputSpec {
-    /// Exact filename, e.g. "solution".
     File(String),
-    /// Glob pattern resolved relative to sandbox workdir, e.g. "*.class".
     Glob(String),
 }
 
@@ -251,13 +194,8 @@ impl OutputSpec {
     }
 }
 
-/// How to run the compiled/interpreted program.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunSpec {
-    /// Fully resolved run command, e.g. ["./solution"] or ["python3", "grader.py"].
     pub command: Vec<String>,
-    /// Files needed in the execution environment beyond compilation outputs.
-    /// For interpreted languages: all source files (e.g. ["grader.py", "solution.py"]).
-    /// For compiled languages: typically empty (binary is a compile output).
     pub extra_files: Vec<String>,
 }

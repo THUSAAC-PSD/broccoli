@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// File source for initial environment setup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SessionFile {
@@ -14,14 +13,12 @@ pub enum SessionFile {
     Blob { hash: String },
 }
 
-/// Environment configuration for an operation batch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
     pub id: String,
     pub files_in: Vec<(String, SessionFile)>,
 }
 
-/// IO target for task stdin/stdout/stderr.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "type")]
 pub enum IOTarget {
@@ -36,7 +33,6 @@ pub enum IOTarget {
     Pipe { name: String },
 }
 
-/// IO configuration for task execution.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IOConfig {
     pub stdin: IOTarget,
@@ -44,7 +40,6 @@ pub struct IOConfig {
     pub stderr: IOTarget,
 }
 
-/// Directory binding options.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DirectoryOptions {
     pub read_write: bool,
@@ -55,7 +50,6 @@ pub struct DirectoryOptions {
     pub no_recursive: bool,
 }
 
-/// Directory binding rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectoryRule {
     pub inside_path: PathBuf,
@@ -63,7 +57,6 @@ pub struct DirectoryRule {
     pub options: DirectoryOptions,
 }
 
-/// Environment variable rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EnvRule {
     Inherit(String),
@@ -71,7 +64,6 @@ pub enum EnvRule {
     FullEnv,
 }
 
-/// Resource limits for sandbox execution.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResourceLimits {
     pub time_limit: Option<f64>,
@@ -84,7 +76,6 @@ pub struct ResourceLimits {
     pub process_limit: Option<u32>,
 }
 
-/// Run configuration for a step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RunOptions {
@@ -124,14 +115,12 @@ impl Default for RunOptions {
     }
 }
 
-/// Configuration for step-level caching.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepCacheConfig {
     pub key_inputs: Vec<String>,
     pub outputs: Vec<String>,
 }
 
-/// Task definition within an operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
     pub id: String,
@@ -146,7 +135,6 @@ pub struct Step {
     pub cache: Option<StepCacheConfig>,
 }
 
-/// Channel definition for inter-task communication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Channel {
     pub name: String,
@@ -162,19 +150,16 @@ impl Default for Channel {
     }
 }
 
-/// A single operation task dispatched to the worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationTask {
     pub environments: Vec<Environment>,
     pub tasks: Vec<Step>,
     #[serde(default)]
     pub channels: Vec<Channel>,
-    /// Optional priority for dispatching the operation (1-5, 1 is highest).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u8>,
 }
 
-/// Result of a worker operation batch.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct OperationResult {
     pub success: bool,
@@ -182,7 +167,6 @@ pub struct OperationResult {
     pub error: Option<String>,
 }
 
-/// Per-task result within an operation batch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecutionResult {
     pub task_id: String,
@@ -192,20 +176,16 @@ pub struct TaskExecutionResult {
     pub collected_outputs: HashMap<String, String>,
 }
 
-/// Sandbox execution outcome.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
     #[serde(default)]
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub signal: Option<i32>,
-    /// CPU time used, in seconds.
     #[serde(default)]
     pub time_used: f64,
-    /// Wall-clock time used, in seconds.
     #[serde(default)]
     pub wall_time_used: f64,
-    /// Peak memory usage, in kilobytes.
     #[serde(default)]
     pub memory_used: Option<u32>,
     #[serde(default)]

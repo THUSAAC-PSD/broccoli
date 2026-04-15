@@ -11,10 +11,8 @@ use serde_json::Value as JsonValue;
 use tracing::error;
 use uuid::Uuid;
 
-/// Shared map of active transactions, keyed by UUID.
 pub type TransactionMap = Arc<StdMutex<HashMap<String, DatabaseTransaction>>>;
 
-/// Response wrapper to pass results or errors back to the plugin.
 #[derive(Serialize)]
 struct HostDbResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +40,6 @@ impl HostDbResponse {
     }
 }
 
-/// Helper function to convert JSON values from the plugin into SeaORM parameter values.
 fn json_to_sea_value(v: JsonValue) -> sea_orm::Value {
     match v {
         JsonValue::Null => sea_orm::Value::String(None),
@@ -57,12 +54,10 @@ fn json_to_sea_value(v: JsonValue) -> sea_orm::Value {
             }
         }
         JsonValue::String(s) => sea_orm::Value::String(Some(s)),
-        // Complex objects and arrays are passed as JSONB
         v => sea_orm::Value::Json(Some(Box::new(v))),
     }
 }
 
-/// Helper function to parse args array from JSON string.
 fn parse_args(args_json: &str) -> Result<Vec<sea_orm::Value>, extism::Error> {
     if args_json.trim().is_empty() {
         return Ok(vec![]);
@@ -73,8 +68,6 @@ fn parse_args(args_json: &str) -> Result<Vec<sea_orm::Value>, extism::Error> {
     Ok(json_arr.into_iter().map(json_to_sea_value).collect())
 }
 
-// Executes a raw SQL statement with parameters.
-// Returns the number of affected rows.
 host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, args: String) -> String {
     let user_data_guard = user_data.get()?;
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
@@ -98,8 +91,6 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     }
 });
 
-// Executes a parameterized raw SQL query.
-// Returns the result set as a JSON string array.
 host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args: String) -> String {
     let user_data_guard = user_data.get()?;
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
@@ -132,7 +123,6 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     }
 });
 
-// Begins a new database transaction. Returns {"txn_id": "<uuid>"}.
 host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _input: String) -> String {
     let (db, txn_map) = {
         let user_data_guard = user_data.get()?;
@@ -155,7 +145,6 @@ host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _
     HostDbResponse::ok(serde_json::json!({"txn_id": txn_id})).to_json_string()
 });
 
-// Executes a SELECT query within an existing transaction.
 host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
     let txn_map = {
         let user_data_guard = user_data.get()?;
@@ -193,7 +182,6 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
     }
 });
 
-// Executes a statement within an existing transaction.
 host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
     let txn_map = {
         let user_data_guard = user_data.get()?;
@@ -222,7 +210,6 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
     }
 });
 
-// Commits an active transaction. Removes it from the map.
 host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
     let txn_map = {
         let user_data_guard = user_data.get()?;
@@ -248,7 +235,6 @@ host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); 
     }
 });
 
-// Rolls back an active transaction. Removes it from the map.
 host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
     let txn_map = {
         let user_data_guard = user_data.get()?;
@@ -273,7 +259,6 @@ host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap)
                 }
             }
         }
-        // Already committed/rolled back — not an error (idempotent for Drop safety)
         None => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
     }
 });

@@ -1,12 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-/// Trait for typed hook event payloads. Provides the topic string for routing.
 pub trait HookEvent: Serialize + for<'de> Deserialize<'de> {
-    /// The topic string used for hook routing, e.g., "before_submission".
     const TOPIC: &'static str;
 }
 
-/// Fired before a submission is created. Blocking hooks can reject.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeforeSubmissionEvent {
     pub user_id: i32,
@@ -21,7 +18,6 @@ impl HookEvent for BeforeSubmissionEvent {
     const TOPIC: &'static str = "before_submission";
 }
 
-/// Fired after a submission is created successfully. Notification-only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AfterSubmissionEvent {
     pub submission_id: i32,
@@ -36,7 +32,6 @@ impl HookEvent for AfterSubmissionEvent {
     const TOPIC: &'static str = "after_submission";
 }
 
-/// Fired after judging completes. Notification-only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AfterJudgingEvent {
     pub submission_id: i32,

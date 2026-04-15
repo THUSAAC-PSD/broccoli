@@ -5,18 +5,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::hash::generate_random_string;
 
-/// JWT Claims structure.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub jti: String,              // Unique token ID
-    pub sub: String,              // Username
-    pub uid: i32,                 // User ID
-    pub roles: Vec<String>,       // Roles assigned to the user
-    pub permissions: Vec<String>, // Permissions
-    pub exp: u64,                 // Expiration timestamp
+    pub jti: String,
+    pub sub: String,
+    pub uid: i32,
+    pub roles: Vec<String>,
+    pub permissions: Vec<String>,
+    pub exp: u64,
 }
 
-/// Sign a new short-lived JWT access token for a user.
 pub fn sign_access_token(
     user_id: i32,
     username: &str,
@@ -30,7 +28,7 @@ pub fn sign_access_token(
         .timestamp();
 
     let claims = Claims {
-        jti: generate_random_string(), // Use a secure random string as jti
+        jti: generate_random_string(),
         sub: username.to_owned(),
         uid: user_id,
         roles,
@@ -47,7 +45,6 @@ pub fn sign_access_token(
     Ok(token)
 }
 
-/// Verify and decode a JWT token.
 pub fn verify(token: &str, secret: &str) -> Result<Claims> {
     let token_data = decode::<Claims>(
         token,

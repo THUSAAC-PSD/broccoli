@@ -1,7 +1,6 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// The role assigned to newly registered users.
 pub const DEFAULT_ROLES: [&str; 1] = ["contestant"];
 
 #[sea_orm::model]

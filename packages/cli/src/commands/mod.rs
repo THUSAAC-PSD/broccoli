@@ -8,8 +8,6 @@ use self::plugin::PluginArgs;
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Manage plugins
     Plugin(PluginArgs),
-    /// Log in to a Broccoli server
     Login(LoginArgs),
 }

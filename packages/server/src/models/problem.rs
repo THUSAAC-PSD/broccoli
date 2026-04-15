@@ -16,81 +16,54 @@ use super::shared::{
     validate_title,
 };
 
-/// Request body for creating a problem.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateProblemRequest {
-    /// Problem title (trimmed, 1-256 chars).
     #[schema(example = "Two Sum")]
     pub title: String,
-    /// Problem statement in Markdown (non-empty, max 1 MB).
     #[schema(example = "Given an array of integers `nums` and an integer `target`...")]
     pub content: String,
-    /// Execution time limit in milliseconds (1-30000).
     #[schema(example = 1000)]
     pub time_limit: i32,
-    /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Problem type for evaluator dispatch, e.g. "batch" or "interactive".
-    /// If omitted, defaults to the first registered evaluator type.
     #[serde(default)]
     #[schema(example = "batch")]
     pub problem_type: String,
-    /// Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
     #[serde(default = "default_checker_format")]
     #[schema(example = "exact")]
     pub checker_format: String,
-    /// Default contest type for standalone submissions, e.g. "ioi", "icpc".
-    /// If omitted, defaults to the first registered contest type.
     #[serde(default)]
     #[schema(example = "ioi")]
     pub default_contest_type: String,
-    /// Whether contestants see full input/output for all test cases.
-    /// If omitted, defaults to false.
     #[schema(example = false)]
     pub show_test_details: Option<bool>,
-    /// Expected submission file names per language.
-    /// Keys are language ids (e.g. "cpp", "java", "python3"), values are arrays of filenames.
-    /// Null or omitted means use client-side defaults.
     #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
-/// PATCH body for updating a problem. Only provided fields are modified.
 #[derive(Deserialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct UpdateProblemRequest {
-    /// Problem title (trimmed, 1-256 chars).
     #[schema(example = "Two Sum (Easy)")]
     pub title: Option<String>,
-    /// Problem statement in Markdown (non-empty, max 1 MB).
     #[schema(example = "Updated problem statement...")]
     pub content: Option<String>,
-    /// Execution time limit in milliseconds (1-30000).
     #[schema(example = 2000)]
     pub time_limit: Option<i32>,
-    /// Memory limit in kilobytes (1-1048576).
     #[schema(example = 524288)]
     pub memory_limit: Option<i32>,
-    /// Problem type for evaluator dispatch: "batch" or "interactive".
     #[schema(example = "batch")]
     pub problem_type: Option<String>,
-    /// Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
     #[schema(example = "ignore_case")]
     pub checker_format: Option<String>,
-    /// Default contest type for standalone submissions.
     #[schema(example = "ioi")]
     pub default_contest_type: Option<String>,
-    /// Whether contestants see full input/output for all test cases.
     #[schema(example = true)]
     pub show_test_details: Option<bool>,
-    /// Expected submission file names per language.
-    /// Set to a value to update, set to null to clear, or omit to leave unchanged.
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<std::collections::HashMap<String, Vec<String>>>, example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<Option<std::collections::HashMap<String, Vec<String>>>>,
 }
 
-/// Full problem details.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ProblemResponse {
     #[schema(example = 1)]
@@ -103,25 +76,17 @@ pub struct ProblemResponse {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Problem type for evaluator dispatch.
     #[schema(example = "batch")]
     pub problem_type: String,
-    /// Custom checker source files (read-only, uploaded via separate endpoint).
     pub checker_source: Option<serde_json::Value>,
-    /// Checker format for output comparison.
     #[schema(example = "exact")]
     pub checker_format: String,
-    /// Default contest type for standalone submissions.
     #[schema(example = "ioi")]
     pub default_contest_type: String,
-    /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
-    /// Expected submission file names per language.
-    /// Null means use client-side defaults.
     #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
-    /// Sample test case metadata (is_sample = true).
     pub samples: Vec<SampleTestCaseMeta>,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
@@ -129,20 +94,16 @@ pub struct ProblemResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-/// A sample test case metadata included in problem detail responses.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SampleTestCaseMeta {
     #[schema(example = 1)]
     pub id: i32,
-    /// Sample input file size in bytes.
     #[schema(example = 12)]
     pub input_size: usize,
-    /// Sample output file size in bytes.
     #[schema(example = 4)]
     pub output_size: usize,
 }
 
-/// Problem summary for list views (content omitted).
 #[derive(Serialize, FromQueryResult, utoipa::ToSchema)]
 pub struct ProblemListItem {
     #[schema(example = 1)]
@@ -153,16 +114,12 @@ pub struct ProblemListItem {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    /// Problem type for evaluator dispatch.
     #[schema(example = "batch")]
     pub problem_type: String,
-    /// Checker format for output comparison.
     #[schema(example = "exact")]
     pub checker_format: String,
-    /// Default contest type for standalone submissions.
     #[schema(example = "ioi")]
     pub default_contest_type: String,
-    /// Whether contestants see full input/output for all test cases.
     #[schema(example = false)]
     pub show_test_details: bool,
     #[schema(example = "2025-09-01T08:00:00Z")]
@@ -171,14 +128,12 @@ pub struct ProblemListItem {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Paginated list of problems.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ProblemListResponse {
     pub data: Vec<ProblemListItem>,
     pub pagination: Pagination,
 }
 
-/// Query parameters for problem listing.
 #[derive(Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ProblemListQuery {
@@ -188,115 +143,78 @@ pub struct ProblemListQuery {
     pub per_page: Option<u64>,
     #[param(example = "sum")]
     pub search: Option<String>,
-    /// Sort field: `created_at` (default), `updated_at`, or `title`.
     #[param(example = "created_at")]
     pub sort_by: Option<String>,
-    /// Sort direction: `asc` or `desc` (default).
     #[param(example = "desc")]
     pub sort_order: Option<String>,
 }
 
-/// Request body for creating a test case.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateTestCaseRequest {
-    /// Input data. May be empty for output-only or custom-checker problems.
     #[schema(example = "4\n2 7 11 15\n9")]
     pub input: String,
-    /// Expected output. May be empty for custom-checker problems.
     #[schema(example = "0 1")]
     pub expected_output: String,
-    /// Point value for this test case (0-10000).
     #[schema(example = 10)]
     pub score: i32,
-    /// Whether this test case is visible to contestants.
     #[schema(example = true)]
     pub is_sample: bool,
-    /// Display position (0-based). Auto-assigned if omitted.
     #[schema(example = 0)]
     pub position: Option<i32>,
-    /// Optional human-readable description (max 256 chars).
     #[schema(example = "Basic case")]
     pub description: Option<String>,
-    /// Optional short identifier (unique within problem, max 64 chars).
-    /// Defaults to the test-case position when omitted.
     #[schema(value_type = Option<String>, example = "sample_01")]
     pub label: Option<String>,
 }
 
-/// PATCH body for updating a test case. Only provided fields are modified.
 #[derive(Deserialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct UpdateTestCaseRequest {
-    /// Input data. May be empty for output-only or custom-checker problems.
     #[schema(example = "5\n1 2 3 4 5\n3")]
     pub input: Option<String>,
-    /// Expected output. May be empty for custom-checker problems.
     #[schema(example = "1 2")]
     pub expected_output: Option<String>,
-    /// Point value for this test case (0-10000).
     #[schema(example = 20)]
     pub score: Option<i32>,
-    /// Whether this test case is visible to contestants.
     #[schema(example = false)]
     pub is_sample: Option<bool>,
-    /// Display position (0-based).
     #[schema(example = 1)]
     pub position: Option<i32>,
-    /// Set to a string value to update, set to `null` to clear, or omit to leave unchanged.
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<String>, example = "Updated edge case")]
     pub description: Option<Option<String>>,
-    /// Display label for this test case (e.g. "sample_01"). Must be unique within the problem.
     #[schema(example = "sample_01")]
     pub label: Option<String>,
 }
 
-/// Merge strategy for handling test case label conflicts during ZIP upload.
 #[derive(Deserialize, Serialize, TryFromField, utoipa::ToSchema)]
 #[try_from_field(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum UploadTestCasesMergeStrategy {
-    /// Abort the entire upload if any test case label in the ZIP file matches an existing one.
     Abort,
-    /// Skip creating any test case whose label matches an existing one.
     Skip,
-    /// Update existing test cases with matching labels, create new ones for non-existing labels.
     Overwrite,
-    /// Delete all existing test cases before creating new ones from the ZIP file.
     Replace,
 }
 
-/// Multipart form data for uploading test cases via ZIP file. The ZIP should contain pairs of
-/// input/output files
 #[derive(TryFromMultipart, utoipa::ToSchema)]
 pub struct UploadTestCasesRequest {
-    /// ZIP file containing test cases. Each test case consists of an input file and an output
-    /// file.
-    #[form_data(limit = "unlimited")] // Actual file size limits are enforced in the handler.
+    #[form_data(limit = "unlimited")]
     #[schema(value_type = String, format = Binary)]
     pub file: Bytes,
-    /// Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
-    /// `input_01.txt` with label `01`.
     #[schema(example = "input_*.txt")]
     pub input_format: String,
-    /// Output file name format with `*` as wildcard for label. E.g. `output_*.txt` matches
-    /// `output_01.txt` with label `01`.
     #[schema(example = "output_*.txt")]
     pub output_format: String,
-    /// Merge strategy when test case labels in the ZIP conflict with existing ones. See
-    /// `UploadTestCasesMergeStrategy` docs for details.
     #[schema(example = "abort")]
     pub strategy: UploadTestCasesMergeStrategy,
 }
 
-/// Request body for reordering test cases.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct ReorderTestCasesRequest {
-    /// Ordered list of test_case_ids. Positions assigned 0, 1, 2, ... by array index.
     #[schema(example = json!([3, 1, 2]))]
     pub test_case_ids: Vec<i32>,
 }
 
-/// Full test case details.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct TestCaseResponse {
     #[schema(example = 1)]
@@ -309,7 +227,6 @@ pub struct TestCaseResponse {
     pub score: i32,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
-    /// Short identifier (unique within problem).
     #[schema(example = "sample_01")]
     pub label: String,
     #[schema(example = true)]
@@ -322,7 +239,6 @@ pub struct TestCaseResponse {
     pub created_at: DateTime<Utc>,
 }
 
-/// Test case summary (input/output truncated to 100-char previews).
 #[derive(Serialize, FromQueryResult, utoipa::ToSchema)]
 pub struct TestCaseListItem {
     #[schema(example = 1)]
@@ -331,7 +247,6 @@ pub struct TestCaseListItem {
     pub score: i32,
     #[schema(example = "Basic case")]
     pub description: Option<String>,
-    /// Short identifier (unique within problem).
     #[schema(example = "sample_01")]
     pub label: String,
     #[schema(example = true)]
@@ -348,13 +263,10 @@ pub struct TestCaseListItem {
     pub created_at: DateTime<Utc>,
 }
 
-/// Response from ZIP upload.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct UploadTestCasesResponse {
-    /// Number of test cases created.
     #[schema(example = 5)]
     pub created: usize,
-    /// Number of test cases updated (only for "overwrite" strategy).
     #[schema(example = 2)]
     pub updated: usize,
     pub test_cases: Vec<TestCaseListItem>,
@@ -432,19 +344,16 @@ fn default_checker_format() -> String {
 
 use crate::registry::{CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry};
 
-/// Returns the first registered key from a registry, or an empty string if none.
 pub async fn first_registered_evaluator(registry: &EvaluatorRegistry) -> String {
     let reg = registry.read().await;
     reg.keys().min().cloned().unwrap_or_default()
 }
 
-/// Returns the first registered key from a registry, or an empty string if none.
 pub async fn first_registered_contest_type(registry: &ContestTypeRegistry) -> String {
     let reg = registry.read().await;
     reg.keys().min().cloned().unwrap_or_default()
 }
 
-/// Validates checker_format against the registry of registered checker format handlers.
 pub async fn validate_checker_format(
     format: &str,
     registry: &CheckerFormatRegistry,
@@ -461,7 +370,6 @@ pub async fn validate_checker_format(
     Ok(())
 }
 
-/// Validates problem_type against the registry of registered evaluator handlers.
 pub async fn validate_problem_type(
     problem_type: &str,
     registry: &EvaluatorRegistry,
@@ -509,33 +417,24 @@ pub fn validate_create_problem(req: &CreateProblemRequest) -> Result<(), AppErro
             "Memory limit must be 1-1048576 KB".into(),
         ));
     }
-    // problem_type and checker_format are validated async in the handler
-    // via validate_problem_type() and validate_checker_format() with registries.
     Ok(())
 }
 
-/// Request body for uploading checker source files.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct UploadCheckerSourceRequest {
-    /// Array of source files for the checker.
     pub files: Vec<CheckerSourceFile>,
 }
 
-/// A single file in the checker source.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CheckerSourceFile {
-    /// Filename (e.g. "checker.cpp", "testlib.h").
     #[schema(example = "checker.cpp")]
     pub filename: String,
-    /// File content as a string.
     #[schema(example = "#include \"testlib.h\"\nint main() { ... }")]
     pub content: String,
 }
 
-/// Response for checker source operations.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct CheckerSourceResponse {
-    /// The checker source files, or null if none set.
     pub files: Option<Vec<CheckerSourceFile>>,
 }
 
@@ -676,18 +575,14 @@ pub fn validate_reorder_test_cases(req: &ReorderTestCasesRequest) -> Result<(), 
     validate_reorder_ids(&req.test_case_ids, "test_case_id")
 }
 
-/// Request body for bulk-deleting test cases.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkDeleteTestCasesRequest {
-    /// IDs of test cases to delete. Max 1,000, no duplicates, all must belong to the problem.
     #[schema(example = json!([5, 7, 9]))]
     pub test_case_ids: Vec<i32>,
 }
 
-/// Response from bulk-deleting test cases.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkDeleteTestCasesResponse {
-    /// Number of test cases deleted.
     #[schema(example = 3)]
     pub deleted: usize,
 }

@@ -13,7 +13,6 @@ pub struct PluginHttpAuth {
     pub permissions: Vec<String>,
 }
 
-/// Data passed to the Wasm plugin when a route is triggered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginHttpRequest {
     pub method: String,
@@ -42,9 +41,6 @@ impl PluginHttpRequest {
             .is_some_and(|auth| auth.permissions.iter().any(|p| p == permission))
     }
 
-    /// Extract a typed path parameter by name.
-    ///
-    /// Returns `SdkError::Other` if the parameter is missing or cannot be parsed.
     pub fn param<T: FromStr>(&self, name: &str) -> Result<T, crate::error::SdkError> {
         self.params
             .get(name)
@@ -54,17 +50,12 @@ impl PluginHttpRequest {
             })
     }
 
-    /// Require an authenticated user, returning their user_id.
-    ///
-    /// Returns `SdkError::Other` if the user is not authenticated.
-    /// Callers in API handlers should `.map_err()` to convert to a 401 response.
     pub fn require_user_id(&self) -> Result<i32, crate::error::SdkError> {
         self.user_id()
             .ok_or_else(|| crate::error::SdkError::Other("Authentication required".into()))
     }
 }
 
-/// Response returned by the Wasm plugin after processing a route.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginHttpResponse {
     pub status: u16,
@@ -75,7 +66,6 @@ pub struct PluginHttpResponse {
 }
 
 impl PluginHttpResponse {
-    /// Create an error response with a JSON `{ "error": "<message>" }` body.
     pub fn error(status: u16, message: impl Into<String>) -> Self {
         Self {
             status,

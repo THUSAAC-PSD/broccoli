@@ -1,7 +1,6 @@
 use crate::common::{TestApp, routes};
 use serde_json::json;
 
-/// Create a minimal valid contest payload.
 fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
     json!({
         "title": title,
@@ -14,7 +13,6 @@ fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
     })
 }
 
-/// Create a contest as admin and return its id.
 async fn create_contest_as_admin(
     app: &TestApp,
     admin_token: &str,
@@ -233,13 +231,10 @@ mod contest_listing {
             .create_user_with_role("admin1", "pass1234", "admin")
             .await;
 
-        // Active Public Contest
         create_contest_as_admin(&app, &admin, "Public One", true).await;
 
-        // Active Private Contest
         create_contest_as_admin(&app, &admin, "Private One", false).await;
 
-        // Never Activating Contest
         let never_active_body = json!({
             "title": "Never Active",
             "description": "desc",
@@ -251,7 +246,6 @@ mod contest_listing {
         app.post_with_token(routes::CONTESTS, &never_active_body, &admin)
             .await;
 
-        // Not Yet Activated Contest
         let future_body = json!({
             "title": "Future Contest",
             "description": "desc",
@@ -263,7 +257,6 @@ mod contest_listing {
         app.post_with_token(routes::CONTESTS, &future_body, &admin)
             .await;
 
-        // Deactivated Contest
         let deactivated_body = json!({
             "title": "Deactivated Contest",
             "description": "desc",
@@ -295,7 +288,6 @@ mod contest_listing {
         let private_id = create_contest_as_admin(&app, &admin, "Private Enrolled", false).await;
         create_contest_as_admin(&app, &admin, "Private Hidden", false).await;
 
-        // Enroll user in one private contest
         let user_id = app.get_with_token(routes::ME, &user).await.id();
         let enroll_body = json!({"user_id": user_id});
         let enroll_res = app
@@ -310,7 +302,6 @@ mod contest_listing {
         let res = app.get_with_token(routes::CONTESTS, &user).await;
         assert_eq!(res.status, 200);
         let data = res.body["data"].as_array().unwrap();
-        // Should see: Public + Private Enrolled = 2 (not Private Hidden)
         assert_eq!(data.len(), 2);
     }
 
@@ -570,7 +561,6 @@ mod contest_retrieval {
             .await;
         let id = create_contest_as_admin(&app, &admin, "Private", false).await;
 
-        // Enroll user
         let uid = app.get_with_token(routes::ME, &user).await.id();
         app.post_with_token(
             &routes::contest_participants(id),
@@ -684,7 +674,6 @@ mod contest_update {
             .await;
         let id = create_contest_as_admin(&app, &admin, "Test", false).await;
 
-        // Try to set start_time after existing end_time
         let patch = json!({"start_time": "2099-01-03T00:00:00Z"});
         let res = app
             .patch_with_token(&routes::contest(id), &patch, &admin)
@@ -701,7 +690,6 @@ mod contest_update {
             .await;
         let id = create_contest_as_admin(&app, &admin, "Test", true).await;
 
-        // Existing start_time is 2020-01-01. Try to set activate after it.
         let patch = json!({"activate_time": "2020-01-02T00:00:00Z"});
         let res = app
             .patch_with_token(&routes::contest(id), &patch, &admin)
@@ -717,7 +705,6 @@ mod contest_update {
             .await;
         let id = create_contest_as_admin(&app, &admin, "Test", true).await;
 
-        // Existing end_time is 2099-01-02. Try to set deactivate before it.
         let patch = json!({"deactivate_time": "2099-01-01T00:00:00Z"});
         let res = app
             .patch_with_token(&routes::contest(id), &patch, &admin)
@@ -842,22 +829,18 @@ mod contest_deletion {
         let contest_id = create_contest_as_admin(&app, &admin, "Complex", true).await;
         let problem_id = app.create_problem(&admin, "P1").await;
 
-        // Add problem
         let add_body = json!({"problem_id": problem_id, "label": "A"});
         app.post_with_token(&routes::contest_problems(contest_id), &add_body, &admin)
             .await;
 
-        // Register user
         app.post_with_token(&routes::contest_register(contest_id), &json!({}), &user)
             .await;
 
-        // Delete contest
         let res = app
             .delete_with_token(&routes::contest(contest_id), &admin)
             .await;
         assert_eq!(res.status, 204);
 
-        // Problem itself should still exist
         let prob_res = app
             .get_with_token(&routes::problem(problem_id), &admin)
             .await;
@@ -1070,7 +1053,6 @@ mod contest_problems {
         )
         .await;
 
-        // Enroll user
         let uid = app.get_with_token(routes::ME, &user).await.id();
         app.post_with_token(
             &routes::contest_participants(contest_id),
@@ -1192,7 +1174,6 @@ mod contest_problems {
         )
         .await;
 
-        // Same problem_id, different label — should still conflict
         let res = app
             .post_with_token(
                 &routes::contest_problems(contest_id),
@@ -1318,7 +1299,6 @@ mod contest_problems {
         )
         .await;
 
-        // Try to rename B to A
         let res = app
             .patch_with_token(
                 &routes::contest_problem(contest_id, p2),
@@ -1346,7 +1326,6 @@ mod contest_problems {
         )
         .await;
 
-        // Patching with the same label should succeed (not conflict with itself)
         let res = app
             .patch_with_token(
                 &routes::contest_problem(contest_id, p1),
@@ -1387,7 +1366,6 @@ mod contest_problems {
         let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
         let p1 = app.create_problem(&admin, "P1").await;
 
-        // Label > 10 characters
         let res = app
             .post_with_token(
                 &routes::contest_problems(contest_id),
@@ -1515,7 +1493,6 @@ mod contest_problems {
         let user = app
             .create_user_with_role("user1", "pass1234", "contestant")
             .await;
-        // Default valid_contest_body uses past start_time (already started)
         let contest_id = create_contest_as_admin(&app, &admin, "Active", true).await;
         let p1 = app.create_problem(&admin, "P1").await;
         app.post_with_token(
@@ -1688,7 +1665,6 @@ mod contest_participants {
             .await;
         let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
 
-        // Admin adds user as participant
         let uid = app.get_with_token(routes::ME, &user).await.id();
         app.post_with_token(
             &routes::contest_participants(contest_id),
@@ -1697,7 +1673,6 @@ mod contest_participants {
         )
         .await;
 
-        // User (contestant) cannot remove themselves via admin endpoint
         let res = app
             .delete_with_token(&routes::contest_participant(contest_id, uid), &user)
             .await;
@@ -1716,7 +1691,6 @@ mod contest_participants {
             .await;
         let contest_id = create_contest_as_admin(&app, &admin, "C1", true).await;
 
-        // Register via self-registration (public contest)
         app.post_with_token(&routes::contest_register(contest_id), &json!({}), &user)
             .await;
 
@@ -1833,7 +1807,6 @@ mod contest_registration {
             .await;
         let id = create_contest_as_admin(&app, &admin, "Private", false).await;
 
-        // Returns 404 (not 403) to prevent enumeration of private contests
         let res = app
             .post_with_token(&routes::contest_register(id), &json!({}), &user)
             .await;
@@ -1864,7 +1837,7 @@ mod contest_registration {
         let res = app
             .post_with_token(&routes::contest_register(id), &json!({}), &user)
             .await;
-        assert_eq!(res.status, 404); // Blocked because it's never activating (no activate_time)
+        assert_eq!(res.status, 404);
     }
 
     #[tokio::test]
@@ -1891,7 +1864,7 @@ mod contest_registration {
         let res = app
             .post_with_token(&routes::contest_register(id), &json!({}), &user)
             .await;
-        assert_eq!(res.status, 404); // Blocked because it's not yet visible
+        assert_eq!(res.status, 404);
     }
 
     #[tokio::test]
@@ -1919,7 +1892,7 @@ mod contest_registration {
         let res = app
             .post_with_token(&routes::contest_register(id), &json!({}), &user)
             .await;
-        assert_eq!(res.status, 404); // Blocked because it's deactivated
+        assert_eq!(res.status, 404);
     }
 
     #[tokio::test]
@@ -2040,14 +2013,12 @@ mod contest_problem_reorder {
         )
         .await;
 
-        // Reorder: p3, p1, p2
         let body = json!({"problem_ids": [p3, p1, p2]});
         let res = app
             .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
             .await;
         assert_eq!(res.status, 204);
 
-        // Verify new positions via list (sorted by position)
         let list = app
             .get_with_token(&routes::contest_problems(contest_id), &admin)
             .await;
@@ -2084,7 +2055,6 @@ mod contest_problem_reorder {
         )
         .await;
 
-        // Only include p1, omit p2
         let body = json!({"problem_ids": [p1]});
         let res = app
             .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
@@ -2109,7 +2079,6 @@ mod contest_problem_reorder {
         )
         .await;
 
-        // Include p1 + a non-existent problem ID
         let body = json!({"problem_ids": [p1, 99999]});
         let res = app
             .put_with_token(&routes::contest_problems_reorder(contest_id), &body, &admin)
@@ -2231,7 +2200,6 @@ mod bulk_delete_contest_problems {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["removed"], 2);
 
-        // Verify only p3 remains
         let list = app
             .get_with_token(&routes::contest_problems(cid), &admin)
             .await;
@@ -2328,7 +2296,6 @@ mod bulk_delete_contest_problems {
         )
         .await;
 
-        // Send p1 (in contest) + p_other (not in contest)
         let res = app
             .delete_with_body_and_token(
                 &routes::contest_problems_bulk(cid),
@@ -2384,10 +2351,8 @@ mod bulk_add_participants {
             .create_user_with_role("admin_bap1", "pass1234", "admin")
             .await;
 
-        // Create contest with past start (active)
         let cid = app.create_contest(&admin, "BAP Contest", true, false).await;
 
-        // Register two users
         app.create_authenticated_user("existuser1", "pass1234")
             .await;
         app.create_authenticated_user("existuser2", "pass1234")
@@ -2486,7 +2451,6 @@ mod bulk_add_participants {
         let created = res.body["created"].as_array().expect("created array");
         let password = created[0]["password"].as_str().expect("password");
 
-        // Login with the returned password
         let login_res = app
             .post_without_token(
                 routes::LOGIN,
@@ -2507,13 +2471,11 @@ mod bulk_add_participants {
 
         let cid = app.create_contest(&admin, "BAP Contest", true, false).await;
 
-        // Create and enroll a user first
         let user_token = app
             .create_authenticated_user("enrolled_bap5", "pass1234")
             .await;
         app.register_for_contest(cid, &user_token).await;
 
-        // Now try to bulk add the same user
         let res = app
             .post_with_token(
                 &routes::contest_participants_bulk(cid),
@@ -2561,7 +2523,6 @@ mod bulk_add_participants {
 
         assert_eq!(res.status, 200);
 
-        // Check all 4 categories
         let added = res.body["added"].as_array().expect("added");
         let created = res.body["created"].as_array().expect("created");
         let already = res.body["already_enrolled"]

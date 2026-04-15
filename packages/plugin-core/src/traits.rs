@@ -14,22 +14,16 @@ use crate::registry::{PluginEntry, PluginInfo, PluginRegistry, PluginStatus};
 
 #[async_trait]
 pub trait PluginManager: Send + Sync {
-    /// Returns a reference to the plugin registry.
     fn get_registry(&self) -> &PluginRegistry;
 
-    /// Returns a reference to the plugin config.
     fn get_config(&self) -> &PluginConfig;
 
-    /// Returns a reference to the host function registry.
     fn get_host_functions(&self) -> &HostFunctionRegistry;
 
-    /// Returns a reference to the i18n registry.
     fn get_i18n_registry(&self) -> &I18nRegistry;
 
-    /// Resolves the appropriate Wasm entry point and permissions from the manifest.
     fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)>;
 
-    /// Scans the plugins directory and updates the registry with discovered plugins.
     fn discover_plugins(&self) -> Result<(), PluginError> {
         let plugins_dir = &self.get_config().plugins_dir;
 
@@ -80,7 +74,6 @@ pub trait PluginManager: Send + Sync {
         Ok(())
     }
 
-    // Loads a plugin by its ID, initializing the Wasm runtime as needed.
     #[instrument(skip(self), fields(plugin_id = %plugin_id))]
     fn load_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         let mut registry = self
@@ -93,7 +86,7 @@ pub trait PluginManager: Send + Sync {
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
         if plugin_entry.status == PluginStatus::Loaded {
-            return Ok(()); // Already loaded
+            return Ok(());
         }
 
         let mut runtime = None;
@@ -126,7 +119,6 @@ pub trait PluginManager: Send + Sync {
         Ok(())
     }
 
-    /// Unloads a plugin by its ID, cleaning up the Wasm runtime and resources.
     #[instrument(skip(self), fields(plugin_id = %plugin_id))]
     fn unload_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         let mut registry = self
@@ -146,7 +138,6 @@ pub trait PluginManager: Send + Sync {
         Ok(())
     }
 
-    /// Checks if a plugin is currently loaded.
     fn is_plugin_loaded(&self, plugin_id: &str) -> Result<bool, PluginError> {
         let registry = self
             .get_registry()
@@ -160,7 +151,6 @@ pub trait PluginManager: Send + Sync {
         Ok(plugin_entry.status == PluginStatus::Loaded)
     }
 
-    /// Lists all plugins.
     fn list_plugins(&self) -> Result<Vec<PluginInfo>, PluginError> {
         let registry = self
             .get_registry()
@@ -170,7 +160,6 @@ pub trait PluginManager: Send + Sync {
         Ok(registry.values().map(PluginInfo::from).collect())
     }
 
-    /// Checks if a plugin exists in the registry.
     fn has_plugin(&self, plugin_id: &str) -> Result<bool, PluginError> {
         let registry = self
             .get_registry()
@@ -230,9 +219,6 @@ pub trait PluginManager: Send + Sync {
         Ok(())
     }
 
-    /// Reloads a plugin by re-reading its manifest from disk and re-creating the WASM runtime.
-    /// The plugin must already exist in the registry. After reload, the entry starts as Unloaded
-    /// and is then loaded via `load_plugin()`.
     fn reload_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         let root_dir = {
             let registry = self.get_registry().read().map_err(|_| {
@@ -257,9 +243,6 @@ pub trait PluginManager: Send + Sync {
         Ok(())
     }
 
-    /// Scans the plugins directory for new plugins that aren't already in the registry.
-    /// Unlike `discover_plugins()`, this does not overwrite existing entries.
-    /// Returns the IDs of newly discovered plugins.
     fn rediscover_plugins(&self) -> Result<Vec<String>, PluginError> {
         let plugins_dir = &self.get_config().plugins_dir;
 
@@ -304,7 +287,6 @@ pub trait PluginManager: Send + Sync {
         Ok(new_ids)
     }
 
-    /// Low-level execution using raw bytes.
     async fn call_raw(
         &self,
         plugin_id: &str,
@@ -369,8 +351,6 @@ pub trait PluginManager: Send + Sync {
     }
 }
 
-/// Extension trait for typed calls.
-/// Automatically implemented for any T that implements PluginManager.
 #[async_trait]
 pub trait PluginManagerExt: PluginManager {
     async fn call<T, R>(&self, plugin_id: &str, func_name: &str, input: T) -> Result<R, PluginError>
@@ -387,5 +367,4 @@ pub trait PluginManagerExt: PluginManager {
     }
 }
 
-// Blanket implementation
 impl<T: ?Sized + PluginManager> PluginManagerExt for T {}

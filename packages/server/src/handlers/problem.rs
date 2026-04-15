@@ -708,7 +708,6 @@ pub async fn upload_test_cases(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    // Ensure there is exactly one wildcard
     if data.input_format.matches('*').count() != 1 || data.output_format.matches('*').count() != 1 {
         return Err(AppError::Validation(
             "Formats must contain exactly one '*' wildcard".into(),
@@ -882,7 +881,6 @@ pub async fn reorder_test_cases(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Bulk-delete test cases for a problem.
 #[utoipa::path(
     delete,
     path = "/bulk",
@@ -971,12 +969,10 @@ pub async fn bulk_delete_test_cases(
     }))
 }
 
-/// Body limit layer for test case JSON routes (32MB).
 pub fn test_case_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(32 * 1024 * 1024)
 }
 
-/// Body limit layer for ZIP upload route (128MB).
 pub fn upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(128 * 1024 * 1024)
 }
@@ -1088,25 +1084,18 @@ fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
     }
 }
 
-/// Parsed test case from a ZIP archive.
 struct ZipTestEntry {
     label: String,
     input: String,
     expected_output: String,
-    // TODO: description: Option<String>,
     is_sample: bool,
-    /// Sort key: (directory priority, label)
     sort_key: (u8, String),
 }
 
-/// Maximum decompressed size per file inside a ZIP archive (128 MB).
 const MAX_DECOMPRESSED_FILE_SIZE: u64 = 128 * 1024 * 1024;
 
-/// Maximum total decompressed size across all files in a ZIP archive (2048 MB).
 const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = 2048 * 1024 * 1024;
 
-/// Extracts the label from a filename given a format pattern like "prefix*suffix".
-/// Returns None if the filename doesn't match the pattern.
 fn extract_label<'a>(filename: &'a str, format: &str) -> Option<&'a str> {
     let (prefix, suffix) = format.split_once('*')?;
 
@@ -1142,7 +1131,6 @@ fn parse_zip_test_cases(
             continue;
         }
 
-        // Reject entries with path traversal components (e.g. "../").
         let name = match file.enclosed_name() {
             Some(path) => path.to_string_lossy().to_string(),
             None => continue,
@@ -1150,7 +1138,6 @@ fn parse_zip_test_cases(
 
         let (dir, filename) = split_dir_filename(&name);
 
-        // Skip hidden files (e.g., .DS_Store, .gitkeep)
         if filename.starts_with('.') {
             continue;
         }

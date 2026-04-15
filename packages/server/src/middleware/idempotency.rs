@@ -13,21 +13,10 @@ use crate::entity::idempotency_key;
 use crate::error::AppError;
 use crate::state::AppState;
 
-/// Maximum size for caching response bodies (1 MB).
 const MAX_RESPONSE_BODY_SIZE: usize = 1_048_576;
 
-/// Stale pending key threshold (2 minutes). If a key is pending for longer
-/// than this, we assume the server crashed mid-request and reclaim it.
 const STALE_PENDING_SECS: i64 = 120;
 
-/// Idempotency middleware for POST requests.
-///
-/// When an `Idempotency-Key` header is present on a POST request:
-/// 1. Claims the key atomically via INSERT ON CONFLICT DO NOTHING
-/// 2. If already claimed and completed, returns the cached response
-/// 3. If already claimed and pending (< 2min), returns 409
-/// 4. If already claimed and pending (>= 2min, stale), reclaims and proceeds
-/// 5. After handler returns 2xx, caches the response; on 4xx/5xx, deletes the key
 pub async fn idempotency_middleware(
     State(state): State<AppState>,
     request: Request<Body>,
@@ -45,7 +34,7 @@ pub async fn idempotency_middleware(
                     .into_response();
             }
         },
-        None => return next.run(request).await, // No header then pass through
+        None => return next.run(request).await,
     };
 
     if key.is_empty() || key.len() > 255 {
@@ -65,7 +54,7 @@ pub async fn idempotency_middleware(
 
     let user_id = match extract_user_id(&request, &state) {
         Some(id) => id,
-        None => return next.run(request).await, // Unauthenticated then pass through
+        None => return next.run(request).await,
     };
 
     let request_path = request.uri().path().to_string();
@@ -91,14 +80,12 @@ pub async fn idempotency_middleware(
             .await
         }
         Err(e) => {
-            // Fail-open: DB error -> pass through without idempotency
             warn!(error = %e, key = %key, "Idempotency middleware DB error, passing through");
             next.run(request).await
         }
     }
 }
 
-/// Extract user_id from the Authorization header without consuming the request.
 fn extract_user_id(request: &Request<Body>, state: &AppState) -> Option<i32> {
     let auth_header = request.headers().get("Authorization")?.to_str().ok()?;
     let token = auth_header.strip_prefix("Bearer ")?;
@@ -111,7 +98,6 @@ enum ClaimResult {
     AlreadyExists(idempotency_key::Model),
 }
 
-/// Try to claim a key atomically.
 async fn try_claim_key(
     db: &DatabaseConnection,
     key: &str,
@@ -140,7 +126,6 @@ async fn try_claim_key(
         return Ok(ClaimResult::Claimed);
     }
 
-    // Key already exists -- fetch it
     let existing = idempotency_key::Entity::find_by_id((key.to_string(), user_id))
         .one(db)
         .await?
@@ -151,7 +136,6 @@ async fn try_claim_key(
     Ok(ClaimResult::AlreadyExists(existing))
 }
 
-/// Handle an existing idempotency key (completed or pending).
 async fn handle_existing_key(
     db: &DatabaseConnection,
     existing: idempotency_key::Model,
@@ -164,7 +148,6 @@ async fn handle_existing_key(
 ) -> Response {
     match existing.status.as_str() {
         "completed" => {
-            // Validate path/method match
             if existing.request_path != request_path || existing.request_method != request_method {
                 return AppError::IdempotencyKeyMismatch(format!(
                     "This key was used with {} {} but this request is {} {}",
@@ -173,7 +156,6 @@ async fn handle_existing_key(
                 .into_response();
             }
 
-            // Return cached response
             let status = existing
                 .response_status
                 .and_then(|s| StatusCode::from_u16(s as u16).ok())
@@ -191,7 +173,6 @@ async fn handle_existing_key(
             if age_secs < STALE_PENDING_SECS {
                 AppError::IdempotencyKeyInProgress.into_response()
             } else {
-                // Stale. The server probably crashed. Delete and reclaim.
                 warn!(
                     key = %key,
                     age_secs,
@@ -203,7 +184,6 @@ async fn handle_existing_key(
                         complete_key(db, key, user_id, response).await
                     }
                     Ok(false) => {
-                        // Another request beat us to reclaim, so treat as in-progress
                         AppError::IdempotencyKeyInProgress.into_response()
                     }
                     Err(e) => {
@@ -214,14 +194,12 @@ async fn handle_existing_key(
             }
         }
         _ => {
-            // Unknown status, just pass through
             warn!(key = %key, status = %existing.status, "Unknown idempotency key status");
             next.run(request).await
         }
     }
 }
 
-/// Atomically reclaim a stale pending key. Returns true if we successfully reclaimed.
 async fn reclaim_stale_key(
     db: &DatabaseConnection,
     key: &str,
@@ -255,7 +233,6 @@ async fn reclaim_stale_key(
     Ok(result.rows_affected() == 1)
 }
 
-/// After handler returns: cache 2xx responses, delete key for errors.
 async fn complete_key(
     db: &DatabaseConnection,
     key: &str,
@@ -266,7 +243,6 @@ async fn complete_key(
     let is_success = status.is_success();
 
     if is_success {
-        // Cache the response body
         let (parts, body) = response.into_parts();
         match to_bytes(body, MAX_RESPONSE_BODY_SIZE).await {
             Ok(bytes) => {
@@ -283,12 +259,9 @@ async fn complete_key(
                 {
                     error!(error = %e, "Failed to cache idempotency response");
                 }
-                // Reconstruct response
                 Response::from_parts(parts, Body::from(bytes.to_vec()))
             }
             Err(e) => {
-                // Body too large to cache. Mark the key as completed WITHOUT a
-                // cached body so retries get 409 instead of creating duplicates.
                 warn!(error = %e, "Response body too large to cache for idempotency");
                 if let Err(e) =
                     mark_completed(db, key, user_id, parts.status.as_u16() as i16, "{}").await
@@ -310,7 +283,6 @@ async fn complete_key(
     }
 }
 
-/// Mark a key as completed with the cached response.
 async fn mark_completed(
     db: &DatabaseConnection,
     key: &str,
@@ -335,7 +307,6 @@ async fn mark_completed(
     Ok(())
 }
 
-/// Delete an idempotency key.
 async fn delete_key(db: &DatabaseConnection, key: &str, user_id: i32) -> Result<(), DbErr> {
     idempotency_key::Entity::delete_by_id((key.to_string(), user_id))
         .exec(db)
@@ -343,7 +314,6 @@ async fn delete_key(db: &DatabaseConnection, key: &str, user_id: i32) -> Result<
     Ok(())
 }
 
-/// Delete idempotency keys older than 24 hours. Called by background cleanup task.
 pub async fn cleanup_expired_keys(db: &DatabaseConnection) {
     let cutoff = Utc::now() - chrono::Duration::hours(24);
     match db

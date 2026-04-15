@@ -230,7 +230,6 @@ mod namespace_validation {
             )
             .await;
 
-        // Empty namespace in path becomes /config/ which doesn't match any route
         assert_eq!(res.status, 404);
     }
 
@@ -769,15 +768,11 @@ mod cascade_deletion {
         )
         .await;
 
-        // Delete the problem
         let res = app
             .delete_with_token(&routes::problem(problem_id), &token)
             .await;
         assert_eq!(res.status, 204);
 
-        // Re-create a problem to get a valid problem_id for the config check,
-        // but the old config should be gone. We verify by checking directly
-        // that the original problem's config endpoint returns 404 (problem gone).
         let res = app
             .get_with_token(
                 &routes::problem_config_ns(problem_id, "test-plugin", "checker"),
@@ -834,13 +829,11 @@ mod cascade_deletion {
         )
         .await;
 
-        // Remove problem from contest
         let res = app
             .delete_with_token(&routes::contest_problem(contest_id, problem_id), &token)
             .await;
         assert_eq!(res.status, 204);
 
-        // Contest problem config should be gone (contest problem no longer exists)
         let res = app
             .get_with_token(
                 &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),

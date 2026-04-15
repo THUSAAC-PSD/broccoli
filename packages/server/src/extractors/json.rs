@@ -6,8 +6,6 @@ use serde::de::DeserializeOwned;
 
 use crate::error::AppError;
 
-/// A `Json<T>` wrapper that converts deserialization errors into `AppError::Validation`,
-/// ensuring clients always receive structured JSON error responses.
 pub struct AppJson<T>(pub T);
 
 impl<S, T> FromRequest<S> for AppJson<T>

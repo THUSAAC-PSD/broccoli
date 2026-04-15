@@ -22,7 +22,6 @@ use crate::utils::judging::{files_from_json, files_to_json, validate_run_languag
 use crate::utils::problem::find_problem;
 use crate::utils::rate_limit::check_rate_limit;
 
-/// Dispatch code run to plugin-based judging system.
 #[instrument(skip(state), fields(code_run_id = code_run.id))]
 pub(crate) async fn dispatch_to_plugin(state: AppState, code_run: code_run::Model) {
     let handler = {
@@ -207,7 +206,6 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, code_run: code_run::Mode
     });
 }
 
-/// Build full code run response with related data.
 async fn build_code_run_response(
     db: &DatabaseConnection,
     cr: code_run::Model,
@@ -301,7 +299,6 @@ async fn build_code_run_response(
     })
 }
 
-/// Run code against custom test cases (standalone problem).
 #[utoipa::path(
     post,
     path = "/",
@@ -383,7 +380,6 @@ pub async fn run_code(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Run code against custom test cases (contest problem).
 #[utoipa::path(
     post,
     path = "/",
@@ -485,7 +481,6 @@ pub async fn run_contest_code(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Get a code run by ID (for polling).
 #[utoipa::path(
     get,
     path = "/{id}",
@@ -523,7 +518,6 @@ pub async fn get_code_run(
     Ok(Json(response))
 }
 
-/// Body limit for code run requests.
 pub fn code_run_body_limit(max_size: usize) -> axum::extract::DefaultBodyLimit {
     axum::extract::DefaultBodyLimit::max(max_size + 4096)
 }

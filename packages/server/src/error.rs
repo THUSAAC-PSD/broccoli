@@ -9,25 +9,16 @@ use plugin_core::error::{AssetError, PluginError};
 use sea_orm::DbErr;
 use serde::Serialize;
 
-/// Structured error response returned by all endpoints on failure.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ErrorBody {
-    /// Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
-    /// `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
-    /// `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
-    /// `PLUGIN_REJECTED`, `INTERNAL_ERROR`, or a custom plugin-defined code.
     #[schema(example = "VALIDATION_ERROR")]
     pub code: String,
-    /// Human-readable error description.
     #[schema(example = "Title must be 1-256 characters")]
     pub message: String,
-    /// Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
-    /// Only present for `PluginRejection` errors.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
 }
 
-/// Application-level error type.
 #[derive(Debug)]
 pub enum AppError {
     Validation(String),
@@ -41,22 +32,16 @@ pub enum AppError {
     Conflict(String),
     UsernameTaken,
     PluginNotReady(String),
-    /// Rate limit exceeded. Contains seconds until retry is allowed.
     RateLimited {
         retry_after: u64,
     },
-    /// A plugin hook rejected the request.
     PluginRejection {
         code: String,
         message: String,
-        /// HTTP status code (validated to 4xx range).
         status_code: u16,
-        /// Optional structured data from the plugin.
         details: Option<serde_json::Value>,
     },
-    /// Idempotency key is currently being processed by another request.
     IdempotencyKeyInProgress,
-    /// Idempotency key was used with a different endpoint.
     IdempotencyKeyMismatch(String),
     Internal(String),
 }
@@ -120,7 +105,6 @@ impl AppError {
                 status_code,
                 details,
             } => {
-                // Validate status_code to 4xx range; default to 400 if invalid
                 let status = StatusCode::from_u16(status_code)
                     .ok()
                     .filter(|s| s.is_client_error())

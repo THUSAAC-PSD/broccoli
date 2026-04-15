@@ -21,7 +21,6 @@ use crate::models::dlq::*;
 use crate::models::shared::Pagination;
 use crate::state::AppState;
 
-/// List dead letter messages.
 #[utoipa::path(
     get,
     path = "",
@@ -73,7 +72,6 @@ pub async fn list_dlq_messages(
     }))
 }
 
-/// Get DLQ statistics.
 #[utoipa::path(
     get,
     path = "/stats",
@@ -101,7 +99,6 @@ pub async fn get_dlq_stats(
     Ok(Json(stats.into()))
 }
 
-/// Get a single DLQ message by ID.
 #[utoipa::path(
     get,
     path = "/{id}",
@@ -135,7 +132,6 @@ pub async fn get_dlq_message(
     Ok(Json(message.into()))
 }
 
-/// Retry a DLQ message by re-dispatching the submission to the plugin system.
 #[utoipa::path(
     post,
     path = "/{id}/retry",
@@ -186,7 +182,6 @@ pub async fn retry_dlq_message(
         ));
     };
 
-    // Load submission and verify it is in a retryable state
     let sub = submission::Entity::find_by_id(submission_id)
         .one(&txn)
         .await?
@@ -199,7 +194,6 @@ pub async fn retry_dlq_message(
         )));
     }
 
-    // Reset submission to Pending, clear error fields
     let submission_update = submission::ActiveModel {
         id: Set(submission_id),
         status: Set(SubmissionStatus::Pending),
@@ -212,9 +206,8 @@ pub async fn retry_dlq_message(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to reset submission status: {}", e)))?;
 
-    // Resolve the DLQ entry
     match dlq.resolve(id, Some(auth_user.user_id)).await? {
-        ResolveResult::Resolved => {} // Expected
+        ResolveResult::Resolved => {}
         ResolveResult::AlreadyResolved => {
             warn!(id, "DLQ message was resolved concurrently during retry");
         }
@@ -227,7 +220,6 @@ pub async fn retry_dlq_message(
 
     txn.commit().await?;
 
-    // Re-load the submission with the reset status for dispatch
     let updated_sub = submission::Entity::find_by_id(submission_id)
         .one(&state.db)
         .await?
@@ -238,7 +230,6 @@ pub async fn retry_dlq_message(
             ))
         })?;
 
-    // Fire-and-forget dispatch to plugin system (same pattern as create_submission)
     let state_clone = state.clone();
     tokio::spawn(async move {
         dispatch_to_plugin(state_clone, updated_sub).await;
@@ -251,7 +242,6 @@ pub async fn retry_dlq_message(
     }))
 }
 
-/// Delete (resolve) a DLQ message.
 #[utoipa::path(
     delete,
     path = "/{id}",
@@ -292,7 +282,6 @@ pub async fn delete_dlq_message(
     }
 }
 
-/// Bulk-retry DLQ messages.
 #[utoipa::path(
     post,
     path = "/bulk-retry",
@@ -391,7 +380,6 @@ pub async fn bulk_retry_dlq(
             continue;
         };
 
-        // Load submission and check it is in a retryable state
         let sub = match submission::Entity::find_by_id(submission_id)
             .one(&txn)
             .await
@@ -418,7 +406,6 @@ pub async fn bulk_retry_dlq(
             continue;
         }
 
-        // Reset submission to Pending, clear error fields
         let submission_update = submission::ActiveModel {
             id: Set(submission_id),
             status: Set(SubmissionStatus::Pending),
@@ -458,7 +445,6 @@ pub async fn bulk_retry_dlq(
 
     txn.commit().await?;
 
-    // Fire-and-forget dispatch for each retried submission (same pattern as create_submission)
     for submission_id in &submissions_to_dispatch {
         let sub = match submission::Entity::find_by_id(*submission_id)
             .one(&state.db)
@@ -499,7 +485,6 @@ pub async fn bulk_retry_dlq(
     }))
 }
 
-/// Bulk-delete (resolve) DLQ messages.
 #[utoipa::path(
     delete,
     path = "/bulk",

@@ -4,7 +4,6 @@ use crate::error::AppError;
 use crate::models::submission::{SubmissionFile, SubmissionFileDto};
 use crate::utils::filename::validate_flat_filename;
 
-/// Validates the integrity of a code-based payload (files, names, and size).
 pub fn validate_code_payload(
     files: &[SubmissionFileDto],
     language: &str,
@@ -22,11 +21,9 @@ pub fn validate_code_payload(
     let mut seen_filenames = HashSet::with_capacity(files.len());
 
     for file in files {
-        // Validate filename using shared validation
         let filename = validate_flat_filename(&file.filename)
             .map_err(|e| AppError::Validation(e.message().into()))?;
 
-        // Check for duplicates
         if !seen_filenames.insert(filename) {
             return Err(AppError::Validation(format!(
                 "Duplicate filename: '{}'",
@@ -34,7 +31,6 @@ pub fn validate_code_payload(
             )));
         }
 
-        // Content must not be empty
         if file.content.is_empty() {
             return Err(AppError::Validation(format!(
                 "File '{}' cannot be empty",
@@ -102,7 +98,6 @@ pub fn validate_submission_contract(
     Ok(())
 }
 
-/// Convert files to JSON value for storage.
 pub fn files_to_json(files: &[SubmissionFileDto]) -> serde_json::Value {
     let submission_files: Vec<SubmissionFile> = files
         .iter()
@@ -114,7 +109,6 @@ pub fn files_to_json(files: &[SubmissionFileDto]) -> serde_json::Value {
     serde_json::to_value(&submission_files).unwrap_or(serde_json::Value::Array(vec![]))
 }
 
-/// Parse files from JSON value.
 pub fn files_from_json(value: &serde_json::Value) -> Vec<SubmissionFileDto> {
     serde_json::from_value::<Vec<SubmissionFile>>(value.clone())
         .unwrap_or_default()
@@ -123,7 +117,6 @@ pub fn files_from_json(value: &serde_json::Value) -> Vec<SubmissionFileDto> {
         .collect()
 }
 
-/// Validate language for run code requests.
 pub fn validate_run_language(
     language: &str,
     known_languages: &HashSet<String>,

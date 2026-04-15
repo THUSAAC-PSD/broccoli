@@ -12,7 +12,7 @@ use crate::utils::blob::stream_field_to_store;
 use crate::utils::filename::validate_flat_filename;
 
 pub fn config_upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(32 * 1024 * 1024) // 32 MB
+    DefaultBodyLimit::max(32 * 1024 * 1024)
 }
 
 #[utoipa::path(

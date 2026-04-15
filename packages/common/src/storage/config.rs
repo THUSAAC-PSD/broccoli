@@ -12,7 +12,6 @@ use super::traits::BlobStore;
 #[cfg(feature = "object-storage")]
 use super::object_storage::{ObjectStorageBlobStore, ObjectStorageConfig};
 
-/// TOML-friendly object storage configuration.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ObjectStorageConfigToml {
     pub bucket: String,
@@ -30,21 +29,14 @@ fn default_os_region() -> String {
     "us-east-1".into()
 }
 
-/// Blob storage backend configuration.
-///
-/// Shared between server and worker so both construct blob stores the same way.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BlobStoreConfig {
-    /// Storage backend: "filesystem", "database", or "object_storage".
     #[serde(default = "default_backend")]
     pub backend: String,
-    /// Base directory for filesystem blob storage.
     #[serde(default = "default_data_dir")]
     pub data_dir: String,
-    /// Maximum size per blob in bytes. Default: 128 MB.
     #[serde(default = "default_max_blob_size")]
     pub max_blob_size: u64,
-    /// Object storage configuration (required when backend = "object_storage").
     pub object_storage: Option<ObjectStorageConfigToml>,
 }
 
@@ -57,7 +49,7 @@ fn default_data_dir() -> String {
 }
 
 fn default_max_blob_size() -> u64 {
-    128 * 1024 * 1024 // 128 MB
+    128 * 1024 * 1024
 }
 
 impl Default for BlobStoreConfig {
@@ -71,9 +63,6 @@ impl Default for BlobStoreConfig {
     }
 }
 
-/// Create a [`BlobStore`] from configuration.
-///
-/// For the `"database"` backend, also ensures the `blob_data` table exists.
 pub async fn create_blob_store(
     config: &BlobStoreConfig,
     db: DatabaseConnection,

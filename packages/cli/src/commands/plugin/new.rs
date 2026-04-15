@@ -29,30 +29,23 @@ const STATIC_POSTCSS_CONFIG: &str = include_str!("../../../templates/frontend/po
 
 #[derive(Args)]
 pub struct NewPluginArgs {
-    /// Plugin name (kebab-case, e.g. "my-plugin")
     pub name: String,
 
-    /// Create backend (Rust/WASM) plugin only
     #[arg(long, conflicts_with_all = ["frontend", "full"])]
     pub backend: bool,
 
-    /// Create frontend (React/TypeScript) plugin only
     #[arg(long, conflicts_with_all = ["backend", "full"])]
     pub frontend: bool,
 
-    /// Create full plugin with both backend and frontend
     #[arg(long, conflicts_with_all = ["backend", "frontend"])]
     pub full: bool,
 
-    /// Output directory (defaults to ./<name>)
     #[arg(long, short)]
     pub output: Option<PathBuf>,
 
-    /// Server SDK dependency (e.g. path or version)
     #[arg(long, default_value = r#"path = "../../server-sdk""#)]
     pub server_sdk: String,
 
-    /// Frontend SDK dependency version
     #[arg(long, default_value = "workspace:*")]
     pub web_sdk: String,
 }
@@ -97,12 +90,10 @@ pub fn run(args: NewPluginArgs) -> Result<()> {
     write_plugin_toml(&output_dir, &vars, kind)?;
     created_files.push("plugin.toml".into());
 
-    // Backend files
     if matches!(kind, ScaffoldKind::Backend | ScaffoldKind::Full) {
         write_backend_files(&output_dir, &vars, &mut created_files)?;
     }
 
-    // Frontend files
     if matches!(kind, ScaffoldKind::Frontend | ScaffoldKind::Full) {
         let fe_root = match kind {
             ScaffoldKind::Full => output_dir.join("web"),
@@ -114,7 +105,6 @@ pub fn run(args: NewPluginArgs) -> Result<()> {
         };
         write_frontend_files(&fe_root, &vars, prefix, &mut created_files)?;
 
-        // i18n template (at plugin root, not inside frontend dir)
         write_template(TMPL_I18N_EN, &output_dir.join("i18n/en.toml"), &vars)?;
         created_files.push("i18n/en.toml".into());
     }
@@ -208,7 +198,6 @@ fn write_frontend_files(
         files.push(format!("{prefix}{rel_path}"));
     }
 
-    // Static files (no template variables, written as-is)
     let static_files: &[(&str, &str)] = &[
         ("src/styles.css", STATIC_STYLES_CSS),
         ("postcss.config.js", STATIC_POSTCSS_CONFIG),

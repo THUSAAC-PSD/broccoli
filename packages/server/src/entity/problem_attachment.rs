@@ -5,26 +5,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "problem_attachment")]
 pub struct Model {
-    /// UUIDv7 primary key.
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
 
-    /// Problem this attachment belongs to.
     pub problem_id: i32,
 
-    /// Normalized virtual path within the problem's namespace.
     #[sea_orm(column_type = "Text")]
     pub path: String,
 
     pub content_hash: String,
 
-    /// Original upload filename.
     pub filename: String,
 
-    /// MIME content type.
     pub content_type: Option<String>,
 
-    /// Purposefully denormalized to avoid JOINs for list queries.
     pub size: i64,
 
     pub created_at: DateTimeUtc,

@@ -293,7 +293,6 @@ pub async fn update_contest(
     let txn = state.db.begin().await?;
     let existing = find_contest_for_update(&txn, id).await?;
 
-    // Cross-field time validation against existing values
     validate_contest_timeline(
         payload.activate_time.unwrap_or(existing.activate_time),
         payload.start_time.unwrap_or(existing.start_time),
@@ -887,7 +886,7 @@ pub async fn register_for_contest(
         || contest_model.deactivate_time.is_some_and(|dt| dt <= now)
         || !contest_model.is_public
     {
-        return Err(AppError::NotFound("Contest not found".into())); // Prevent enumeration
+        return Err(AppError::NotFound("Contest not found".into()));
     }
 
     if now >= contest_model.end_time {
@@ -946,7 +945,6 @@ pub async fn unregister_from_contest(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Bulk-delete problems from a contest.
 #[utoipa::path(
     delete,
     path = "/bulk",
@@ -1020,7 +1018,6 @@ pub async fn bulk_delete_contest_problems(
     }))
 }
 
-/// Bulk-add participants to a contest, with optional account creation.
 #[utoipa::path(
     post,
     path = "/bulk",
@@ -1049,7 +1046,7 @@ pub async fn bulk_add_participants(
     auth_user.require_permission("contest:manage")?;
     validate_bulk_add_participants(&payload)?;
 
-    let mut hashed_entries: Vec<(String, String, String)> = Vec::new(); // (username, plaintext, hash)
+    let mut hashed_entries: Vec<(String, String, String)> = Vec::new();
     if !payload.create_users.is_empty() {
         let entries: Vec<(String, String)> = payload
             .create_users
@@ -1123,10 +1120,6 @@ pub async fn bulk_add_participants(
                 users_to_enroll.push((user.id, username));
             }
             Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                // The partial unique index (WHERE deleted_at IS NULL) guarantees that a
-                // constraint violation here always means an *active* user exists with this
-                // username.  Soft-deleted accounts are excluded from the index and never
-                // cause a conflict.
                 let existing = user::Entity::find_active()
                     .filter(user::Column::Username.eq(&username))
                     .one(&txn)

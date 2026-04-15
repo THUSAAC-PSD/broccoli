@@ -12,9 +12,6 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use std::sync::LazyLock;
 use tokio::sync::RwLock;
 
-/// Process-local LRU cache for deduplicating background hook events.
-/// Prevents double-fired hooks when the same logical event is dispatched twice
-/// (e.g., from MQ redelivery or concurrent rejudge).
 static DISPATCHED_EVENTS: LazyLock<Mutex<LruCache<String, ()>>> =
     LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())));
 
@@ -22,10 +19,8 @@ use crate::entity::plugin_config;
 use crate::error::AppError;
 use crate::host_funcs::config::extract_plugin_id;
 
-/// Max recursion depth for Chain events to prevent infinite loops.
 const MAX_CHAIN_DEPTH: u8 = 3;
 
-/// Entry in the server hook registry (wraps a PluginHook with metadata).
 struct HookEntry {
     plugin_id: String,
     scope: HookScope,
@@ -33,9 +28,7 @@ struct HookEntry {
     hook: Arc<dyn GenericHook<Context = ()>>,
 }
 
-/// Server-side hook registry. Stores hooks indexed by topic.
 pub struct ServerHookRegistry {
-    /// topic -> list of hook entries
     hooks: HashMap<String, Vec<HookEntry>>,
 }
 
@@ -52,7 +45,6 @@ impl ServerHookRegistry {
         }
     }
 
-    /// Register a plugin hook. Called when a plugin is loaded.
     pub fn register<M: PluginManager + Send + Sync + ?Sized + 'static>(
         &mut self,
         hook: Arc<PluginHook<M>>,
@@ -72,14 +64,12 @@ impl ServerHookRegistry {
         }
     }
 
-    /// Remove all hooks for a given plugin_id. Called when a plugin is unloaded.
     pub fn unregister_plugin(&mut self, plugin_id: &str) {
         for entries in self.hooks.values_mut() {
             entries.retain(|e| e.plugin_id != plugin_id);
         }
     }
 
-    /// Get all hook entries for a topic.
     fn get_hooks(&self, topic: &str) -> Option<&Vec<HookEntry>> {
         self.hooks.get(topic)
     }
@@ -87,18 +77,12 @@ impl ServerHookRegistry {
 
 pub type SharedHookRegistry = Arc<RwLock<ServerHookRegistry>>;
 
-/// Create a new shared hook registry.
 pub fn new_shared_registry() -> SharedHookRegistry {
     Arc::new(RwLock::new(ServerHookRegistry::new()))
 }
 
-/// Enabled plugin_id -> position map for the applicable resource scopes.
-///
-/// Fetched once per request and threaded through hook dispatch calls.
 pub type ResourceEnablements = HashMap<String, i32>;
 
-/// Scope priority for cascading enablement resolution.
-/// Higher value = more specific = wins when a plugin appears at multiple scopes.
 fn scope_priority(scope: &str) -> u8 {
     match scope {
         "contest_problem" => 3,
@@ -108,15 +92,6 @@ fn scope_priority(scope: &str) -> u8 {
     }
 }
 
-/// Fetch plugin enablement data for the applicable resource scopes.
-///
-/// Queries all relevant scopes and aggregates with scope priority: contest_problem > contest > problem.
-/// If a plugin appears at multiple scopes, the most specific scope wins
-/// (its `enabled` flag and `position` take precedence).
-///
-/// Within a single scope, multiple config rows per plugin are aggregated:
-/// the plugin is enabled if *any* namespace is enabled, and its position is
-/// the minimum across namespaces.
 pub async fn fetch_resource_enablements<C: ConnectionTrait>(
     problem_id: i32,
     contest_id: Option<i32>,
@@ -154,7 +129,6 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
         .all(db)
         .await?;
 
-    // pid -> (priority, enabled, position)
     let mut best: HashMap<String, (u8, Option<bool>, i32)> = HashMap::new();
 
     for r in rows {
@@ -165,9 +139,6 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
             .and_modify(|(cur_pri, enabled, pos)| {
                 match pri.cmp(cur_pri) {
                     std::cmp::Ordering::Greater => {
-                        // More specific scope.
-                        // Use its position, but only replace enabled if it's explicitly set (Some).
-                        // None means "inherit", so keep the parent's value.
                         *cur_pri = pri;
                         if r.enabled.is_some() {
                             *enabled = r.enabled;
@@ -175,16 +146,14 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
                         *pos = r.position;
                     }
                     std::cmp::Ordering::Equal => {
-                        // Same scope: aggregate (any-enabled, min-position)
                         *enabled = match (*enabled, r.enabled) {
                             (Some(true), _) | (_, Some(true)) => Some(true),
                             (Some(false), _) | (_, Some(false)) => Some(false),
-                            _ => *enabled, // preserve existing if both None
+                            _ => *enabled,
                         };
                         *pos = (*pos).min(r.position);
                     }
                     std::cmp::Ordering::Less => {
-                        // Less specific: ignore
                     }
                 }
             })
@@ -198,24 +167,18 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
         .collect())
 }
 
-/// Outcome of dispatching hooks for an event.
 #[derive(Debug)]
 pub enum HookOutcome {
-    /// All hooks passed (or returned Modified). Contains the possibly-modified event payload.
     Allowed(serde_json::Value),
-    /// A hook rejected the event.
     Rejected {
         code: String,
         message: String,
         status_code: u16,
-        /// Optional structured data from the plugin (e.g. remaining seconds, submission counts).
         details: Option<serde_json::Value>,
     },
-    /// A hook returned Stop.
     Stopped,
 }
 
-/// Parse a Reject reason string (JSON) into structured fields.
 fn parse_reject_detail(reason: &str) -> (String, String, u16, Option<serde_json::Value>) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(reason) {
         let code = v
@@ -240,7 +203,6 @@ fn parse_reject_detail(reason: &str) -> (String, String, u16, Option<serde_json:
     }
 }
 
-/// Dispatch hooks for an event.
 pub async fn dispatch_hooks(
     topic: &str,
     event_payload: serde_json::Value,
@@ -250,7 +212,6 @@ pub async fn dispatch_hooks(
     dispatch_hooks_inner(topic, event_payload, enabled_plugins, hook_registry, 0).await
 }
 
-/// Type-safe hook dispatch. Serializes the event struct and uses its TOPIC constant.
 pub async fn dispatch_hooks_typed<E: HookEvent>(
     event: &E,
     enabled_plugins: Option<&ResourceEnablements>,
@@ -261,7 +222,6 @@ pub async fn dispatch_hooks_typed<E: HookEvent>(
     dispatch_hooks(E::TOPIC, payload, enabled_plugins, hook_registry).await
 }
 
-/// Dispatch hooks in a background task. Returns immediately.
 pub fn dispatch_hooks_background(
     topic: String,
     event_payload: serde_json::Value,
@@ -311,11 +271,6 @@ pub fn dispatch_hooks_background(
     });
 }
 
-/// Type-safe background dispatch. Serializes the event and fires in a background task.
-///
-/// `event_id`: Optional deterministic identifier for dedup. If provided, the same
-/// event_id will only be dispatched once (within the LRU cache window). Pass `None`
-/// for events that don't need dedup (backward compatible).
 pub fn dispatch_hooks_background_typed<E: HookEvent + Send + 'static>(
     event: E,
     enabled_plugins: Option<ResourceEnablements>,
@@ -369,7 +324,7 @@ async fn dispatch_hooks_inner(
             match entry.scope {
                 HookScope::Global => {
                     list.push(DispatchEntry {
-                        position: i32::MIN, // globals first
+                        position: i32::MIN,
                         is_global: true,
                         mode: entry.mode,
                         hook: entry.hook.clone(),
@@ -386,17 +341,13 @@ async fn dispatch_hooks_inner(
                             hook: entry.hook.clone(),
                         });
                     }
-                    // If no enablements provided, skip resource-scoped hooks
                 }
             }
         }
 
         list
-    }; // registry read lock dropped here
+    };
 
-    // Sort blocking before notify, then globals first within same mode, then by position.
-    // This ensures all blocking hooks (which can reject) run before any notify hooks
-    // (which produce side effects), preventing side-effect leaks on rejected events.
     dispatch_list.sort_by(|a, b| {
         a.mode
             .cmp(&b.mode)
@@ -440,8 +391,6 @@ async fn dispatch_hooks_inner(
                     HookAction::Reject(reason) => {
                         let (code, message, status_code, details) = parse_reject_detail(&reason);
                         if code == PLUGIN_RUNTIME_ERROR_CODE {
-                            // Plugin infrastructure failure — this is a 500, not a client error.
-                            // Don't expose internal details to the client.
                             tracing::error!(topic, %code, %message, "Hook infrastructure error");
                             return Err(AppError::Internal(message));
                         }
@@ -506,7 +455,6 @@ async fn dispatch_hooks_inner(
                         tracing::warn!(topic, "Notify hook error (ignored): {e}");
                     }
                 }
-                // Always continue to next hook regardless of response
             }
         }
     }
@@ -522,7 +470,6 @@ mod tests {
     use common::hook::GenericHookAction;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// A test hook that returns a fixed action and records how many times it was called.
     struct MockHook {
         id: String,
         topics: Vec<String>,
@@ -573,7 +520,6 @@ mod tests {
         }
     }
 
-    /// A hook that always fails with an error.
     struct FailingHook {
         id: String,
         topics: Vec<String>,
@@ -600,7 +546,6 @@ mod tests {
         }
     }
 
-    /// Register a mock hook directly into the ServerHookRegistry with specified scope and mode.
     fn register_direct(
         registry: &mut ServerHookRegistry,
         hook: Arc<dyn GenericHook<Context = ()>>,
@@ -622,7 +567,6 @@ mod tests {
         }
     }
 
-    /// Helper: dispatch with no contest (global hooks only).
     async fn dispatch_global(
         registry: &SharedHookRegistry,
         topic: &str,
@@ -669,7 +613,6 @@ mod tests {
             .unwrap();
         assert!(matches!(result, HookOutcome::Stopped));
         assert_eq!(stop.calls(), 1);
-        // The pass hook should NOT have been called (stop short-circuits)
         assert_eq!(pass.calls(), 0);
     }
 
@@ -691,7 +634,6 @@ mod tests {
         let result = dispatch_global(&registry, "test", serde_json::json!({}))
             .await
             .unwrap();
-        // Should be Allowed despite the hook returning Reject
         assert!(matches!(result, HookOutcome::Allowed(_)));
         assert_eq!(hook.calls(), 1);
     }
@@ -728,7 +670,6 @@ mod tests {
             HookMode::Notify,
         );
 
-        // Should not return an error — notify hooks swallow errors
         let result = dispatch_global(&registry, "test", serde_json::json!({}))
             .await
             .unwrap();
@@ -749,7 +690,6 @@ mod tests {
             HookMode::Blocking,
         );
 
-        // Blocking hook errors should propagate as AppError
         let result = dispatch_global(&registry, "test", serde_json::json!({})).await;
         assert!(result.is_err());
     }
@@ -757,7 +697,6 @@ mod tests {
     #[tokio::test]
     async fn blocking_hooks_execute_before_notify_hooks_regardless_of_registration_order() {
         let registry = new_shared_registry();
-        // Register notify first, then blocking — but blocking should execute first
         let notify = Arc::new(MockHook::new("notify", "test", HookAction::Pass));
         let blocking = Arc::new(MockHook::new("blocker", "test", HookAction::Stop));
         {
@@ -774,7 +713,6 @@ mod tests {
         let result = dispatch_global(&registry, "test", serde_json::json!({}))
             .await
             .unwrap();
-        // Blocking hook returns Stop, which short-circuits before the notify hook runs
         assert!(matches!(result, HookOutcome::Stopped));
         assert_eq!(blocking.calls(), 1);
         assert_eq!(notify.calls(), 0);
@@ -803,16 +741,13 @@ mod tests {
             HookMode::Blocking,
         );
 
-        // Verify hook exists
         let result = dispatch_global(&registry, "test", serde_json::json!({}))
             .await
             .unwrap();
         assert!(matches!(result, HookOutcome::Stopped));
 
-        // Unregister
         registry.write().await.unregister_plugin("plugin_a");
 
-        // Hook should no longer fire
         let result = dispatch_global(&registry, "test", serde_json::json!({}))
             .await
             .unwrap();
@@ -843,7 +778,6 @@ mod tests {
         match result {
             HookOutcome::Allowed(payload) => {
                 assert_eq!(payload["modified"], true);
-                // original field should be gone (payload was replaced)
                 assert!(payload.get("original").is_none());
             }
             other => panic!("Expected Allowed, got {:?}", other),
@@ -952,7 +886,6 @@ mod tests {
             HookMode::Blocking,
         );
 
-        // With enablements containing this plugin — should fire
         let mut enabled = HashMap::new();
         enabled.insert("cooldown".to_string(), 0);
         let result = dispatch_hooks("test", serde_json::json!({}), Some(&enabled), &registry)
@@ -973,7 +906,6 @@ mod tests {
             HookMode::Blocking,
         );
 
-        // With None enablements — resource-scoped hook should NOT fire
         let result = dispatch_hooks("test", serde_json::json!({}), None, &registry)
             .await
             .unwrap();
@@ -992,7 +924,6 @@ mod tests {
             HookMode::Blocking,
         );
 
-        // Enablements present but for a different plugin
         let mut enabled = HashMap::new();
         enabled.insert("other-plugin".to_string(), 0);
         let result = dispatch_hooks("test", serde_json::json!({}), Some(&enabled), &registry)
@@ -1004,7 +935,6 @@ mod tests {
 
     #[tokio::test]
     async fn hooks_sorted_by_mode_then_scope_then_position() {
-        // Verify full ordering: Global Blocking -> Resource Blocking -> Global Notify -> Resource Notify
         let registry = new_shared_registry();
         let call_counter = Arc::new(AtomicUsize::new(0));
 
@@ -1062,7 +992,6 @@ mod tests {
             counter: call_counter.clone(),
         });
 
-        // Register in reverse of expected order
         {
             let mut r = registry.write().await;
             register_direct(
@@ -1100,7 +1029,6 @@ mod tests {
             .unwrap();
         assert!(matches!(result, HookOutcome::Allowed(_)));
 
-        // Expected order: Global Blocking (0) -> Resource Blocking (1) -> Global Notify (2) -> Resource Notify (3)
         assert_eq!(
             global_blocking.order.load(Ordering::SeqCst),
             0,
@@ -1144,7 +1072,6 @@ mod tests {
         );
 
         let result = dispatch_global(&registry, "test", serde_json::json!({})).await;
-        // Plugin runtime errors should be converted to AppError::Internal, not HookOutcome::Rejected
         assert!(
             result.is_err(),
             "Plugin runtime error should return Err(Internal), not Ok(Rejected)"

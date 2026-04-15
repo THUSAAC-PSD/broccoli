@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 pub use common::config::MqAppConfig;
 pub use common::storage::config::BlobStoreConfig;
 
-/// Database configuration.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
     pub url: String,
@@ -38,19 +37,15 @@ pub struct AuthConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SubmissionConfig {
-    /// Maximum total size of all files in a submission (in bytes).
-    /// Default: 1MB (1048576 bytes).
     pub max_size: usize,
-    /// Maximum submissions per user per minute. 0 = disabled.
-    /// Default: 10.
     pub rate_limit_per_minute: u32,
 }
 
 impl Default for SubmissionConfig {
     fn default() -> Self {
         Self {
-            max_size: 1_048_576,       // 1 MB
-            rate_limit_per_minute: 10, // 10 per minute
+            max_size: 1_048_576,
+            rate_limit_per_minute: 10,
         }
     }
 }
@@ -67,7 +62,6 @@ pub struct AppConfig {
     pub storage: BlobStoreConfig,
     #[serde(default)]
     pub mq: MqAppConfig,
-    /// Maximum age for plugin batch operations in seconds before reaping. Default: 600 (10 min).
     #[serde(default = "default_batch_max_age_secs")]
     pub batch_max_age_secs: u64,
 }
@@ -91,9 +85,7 @@ impl AppConfig {
             .set_default("mq.operation_queue_name", "operation_tasks")?
             .set_default("mq.operation_result_queue_name", "operation_results")?
             .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
-            // Load from config/config.toml
             .add_source(File::with_name("config/config").required(false))
-            // Override from environment (e.g., BROCCOLI__AUTH__JWT_SECRET)
             .add_source(Environment::with_prefix("BROCCOLI").separator("__"))
             .build()?;
 

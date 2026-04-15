@@ -5,7 +5,6 @@ pub use common::config::MqAppConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
-    /// PostgreSQL connection URL.
     #[serde(default = "default_database_url")]
     pub url: String,
 }
@@ -22,19 +21,14 @@ impl Default for DatabaseConfig {
     }
 }
 
-/// Worker-specific configuration.
 #[derive(Debug, Deserialize, Clone)]
 pub struct WorkerConfig {
-    /// Unique identifier for this worker instance. Default: "worker-1".
     #[serde(default = "default_worker_id")]
     pub id: String,
-    /// Isolate executable path. Default: "isolate".
     #[serde(default = "default_isolate_bin")]
     pub isolate_bin: String,
-    /// Enable control groups (cgroup) mode for isolate. Default: false.
     #[serde(default = "default_enable_cgroups")]
     pub enable_cgroups: bool,
-    /// Sandbox backend for operation execution. Supported: "isolate", "mock".
     #[serde(default = "default_sandbox_backend")]
     pub sandbox_backend: String,
 }
@@ -63,16 +57,12 @@ impl Default for WorkerConfig {
     }
 }
 
-/// Storage configuration.
 #[derive(Debug, Deserialize, Clone)]
 pub struct StorageConfig {
-    /// Blob store backend configuration.
     #[serde(flatten)]
     pub blob_store: common::storage::config::BlobStoreConfig,
-    /// Local directory for the file cache. Default: "./data/cache".
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
-    /// Maximum total cache size in bytes. Default: 512 MB.
     #[serde(default = "default_max_cache_size")]
     pub max_cache_size: u64,
 }
@@ -94,7 +84,6 @@ impl Default for StorageConfig {
     }
 }
 
-/// Worker application configuration.
 #[derive(Debug, Deserialize, Clone)]
 pub struct WorkerAppConfig {
     #[serde(default)]

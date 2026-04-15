@@ -54,10 +54,6 @@ pub async fn register(
         ..Default::default()
     };
 
-    // The partial unique index (WHERE deleted_at IS NULL) guarantees that this
-    // INSERT only fails with UniqueConstraintViolation when an *active* user
-    // already holds the same username. Soft-deleted accounts are outside the
-    // index and therefore never block re-registration.
     let user = new_user.insert(&txn).await.map_err(|e| match e.sql_err() {
         Some(SqlErr::UniqueConstraintViolation(_)) => AppError::UsernameTaken,
         _ => AppError::from(e),
@@ -132,7 +128,6 @@ pub async fn login(
         .map(|rp| rp.permission)
         .collect();
 
-    // Generate short-lived access token
     let access_token = jwt::sign_access_token(
         user.id,
         &user.username,
@@ -142,7 +137,6 @@ pub async fn login(
     )
     .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
-    // Generate and store long-lived refresh token
     let now = chrono::Utc::now();
     let expiry = now + chrono::Duration::days(refresh::REFRESH_TOKEN_EXPIRY_DAYS);
 
@@ -225,8 +219,6 @@ pub async fn refresh(
     let user = match maybe_user {
         Some(u) if u.deleted_at.is_none() => u,
         _ => {
-            // NOTE: Refresh token is revoked immediately when the user is deleted. Banning logic
-            // may go here in the future if we want to keep the account but block access.
             rt_model.delete(&state.db).await?;
             return Err(AppError::PermissionDenied);
         }
@@ -280,7 +272,6 @@ pub async fn logout(
     if let Some(cookie) = jar.get(refresh::REFRESH_COOKIE_NAME) {
         let cookie_value = cookie.value().to_string();
 
-        // Verify first to prevent malicious deletions.
         let (selector, validator) =
             refresh::parse_refresh_token(&cookie_value).map_err(|_| AppError::TokenInvalid)?;
         let maybe_model = refresh_token::Entity::find_by_id(selector)
@@ -329,12 +320,10 @@ pub async fn me(auth_user: AuthUser) -> Json<MeResponse> {
     })
 }
 
-/// Vowel-free charset for user codes (no ambiguous chars like 0/O, 1/I/L).
 const USER_CODE_CHARSET: &[u8] = b"BCDFGHJKLMNPQRSTVWXZ";
 const USER_CODE_LEN: usize = 8;
-const DEVICE_CODE_EXPIRY_SECS: u64 = 900; // 15 minutes
+const DEVICE_CODE_EXPIRY_SECS: u64 = 900;
 const POLL_INTERVAL_SECS: u64 = 5;
-/// Maximum number of pending device codes to prevent store exhaustion.
 const MAX_PENDING_DEVICE_CODES: usize = 1000;
 
 fn generate_device_code() -> String {
@@ -353,7 +342,6 @@ fn generate_user_code() -> String {
             USER_CODE_CHARSET[idx] as char
         })
         .collect();
-    // Format as XXXX-XXXX
     format!("{}-{}", &code[..4], &code[4..])
 }
 
@@ -564,7 +552,6 @@ pub async fn poll_device_token(
     if let Some(ref token) = entry.token {
         let token = token.clone();
         drop(entry);
-        // Remove entry after successful token retrieval
         state.device_codes.remove(&payload.device_code);
         return Ok((StatusCode::OK, Json(serde_json::json!({ "token": token }))));
     }

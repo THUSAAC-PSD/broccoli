@@ -5,23 +5,19 @@ use sha2::{Digest, Sha256};
 
 use super::error::StorageError;
 
-/// A validated SHA-256 content hash.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ContentHash([u8; 32]);
 
 impl ContentHash {
-    /// Compute the SHA-256 hash of the given data.
     pub fn compute(data: &[u8]) -> Self {
         let hash = Sha256::digest(data);
         Self(hash.into())
     }
 
-    /// Construct from raw SHA-256 bytes.
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
-    /// Parse a hex-encoded content hash string.
     pub fn from_hex(s: &str) -> Result<Self, StorageError> {
         if s.len() != 64 {
             return Err(StorageError::InvalidHash(format!(
@@ -40,22 +36,18 @@ impl ContentHash {
         Ok(Self(arr))
     }
 
-    /// Return the hash as a 64-character lowercase hex string.
     pub fn to_hex(&self) -> String {
         hex::encode(self.0)
     }
 
-    /// Return the raw 32-byte hash.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
-    /// Return the first 2 hex characters (shard prefix for filesystem layout).
     pub fn shard_prefix(&self) -> String {
         hex::encode(&self.0[..1])
     }
 
-    /// Return the remaining 62 hex characters (filename within shard).
     pub fn shard_suffix(&self) -> String {
         hex::encode(&self.0[1..])
     }

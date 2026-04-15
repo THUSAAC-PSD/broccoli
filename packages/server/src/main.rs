@@ -102,9 +102,7 @@ async fn main() -> anyhow::Result<()> {
             for key in batch.cleanup_keys.iter() {
                 operation_waiters_for_reaper.remove(key);
 
-                // Publish DLQ envelope for admin visibility
                 if let Some(ref mq) = reaper_mq {
-                    // MQ None only in dev (disabled config)
                     let mq = Arc::clone(mq);
                     let queue = reaper_op_dlq_queue.clone();
                     let key = key.clone();
@@ -160,7 +158,6 @@ async fn main() -> anyhow::Result<()> {
 
     let device_codes: server::state::DeviceCodeStore = Arc::new(DashMap::new());
 
-    // Spawn reaper for expired device codes (runs every 60s, removes entries older than 15min)
     {
         let codes = device_codes.clone();
         tokio::spawn(async move {
@@ -173,7 +170,6 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Spawn hourly cleanup for expired idempotency keys (24h TTL)
     {
         let cleanup_db = db.clone();
         tokio::spawn(async move {

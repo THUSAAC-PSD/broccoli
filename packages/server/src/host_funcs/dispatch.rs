@@ -10,26 +10,22 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-/// Input for get_next_operation_result
 #[derive(Deserialize)]
 struct GetNextResultInput {
     batch_id: String,
     timeout_ms: u64,
 }
 
-/// Input for cancel_operation_batch
 #[derive(Deserialize)]
 struct CancelBatchInput {
     batch_id: String,
 }
 
-/// Response wrapper for operation results (used by both Ok and Timeout arms).
 #[derive(Serialize)]
 struct ResultResponse {
     result: Option<TaskResult>,
 }
 
-/// Named context for dispatch host functions (replaces opaque 6-tuple).
 struct DispatchContext {
     plugin_id: String,
     mq: Option<Arc<MqQueue>>,

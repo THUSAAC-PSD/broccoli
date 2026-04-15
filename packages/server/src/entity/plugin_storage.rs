@@ -8,9 +8,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub plugin_id: String,
     #[sea_orm(primary_key)]
-    pub collection: String, // Grouping identifier
+    pub collection: String,
     #[sea_orm(primary_key)]
-    pub key: String, // Unique identifier within the collection
+    pub key: String,
 
     #[sea_orm(column_type = "JsonBinary")]
     pub data: Json,

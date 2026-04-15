@@ -12,14 +12,11 @@ pub struct Model {
     pub input: String,
     #[sea_orm(column_type = "Text")]
     pub expected_output: String,
-    pub score: i32, // score for this test case
+    pub score: i32,
 
     #[sea_orm(column_type = "Text", nullable)]
     pub description: Option<String>,
 
-    /// Short identifier for the test case (unique within a problem).
-    ///
-    /// Auto-generated from position if not provided; ZIP upload uses filename stem.
     #[sea_orm(column_type = "Text")]
     pub label: String,
 

@@ -5,10 +5,6 @@ use crate::error::AppError;
 use crate::state::AppState;
 use crate::utils::jwt;
 
-/// Authenticated user extracted from the `Authorization: Bearer <token>` header.
-///
-/// Add this as a handler parameter to require authentication.
-/// Permission checks happen via `require_permission()` in the handler body.
 pub struct AuthUser {
     pub user_id: i32,
     pub username: String,
@@ -17,12 +13,10 @@ pub struct AuthUser {
 }
 
 impl AuthUser {
-    /// Returns `true` if the user has the given permission.
     pub fn has_permission(&self, permission: &str) -> bool {
         self.permissions.iter().any(|p| p == permission)
     }
 
-    /// Returns `Ok(())` if the user has the given permission, `Err(PermissionDenied)` otherwise.
     pub fn require_permission(&self, permission: &str) -> Result<(), AppError> {
         if self.has_permission(permission) {
             Ok(())
@@ -31,7 +25,6 @@ impl AuthUser {
         }
     }
 
-    /// Returns `Ok(())` if the user has ANY of the given permissions.
     pub fn require_any_permission(&self, permissions: &[&str]) -> Result<(), AppError> {
         if permissions.iter().any(|perm| self.has_permission(perm)) {
             Ok(())

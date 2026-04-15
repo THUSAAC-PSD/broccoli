@@ -47,9 +47,6 @@ impl Worker {
     pub async fn execute_task(&self, task: Task) -> Result<TaskResult, WorkerError> {
         let hook_manager = { self.hook_registry.lock().unwrap().clone() };
 
-        // TODO: take use of return value of trigger, e.g., modified event
-
-        // Trigger task started event
         let _ = hook_manager
             .trigger(&TaskEvent::Started { task: task.clone() })
             .await;
@@ -70,7 +67,6 @@ impl Worker {
             }
             match executor.execute(task.clone()).await {
                 Ok(result) => {
-                    // Trigger task completed event
                     let _ = hook_manager
                         .trigger(&TaskEvent::Completed {
                             result: result.clone(),
@@ -80,7 +76,6 @@ impl Worker {
                 }
                 Err(e) => {
                     let error_msg = e.to_string();
-                    // Trigger task failed event
                     let _ = hook_manager
                         .trigger(&TaskEvent::Failed {
                             task: task.clone(),

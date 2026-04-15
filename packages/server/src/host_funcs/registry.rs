@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Input for register_contest_type
 #[derive(Deserialize)]
 struct RegisterContestTypeInput {
     #[serde(rename = "type")]
@@ -17,7 +16,6 @@ struct RegisterContestTypeInput {
     code_run_handler: String,
 }
 
-/// Input for register_evaluator
 #[derive(Deserialize)]
 struct RegisterEvaluatorInput {
     #[serde(rename = "type")]
@@ -25,7 +23,6 @@ struct RegisterEvaluatorInput {
     handler: String,
 }
 
-/// Input for register_checker_format
 #[derive(Deserialize)]
 struct RegisterCheckerFormatInput {
     #[serde(rename = "format")]
@@ -33,25 +30,16 @@ struct RegisterCheckerFormatInput {
     handler: String,
 }
 
-/// Input for register_language_resolver
 #[derive(Deserialize)]
 struct RegisterLanguageResolverInput {
-    /// Language ID this resolver handles (e.g. "cpp", "python3").
     language_id: String,
-    /// Function name in this plugin that implements resolution.
     function_name: String,
-    /// Human-friendly display name (e.g. "C++", "Python 3").
-    /// Defaults to `language_id` if not provided.
     #[serde(default)]
     display_name: String,
-    /// Default source filename (e.g. "solution.cpp").
-    /// Defaults to "solution.txt" if not provided.
     #[serde(default = "default_source_filename")]
     default_filename: String,
-    /// File extensions this language handles (lowercase, no dot prefix).
     #[serde(default)]
     extensions: Vec<String>,
-    /// Starter template code shown in the editor for new files.
     #[serde(default)]
     template: String,
 }
@@ -60,7 +48,6 @@ fn default_source_filename() -> String {
     "solution.txt".to_string()
 }
 
-/// Named context for registry host functions.
 struct RegistryContext {
     plugin_id: String,
     contest_type_registry: ContestTypeRegistry,
@@ -125,7 +112,7 @@ fn register_handler<I: serde::de::DeserializeOwned>(
     _outputs: &mut [Val],
     plugin_id: &str,
     registry: &Arc<RwLock<HashMap<String, PluginHandler>>>,
-    extract: impl FnOnce(&I) -> (&str, &str), // (registry_key, handler_name)
+    extract: impl FnOnce(&I) -> (&str, &str),
     validate: impl FnOnce(&I) -> Result<(), extism::Error>,
     label: &str,
 ) -> Result<(), extism::Error> {
@@ -256,8 +243,6 @@ fn register_checker_format_fn(
     )
 }
 
-/// Validates that an ID contains only alphanumeric characters, hyphens, and underscores,
-/// and is between 1 and 128 characters. Used for registry keys (language IDs, etc.).
 fn validate_registry_id(id: &str, field_name: &str) -> Result<(), extism::Error> {
     if id.is_empty() || id.len() > 128 {
         return Err(extism::Error::msg(format!(

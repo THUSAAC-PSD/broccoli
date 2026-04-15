@@ -614,10 +614,6 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
     eprintln!("successfully fetch file from object storage and use in mock sandbox");
 }
 
-/// Two steps in different environments communicate via a shared channel FIFO.
-/// Step A writes "hello-via-fifo" to the channel, step B reads it.
-/// Both steps run in the same dependency layer (concurrent), with B reading
-/// from the channel that A writes to.
 #[tokio::test]
 async fn shared_channel_fifo_between_two_environments() {
     let operation = OperationTask {
@@ -686,8 +682,6 @@ async fn shared_channel_fifo_between_two_environments() {
     );
 }
 
-/// IOTarget::Pipe referencing a declared channel uses the shared FIFO
-/// for stdin/stdout redirection, not a per-environment pipe.
 #[tokio::test]
 async fn channel_pipe_io_redirect_between_environments() {
     let operation = OperationTask {
@@ -725,8 +719,6 @@ async fn channel_pipe_io_redirect_between_environments() {
             Step {
                 id: "consumer".to_string(),
                 env_ref: "consumer-env".to_string(),
-                // head -n1 reads exactly one line then exits, avoiding the
-                // EOF-never-comes deadlock that cat causes with O_RDWR FIFOs.
                 argv: vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
@@ -767,7 +759,6 @@ async fn channel_pipe_io_redirect_between_environments() {
     );
 }
 
-/// Non-channel pipes still use per-environment directories (regression test).
 #[tokio::test]
 async fn non_channel_pipe_still_works_with_channels_present() {
     let operation = OperationTask {
@@ -799,8 +790,6 @@ async fn non_channel_pipe_still_works_with_channels_present() {
             Step {
                 id: "reader".to_string(),
                 env_ref: "env-1".to_string(),
-                // head -n1 avoids the O_RDWR EOF deadlock: reads one line and
-                // exits without waiting for the write end to close.
                 argv: vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),

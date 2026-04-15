@@ -17,58 +17,27 @@ use crate::dev_config::{self, FileKind, ResolvedDevConfig};
 
 use super::wasm::copy_wasm_artifact;
 
-/// Watches plugin source files and auto-rebuilds + uploads on changes.
-///
-/// For plugins with a `[web]` section, the watch command spawns the frontend
-/// dev server (`pnpm dev` by default, configurable via `broccoli.dev.toml`)
-/// as a long-running background process. The frontend bundler's built-in `--watch` mode
-/// handles incremental frontend rebuilds; the CLI watches the `[web].root`
-/// output directory for changes and triggers package + upload when new
-/// build artifacts appear.
-///
-/// For backend changes (`.rs`, `.toml`), the CLI runs `cargo build` itself
-/// and then packages + uploads.
-///
-/// Create a `broccoli.dev.toml` in the plugin directory to customize behavior:
-///
-///   [watch]
-///   ignore = ["*.log", "tmp/"]         # extra patterns to ignore
-///
-///   [build]
-///   frontend_dir = "client"            # frontend source directory
-///   frontend_install_cmd = "pnpm install --ignore-workspace" # install command
-///   frontend_build_cmd = "pnpm build"  # one-shot build (default: "pnpm build")
-///   frontend_dev_cmd = "pnpm dev"      # dev server (default: "pnpm dev")
-///
-/// Built-in ignores (always active): target/, .git/, node_modules/.
 #[derive(Args)]
 pub struct WatchPluginArgs {
-    /// Path to the plugin directory
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
-    /// Broccoli server URL (overrides saved credentials)
     #[arg(long, env = "BROCCOLI_URL")]
     pub server: Option<String>,
 
-    /// Auth token (overrides saved credentials)
     #[arg(long, env = "BROCCOLI_TOKEN")]
     pub token: Option<String>,
 
-    /// Force execution of the frontend installation command even if node_modules exists
     #[arg(long)]
     pub install: bool,
 
-    /// Build in release mode
     #[arg(long)]
     pub release: bool,
 
-    /// Debounce interval in milliseconds
     #[arg(long, default_value = "500")]
     pub debounce: u64,
 }
 
-/// Minimal manifest struct (only fields we need for watch/build/package).
 #[derive(Deserialize)]
 struct WatchManifest {
     name: Option<String>,
@@ -90,13 +59,9 @@ struct WebSection {
     entry: String,
 }
 
-/// What triggered the change and what action to take.
 enum ChangeKind {
-    /// Backend source changed. Run cargo build, then package + upload.
     Backend,
-    /// Frontend dist output changed (from the frontend bundler watch mode). Just package + upload.
     FrontendOutput,
-    /// plugin.toml changed. Rebuild backend + package + upload.
     ManifestChanged,
 }
 
@@ -138,7 +103,6 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
     if manifest.web.is_some() {
         let fe_dir = dev.frontend_dir.as_deref().unwrap_or(&plugin_dir);
 
-        // Ensure dependencies are installed before starting watch
         let node_modules_exists = fe_dir.join("node_modules").exists();
         if !node_modules_exists || args.install {
             let install_cmd_str = dev.frontend_install_cmd.join(" ");
@@ -187,11 +151,9 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
         }
     }
 
-    // Install Ctrl+C handler to kill the child process
     let child_id = fe_child.as_ref().map(|c| c.id());
     ctrlc::set_handler(move || {
         if let Some(pid) = child_id {
-            // Best-effort kill. The process may have already exited
             #[cfg(unix)]
             {
                 unsafe {
@@ -200,12 +162,12 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
             }
             #[cfg(not(unix))]
             {
-                let _ = pid; // suppress unused warning
+                let _ = pid;
             }
         }
         std::process::exit(0);
     })
-    .ok(); // Ignore error if handler already set
+    .ok();
 
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
@@ -246,13 +208,10 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                 for path in event.paths {
                     let relative = path.strip_prefix(&plugin_dir).unwrap_or(&path);
 
-                    // Never ignore the web root output dir. We need to detect
-                    // changes from the frontend bundler watch mode. Only ignore built-in
-                    // dirs (target/, .git/, node_modules/) and extra patterns.
                     if dev_config::should_ignore(
                         relative,
                         &dev.extra_ignores,
-                        None, // Don't ignore web root
+                        None,
                     ) {
                         continue;
                     }
@@ -285,7 +244,6 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
         pending_changes.clear();
 
         let Some(change_kind) = change_kind else {
-            // All changes were build artifacts (e.g. copied WASM entry). Skip.
             continue;
         };
         last_build = Instant::now();
@@ -380,7 +338,6 @@ fn fingerprint_file(path: &Path) -> anyhow::Result<u64> {
     Ok(hasher.finish())
 }
 
-/// Classify a batch of changed files into a single action to take.
 fn classify_changes(
     changed: &HashSet<PathBuf>,
     plugin_dir: &Path,
@@ -400,24 +357,19 @@ fn classify_changes(
             return Some(ChangeKind::ManifestChanged);
         }
 
-        // Skip the WASM entry artifact (written by copy_wasm_artifact)
         if server_entry_abs.is_some_and(|entry| path == entry) {
             continue;
         }
 
-        // Check if this is inside the web root output directory
         if web_root_abs.is_some_and(|wr| path.starts_with(wr)) {
             has_frontend_output = true;
             continue;
         }
 
-        // Check if this is a frontend source file (inside frontend_dir).
-        // We ignore these because the frontend bundler watch mode handles rebuilds.
         if frontend_dir.is_some_and(|fd| path.starts_with(fd)) {
             continue;
         }
 
-        // Everything else is backend-relevant
         match dev_config::classify_file(path, plugin_dir, frontend_dir) {
             FileKind::Backend => has_backend = true,
             FileKind::PluginManifest => return Some(ChangeKind::ManifestChanged),
@@ -430,16 +382,12 @@ fn classify_changes(
     } else if has_frontend_output {
         Some(ChangeKind::FrontendOutput)
     } else if has_unknown {
-        // Unknown files changed outside known dirs. Treat as backend to be safe.
         Some(ChangeKind::Backend)
     } else {
-        // All changed files were explicitly skipped (e.g. only the WASM entry
-        // artifact was updated by copy_wasm_artifact). No rebuild needed.
         None
     }
 }
 
-/// Spawn the frontend dev server (e.g. `pnpm dev` which runs the bundler watch mode).
 fn spawn_frontend_dev(dev: &ResolvedDevConfig, _plugin_dir: &Path) -> anyhow::Result<Child> {
     let fe_dir = dev.frontend_dir.as_deref().context(
         "Cannot determine frontend directory. Set build.frontend_dir in broccoli.dev.toml",
@@ -475,7 +423,6 @@ fn spawn_frontend_dev(dev: &ResolvedDevConfig, _plugin_dir: &Path) -> anyhow::Re
     Ok(child)
 }
 
-/// Initial build: build backend + one-shot frontend build + package + upload.
 fn initial_build_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
@@ -506,7 +453,6 @@ fn initial_build_and_upload(
     Ok(())
 }
 
-/// Backend change: cargo build + copy wasm + package + upload.
 fn backend_build_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
@@ -532,7 +478,6 @@ fn backend_build_and_upload(
     Ok(())
 }
 
-/// Frontend output change: just package + upload (no build needed).
 fn package_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
@@ -570,7 +515,6 @@ fn build_backend(plugin_dir: &Path, release: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// One-shot frontend build (used for initial build only).
 fn build_frontend(dev: &ResolvedDevConfig) -> anyhow::Result<()> {
     println!("  {}  Building frontend...", style("→").blue());
 
@@ -587,7 +531,7 @@ fn build_frontend(dev: &ResolvedDevConfig) -> anyhow::Result<()> {
     }
 
     let (program, cmd_args) = dev
-        .frontend_build_cmd // Updated name
+        .frontend_build_cmd
         .split_first()
         .context("frontend_build_cmd is empty in broccoli.dev.toml")?;
 
@@ -631,12 +575,10 @@ fn package_plugin(plugin_dir: &Path, manifest: &WatchManifest) -> anyhow::Result
         }
     }
 
-    // Include translation files
     for path in manifest.translations.values() {
         add_file_to_tar(&mut builder, plugin_dir, path, plugin_id)?;
     }
 
-    // Include config directory
     let config_dir = plugin_dir.join("config");
     if config_dir.exists() {
         add_dir_to_tar(&mut builder, plugin_dir, "config", plugin_id)?;
@@ -644,7 +586,6 @@ fn package_plugin(plugin_dir: &Path, manifest: &WatchManifest) -> anyhow::Result
 
     let tar_data = builder.into_inner().context("Failed to finalize tar")?;
 
-    // Compress with gzip
     use flate2::Compression;
     use flate2::write::GzEncoder;
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
@@ -660,7 +601,7 @@ fn add_file_to_tar(
 ) -> anyhow::Result<()> {
     let full_path = base_dir.join(relative_path);
     if !full_path.exists() {
-        return Ok(()); // Skip missing files
+        return Ok(());
     }
     let tar_path = format!("{}/{}", plugin_id, relative_path);
     builder
@@ -692,10 +633,8 @@ fn fingerprint_bytes(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// Maximum number of upload retries for transient failures.
 const MAX_UPLOAD_RETRIES: u32 = 3;
 
-/// Initial retry delay (doubles each attempt).
 const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 fn upload_plugin(
@@ -762,7 +701,6 @@ fn upload_plugin(
         let status = resp.status();
         let body = resp.text().unwrap_or_default();
 
-        // Only retry on server errors (5xx) — client errors won't self-resolve
         if status.is_server_error() {
             last_err = Some(format!("Upload failed ({status}): {body}"));
             continue;

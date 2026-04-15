@@ -1,7 +1,6 @@
 use crate::common::{TestApp, routes};
 use serde_json::json;
 
-/// Create a minimal valid submission payload.
 fn valid_submission_body(language: &str) -> serde_json::Value {
     json!({
         "files": [{"filename": "main.cpp", "content": "#include <iostream>\nint main() {}"}],
@@ -9,7 +8,6 @@ fn valid_submission_body(language: &str) -> serde_json::Value {
     })
 }
 
-/// Create a multi-file submission payload.
 fn multi_file_submission_body() -> serde_json::Value {
     json!({
         "files": [
@@ -332,7 +330,6 @@ mod rate_limiting {
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
         let body = valid_submission_body("cpp");
 
-        // Create submissions up to the limit (default is 10)
         for i in 0..10 {
             let res = app
                 .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
@@ -340,7 +337,6 @@ mod rate_limiting {
             assert_eq!(res.status, 201, "Submission {} failed", i + 1);
         }
 
-        // The 11th should be rate limited
         let res = app
             .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
             .await;
@@ -361,7 +357,6 @@ mod rate_limiting {
         let user2_token = app.create_authenticated_user("user2", "pass1234").await;
         let body = valid_submission_body("cpp");
 
-        // User1 creates 10 submissions
         for _ in 0..10 {
             app.post_with_token(
                 &routes::problem_submissions(problem_id),
@@ -371,7 +366,6 @@ mod rate_limiting {
             .await;
         }
 
-        // User2 should still be able to submit
         let res = app
             .post_with_token(
                 &routes::problem_submissions(problem_id),
@@ -418,11 +412,9 @@ mod submission_listing {
         let user1_token = app.create_authenticated_user("user1", "pass1234").await;
         let user2_token = app.create_authenticated_user("user2", "pass1234").await;
 
-        // User1 creates a submission
         app.create_submission(problem_id, &user1_token, "cpp", "int main() {}")
             .await;
 
-        // User2 lists submissions, should not see user1's submission
         let res = app.get_with_token(routes::SUBMISSIONS, &user2_token).await;
 
         assert_eq!(res.status, 200, "unexpected body: {}", res.body);
@@ -635,7 +627,6 @@ mod submission_detail {
             .get_with_token(&routes::submission(submission_id), &user2_token)
             .await;
 
-        // Returns 404 to prevent enumeration of valid submission IDs
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
     }
@@ -773,7 +764,6 @@ mod contest_submissions {
             .await;
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
-        // Not registering for contest
 
         let body = valid_submission_body("cpp");
         let res = app
@@ -802,7 +792,6 @@ mod contest_submissions {
             .await;
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
-        // Not registering for contest
 
         let body = valid_submission_body("cpp");
         let res = app
@@ -813,7 +802,6 @@ mod contest_submissions {
             )
             .await;
 
-        // Returns 404 to prevent enumeration of valid contest/problem IDs
         assert_eq!(res.status, 404);
         assert_eq!(res.body["code"], "NOT_FOUND");
     }
@@ -828,7 +816,6 @@ mod contest_submissions {
         let contest_id = app
             .create_contest(&admin_token, "Test Contest", true, false)
             .await;
-        // Not adding problem to contest
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
         app.register_for_contest(contest_id, &user_token).await;
@@ -879,7 +866,6 @@ mod contest_submissions {
             .await;
         let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
 
-        // Create a contest that activates in the future
         let res = app
             .post_with_token(
                 routes::CONTESTS,
@@ -902,7 +888,6 @@ mod contest_submissions {
             .await;
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
-        // Not registering for contest since it hasn't activated
 
         let body = valid_submission_body("cpp");
         let res = app
@@ -925,7 +910,6 @@ mod contest_submissions {
             .await;
         let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
 
-        // Create a contest that has already deactivated
         let res = app
             .post_with_token(
                 routes::CONTESTS,
@@ -949,7 +933,6 @@ mod contest_submissions {
             .await;
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
-        // Not registering for contest since it has deactivated
 
         let body = valid_submission_body("cpp");
         let res = app
@@ -972,7 +955,6 @@ mod contest_submissions {
             .await;
         let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
 
-        // Create a contest that starts in the future
         let res = app
             .post_with_token(
                 routes::CONTESTS,
@@ -1024,7 +1006,6 @@ mod contest_submissions {
             .await;
         let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
 
-        // Create a contest that has already ended
         let res = app
             .post_with_token(
                 routes::CONTESTS,
@@ -1047,7 +1028,6 @@ mod contest_submissions {
             .await;
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
-        // Not registering for contest since it has ended
 
         let body = valid_submission_body("cpp");
         let res = app
@@ -1086,7 +1066,6 @@ mod bulk_rejudge {
             .create_submission(problem_id, &admin_token, "cpp", "int main() { return 0; }")
             .await;
 
-        // Set both to terminal status via direct DB update
         submission::Entity::update_many()
             .col_expr(
                 submission::Column::Status,
@@ -1112,9 +1091,6 @@ mod bulk_rejudge {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["queued"], 2);
 
-        // Verify both submissions were re-dispatched (status is either
-        // Pending or SystemError depending on whether a real plugin handler
-        // is available in the test environment).
         let s1 = app
             .get_with_token(&routes::submission(sub1), &admin_token)
             .await;
@@ -1299,7 +1275,6 @@ mod contest_submission_visibility {
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
         app.register_for_contest(contest_id, &user_token).await;
 
-        // Create a contest submission
         let body = valid_submission_body("cpp");
         app.post_with_token(
             &routes::contest_problem_submissions(contest_id, problem_id),
@@ -1308,7 +1283,6 @@ mod contest_submission_visibility {
         )
         .await;
 
-        // List contest submissions
         let res = app
             .get_with_token(&routes::contest_submissions(contest_id), &user_token)
             .await;
@@ -1336,7 +1310,6 @@ mod contest_submission_visibility {
         app.register_for_contest(contest_id, &user1_token).await;
         app.register_for_contest(contest_id, &user2_token).await;
 
-        // User1 submits
         let body = valid_submission_body("cpp");
         app.post_with_token(
             &routes::contest_problem_submissions(contest_id, problem_id),
@@ -1345,7 +1318,6 @@ mod contest_submission_visibility {
         )
         .await;
 
-        // User2 tries to list, should not see user1's submission
         let res = app
             .get_with_token(&routes::contest_submissions(contest_id), &user2_token)
             .await;
@@ -1362,7 +1334,6 @@ mod contest_submission_visibility {
             .create_user_with_role("admin1", "pass1234", "admin")
             .await;
         let problem_id = app.create_problem(&admin_token, "Contest Problem").await;
-        // Create contest with submissions_visible = true
         let contest_id = app
             .create_contest(&admin_token, "Test Contest", true, true)
             .await;
@@ -1374,7 +1345,6 @@ mod contest_submission_visibility {
         app.register_for_contest(contest_id, &user1_token).await;
         app.register_for_contest(contest_id, &user2_token).await;
 
-        // User1 submits
         let body = valid_submission_body("cpp");
         app.post_with_token(
             &routes::contest_problem_submissions(contest_id, problem_id),
@@ -1383,7 +1353,6 @@ mod contest_submission_visibility {
         )
         .await;
 
-        // User2 can see user1's submission when visibility is on
         let res = app
             .get_with_token(&routes::contest_submissions(contest_id), &user2_token)
             .await;
@@ -1409,7 +1378,6 @@ mod contest_submission_visibility {
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
         app.register_for_contest(contest_id, &user_token).await;
 
-        // User submits
         let body = valid_submission_body("cpp");
         app.post_with_token(
             &routes::contest_problem_submissions(contest_id, problem_id),
@@ -1418,7 +1386,6 @@ mod contest_submission_visibility {
         )
         .await;
 
-        // Admin can see all submissions regardless of visibility setting
         let res = app
             .get_with_token(&routes::contest_submissions(contest_id), &admin_token)
             .await;

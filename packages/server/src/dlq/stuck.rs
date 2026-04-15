@@ -13,7 +13,6 @@ use crate::entity::{code_run, dead_letter_message, submission};
 
 use super::DlqService;
 
-/// Run the stuck job detector as a background task.
 pub async fn run_stuck_job_detector(db: DatabaseConnection, config: DlqConfig) {
     let scan_interval = Duration::from_secs(config.stuck_job_scan_interval_secs);
 
@@ -34,7 +33,6 @@ pub async fn run_stuck_job_detector(db: DatabaseConnection, config: DlqConfig) {
     }
 }
 
-/// Scan for stuck jobs and move them to DLQ.
 async fn detect_and_handle_stuck_jobs(
     db: &DatabaseConnection,
     config: &DlqConfig,

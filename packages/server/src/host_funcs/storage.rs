@@ -12,10 +12,8 @@ use tracing::error;
 
 use crate::entity::plugin_storage;
 
-/// Default collection name used by the SDK's JSON-based storage API.
 const DEFAULT_COLLECTION: &str = "default";
 
-/// Extract the plain string from a stored JSON value.
 fn extract_str(data: &Value) -> String {
     match data {
         Value::String(s) => s.clone(),
@@ -28,10 +26,6 @@ struct StoreGetInput {
     keys: Vec<String>,
 }
 
-// Batch get.
-//
-// Accepts JSON: {"keys": ["k1", "k2"]}
-// Returns JSON: {"values": {"k1": "v1", "k2": "v2"}}
 host_fn!(pub store_get(user_data: (String, DatabaseConnection); input: String) -> String {
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
@@ -78,9 +72,6 @@ struct StoreSetInput {
     entries: Vec<StoreSetEntry>,
 }
 
-// Batch set.
-//
-// Accepts JSON: {"entries": [{"key": "k", "value": "v"}, ...]}
 host_fn!(pub store_set(user_data: (String, DatabaseConnection); input: String) -> () {
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
@@ -137,9 +128,6 @@ struct StoreDeleteInput {
     keys: Vec<String>,
 }
 
-// Batch delete.
-//
-// Accepts JSON: {"keys": ["k1", "k2"]}
 host_fn!(pub store_delete(user_data: (String, DatabaseConnection); input: String) -> () {
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
@@ -177,9 +165,6 @@ struct StoreCasInput {
     new: String,
 }
 
-// Set value only if current value matches expected.
-//
-// Returns JSON: {"swapped": true/false}
 host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); input: String) -> String {
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
@@ -192,8 +177,6 @@ host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); inpu
         tokio::runtime::Handle::current().block_on(async {
             match parsed.expected {
                 None => {
-                    // Create-if-absent
-                    // If rows_affected == 1, we won the race. If 0, key already exists.
                     let model = plugin_storage::ActiveModel {
                         plugin_id: Set(plugin_id.clone()),
                         collection: Set(DEFAULT_COLLECTION.to_string()),
@@ -216,7 +199,6 @@ host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); inpu
                     Ok::<bool, sea_orm::DbErr>(result > 0)
                 }
                 Some(expected_val) => {
-                    // Update-if-match
                     let result = db.execute_raw(Statement::from_sql_and_values(
                         DbBackend::Postgres,
                         "UPDATE plugin_storage SET data = $1 \

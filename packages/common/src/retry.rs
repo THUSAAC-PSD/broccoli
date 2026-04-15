@@ -9,14 +9,10 @@ use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-/// A single retry attempt record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryAttempt {
-    /// 1-based attempt number.
     pub attempt: u8,
-    /// Error message from the failed attempt.
     pub error: String,
-    /// When this attempt occurred.
     pub timestamp: DateTime<Utc>,
 }
 
@@ -30,7 +26,6 @@ impl RetryAttempt {
     }
 }
 
-/// Result of recording a failure in the RetryTracker.
 #[derive(Debug, Clone)]
 pub enum RetryDecision {
     Retry {
@@ -42,7 +37,6 @@ pub enum RetryDecision {
     },
 }
 
-/// Internal state for a single message's retry tracking.
 #[derive(Debug, Clone)]
 struct RetryState {
     attempt: u8,
@@ -60,17 +54,13 @@ impl RetryState {
     }
 }
 
-/// Tracks retry state for multiple messages by ID.
 #[derive(Debug, Default)]
 pub struct RetryTracker {
-    /// Map of message_id -> retry state
     state: HashMap<String, RetryState>,
-    /// Maximum retries before exhaustion.
     max_retries: u8,
 }
 
 impl RetryTracker {
-    /// Create a new tracker with the specified max retries.
     pub fn new(max_retries: u8) -> Self {
         Self {
             state: HashMap::new(),
@@ -78,7 +68,6 @@ impl RetryTracker {
         }
     }
 
-    /// Record a failure for the given message ID.
     pub fn record_failure(&mut self, id: &str, error: &str) -> RetryDecision {
         let retry_state = self
             .state
@@ -105,37 +94,29 @@ impl RetryTracker {
         }
     }
 
-    /// Clear retry state for a message.
     pub fn clear(&mut self, id: &str) {
         self.state.remove(id);
     }
 
-    /// Get current attempt count for a message.
     pub fn get_attempt(&self, id: &str) -> u8 {
         self.state.get(id).map(|s| s.attempt).unwrap_or(0)
     }
 
-    /// Remove entries that haven't been updated within `max_age`.
     pub fn cleanup_stale(&mut self, max_age: Duration) {
         let now = Instant::now();
         self.state
             .retain(|_, state| now.duration_since(state.last_updated) < max_age);
     }
 
-    /// Get the number of messages currently being tracked.
     pub fn len(&self) -> usize {
         self.state.len()
     }
 
-    /// Check if the tracker has no entries.
     pub fn is_empty(&self) -> bool {
         self.state.is_empty()
     }
 }
 
-/// Calculate exponential backoff delay with jitter.
-///
-/// Formula: `min(base_ms * 2^(attempt-1) + jitter, max_ms)` (0-25% jitter)
 pub fn calculate_backoff(attempt: u8, base_ms: u64, max_ms: u64) -> Duration {
     if attempt == 0 {
         return Duration::ZERO;
@@ -154,7 +135,6 @@ pub fn calculate_backoff(attempt: u8, base_ms: u64, max_ms: u64) -> Duration {
     Duration::from_millis(total_delay)
 }
 
-/// Guard that cleans up retry state on drop.
 pub struct RetryCleanupGuard<'a> {
     tracker: &'a Arc<Mutex<RetryTracker>>,
     job_id: String,
@@ -162,7 +142,6 @@ pub struct RetryCleanupGuard<'a> {
 }
 
 impl<'a> RetryCleanupGuard<'a> {
-    /// Create a new cleanup guard for the given job ID.
     pub fn new(tracker: &'a Arc<Mutex<RetryTracker>>, job_id: impl Into<String>) -> Self {
         Self {
             tracker,
@@ -171,7 +150,6 @@ impl<'a> RetryCleanupGuard<'a> {
         }
     }
 
-    /// Defuse the guard (call this when cleanup has been handled explicitly).
     pub fn defuse(&mut self) {
         self.defused = true;
     }
@@ -187,7 +165,6 @@ impl Drop for RetryCleanupGuard<'_> {
     }
 }
 
-/// Spawn a background task that periodically cleans up stale entries in a RetryTracker.
 pub fn spawn_cleanup_task(
     tracker: Arc<Mutex<RetryTracker>>,
     cleanup_interval: Duration,
@@ -217,28 +194,24 @@ mod tests {
 
     #[test]
     fn backoff_attempt_1_is_base_delay() {
-        // base * 2^0 = base; jitter adds at most 25%
         let d = calculate_backoff(1, 1000, 60000);
         assert!(d.as_millis() >= 1000 && d.as_millis() <= 1250, "d={d:?}");
     }
 
     #[test]
     fn backoff_attempt_2_doubles_delay() {
-        // base * 2^1 = 2*base
         let d = calculate_backoff(2, 1000, 60000);
         assert!(d.as_millis() >= 2000 && d.as_millis() <= 2500, "d={d:?}");
     }
 
     #[test]
     fn backoff_attempt_3_quadruples_delay() {
-        // base * 2^2 = 4*base
         let d = calculate_backoff(3, 1000, 60000);
         assert!(d.as_millis() >= 4000 && d.as_millis() <= 5000, "d={d:?}");
     }
 
     #[test]
     fn backoff_is_capped_at_max_ms() {
-        // uncapped would be 10000 * 2^9 = 5,120,000ms
         let d = calculate_backoff(10, 10000, 60000);
         assert!(d.as_millis() <= 60000, "d={d:?}");
     }
@@ -276,7 +249,6 @@ mod tests {
             _ => panic!("expected Exhausted"),
         }
 
-        // Message should be cleared from tracker
         assert_eq!(tracker.get_attempt("msg1"), 0);
     }
 
@@ -314,7 +286,6 @@ mod tests {
         tracker.record_failure("msg2", "error");
         assert_eq!(tracker.len(), 2);
 
-        // Cleanup with zero max_age removes all entries
         tracker.cleanup_stale(Duration::ZERO);
         assert!(tracker.is_empty());
     }
@@ -325,7 +296,6 @@ mod tests {
 
         tracker.record_failure("msg1", "error");
 
-        // Cleanup with very large max_age preserves entries
         tracker.cleanup_stale(Duration::from_secs(3600));
         assert_eq!(tracker.len(), 1);
         assert_eq!(tracker.get_attempt("msg1"), 1);

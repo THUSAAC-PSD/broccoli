@@ -26,15 +26,6 @@ pub use submissions::Submissions;
 #[cfg(not(target_arch = "wasm32"))]
 pub use db::{RecordedExecution, RecordedQuery};
 
-/// Unified entry point for all host functionality.
-///
-/// Plugin code accesses host functions via `host.{group}.{method}()`:
-/// ```ignore
-/// let host = Host::new();
-/// host.submission.update(&update)?;
-/// host.log.info("done")?;
-/// host.db.query::<Row>("SELECT ...")?;
-/// ```
 pub struct Host {
     pub db: Db,
     pub eval: Eval,

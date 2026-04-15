@@ -9,25 +9,19 @@ use sea_orm::{
 
 use crate::entity::dead_letter_message;
 
-/// Result of attempting to resolve a DLQ message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveResult {
-    /// Message was successfully resolved.
     Resolved,
-    /// Message was not found.
     NotFound,
-    /// Message was already resolved.
     AlreadyResolved,
 }
 
-/// Statistics about the dead letter queue.
 #[derive(Debug, Clone)]
 pub struct DlqStats {
     pub total_unresolved: u64,
     pub total_resolved: u64,
     pub operation_task_count: u64,
     pub stuck_submission_count: u64,
-    /// Unresolved message count grouped by error code.
     pub unresolved_by_error_code: HashMap<String, u64>,
 }
 
@@ -40,7 +34,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         Self { conn }
     }
 
-    /// Persist a failed message to the DLQ.
     pub async fn send_to_dlq(
         &self,
         envelope: &DlqEnvelope,
@@ -71,7 +64,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         self.insert_entry(&envelope.message_id, model).await
     }
 
-    /// Create a DLQ entry directly from components.
     pub async fn create_entry(
         &self,
         message_id: String,
@@ -102,7 +94,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         self.insert_entry(&message_id, model).await
     }
 
-    /// Insert a DLQ entry.
     async fn insert_entry(
         &self,
         message_id: &str,
@@ -125,7 +116,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         }
     }
 
-    /// List DLQ messages.
     pub async fn list(
         &self,
         message_type: Option<DlqMessageType>,
@@ -155,14 +145,12 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         Ok((messages, total))
     }
 
-    /// Get a single DLQ message by ID.
     pub async fn get_by_id(&self, id: i32) -> Result<Option<dead_letter_message::Model>, DbErr> {
         dead_letter_message::Entity::find_by_id(id)
             .one(self.conn)
             .await
     }
 
-    /// Get a single DLQ message by ID with FOR UPDATE lock.
     pub async fn get_by_id_for_update(
         &self,
         id: i32,
@@ -173,7 +161,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
             .await
     }
 
-    /// Mark a message as resolved.
     pub async fn resolve(&self, id: i32, resolved_by: Option<i32>) -> Result<ResolveResult, DbErr> {
         let update = dead_letter_message::Entity::update_many()
             .col_expr(
@@ -209,7 +196,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         }
     }
 
-    /// Get DLQ statistics.
     pub async fn stats(&self) -> Result<DlqStats, DbErr> {
         let total_resolved = dead_letter_message::Entity::find()
             .filter(dead_letter_message::Column::Resolved.eq(true))
@@ -248,7 +234,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         })
     }
 
-    /// Resolve multiple DLQ messages at once. Returns the number of rows affected.
     pub async fn resolve_many(&self, ids: &[i32], resolved_by: Option<i32>) -> Result<u64, DbErr> {
         let result = dead_letter_message::Entity::update_many()
             .col_expr(
@@ -271,7 +256,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         Ok(result.rows_affected)
     }
 
-    /// Check if a submission already has an unresolved DLQ entry.
     pub async fn has_unresolved_entry(&self, submission_id: i32) -> Result<bool, DbErr> {
         let count = dead_letter_message::Entity::find()
             .filter(dead_letter_message::Column::SubmissionId.eq(submission_id))
@@ -283,7 +267,6 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
     }
 }
 
-/// Create a DlqService with a DatabaseConnection.
 pub fn dlq_service(db: &DatabaseConnection) -> DlqService<'_, DatabaseConnection> {
     DlqService::new(db)
 }

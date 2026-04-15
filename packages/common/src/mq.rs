@@ -3,13 +3,11 @@ use std::{collections::HashMap, fmt::Debug};
 use thiserror::Error;
 use tracing::{debug, error};
 
-/// Core trait for all MQ messages
 pub trait Message: Serialize + DeserializeOwned + Debug + Send + Sync + Clone {
     fn message_type() -> &'static str
     where
         Self: Sized;
 
-    /// TODO: maybe... UUID?
     fn message_id(&self) -> &str;
 
     fn metadata(&self) -> MessageMetadata {
@@ -27,19 +25,16 @@ pub struct MessageMetadata {
     pub custom_headers: HashMap<String, String>,
 }
 
-/// Message envelope for transport
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageEnvelope {
     pub message_type: String,
     pub message_id: String,
     pub metadata: MessageMetadata,
     pub payload: serde_json::Value,
-    /// Optional routing key for exchanges, like RabbitMQ
     pub routing_key: Option<String>,
 }
 
 impl MessageEnvelope {
-    /// Create envelope from typed message
     pub fn from_message<M: Message>(
         message: M,
         routing_key: Option<String>,
@@ -63,7 +58,6 @@ impl MessageEnvelope {
         })
     }
 
-    /// Deserialize into typed message
     pub fn into_message<M: Message>(self) -> Result<M, MessageError> {
         if self.message_type != M::message_type() {
             error!(

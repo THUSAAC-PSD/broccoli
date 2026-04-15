@@ -23,7 +23,6 @@ impl Submissions {
         super::shared::raw_query(&sql, &p.into_args())
     }
 
-    /// Returns affected row count. 0 means the epoch guard blocked the update.
     pub fn update(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
         use crate::db::Params;
 

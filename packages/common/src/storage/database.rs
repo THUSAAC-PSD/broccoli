@@ -12,8 +12,6 @@ use super::error::StorageError;
 use super::hash::ContentHash;
 use super::traits::{BlobStore, BoxReader};
 
-// TODO: use chunk storage for large blobs or object storage like S3 instead of storing all blob data in the database.
-
 mod blob_data {
     use sea_orm::entity::prelude::*;
 
@@ -37,15 +35,10 @@ pub struct DatabaseBlobStore {
 }
 
 impl DatabaseBlobStore {
-    /// Create a new `DatabaseBlobStore`.
-    ///
-    /// Call ensure_table() once during startup to create
-    /// the `blob_data` table if it does not exist.
     pub fn new(db: DatabaseConnection, max_size: u64) -> Self {
         Self { db, max_size }
     }
 
-    /// Create the `blob_data` table if it does not already exist.
     pub async fn ensure_table(db: &DatabaseConnection) -> Result<(), StorageError> {
         let backend = db.get_database_backend();
         let schema = Schema::new(backend);

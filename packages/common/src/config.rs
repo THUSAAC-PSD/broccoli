@@ -1,27 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-/// Dead letter queue configuration for retry and failure handling.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DlqConfig {
-    /// Maximum retry attempts before moving to DLQ. Default: 3.
     #[serde(default = "default_dlq_max_retries")]
     pub max_retries: u8,
-    /// Base delay for exponential backoff in milliseconds. Default: 1000 (1 second).
     #[serde(default = "default_dlq_base_delay_ms")]
     pub base_delay_ms: u64,
-    /// Maximum delay cap in milliseconds. Default: 60000 (1 minute).
     #[serde(default = "default_dlq_max_delay_ms")]
     pub max_delay_ms: u64,
-    /// Timeout for stuck job detection in seconds. Default: 900 (15 minutes).
     #[serde(default = "default_dlq_stuck_job_timeout_secs")]
     pub stuck_job_timeout_secs: u64,
-    /// Interval for stuck job scan in seconds. Default: 60.
     #[serde(default = "default_dlq_stuck_job_scan_interval_secs")]
     pub stuck_job_scan_interval_secs: u64,
-    /// Interval for RetryTracker cleanup in seconds. Default: 300 (5 minutes).
     #[serde(default = "default_dlq_retry_cleanup_interval_secs")]
     pub retry_cleanup_interval_secs: u64,
-    /// Max age for stale RetryTracker entries in seconds. Default: 600 (10 minutes).
     #[serde(default = "default_dlq_retry_max_age_secs")]
     pub retry_max_age_secs: u64,
 }
@@ -42,10 +34,10 @@ fn default_dlq_stuck_job_scan_interval_secs() -> u64 {
     60
 }
 fn default_dlq_retry_cleanup_interval_secs() -> u64 {
-    300 // 5 minutes
+    300
 }
 fn default_dlq_retry_max_age_secs() -> u64 {
-    600 // 10 minutes
+    600
 }
 
 impl Default for DlqConfig {
@@ -62,29 +54,20 @@ impl Default for DlqConfig {
     }
 }
 
-/// App-level MQ configuration.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MqAppConfig {
-    /// Whether MQ is enabled. Default: true.
-    /// Note: Worker ignores this field (always requires MQ).
     #[serde(default = "default_mq_enabled")]
     pub enabled: bool,
-    /// Redis connection URL. Default: "redis://localhost:6379".
     #[serde(default = "default_mq_url")]
     pub url: String,
-    /// Connection pool size. Default: 5.
     #[serde(default = "default_mq_pool_size")]
     pub pool_size: u8,
-    /// Queue for operation/worker tasks (server -> worker). Default: "operation_tasks".
     #[serde(default = "default_operation_queue_name")]
     pub operation_queue_name: String,
-    /// Queue for operation results (worker -> server). Default: "operation_results".
     #[serde(default = "default_operation_result_queue_name")]
     pub operation_result_queue_name: String,
-    /// Queue name for dead letter messages from operation tasks. Default: "operation_tasks_dlq".
     #[serde(default = "default_operation_dlq_queue_name")]
     pub operation_dlq_queue_name: String,
-    /// Dead letter queue and retry configuration.
     #[serde(default)]
     pub dlq: DlqConfig,
 }

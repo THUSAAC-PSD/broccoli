@@ -7,7 +7,6 @@ pub use broccoli_queue::{
 
 use crate::error::MqError;
 
-// TODO: replace with our own Mq trait
 pub type MqQueue = BroccoliQueue;
 pub type MqBuilder = BroccoliQueueBuilder;
 

@@ -49,8 +49,6 @@ impl Eval {
     }
 }
 
-// --- Mock ---
-
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) struct EvalMock {
     results: RefCell<VecDeque<TestCaseVerdict>>,

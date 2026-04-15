@@ -2,7 +2,6 @@ use crate::Checker;
 use crate::error::SdkError;
 use crate::types::*;
 
-/// Interpret a sandbox operation result into a TestCaseVerdict.
 pub fn interpret_sandbox_result(
     checker: &Checker,
     test_case_id: i32,
@@ -41,7 +40,6 @@ pub fn interpret_sandbox_result(
                 });
             }
         } else if !compile_result.success {
-            // Sandbox failure before execution (no exit code available)
             return Ok(TestCaseVerdict {
                 test_case_id,
                 verdict: Verdict::SystemError,
@@ -133,7 +131,7 @@ pub fn interpret_sandbox_result(
                     stderr: exec_stderr,
                 });
             }
-            _ => {} // "OK" or other, continue to checker
+            _ => {}
         }
     }
 

@@ -9,17 +9,12 @@ use super::error::StorageError;
 use super::hash::ContentHash;
 use super::traits::{BlobStore, BoxReader};
 
-/// Filesystem-backed content-addressed blob store.
-///
-/// Blobs are stored in a Git-style sharded directory layout:
-/// `{base_path}/{first 2 hex chars}/{remaining 62 hex chars}`
 pub struct FilesystemBlobStore {
     base_path: PathBuf,
     max_size: u64,
 }
 
 impl FilesystemBlobStore {
-    /// Create a new filesystem blob store.
     pub async fn new(base_path: PathBuf, max_size: u64) -> Result<Self, StorageError> {
         fs::create_dir_all(&base_path).await?;
         fs::create_dir_all(base_path.join(".tmp")).await?;
@@ -29,14 +24,12 @@ impl FilesystemBlobStore {
         })
     }
 
-    /// Compute the filesystem path for a given content hash.
     fn blob_path(&self, hash: &ContentHash) -> PathBuf {
         self.base_path
             .join(hash.shard_prefix())
             .join(hash.shard_suffix())
     }
 
-    /// Path for a temporary file during writes.
     fn temp_path(&self) -> PathBuf {
         self.base_path
             .join(".tmp")
@@ -84,7 +77,7 @@ impl BlobStore for FilesystemBlobStore {
         let mut hasher = Sha256::new();
         let mut total_bytes: u64 = 0;
 
-        let mut buf = vec![0u8; 64 * 1024]; // 64KB read buffer
+        let mut buf = vec![0u8; 64 * 1024];
         let mut temp_file = fs::File::create(&temp_path).await?;
 
         loop {
@@ -203,11 +196,9 @@ mod tests {
         let data = b"dedup test";
         let hash = store.put(data).await.unwrap();
 
-        // Put same content again.
         let hash2 = store.put(data).await.unwrap();
         assert_eq!(hash, hash2);
 
-        // Only one file on disk.
         let blob_path = store.blob_path(&hash);
         assert!(blob_path.exists());
         let shard_dir = blob_path.parent().unwrap();
@@ -230,7 +221,6 @@ mod tests {
             Err(StorageError::SizeLimitExceeded { .. })
         ));
 
-        // Temp file should be cleaned up.
         let tmp_entries: Vec<_> = std::fs::read_dir(dir.path().join("blobs/.tmp"))
             .unwrap()
             .collect();
@@ -316,11 +306,9 @@ mod tests {
         let reader: BoxReader = Box::new(std::io::Cursor::new(data.to_vec()));
         let hash = store.put_stream(reader).await.unwrap();
 
-        // Verify it matches the direct put hash.
         let expected_hash = ContentHash::compute(data);
         assert_eq!(hash, expected_hash);
 
-        // Verify content.
         let retrieved = store.get(&hash).await.unwrap();
         assert_eq!(retrieved, data);
     }
@@ -343,13 +331,11 @@ mod tests {
             hashes.push(handle.await.unwrap().unwrap());
         }
 
-        // All hashes should be the same.
         let first = hashes[0];
         for hash in &hashes {
             assert_eq!(*hash, first);
         }
 
-        // Content should be correct.
         let retrieved = store.get(&first).await.unwrap();
         assert_eq!(retrieved, data);
     }
