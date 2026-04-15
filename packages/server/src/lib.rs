@@ -19,6 +19,7 @@ pub mod utils;
 
 use axum::extract::{MatchedPath, State};
 use axum::response::IntoResponse;
+use opentelemetry::KeyValue;
 use tower_http::trace::TraceLayer;
 use tracing::{info, info_span};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -87,12 +88,17 @@ async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 pub fn build_router(state: AppState) -> axum::Router {
+    let metrics = state.metrics.clone();
+
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
 
     let router = router.layer(axum::middleware::from_fn_with_state(
         state.clone(),
         middleware::idempotency_middleware,
     ));
+
+    let metrics_on_request = metrics.clone();
+    let metrics_on_response = metrics;
 
     axum::Router::new()
         .nest("/api", router)
@@ -127,10 +133,24 @@ pub fn build_router(state: AppState) -> axum::Router {
                         request_id,
                     )
                 })
+                .on_request(
+                    move |_request: &axum::http::Request<_>, _span: &tracing::Span| {
+                        metrics_on_request.http_requests_in_flight.add(1, &[]);
+                    },
+                )
                 .on_response(
-                    |response: &axum::http::Response<_>,
-                     latency: std::time::Duration,
-                     _span: &tracing::Span| {
+                    move |response: &axum::http::Response<_>,
+                          latency: std::time::Duration,
+                          _span: &tracing::Span| {
+                        let status = response.status().as_u16().to_string();
+                        let attrs = [KeyValue::new("http.response.status_code", status)];
+
+                        metrics_on_response.http_requests_in_flight.add(-1, &[]);
+                        metrics_on_response.http_requests_total.add(1, &attrs);
+                        metrics_on_response
+                            .http_request_duration
+                            .record(latency.as_secs_f64(), &attrs);
+
                         info!(
                             status = response.status().as_u16(),
                             latency_ms = latency.as_millis() as u64,

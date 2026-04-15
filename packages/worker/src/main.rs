@@ -4,12 +4,14 @@ mod error;
 mod models;
 
 use anyhow::Context;
+use common::metrics::Metrics;
 use common::retry::{
     RetryCleanupGuard, RetryDecision, RetryTracker, calculate_backoff, spawn_cleanup_task,
 };
 use common::worker::Task;
 use common::{DlqConfig, DlqEnvelope, DlqErrorCode, DlqMessageType};
 use mq::{BroccoliError, BrokerMessage, MqConfig, init_mq};
+use opentelemetry::KeyValue;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -25,6 +27,9 @@ async fn main() -> anyhow::Result<()> {
 
     let _telemetry_guard = common::observability::init_tracing(&config.observability);
     info!("Worker starting: {}", config.worker.id);
+
+    let (metrics, _prometheus_registry) =
+        common::observability::init_metrics(&config.observability.otlp.service_name);
 
     let mq = Arc::new(
         init_mq(MqConfig {
@@ -76,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         let dlq_config = dlq_config.clone();
         let retry_tracker = Arc::clone(&retry_tracker);
         let dedup = dedup.clone();
+        let metrics = metrics.clone();
 
         let op_fut = mq.process_messages(
             &config.mq.operation_queue_name,
@@ -88,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
                 let dlq_config = dlq_config.clone();
                 let retry_tracker = Arc::clone(&retry_tracker);
                 let dedup = dedup.clone();
+                let metrics = metrics.clone();
                 async move {
                     process_message(
                         message,
@@ -97,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
                         &dlq_config,
                         &retry_tracker,
                         dedup.as_deref(),
+                        &metrics,
                     )
                     .await
                 }
@@ -146,6 +154,7 @@ async fn process_message(
     dlq_config: &DlqConfig,
     retry_tracker: &Arc<Mutex<RetryTracker>>,
     dedup: Option<&RedisTaskDedup>,
+    metrics: &Metrics,
 ) -> Result<(), BroccoliError> {
     let task = message.payload;
     let task_id = task.id.clone();
@@ -172,11 +181,17 @@ async fn process_message(
         }
     }
 
+    let task_attrs = [KeyValue::new("task_type", task.task_type.clone())];
+    let task_start = std::time::Instant::now();
     let mut cleanup_guard = RetryCleanupGuard::new(retry_tracker, &task_id);
 
     loop {
         match process_task(&task, worker, mq).await {
             Ok(()) => {
+                metrics
+                    .task_process_duration
+                    .record(task_start.elapsed().as_secs_f64(), &task_attrs);
+
                 retry_tracker.lock().await.clear(&task_id);
                 cleanup_guard.defuse();
                 return Ok(());
@@ -190,6 +205,8 @@ async fn process_message(
 
                 match decision {
                     RetryDecision::Retry { attempt, .. } => {
+                        metrics.task_retries_total.add(1, &task_attrs);
+
                         let delay = calculate_backoff(
                             attempt,
                             dlq_config.base_delay_ms,
@@ -205,6 +222,9 @@ async fn process_message(
                         tokio::time::sleep(delay).await;
                     }
                     RetryDecision::Exhausted { history } => {
+                        metrics.task_retries_total.add(1, &task_attrs);
+                        metrics.dlq_messages_total.add(1, &task_attrs);
+
                         error!(
                             job_id = %task_id,
                             retry_count = history.len(),
