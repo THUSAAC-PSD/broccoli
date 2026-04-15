@@ -2,16 +2,10 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum SdkError {
-    /// JSON serialization/deserialization failure
     Serialization(String),
-    /// Host function call failed
     HostCall(String),
-    /// Database query returned unexpected results
     Database(String),
-    /// The submission's judge_epoch has advanced or it reached a terminal status.
-    /// The current plugin execution is stale and should stop gracefully.
     StaleEpoch,
-    /// Generic error with message
     Other(String),
 }
 

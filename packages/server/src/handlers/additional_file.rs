@@ -19,10 +19,9 @@ use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn additional_file_upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024) // 128 MB
+    DefaultBodyLimit::max(128 * 1024 * 1024)
 }
 
-/// Validate that a language code is safe for use in a path segment.
 fn validate_language_code(lang: &str) -> Result<(), AppError> {
     if lang.is_empty() {
         return Err(AppError::Validation("Language code cannot be empty".into()));

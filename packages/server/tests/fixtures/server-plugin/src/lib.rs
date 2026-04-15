@@ -38,8 +38,6 @@ extern "ExtismHost" {
     fn db_query(sql: String, args: String) -> String;
 }
 
-/// GET /reflect/{id}
-/// Used to test path params, query params, and auth together
 #[plugin_fn]
 pub fn reflect(input: String) -> FnResult<String> {
     let req: PluginHttpRequest = serde_json::from_str(&input)?;
@@ -54,7 +52,6 @@ pub fn reflect(input: String) -> FnResult<String> {
     })?)
 }
 
-/// POST /kv/{key}
 #[plugin_fn]
 pub fn kv_write(input: String) -> FnResult<String> {
     let req: PluginHttpRequest = serde_json::from_str(&input)?;
@@ -73,7 +70,6 @@ pub fn kv_write(input: String) -> FnResult<String> {
     })?)
 }
 
-/// GET /kv/{key}
 #[plugin_fn]
 pub fn kv_read(input: String) -> FnResult<String> {
     let req: PluginHttpRequest = serde_json::from_str(&input)?;
@@ -82,7 +78,6 @@ pub fn kv_read(input: String) -> FnResult<String> {
     let store_input = serde_json::json!({ "keys": [key] });
     let raw = unsafe { store_get(serde_json::to_string(&store_input)?)? };
 
-    // Server returns {"values": {"key": "value", ...}}
     let result: serde_json::Value = serde_json::from_str(&raw)?;
     let (status, body) = match result
         .get("values")
@@ -98,7 +93,6 @@ pub fn kv_read(input: String) -> FnResult<String> {
     })?)
 }
 
-/// POST /sql/params
 #[plugin_fn]
 pub fn sql_parameterized(input: String) -> FnResult<String> {
     let req: PluginHttpRequest = serde_json::from_str(&input)?;
@@ -112,13 +106,11 @@ pub fn sql_parameterized(input: String) -> FnResult<String> {
         )?;
     }
 
-    // Use parameters to insert
     let args = serde_json::to_string(&vec![name])?;
     unsafe {
         db_execute("INSERT INTO p_names (name) VALUES ($1)".into(), args)?;
     }
 
-    // Use parameters to query
     let query_args = serde_json::to_string(&vec![name])?;
     let res_json = unsafe {
         db_query(

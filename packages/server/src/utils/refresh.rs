@@ -14,14 +14,13 @@ pub fn parse_refresh_token(refresh_token: &str) -> Result<(&str, &str)> {
         .ok_or_else(|| anyhow::anyhow!("Invalid refresh token format"))
 }
 
-/// Helper to build the HttpOnly refresh cookie
 pub fn build_refresh_cookie(selector: &str, validator: &str) -> Cookie<'static> {
     Cookie::build((
         REFRESH_COOKIE_NAME,
         construct_refresh_token(selector, validator),
     ))
     .http_only(true)
-    .secure(true) // Ensure this is handled properly behind reverse proxies
+    .secure(true)
     .same_site(SameSite::Strict)
     .path("/")
     .max_age(time::Duration::days(REFRESH_TOKEN_EXPIRY_DAYS))

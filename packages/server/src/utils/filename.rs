@@ -1,24 +1,16 @@
 use std::path::Path;
 
-/// Result of validating a flat filename.
 #[derive(Debug)]
 pub enum FilenameError {
-    /// Filename is empty or whitespace-only.
     Empty,
-    /// Filename contains path separators (`/` or `\`).
     ContainsPathSeparator,
-    /// Filename contains path traversal patterns (`..`).
     PathTraversal,
-    /// Filename contains null bytes.
     NullByte,
-    /// Filename starts with a dot (hidden file).
     Hidden,
-    /// Filename contains control characters (CR, LF, etc.).
     ControlCharacter,
 }
 
 impl FilenameError {
-    /// Returns a human-readable error message.
     pub fn message(&self) -> &'static str {
         match self {
             Self::Empty => "Filename cannot be empty",
@@ -31,7 +23,6 @@ impl FilenameError {
     }
 }
 
-/// Validates a flat filename (no directory components allowed).
 pub fn validate_flat_filename(filename: &str) -> Result<&str, FilenameError> {
     let trimmed = filename.trim();
 
@@ -43,8 +34,6 @@ pub fn validate_flat_filename(filename: &str) -> Result<&str, FilenameError> {
         return Err(FilenameError::NullByte);
     }
 
-    // Reject ASCII control characters to prevent
-    // HTTP header injection (e.g. CRLF in Content-Disposition).
     if trimmed.chars().any(|c| c.is_ascii_control()) {
         return Err(FilenameError::ControlCharacter);
     }
@@ -64,7 +53,6 @@ pub fn validate_flat_filename(filename: &str) -> Result<&str, FilenameError> {
     Ok(trimmed)
 }
 
-/// Checks if a path string contains path traversal patterns.
 pub fn contains_path_traversal(path: &str) -> bool {
     path == ".."
         || path.starts_with("../")
@@ -75,7 +63,6 @@ pub fn contains_path_traversal(path: &str) -> bool {
         || path.ends_with("\\..")
 }
 
-/// Extracts the filename stem (without extension) from a path.
 pub fn extract_stem(path: &str) -> Option<(&str, &str)> {
     let filename = Path::new(path).file_name()?.to_str()?;
     let (stem, ext) = filename.rsplit_once('.')?;
@@ -84,11 +71,10 @@ pub fn extract_stem(path: &str) -> Option<(&str, &str)> {
         return None;
     }
 
-    let stem_end = path.len() - ext.len() - 1; // -1 for the dot
+    let stem_end = path.len() - ext.len() - 1;
     Some((&path[..stem_end], ext))
 }
 
-/// Extracts the directory and filename from a path.
 pub fn split_dir_filename(path: &str) -> (&str, &str) {
     match path.rfind('/') {
         Some(pos) => (&path[..pos], &path[pos + 1..]),
@@ -96,7 +82,6 @@ pub fn split_dir_filename(path: &str) -> (&str, &str) {
     }
 }
 
-/// Validates a virtual path for blob storage references.
 pub fn validate_virtual_path(path: &str) -> Result<String, &'static str> {
     let trimmed = path.trim();
 
@@ -151,7 +136,6 @@ pub fn validate_virtual_path(path: &str) -> Result<String, &'static str> {
     Ok(trimmed.to_string())
 }
 
-/// Checks if a directory path indicates a "sample" test case.
 pub fn is_sample_directory(dir: &str) -> bool {
     let lower = dir.to_lowercase();
     lower == "sample" || lower.ends_with("/sample")
@@ -254,7 +238,7 @@ mod tests {
         assert!(contains_path_traversal("foo/../bar"));
         assert!(contains_path_traversal("foo/.."));
         assert!(!contains_path_traversal("foo/bar"));
-        assert!(!contains_path_traversal("foo..bar")); // Not a path component
+        assert!(!contains_path_traversal("foo..bar"));
     }
 
     #[test]
@@ -270,7 +254,6 @@ mod tests {
 
     #[test]
     fn extract_stem_returns_none_for_dotfile() {
-        // ".hidden" has an empty stem, so it's not a valid stem+ext pair
         assert_eq!(extract_stem(".hidden"), None);
     }
 
@@ -299,7 +282,7 @@ mod tests {
 
     #[test]
     fn is_sample_directory_rejects_non_sample_dirs() {
-        assert!(!is_sample_directory("samples")); // "samples" ≠ "sample"
+        assert!(!is_sample_directory("samples"));
         assert!(!is_sample_directory("main"));
     }
 
@@ -357,9 +340,9 @@ mod tests {
 
     #[test]
     fn validate_virtual_path_rejects_unsafe_characters() {
-        assert!(validate_virtual_path("file name.txt").is_err()); // space
-        assert!(validate_virtual_path("file@name.txt").is_err()); // @
-        assert!(validate_virtual_path("dir/file#1.txt").is_err()); // #
+        assert!(validate_virtual_path("file name.txt").is_err());
+        assert!(validate_virtual_path("file@name.txt").is_err());
+        assert!(validate_virtual_path("dir/file#1.txt").is_err());
     }
 
     #[test]

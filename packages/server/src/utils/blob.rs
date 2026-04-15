@@ -9,7 +9,6 @@ use uuid::Uuid;
 use crate::entity::{additional_file, problem_attachment};
 use crate::error::AppError;
 
-/// Common blob fields needed to build a streaming download response.
 pub struct BlobMetadata {
     pub content_hash: String,
     pub filename: String,
@@ -39,9 +38,6 @@ impl From<&additional_file::Model> for BlobMetadata {
     }
 }
 
-/// Build a streaming blob response from `BlobMetadata`.
-///
-/// Supports ETag-based caching via `If-None-Match`.
 pub async fn build_blob_response(
     metadata: &BlobMetadata,
     headers: &HeaderMap,
@@ -81,7 +77,6 @@ pub async fn build_blob_response(
     Ok(response)
 }
 
-/// Build a safe `Content-Disposition` header value.
 pub fn content_disposition_value(filename: &str) -> String {
     let ascii_safe: String = filename
         .chars()
@@ -93,7 +88,6 @@ pub fn content_disposition_value(filename: &str) -> String {
         ascii_safe
     };
 
-    // RFC 5987 percent-encoding for filename*.
     let encoded: String = filename
         .bytes()
         .map(|b| match b {
@@ -119,9 +113,6 @@ pub fn content_disposition_value(filename: &str) -> String {
     format!("inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}")
 }
 
-/// Stream a multipart field to blob storage via a temp file.
-///
-/// Returns the content hash and size in bytes.
 pub async fn stream_field_to_store(
     mut field: axum::extract::multipart::Field<'_>,
     blob_store: &dyn BlobStore,

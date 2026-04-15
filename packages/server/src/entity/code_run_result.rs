@@ -10,7 +10,6 @@ pub struct Model {
     pub id: i32,
 
     pub code_run_id: i32,
-    /// 0-based index into the code_run's custom_test_cases array.
     pub run_index: i32,
 
     #[sea_orm(column_type = "Text")]
@@ -18,8 +17,8 @@ pub struct Model {
     #[sea_orm(column_type = "Double")]
     pub score: f64,
 
-    pub time_used: Option<i32>,   // in milliseconds
-    pub memory_used: Option<i32>, // in kilobytes
+    pub time_used: Option<i32>,
+    pub memory_used: Option<i32>,
 
     #[sea_orm(column_type = "Text", nullable)]
     pub stdout: Option<String>,

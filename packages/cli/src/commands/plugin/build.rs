@@ -10,35 +10,18 @@ use crate::dev_config;
 
 use super::wasm::copy_wasm_artifact;
 
-/// Builds a plugin's backend (Rust/WASM) and/or frontend components.
-///
-/// The frontend directory, install command, and build command can be customized via
-/// `broccoli.dev.toml` in the plugin directory:
-///
-///   [build]
-///   frontend_dir = "client"              # where to run the build command
-///   frontend_install_cmd = "npm install" # default: "pnpm install --ignore-workspace"
-///   frontend_build_cmd = "npm run build" # default: "pnpm build"
-///
-/// Without a config file, the frontend directory is auto-detected from
-/// the [web].root field in plugin.toml, or by looking for package.json
-/// in web/, frontend/, or the plugin root.
 #[derive(Args)]
 pub struct BuildPluginArgs {
-    /// Path to the plugin directory (defaults to current directory)
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
-    /// Force execution of the frontend installation command even if node_modules exists
     #[arg(long)]
     pub install: bool,
 
-    /// Build in release mode (optimized)
     #[arg(long)]
     pub release: bool,
 }
 
-/// Minimal manifest struct — avoids pulling in plugin-core's transitive deps.
 #[derive(Deserialize)]
 struct MinimalManifest {
     name: Option<String>,
@@ -81,7 +64,6 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
     let plugin_name = manifest.name.as_deref().unwrap_or("plugin");
     let mut built_anything = false;
 
-    // Build backend (Rust/WASM)
     if let Some(server) = manifest.server.as_ref() {
         println!(
             "{}  Building backend for {}...",
@@ -110,7 +92,6 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
         built_anything = true;
     }
 
-    // Build frontend
     if manifest.web.is_some() {
         let web_root = manifest.web.as_ref().map(|w| w.root.as_str());
         let dev = dev_config::resolve(&plugin_dir, web_root);
@@ -125,7 +106,6 @@ pub fn run(args: BuildPluginArgs) -> anyhow::Result<()> {
             );
         }
 
-        // Install frontend dependencies if node_modules is missing or install flag is set
         let node_modules_exists = fe_dir.join("node_modules").exists();
         if !node_modules_exists || args.install {
             let install_cmd_str = dev.frontend_install_cmd.join(" ");

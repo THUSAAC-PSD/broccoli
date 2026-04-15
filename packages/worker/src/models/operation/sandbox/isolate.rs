@@ -15,7 +15,6 @@ use tokio::sync::RwLock;
 pub struct IsolateSandboxManager {
     isolate_bin: String,
     enable_cgroups: bool,
-    /// Maps box_id -> working directory path (the `/box` subdirectory inside isolate's sandbox root).
     sandboxes: Arc<RwLock<HashMap<String, PathBuf>>>,
 }
 
@@ -267,7 +266,6 @@ impl SandboxManager for IsolateSandboxManager {
         Ok(())
     }
 
-    /// NOTE: by default, the process limit is set to 1 by isolate default, which means the executed program cannot spawn child processes. If you encounter errors related to process spawning (like compiling), please check if the process limit is the cause and set it to a larger value or 0 (no limit) in RunOptions.
     async fn execute(
         &self,
         box_id: &str,
@@ -319,8 +317,6 @@ impl SandboxManager for IsolateSandboxManager {
             command.arg(format!("--stderr={}", stderr.to_string_lossy()));
         }
         if run_options.env_rules.is_empty() {
-            // Default to inheriting the full environment so that tools like
-            // g++ can locate sub-programs (ld, as, etc.) via PATH.
             command.arg("--full-env");
         } else {
             for rule in &run_options.env_rules {
@@ -331,17 +327,6 @@ impl SandboxManager for IsolateSandboxManager {
             add_directory_rule_args(&mut command, rule);
         }
 
-        // Isolate resolves relative paths from `/box/` (the working directory
-        // inside the chroot).  Directory mounts via `--dir` are placed at the
-        // sandbox root, e.g. `--dir=/channels=<host>:rw` mounts at `/channels`,
-        // NOT at `/box/channels`.  Plugins produce relative argv paths like
-        // `channels/c0_to_m` (which resolves to `/box/channels/c0_to_m` inside
-        // the chroot — not the mount point).
-        //
-        // To bridge this gap, rewrite argv elements whose leading segment
-        // matches an absolute directory-rule inside_path.  For example, if a
-        // rule has inside_path `/channels` and an argv element is
-        // `channels/c0_to_m`, rewrite it to `/channels/c0_to_m`.
         let rewritten_argv: Vec<String> = argv
             .into_iter()
             .map(|arg| {
@@ -380,8 +365,6 @@ impl SandboxManager for IsolateSandboxManager {
                     })?;
                 result.stdout = if let Some(stdout_path) = &run_options.stdout {
                     let resolved = box_dir.join(stdout_path);
-                    // FIFOs must not be re-read after process exit: the write
-                    // end is closed, so open(O_RDONLY) would block forever.
                     if is_fifo(&resolved) {
                         String::new()
                     } else {

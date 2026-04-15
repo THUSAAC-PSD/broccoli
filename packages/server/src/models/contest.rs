@@ -8,131 +8,90 @@ use super::shared::{
 };
 use crate::error::AppError;
 
-/// Request body for creating a contest.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateContestRequest {
-    /// Contest title (trimmed, 1-256 chars).
     #[schema(example = "Weekly Contest #42")]
     pub title: String,
-    /// Contest description (non-empty, max 1 MB).
     #[schema(example = "Welcome to this week's programming contest.")]
     pub description: String,
-    /// Time when the contest becomes visible and registration opens (must be before start_time,
-    /// default: never).
     #[schema(example = "2025-09-30T12:00:00Z")]
     pub activate_time: Option<Option<DateTime<Utc>>>,
-    /// Contest start time (must be before end_time).
     #[schema(example = "2025-10-01T14:00:00Z")]
     pub start_time: DateTime<Utc>,
-    /// Contest end time (must be after start_time).
     #[schema(example = "2025-10-01T17:00:00Z")]
     pub end_time: DateTime<Utc>,
-    /// Time when the contest is archived and becomes invisible (must be after end_time, default:
-    /// never).
     #[schema(example = "2025-10-02T12:00:00Z")]
     pub deactivate_time: Option<Option<DateTime<Utc>>>,
-    /// Whether the contest is visible to all users.
     #[schema(example = true)]
     pub is_public: bool,
-    /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: Option<bool>,
-    /// Whether participants can see compile output during contest (default: true).
     #[schema(example = true)]
     pub show_compile_output: Option<bool>,
-    /// Whether participants list is visible (default: true).
     #[schema(example = true)]
     pub show_participants_list: Option<bool>,
-    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
     #[schema(example = "ioi")]
     pub contest_type: Option<String>,
 }
 
-/// PATCH body for updating a contest. Only provided fields are modified.
 #[derive(Deserialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct UpdateContestRequest {
-    /// Contest title (trimmed, 1-256 chars).
     #[schema(example = "Weekly Contest #42 (Extended)")]
     pub title: Option<String>,
-    /// Contest description (non-empty, max 1 MB).
     #[schema(example = "Updated description...")]
     pub description: Option<String>,
-    /// Time when the contest becomes visible and registration opens (must be before start_time,
-    /// default: never).
     #[serde(default, deserialize_with = "double_option")]
     #[schema(example = "2025-09-30T12:00:00Z")]
     pub activate_time: Option<Option<DateTime<Utc>>>,
-    /// Contest start time (must be before end_time).
     #[schema(example = "2025-10-01T13:00:00Z")]
     pub start_time: Option<DateTime<Utc>>,
-    /// Contest end time (must be after start_time).
     #[schema(example = "2025-10-01T18:00:00Z")]
     pub end_time: Option<DateTime<Utc>>,
-    /// Time when the contest is archived and becomes invisible (must be after end_time, default:
-    /// never).
     #[serde(default, deserialize_with = "double_option")]
     #[schema(example = "2025-10-02T12:00:00Z")]
     pub deactivate_time: Option<Option<DateTime<Utc>>>,
-    /// Whether the contest is visible to all users.
     #[schema(example = false)]
     pub is_public: Option<bool>,
-    /// Whether participants can see each other's submissions.
     #[schema(example = true)]
     pub submissions_visible: Option<bool>,
-    /// Whether participants can see compile output during contest.
     #[schema(example = true)]
     pub show_compile_output: Option<bool>,
-    /// Whether participants list is visible.
     #[schema(example = true)]
     pub show_participants_list: Option<bool>,
-    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
     #[schema(example = "icpc")]
     pub contest_type: Option<String>,
 }
 
-/// Request body for adding a problem to a contest.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct AddContestProblemRequest {
-    /// ID of the problem to associate.
     #[schema(example = 1)]
     pub problem_id: i32,
-    /// Short label for the problem within the contest (1-10 chars, must be unique).
     #[schema(example = "A")]
     pub label: String,
-    /// Display position (0-based). Auto-assigned if omitted.
     #[schema(example = 0)]
     pub position: Option<i32>,
 }
 
-/// PATCH body for updating a contest problem's label or position.
 #[derive(Deserialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct UpdateContestProblemRequest {
-    /// Short label for the problem within the contest (1-10 chars, must be unique).
     #[schema(example = "B")]
     pub label: Option<String>,
-    /// Display position (0-based).
     #[schema(example = 1)]
     pub position: Option<i32>,
 }
 
-/// Request body for adding a participant to a contest (admin action).
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct AddParticipantRequest {
-    /// ID of the user to add.
     #[schema(example = 7)]
     pub user_id: i32,
 }
 
-/// Request body for reordering problems in a contest.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct ReorderContestProblemsRequest {
-    /// Ordered list of problem_ids. Positions assigned 0, 1, 2... by array index.
-    /// Must contain exactly the problem_ids currently in the contest.
     #[schema(example = json!([3, 1, 2]))]
     pub problem_ids: Vec<i32>,
 }
 
-/// Query parameters for contest listing.
 #[derive(Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ContestListQuery {
@@ -142,15 +101,12 @@ pub struct ContestListQuery {
     pub per_page: Option<u64>,
     #[param(example = "weekly")]
     pub search: Option<String>,
-    /// Sort field: `created_at` (default), `updated_at`, `activate_time`, `start_time`, or `title`.
     #[param(example = "start_time")]
     pub sort_by: Option<String>,
-    /// Sort direction: `asc` or `desc` (default).
     #[param(example = "asc")]
     pub sort_order: Option<String>,
 }
 
-/// Full contest details.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ContestResponse {
     #[schema(example = 1)]
@@ -169,16 +125,12 @@ pub struct ContestResponse {
     pub deactivate_time: Option<DateTime<Utc>>,
     #[schema(example = true)]
     pub is_public: bool,
-    /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: bool,
-    /// Whether participants can see compile output during contest.
     #[schema(example = true)]
     pub show_compile_output: bool,
-    /// Whether participants list is visible.
     #[schema(example = true)]
     pub show_participants_list: bool,
-    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
     #[schema(example = "ioi")]
     pub contest_type: Option<String>,
     #[schema(example = "2025-09-25T10:00:00Z")]
@@ -187,7 +139,6 @@ pub struct ContestResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Contest summary for list views (description omitted).
 #[derive(Serialize, FromQueryResult, utoipa::ToSchema)]
 pub struct ContestListItem {
     #[schema(example = 1)]
@@ -204,16 +155,12 @@ pub struct ContestListItem {
     pub deactivate_time: Option<DateTime<Utc>>,
     #[schema(example = true)]
     pub is_public: bool,
-    /// Whether participants can see each other's submissions.
     #[schema(example = false)]
     pub submissions_visible: bool,
-    /// Whether participants can see compile output during contest.
     #[schema(example = true)]
     pub show_compile_output: bool,
-    /// Whether participants list is visible.
     #[schema(example = true)]
     pub show_participants_list: bool,
-    /// Contest type for plugin dispatch (e.g., "ioi", "icpc").
     #[schema(example = "ioi")]
     pub contest_type: Option<String>,
     #[schema(example = "2025-09-25T10:00:00Z")]
@@ -222,14 +169,12 @@ pub struct ContestListItem {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Paginated list of contests.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ContestListResponse {
     pub data: Vec<ContestListItem>,
     pub pagination: Pagination,
 }
 
-/// A problem associated with a contest.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ContestProblemResponse {
     #[schema(example = 1)]
@@ -244,7 +189,6 @@ pub struct ContestProblemResponse {
     pub problem_title: String,
 }
 
-/// A participant in a contest.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ContestParticipantResponse {
     #[schema(example = 1)]
@@ -253,14 +197,11 @@ pub struct ContestParticipantResponse {
     pub user_id: i32,
     #[schema(example = "alice_wonder")]
     pub username: String,
-    /// True when the user account has been soft-deleted. Front-ends should
-    /// display such users as "[Deleted User]" or similar in historical views.
     pub is_deleted: bool,
     #[schema(example = "2025-09-30T12:00:00Z")]
     pub registered_at: DateTime<Utc>,
 }
 
-/// Current authenticated user's context in a contest.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ContestUserContextResponse {
     #[schema(example = 1)]
@@ -349,8 +290,6 @@ pub fn validate_update_contest(req: &UpdateContestRequest) -> Result<(), AppErro
             "Description must be non-empty and at most 1MB".into(),
         ));
     }
-    // NOTE: The timeline fields are validated together in the handler where we have the existing
-    // contest data to compare against, since they can be updated independently here.
     Ok(())
 }
 
@@ -368,18 +307,14 @@ pub fn validate_reorder_contest_problems(
     validate_reorder_ids(&req.problem_ids, "problem_id")
 }
 
-/// Request body for bulk-deleting problems from a contest.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkDeleteContestProblemsRequest {
-    /// IDs of problems to remove from the contest. Max 1,000, no duplicates.
     #[schema(example = json!([5, 7, 9]))]
     pub problem_ids: Vec<i32>,
 }
 
-/// Response from bulk-deleting contest problems.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkDeleteContestProblemsResponse {
-    /// Number of problems removed from the contest.
     #[schema(example = 3)]
     pub removed: usize,
 }
@@ -390,29 +325,22 @@ pub fn validate_bulk_delete_contest_problems(
     validate_bulk_ids(&req.problem_ids, "problem_ids", 1000)
 }
 
-/// A single user to create and enroll.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateUserEntry {
-    /// Username for the new user (1-32 chars, alphanumeric + underscores).
     #[schema(example = "charlie")]
     pub username: String,
-    /// Password for the new user (8-128 chars). Auto-generated if omitted.
     #[schema(example = "custom_pass123")]
     pub password: Option<String>,
 }
 
-/// Request body for bulk-adding participants to a contest.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkAddParticipantsRequest {
-    /// Existing usernames to enroll. Missing usernames reported in `not_found`.
     #[serde(default)]
     pub usernames: Vec<String>,
-    /// Users to create (with optional passwords) and then enroll.
     #[serde(default)]
     pub create_users: Vec<CreateUserEntry>,
 }
 
-/// A participant that was enrolled from an existing user.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkParticipantAdded {
     #[schema(example = 5)]
@@ -421,28 +349,21 @@ pub struct BulkParticipantAdded {
     pub username: String,
 }
 
-/// A participant whose account was created and then enrolled.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkParticipantCreated {
     #[schema(example = 12)]
     pub user_id: i32,
     #[schema(example = "charlie")]
     pub username: String,
-    /// The plaintext password (only returned once).
     #[schema(example = "aB3$kLm9xQ2z")]
     pub password: String,
 }
 
-/// Response from bulk-adding participants.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkAddParticipantsResponse {
-    /// Existing users successfully enrolled.
     pub added: Vec<BulkParticipantAdded>,
-    /// Newly created users enrolled (includes plaintext passwords).
     pub created: Vec<BulkParticipantCreated>,
-    /// Users already enrolled in the contest (skipped).
     pub already_enrolled: Vec<BulkParticipantAdded>,
-    /// Usernames from `usernames` that were not found.
     pub not_found: Vec<String>,
 }
 

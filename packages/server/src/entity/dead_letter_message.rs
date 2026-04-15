@@ -1,7 +1,6 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// Dead letter queue message for failed job processing.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "dead_letter_message")]
@@ -24,13 +23,11 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub error_message: String,
 
-    /// Machine-readable error code (MAX_RETRIES_EXCEEDED, PROCESSING_ERROR, etc.).
     #[sea_orm(indexed)]
     pub error_code: String,
 
     pub retry_count: i32,
 
-    /// Full retry history as JSON array: [{attempt, error, timestamp}]
     #[sea_orm(column_type = "JsonBinary")]
     pub retry_history: serde_json::Value,
 

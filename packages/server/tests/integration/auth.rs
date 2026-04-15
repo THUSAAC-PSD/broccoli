@@ -198,7 +198,6 @@ mod token_refresh {
         let body = json!({"username": "alice", "password": "securepass"});
         app.post_without_token(routes::REGISTER, &body).await;
 
-        // Login sets the HttpOnly refresh cookie in the TestApp client's cookie jar
         let login_res = app.post_without_token(routes::LOGIN, &body).await;
         let old_token = login_res.body["token"].as_str().unwrap().to_string();
 
@@ -206,7 +205,6 @@ mod token_refresh {
 
         assert_eq!(refresh_res.status, 200);
         assert!(refresh_res.body["token"].is_string());
-        // New access token should be different from the old one
         assert_ne!(refresh_res.body["token"].as_str().unwrap(), old_token);
     }
 
@@ -214,7 +212,6 @@ mod token_refresh {
     async fn cannot_refresh_without_cookie() {
         let app = TestApp::spawn().await;
 
-        // No login, so no cookie in the jar
         let res = app.post_without_token(routes::REFRESH, &json!({})).await;
 
         assert_eq!(res.status, 401);
@@ -232,11 +229,9 @@ mod logout {
         app.post_without_token(routes::REGISTER, &body).await;
         app.post_without_token(routes::LOGIN, &body).await;
 
-        // Logout revokes the token in DB and clears the client's cookie
         let logout_res = app.post_without_token(routes::LOGOUT, &json!({})).await;
         assert_eq!(logout_res.status, 204);
 
-        // Attempt refresh after logout
         let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
         assert_eq!(refresh_res.status, 401);
         assert_eq!(refresh_res.body["code"], "TOKEN_MISSING");

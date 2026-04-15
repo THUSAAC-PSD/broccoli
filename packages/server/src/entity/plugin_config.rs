@@ -5,25 +5,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "plugin_config")]
 pub struct Model {
-    /// Scope type: "problem", "contest_problem", "contest", etc.
     #[sea_orm(primary_key)]
     pub scope: String,
-    /// Scope-specific reference ID (e.g., "42", "1:42")
     #[sea_orm(primary_key)]
     pub ref_id: String,
-    /// Plugin namespace (e.g., "checker", "ioi")
     #[sea_orm(primary_key)]
     pub namespace: String,
 
     #[sea_orm(column_type = "JsonBinary")]
     pub config: Json,
 
-    /// Whether this plugin is enabled for the given scope.
-    /// `None` = unset (inherit from cascade), `Some(true)` = enabled, `Some(false)` = disabled.
     #[sea_orm(nullable)]
     pub enabled: Option<bool>,
 
-    /// Hook execution order (lower runs first). Defaults to 0.
     #[sea_orm(default_value = 0)]
     pub position: i32,
 

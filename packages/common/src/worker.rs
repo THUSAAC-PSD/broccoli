@@ -3,7 +3,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-/// Task used for worker to execute
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
@@ -11,7 +10,6 @@ pub struct Task {
     pub executor_name: String,
     pub payload: serde_json::Value,
     pub result_queue: String,
-    /// Optional priority level (1-5, where 1 is highest priority)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u8>,
 }
@@ -25,7 +23,6 @@ pub struct TaskResult {
     pub error: Option<String>,
 }
 
-/// Task lifecycle events for hooks
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskEvent {
@@ -44,7 +41,6 @@ impl Event for TaskEvent {
     }
 }
 
-/// Worker use executor to run tasks
 #[async_trait]
 pub trait Executor: Send + Sync {
     fn if_accept(&self, _task_type: &str) -> bool;

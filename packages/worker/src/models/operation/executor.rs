@@ -14,7 +14,6 @@ use common::storage::config::create_blob_store;
 use common::worker::*;
 use tracing::{error, info, warn};
 
-/// Executor for running operations with isolated sandboxes
 pub struct OperationTaskExecutor {
     operation_executor: OperationHandler,
 }
@@ -40,7 +39,6 @@ impl OperationTaskExecutor {
         }
     }
 
-    /// Create with a specific sandbox manager (uses NoopFileCacher and NoopTaskCacheStore; for tests).
     #[allow(dead_code)]
     pub fn new_with_sandbox_manager(
         sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
@@ -170,9 +168,6 @@ impl OperationTaskExecutor {
 
 impl Default for OperationTaskExecutor {
     fn default() -> Self {
-        // Sync default uses NoopFileCacher, NoopTaskCacheStore, and empty fingerprint.
-        //
-        // For production, use `from_config().await` which probes toolchain versions.
         let config = WorkerAppConfig::load()
             .inspect_err(|e| warn!(error = %e, "Failed to load config, using defaults"))
             .ok();
@@ -193,11 +188,9 @@ impl Executor for OperationTaskExecutor {
         task_type == "operation"
     }
     async fn execute(&self, task: Task) -> Result<TaskResult> {
-        // Deserialize the payload into an Operation
         let operation: OperationTask = serde_json::from_value(task.payload.clone())
             .map_err(|e| anyhow::anyhow!("Failed to deserialize operation config: {}", e))?;
 
-        // Execute the operation
         match self.operation_executor.execute(&operation).await {
             Ok(result) => Ok(TaskResult {
                 task_id: task.id,

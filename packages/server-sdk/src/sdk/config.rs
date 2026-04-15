@@ -7,10 +7,6 @@ pub struct Config {
     pub(super) inner: ConfigMock,
 }
 
-/// Resolve the effective config by cascading contest_problem > contest > problem > default.
-///
-/// This is the canonical cascade implementation. Both the WASM and mock `get_effective()`
-/// methods delegate here after fetching the individual levels.
 fn resolve_cascade(
     cp: Option<ConfigResult>,
     c: Option<ConfigResult>,
@@ -32,7 +28,6 @@ fn resolve_cascade(
         .iter()
         .find(|(r, _)| r.is_some_and(|r| !r.is_default));
 
-    // No explicit config at any scope -> unset (plugins are disabled by default).
     let Some((Some(most_specific), source)) = first_explicit else {
         return EffectiveConfig {
             config: p.config,
@@ -60,7 +55,6 @@ fn resolve_cascade(
             is_enabled: false,
             levels,
         },
-        // No explicit scope has set enabled -> not enabled.
         None => EffectiveConfig {
             config: most_specific.config.clone(),
             source: source.clone(),
@@ -152,10 +146,6 @@ impl Config {
         )
     }
 
-    /// Resolve the effective config by cascading contest_problem > contest > problem > default.
-    ///
-    /// Returns `is_enabled: false` when no explicit config exists at any scope,
-    /// or when the most-specific explicit scope has `enabled = false`.
     pub fn get_effective(
         &self,
         ns: &str,
@@ -176,7 +166,6 @@ impl Config {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) struct ConfigMock {
-    /// Maps `"scope:ref_id:ns"` -> `(config_value, enabled)`.
     data: std::cell::RefCell<std::collections::HashMap<String, (Value, Option<bool>)>>,
 }
 
@@ -268,7 +257,6 @@ impl Config {
         )
     }
 
-    /// Resolve the effective config by cascading contest_problem > contest > problem > default.
     pub fn get_effective(
         &self,
         ns: &str,
@@ -286,7 +274,6 @@ impl Config {
         Ok(resolve_cascade(cp, c, p))
     }
 
-    /// Pre-populate a config value for testing (enabled by default).
     pub fn seed(&self, scope: &str, ref_id: &str, ns: &str, value: Value) {
         let key = ConfigMock::key(scope, ref_id, ns);
         self.inner
@@ -295,7 +282,6 @@ impl Config {
             .insert(key, (value, Some(true)));
     }
 
-    /// Pre-populate a config value with an explicit enabled flag for testing.
     pub fn seed_with_enabled(
         &self,
         scope: &str,
@@ -421,11 +407,8 @@ mod tests {
         host.config.seed("contest", "10", "ns", json!({"v": 20}));
 
         let eff = host.config.get_effective("ns", 1, Some(10)).unwrap();
-        // contest_problem not seeded -> is_default
         assert!(eff.levels.contest_problem.as_ref().unwrap().is_default);
-        // contest seeded -> not default
         assert!(!eff.levels.contest.as_ref().unwrap().is_default);
-        // problem seeded -> not default
         assert!(!eff.levels.problem.is_default);
     }
 
@@ -436,7 +419,6 @@ mod tests {
             .seed_with_enabled("contest", "10", "ns", json!({"v": 20}), Some(false));
         host.config.seed("problem", "1", "ns", json!({"v": 10}));
 
-        // Contest (priority 2) overrides problem (priority 1) for enablement
         let eff = host.config.get_effective("ns", 1, Some(10)).unwrap();
         assert!(!eff.is_enabled);
     }
@@ -444,43 +426,36 @@ mod tests {
     #[test]
     fn none_enabled_inherits_from_parent() {
         let host = make_host();
-        // Contest has enabled=true, contest_problem has enabled=None (inherit)
         host.config.seed("contest", "10", "ns", json!({"v": 60}));
         host.config
             .seed_with_enabled("contest_problem", "10:1", "ns", json!({"v": 30}), None);
 
         let eff = host.config.get_effective("ns", 1, Some(10)).unwrap();
-        // Config comes from contest_problem (most specific)
         assert_eq!(eff.config["v"], 30);
         assert_eq!(eff.source, ConfigSource::ContestProblem);
-        // Enablement inherited from contest (first parent with Some)
         assert!(eff.is_enabled);
     }
 
     #[test]
     fn none_enabled_everywhere_means_not_enabled() {
         let host = make_host();
-        // Config exists at problem but enabled=None everywhere
         host.config
             .seed_with_enabled("problem", "1", "ns", json!({"v": 10}), None);
 
         let eff = host.config.get_effective("ns", 1, None).unwrap();
         assert_eq!(eff.config["v"], 10);
-        // No scope has Some(true/false), so not enabled
         assert!(!eff.is_enabled);
     }
 
     #[test]
     fn none_enabled_at_cp_with_disabled_contest() {
         let host = make_host();
-        // Contest explicitly disabled, contest_problem has config with enabled=None
         host.config
             .seed_with_enabled("contest", "10", "ns", json!({"v": 60}), Some(false));
         host.config
             .seed_with_enabled("contest_problem", "10:1", "ns", json!({"v": 30}), None);
 
         let eff = host.config.get_effective("ns", 1, Some(10)).unwrap();
-        // Config from contest_problem, enablement inherited from contest (disabled)
         assert_eq!(eff.config["v"], 30);
         assert!(!eff.is_enabled);
         assert_eq!(eff.source, ConfigSource::Disabled);

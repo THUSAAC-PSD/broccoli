@@ -2,7 +2,6 @@ use crate::entity::problem;
 use crate::error::AppError;
 use crate::utils::soft_delete::SoftDeletable;
 
-/// Find a problem by ID or return 404.
 pub async fn find_problem<C: sea_orm::ConnectionTrait>(
     db: &C,
     id: i32,

@@ -2,7 +2,6 @@ use serde_json::json;
 
 use crate::common::{TestApp, routes};
 
-/// Build a ZIP archive in memory with given file entries.
 fn build_zip(files: &[(&str, &str)]) -> Vec<u8> {
     use std::io::Write;
     let buf = Vec::new();
@@ -18,7 +17,6 @@ fn build_zip(files: &[(&str, &str)]) -> Vec<u8> {
     cursor.into_inner()
 }
 
-/// Helper to create a problem and one initial test case for matching.
 async fn setup_problem_with_test_case(app: &TestApp, token: &str, label: &str) -> i32 {
     let pid = app.create_problem(token, "Merge Strategy Test").await;
     let res = app
@@ -39,7 +37,6 @@ async fn setup_problem_with_test_case(app: &TestApp, token: &str, label: &str) -
     pid
 }
 
-/// Insert a submission row directly into the DB for a given problem.
 async fn insert_submission_for_problem(app: &TestApp, problem_id: i32) {
     use sea_orm::{ActiveModelTrait, Set};
     use server::entity::submission;
@@ -57,7 +54,6 @@ async fn insert_submission_for_problem(app: &TestApp, problem_id: i32) {
     sub.insert(&app.db).await.expect("insert submission");
 }
 
-/// Insert a contest and link it to a problem via contest_problem.
 async fn insert_contest_association_for_problem(app: &TestApp, problem_id: i32) {
     use sea_orm::{ActiveModelTrait, Set};
     use server::entity::{contest, contest_problem};
@@ -169,7 +165,6 @@ mod problem_creation {
             .create_user_with_role("admin2", "password123", "admin")
             .await;
 
-        // Empty title
         let res = app
             .post_with_token(
                 routes::PROBLEMS,
@@ -185,7 +180,6 @@ mod problem_creation {
         assert_eq!(res.status, 400);
         assert_eq!(res.body["code"], "VALIDATION_ERROR");
 
-        // Time limit out of range
         let res = app
             .post_with_token(
                 routes::PROBLEMS,
@@ -474,7 +468,6 @@ mod problem_update {
 
         assert_eq!(res.status, 200);
         assert_eq!(res.body["title"], "Updated Title");
-        // Other fields should remain unchanged
         assert_eq!(res.body["time_limit"], 1000);
     }
 
@@ -561,7 +554,6 @@ mod problem_deletion {
 
         assert_eq!(res.status, 204);
 
-        // Confirm it's gone
         let get_res = app.get_with_token(&routes::problem(id), &token).await;
         assert_eq!(get_res.status, 404);
     }
@@ -959,7 +951,6 @@ mod test_case_listing {
         assert_eq!(res.status, 200);
         let preview = res.body[0]["input_preview"].as_str().unwrap();
         assert!(preview.ends_with("..."));
-        // 100 data chars + "..." = 103 max
         assert!(preview.len() <= 103);
     }
 
@@ -972,7 +963,6 @@ mod test_case_listing {
 
         let pid = app.create_problem(&token, "Test Problem").await;
 
-        // 200 multi-byte characters (each is 3 bytes in UTF-8)
         let unicode_input: String = "あ".repeat(200);
         app.post_with_token(
             &routes::test_cases(pid),
@@ -992,7 +982,6 @@ mod test_case_listing {
 
         let preview = res.body[0]["input_preview"].as_str().unwrap();
         assert!(preview.ends_with("..."));
-        // Should be exactly 100 Unicode chars + "..."
         assert_eq!(preview.chars().count(), 103);
     }
 }
@@ -1031,7 +1020,6 @@ mod test_case_detail {
         let pid2 = app.create_problem(&token, "Test Problem").await;
         let tc_id = app.create_test_case(pid1, &token).await;
 
-        // Access test case of problem 1 via problem 2's URL
         let res = app
             .get_with_token(&routes::test_case(pid2, tc_id), &token)
             .await;
@@ -1144,7 +1132,6 @@ mod test_case_update {
 
         assert_eq!(res.status, 200);
         assert_eq!(res.body["score"], 20);
-        // Other fields unchanged
         assert_eq!(res.body["is_sample"], true);
     }
 
@@ -1214,7 +1201,6 @@ mod test_case_update {
 
         let pid = app.create_problem(&token, "Test Problem").await;
 
-        // Create test case with a description
         let res = app
             .post_with_token(
                 &routes::test_cases(pid),
@@ -1233,7 +1219,6 @@ mod test_case_update {
         let tc_id = res.id();
         assert_eq!(res.body["description"], "original desc");
 
-        // Set description to null
         let res = app
             .patch_with_token(
                 &routes::test_case(pid, tc_id),
@@ -1321,7 +1306,6 @@ mod test_case_deletion {
 
         assert_eq!(res.status, 204);
 
-        // Confirm it's gone
         let get_res = app
             .get_with_token(&routes::test_case(pid, tc_id), &token)
             .await;
@@ -1347,7 +1331,6 @@ mod test_case_deletion {
 
         let now = chrono::Utc::now();
 
-        // Create a submission with judged results
         let files = serde_json::json!([{"filename": "main.rs", "content": "fn main() {}"}]);
         let sub = submission::ActiveModel {
             files: Set(files),
@@ -1368,7 +1351,6 @@ mod test_case_deletion {
             .await
             .expect("Failed to insert submission");
 
-        // Create test case result linked to submission
         let tcr = test_case_result::ActiveModel {
             submission_id: Set(sub_model.id),
             test_case_id: Set(Some(tc_id)),
@@ -1401,14 +1383,12 @@ mod test_case_deletion {
         let pid2 = app.create_problem(&token, "Test Problem").await;
         let tc_id = app.create_test_case(pid1, &token).await;
 
-        // Try to delete pid1's test case via pid2's URL
         let res = app
             .delete_with_token(&routes::test_case(pid2, tc_id), &token)
             .await;
 
         assert_eq!(res.status, 404);
 
-        // Original test case should still exist
         let get_res = app
             .get_with_token(&routes::test_case(pid1, tc_id), &token)
             .await;
@@ -1431,14 +1411,12 @@ mod test_case_reorder {
         let tc2 = app.create_test_case(pid, &token).await;
         let tc3 = app.create_test_case(pid, &token).await;
 
-        // Reorder: tc3, tc1, tc2
         let body = json!({"test_case_ids": [tc3, tc1, tc2]});
         let res = app
             .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
             .await;
         assert_eq!(res.status, 204);
 
-        // Verify new positions
         let list = app.get_with_token(&routes::test_cases(pid), &token).await;
         assert_eq!(list.status, 200);
         let data = list.body.as_array().unwrap();
@@ -1462,7 +1440,6 @@ mod test_case_reorder {
         let tc1 = app.create_test_case(pid, &token).await;
         let _tc2 = app.create_test_case(pid, &token).await;
 
-        // Only include tc1, omit tc2
         let body = json!({"test_case_ids": [tc1]});
         let res = app
             .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
@@ -1481,7 +1458,6 @@ mod test_case_reorder {
         let pid = app.create_problem(&token, "Test Problem").await;
         let tc1 = app.create_test_case(pid, &token).await;
 
-        // Include tc1 + a non-existent test case ID
         let body = json!({"test_case_ids": [tc1, 99999]});
         let res = app
             .put_with_token(&routes::test_cases_reorder(pid), &body, &token)
@@ -1597,7 +1573,6 @@ mod test_case_zip_upload {
         assert_eq!(res.body["created"], 2);
         let tcs = res.body["test_cases"].as_array().unwrap();
         assert_eq!(tcs.len(), 2);
-        // Flat files should default to is_sample = false
         assert_eq!(tcs[0]["is_sample"], false);
     }
 
@@ -1650,7 +1625,6 @@ mod test_case_zip_upload {
 
         let zip_data = build_zip(&[
             ("01.in", "input\n"),
-            // Missing 01.ans
         ]);
 
         let res = app
@@ -1678,7 +1652,6 @@ mod test_case_zip_upload {
 
         let pid = app.create_problem(&token, "Wildcard Problem").await;
 
-        // Create a ZIP with non-standard filenames
         let zip_data = build_zip(&[
             ("input_01_data.txt", "10 20\n"),
             ("answer_01_result.ans", "30\n"),
@@ -1699,7 +1672,6 @@ mod test_case_zip_upload {
         assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 1);
         let tcs = res.body["test_cases"].as_array().unwrap();
-        // Verify that the label "01" was correctly extracted from the wildcard position
         assert_eq!(tcs[0]["label"], "01");
     }
 
@@ -1763,7 +1735,6 @@ mod test_case_zip_upload {
 
         let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
 
-        // Passing None for formats to trigger validation error
         let res = app
             .upload_with_token(
                 &routes::test_cases_upload(pid),
@@ -1791,7 +1762,6 @@ mod test_case_zip_upload {
 
         let zip_data = build_zip(&[("01.in", "input\n"), ("01.ans", "answer\n")]);
 
-        // Invalid format with multiple wildcards
         let res = app
             .upload_with_token(
                 &routes::test_cases_upload(pid),
@@ -1826,7 +1796,7 @@ mod test_case_zip_upload {
                 zip_data,
                 Some("*.in"),
                 Some("*.ans"),
-                None, // Missing merge strategy
+                None,
                 &token,
             )
             .await;
@@ -1958,17 +1928,16 @@ mod test_case_zip_upload {
             .await;
 
         assert_eq!(res.status, 201);
-        assert_eq!(res.body["created"], 1); // Only the new label "02" should be created
-        assert_eq!(res.body["updated"], 0); // "01" should be skipped, not updated
+        assert_eq!(res.body["created"], 1);
+        assert_eq!(res.body["updated"], 0);
 
-        // Verify that "01" was not updated and "02" was created
         let list = app.get_with_token(&routes::test_cases(pid), &token).await;
         let cases = list.body.as_array().unwrap();
         assert_eq!(cases.len(), 2);
         let tc1 = cases.iter().find(|tc| tc["label"] == "01").unwrap();
         assert_ne!(tc1["input_preview"], "new input\n");
         let tc2 = cases.iter().find(|tc| tc["label"] == "02").unwrap();
-        assert_eq!(tc2["position"], 1); // New test case should be added at the end
+        assert_eq!(tc2["position"], 1);
     }
 
     #[tokio::test]
@@ -2000,17 +1969,16 @@ mod test_case_zip_upload {
             .await;
 
         assert_eq!(res.status, 201, "{}", res.body["message"]);
-        assert_eq!(res.body["created"], 1); // New label "02" created
-        assert_eq!(res.body["updated"], 1); // Existing label "01" updated
+        assert_eq!(res.body["created"], 1);
+        assert_eq!(res.body["updated"], 1);
 
-        // Verify that "01" was updated and "02" was created
         let list = app.get_with_token(&routes::test_cases(pid), &token).await;
         let cases = list.body.as_array().unwrap();
         assert_eq!(cases.len(), 2);
         let tc1 = cases.iter().find(|tc| tc["label"] == "01").unwrap();
         assert_eq!(tc1["input_preview"], "updated input\n");
         let tc2 = cases.iter().find(|tc| tc["label"] == "02").unwrap();
-        assert_eq!(tc2["position"], 1); // New test case should be added at the end
+        assert_eq!(tc2["position"], 1);
     }
 
     #[tokio::test]
@@ -2040,12 +2008,11 @@ mod test_case_zip_upload {
         assert_eq!(res.body["created"], 1);
         assert_eq!(res.body["updated"], 0);
 
-        // Verify that only "02" exists now
         let list = app.get_with_token(&routes::test_cases(pid), &token).await;
         let cases = list.body.as_array().unwrap();
         assert_eq!(cases.len(), 1);
         assert_eq!(cases[0]["label"], "02");
-        assert_eq!(cases[0]["position"], 0); // Should be reset to position 0
+        assert_eq!(cases[0]["position"], 0);
     }
 }
 
@@ -2075,7 +2042,6 @@ mod bulk_delete_test_cases {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["deleted"], 2);
 
-        // Verify only tc3 remains
         let list = app.get_with_token(&routes::test_cases(pid), &token).await;
         assert_eq!(list.status, 200);
         let data = list.body.as_array().expect("response should be array");
@@ -2186,7 +2152,6 @@ mod bulk_delete_test_cases {
         let user_id = me.id();
         let now = chrono::Utc::now();
 
-        // Create a submission with judged results
         let files = serde_json::json!([{"filename": "main.rs", "content": "fn main() {}"}]);
         let sub = submission::ActiveModel {
             files: Set(files),
@@ -2204,7 +2169,6 @@ mod bulk_delete_test_cases {
         };
         let sub_model = sub.insert(&app.db).await.expect("insert submission");
 
-        // Create test case result linked to tc1
         let tcr = test_case_result::ActiveModel {
             submission_id: Set(sub_model.id),
             test_case_id: Set(Some(tc1)),
@@ -2217,7 +2181,6 @@ mod bulk_delete_test_cases {
         };
         tcr.insert(&app.db).await.expect("insert test case result");
 
-        // Try to bulk delete both — should fail with CONFLICT because tc1 has results
         let res = app
             .delete_with_body_and_token(
                 &routes::test_cases_bulk(pid),
@@ -2269,7 +2232,6 @@ mod problem_contest_access {
             .create_authenticated_user("contestant_pca1", "password123")
             .await;
 
-        // Create problem + active public contest containing it
         let pid = app.create_problem(&admin, "Contest Problem").await;
         let cid = app
             .create_contest(&admin, "Active Contest", true, true)
@@ -2295,7 +2257,6 @@ mod problem_contest_access {
 
         let pid = app.create_problem(&admin, "Future Problem").await;
 
-        // Create a future contest (not started yet)
         let body = json!({
             "title": "Future Contest",
             "description": "desc",
@@ -2325,7 +2286,6 @@ mod problem_contest_access {
             .await;
 
         let pid = app.create_problem(&admin, "Private Problem").await;
-        // Private contest — outsider is NOT a participant
         let cid = app
             .create_contest(&admin, "Private Contest", false, true)
             .await;
@@ -2348,7 +2308,6 @@ mod problem_contest_access {
 
         let pid = app.create_problem(&admin, "Samples Problem").await;
 
-        // Create a sample test case
         let sample_res = app
             .post_with_token(
                 &routes::test_cases(pid),
@@ -2364,7 +2323,6 @@ mod problem_contest_access {
             .await;
         assert_eq!(sample_res.status, 201);
 
-        // Create a non-sample test case
         let hidden_res = app
             .post_with_token(
                 &routes::test_cases(pid),
@@ -2380,7 +2338,6 @@ mod problem_contest_access {
             .await;
         assert_eq!(hidden_res.status, 201);
 
-        // Put problem in an active public contest
         let cid = app
             .create_contest(&admin, "Samples Contest", true, true)
             .await;
@@ -2407,7 +2364,6 @@ mod problem_contest_access {
 
         let pid = app.create_problem(&admin, "Admin View Problem").await;
 
-        // Problem is not in any contest — admin can still view via problem:create/edit perms
         let res = app.get_with_token(&routes::problem(pid), &admin).await;
         assert_eq!(res.status, 200);
         assert_eq!(res.body["id"], pid);

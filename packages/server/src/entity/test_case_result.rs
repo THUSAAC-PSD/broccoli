@@ -10,7 +10,6 @@ pub struct Model {
     pub id: i32,
 
     pub submission_id: i32,
-    /// NULL for custom run test cases (which have no DB-backed test_case row).
     pub test_case_id: Option<i32>,
 
     #[sea_orm(column_type = "Text")]
@@ -18,8 +17,8 @@ pub struct Model {
     #[sea_orm(column_type = "Double")]
     pub score: f64,
 
-    pub time_used: Option<i32>,   // in miliseconds
-    pub memory_used: Option<i32>, // in kilobytes
+    pub time_used: Option<i32>,
+    pub memory_used: Option<i32>,
 
     #[sea_orm(column_type = "Text", nullable)]
     pub stdout: Option<String>,

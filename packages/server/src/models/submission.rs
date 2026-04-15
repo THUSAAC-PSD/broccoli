@@ -6,23 +6,16 @@ use crate::error::AppError;
 
 use super::shared::Pagination;
 
-/// A single file in a multi-file submission.
-/// Stored as JSON array in the database.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmissionFile {
-    /// Filename (e.g., "Main.java", "solution.cpp")
     pub filename: String,
-    /// Source code content
     pub content: String,
 }
 
-/// A single file in a submission.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct SubmissionFileDto {
-    /// Filename (e.g., "Main.java", "solution.cpp"). No path separators allowed.
     #[schema(example = "solution.cpp")]
     pub filename: String,
-    /// Source code content.
     #[schema(example = "#include <iostream>\nint main() { return 0; }")]
     pub content: String,
 }
@@ -45,21 +38,15 @@ impl From<SubmissionFile> for SubmissionFileDto {
     }
 }
 
-/// Request body for creating a submission.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateSubmissionRequest {
-    /// Source files. At least one file required.
     pub files: Vec<SubmissionFileDto>,
-    /// Programming language (e.g., "cpp", "java", "python3").
     #[schema(example = "cpp")]
     pub language: String,
-    /// Optional contest type override for standalone submissions (e.g., "ioi", "icpc").
-    /// If omitted, uses the problem's default_contest_type.
     #[schema(example = "ioi")]
     pub contest_type: Option<String>,
 }
 
-/// Query parameters for submission listing.
 #[derive(Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct SubmissionListQuery {
@@ -67,26 +54,19 @@ pub struct SubmissionListQuery {
     pub page: Option<u64>,
     #[param(example = 20)]
     pub per_page: Option<u64>,
-    /// Filter by problem ID.
     #[param(example = 1)]
     pub problem_id: Option<i32>,
-    /// Filter by user ID.
     #[param(example = 1)]
     pub user_id: Option<i32>,
-    /// Filter by language.
     #[param(example = "cpp")]
     pub language: Option<String>,
-    /// Filter by status.
     pub status: Option<SubmissionStatus>,
-    /// Sort field: `created_at` (default), `status`.
     #[param(example = "created_at")]
     pub sort_by: Option<String>,
-    /// Sort direction: `asc` or `desc` (default).
     #[param(example = "desc")]
     pub sort_order: Option<String>,
 }
 
-/// Full submission details.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SubmissionResponse {
     #[schema(example = 1)]
@@ -103,22 +83,17 @@ pub struct SubmissionResponse {
     pub problem_id: i32,
     #[schema(example = "Two Sum")]
     pub problem_title: String,
-    /// Contest ID if this is a contest submission, null otherwise.
     #[schema(example = 1)]
     pub contest_id: Option<i32>,
-    /// Contest type used for judging this submission.
     #[schema(example = "ioi")]
     pub contest_type: String,
-    /// Rejudge epoch counter. Increments on each rejudge.
     #[schema(example = 0)]
     pub judge_epoch: i32,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
-    /// Judge result if judging is complete, null otherwise.
     pub result: Option<JudgeResultResponse>,
 }
 
-/// Submission summary for list views (files omitted).
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SubmissionListItem {
     #[schema(example = 1)]
@@ -126,7 +101,6 @@ pub struct SubmissionListItem {
     #[schema(example = "cpp")]
     pub language: String,
     pub status: SubmissionStatus,
-    /// Execution verdict if judged, null otherwise.
     #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
     #[schema(example = 1)]
@@ -137,60 +111,43 @@ pub struct SubmissionListItem {
     pub problem_id: i32,
     #[schema(example = "Two Sum")]
     pub problem_title: String,
-    /// Contest ID if this is a contest submission, null otherwise.
     pub contest_id: Option<i32>,
-    /// Contest type used for judging.
     #[schema(example = "ioi")]
     pub contest_type: String,
-    /// Rejudge epoch counter.
     #[schema(example = 0)]
     pub judge_epoch: i32,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
-    /// Total score if judged, null otherwise.
     #[schema(example = 100.0)]
     pub score: Option<f64>,
-    /// Total time used in ms if judged, null otherwise.
     #[schema(example = 50)]
     pub time_used: Option<i32>,
-    /// Total memory used in KB if judged, null otherwise.
     #[schema(example = 1024)]
     pub memory_used: Option<i32>,
 }
 
-/// Paginated list of submissions.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SubmissionListResponse {
     pub data: Vec<SubmissionListItem>,
     pub pagination: Pagination,
 }
 
-/// Judge result for a submission.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
-    /// Execution verdict (null if compilation failed or system error).
     #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
-    /// Total score across all test cases.
     #[schema(example = 100.0)]
     pub score: Option<f64>,
-    /// Maximum time used in milliseconds.
     #[schema(example = 50)]
     pub time_used: Option<i32>,
-    /// Maximum memory used in kilobytes.
     #[schema(example = 1024)]
     pub memory_used: Option<i32>,
-    /// Compiler output (stdout/stderr).
     pub compile_output: Option<String>,
-    /// System error message (only for SystemError status).
     pub error_message: Option<String>,
-    /// When judging completed.
     pub judged_at: Option<DateTime<Utc>>,
-    /// Individual test case results.
     pub test_case_results: Vec<TestCaseResultResponse>,
 }
 
-/// Result for a single test case.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
@@ -199,37 +156,25 @@ pub struct TestCaseResultResponse {
     pub verdict: Verdict,
     #[schema(example = 10.0)]
     pub score: f64,
-    /// Time used in milliseconds.
     #[schema(example = 5)]
     pub time_used: Option<i32>,
-    /// Memory used in kilobytes.
     #[schema(example = 256)]
     pub memory_used: Option<i32>,
-    /// DB test case ID. Null for custom run test cases.
     pub test_case_id: Option<i32>,
-    /// Test case input (only visible for sample test cases or when user has view_all permission).
     pub input: Option<String>,
-    /// Expected output (only visible for sample test cases or when user has view_all permission).
     pub expected_output: Option<String>,
-    /// Program stdout.
     pub stdout: Option<String>,
-    /// Program stderr.
     pub stderr: Option<String>,
-    /// Custom checker feedback.
     pub checker_output: Option<String>,
 }
 
-/// Request body for bulk-rejudging submissions by explicit IDs.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkRejudgeRequest {
-    /// Submission IDs to rejudge. Duplicate IDs are ignored.
     pub submission_ids: Vec<i32>,
 }
 
-/// Response from bulk rejudge.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkRejudgeResponse {
-    /// Number of submissions queued for rejudging.
     #[schema(example = 1234)]
     pub queued: usize,
 }

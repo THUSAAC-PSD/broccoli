@@ -197,9 +197,6 @@ impl MockSandboxManager {
                 match std::os::unix::fs::symlink(outside_path, &inside_path) {
                     Ok(()) => {}
                     Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                        // Concurrent steps in the same layer may race to
-                        // create the same symlink.  If the symlink already
-                        // points to the correct target, treat it as success.
                         if let Ok(target) = std::fs::read_link(&inside_path)
                             && target != *outside_path
                         {
@@ -326,9 +323,6 @@ impl SandboxManager for MockSandboxManager {
         let sandbox_path = self.get_sandbox_path(box_id).await?;
         debug!(box_id = %box_id, argv = ?argv, cwd = %sandbox_path.display(), "Executing command in mock sandbox");
 
-        // Rewrite /box/ paths in argv to use the actual sandbox directory.
-        // Plugins designed for isolate use /box/ as the sandbox root; the
-        // mock sandbox replicates this by mapping /box/X → sandbox_path/X.
         let rewritten_argv: Vec<String> = argv
             .iter()
             .map(|arg| {
@@ -390,8 +384,6 @@ impl SandboxManager for MockSandboxManager {
             SandboxError::Execution(format!("failed to spawn mock sandbox process: {err}"))
         })?;
 
-        // If stdout/stderr are piped (not redirected to file), we must drain them
-        // concurrently with wait() to prevent the child from blocking on a full pipe.
         use tokio::io::AsyncReadExt;
         let piped_stdout_handle = child.stdout.take();
         let piped_stderr_handle = child.stderr.take();
@@ -411,9 +403,6 @@ impl SandboxManager for MockSandboxManager {
             })
         });
 
-        // Enforce wall-time limit. The mock sandbox doesn't run inside a cgroup,
-        // so we apply an explicit timeout using the wall_time_limit if provided,
-        // or the time_limit with a 1.5x multiplier as a fallback.
         let time_limit_secs = run_options.resource_limits.wall_time_limit.or_else(|| {
             run_options
                 .resource_limits
@@ -445,7 +434,6 @@ impl SandboxManager for MockSandboxManager {
 
         let elapsed = start.elapsed().as_secs_f64();
 
-        // Collect piped output (empty if timed out — tasks aborted or finished)
         let piped_stdout_bytes = if let Some(task) = stdout_task {
             task.await.unwrap_or_default()
         } else {

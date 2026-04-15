@@ -1,6 +1,5 @@
 use crate::error::AppError;
 
-/// Validates pagination and sorting parameters against allowed fields.
 pub fn validate_sorting_params(
     sort_by: Option<&str>,
     sort_order: Option<&str>,

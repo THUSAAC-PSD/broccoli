@@ -13,9 +13,6 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, error, info, instrument, warn};
 
-/// Resolve a relative path safely within a base directory.
-/// Rejects absolute paths, `..` components, and other unsafe path elements
-/// to prevent path traversal attacks from plugin-supplied file paths.
 fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
     let mut resolved = base.to_path_buf();
     for component in Path::new(relative).components() {
@@ -34,11 +31,8 @@ fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
     Ok(resolved)
 }
 
-/// Global counter for unique isolate box IDs (0–999, wraps around).
 static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
 
-/// Validate that a channel or pipe name is safe for use as a filename.
-/// Rejects empty names, path separators, `..` traversals, and unsafe characters.
 fn validate_pipe_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(anyhow!("Pipe/channel name cannot be empty"));
@@ -64,7 +58,6 @@ fn allocate_box_id() -> String {
     id.to_string()
 }
 
-/// Environment instance with sandbox and file management
 struct EnvironmentList {
     id: String,
     box_id: String,
@@ -103,7 +96,6 @@ impl OperationHandler {
         }
     }
 
-    /// Execute an operation
     #[instrument(skip(self, operation))]
     pub async fn execute(&self, operation: &OperationTask) -> Result<OperationResult> {
         info!(
@@ -112,13 +104,11 @@ impl OperationHandler {
             operation.tasks.len()
         );
 
-        // Initialize environments
         let mut environments = HashMap::new();
         for env_config in operation.environments.iter() {
             let box_id = allocate_box_id();
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 
-            // Create sandbox
             let working_dir = match self.create_sandbox(&box_id).await {
                 Ok(dir) => dir,
                 Err(e) => {
@@ -127,8 +117,6 @@ impl OperationHandler {
                 }
             };
 
-            // Load initial files — clean up sandbox on failure since it's not yet
-            // tracked in `environments` and would be orphaned.
             if let Err(e) = self
                 .load_environment_files(&working_dir, &env_config.files_in)
                 .await
@@ -179,7 +167,6 @@ impl OperationHandler {
                     .await
                     .context("Failed to execute mkfifo for channel")?;
                 if !output.status.success() {
-                    // Clean up on failure
                     if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
                         warn!(error = %e, "Failed to clean up shared channels directory after mkfifo failure");
                     }
@@ -190,8 +177,6 @@ impl OperationHandler {
                         String::from_utf8_lossy(&output.stderr).trim()
                     ));
                 }
-                // Make FIFO accessible to sandbox UIDs (isolate runs
-                // processes as a different user).
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -203,7 +188,6 @@ impl OperationHandler {
                 }
                 debug!(channel = %channel.name, "Created shared channel FIFO");
             }
-            // Make channels directory accessible to sandbox UIDs.
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -219,7 +203,6 @@ impl OperationHandler {
             None
         };
 
-        // Get execution order
         let execution_layers = match self.get_execution_order(operation) {
             Ok(layers) => layers,
             Err(e) => {
@@ -235,7 +218,6 @@ impl OperationHandler {
         let mut task_results = HashMap::new();
         let mut global_success = true;
 
-        // Execute layers sequentially; tasks within each layer run in parallel
         for layer in execution_layers {
             let mut futures = Vec::new();
             for task_id in &layer {
@@ -275,7 +257,6 @@ impl OperationHandler {
             }
         }
 
-        // Cleanup
         if let Some(dir) = &shared_channels_dir
             && let Err(e) = tokio::fs::remove_dir_all(dir).await
         {
@@ -296,7 +277,6 @@ impl OperationHandler {
         })
     }
 
-    /// Create a sandbox instance
     async fn create_sandbox(&self, box_id: &str) -> Result<PathBuf> {
         let sandbox_path = self
             .sandbox_manager
@@ -306,7 +286,6 @@ impl OperationHandler {
         Ok(sandbox_path)
     }
 
-    /// Load files into sandbox environment
     async fn load_environment_files(
         &self,
         working_dir: &Path,
@@ -351,7 +330,6 @@ impl OperationHandler {
         Ok(())
     }
 
-    /// Build task dependency graph
     fn build_dependency_graph(&self, operation: &OperationTask) -> HashMap<String, Vec<String>> {
         let mut graph = HashMap::new();
 
@@ -362,19 +340,16 @@ impl OperationHandler {
         graph
     }
 
-    /// Get execution order as layers using topological sort (Kahn's algorithm).
     fn get_execution_order(&self, operation: &OperationTask) -> Result<Vec<Vec<String>>> {
         let graph = self.build_dependency_graph(operation);
         let mut in_degree: HashMap<String, usize> = HashMap::new();
         let mut adj_list: HashMap<String, Vec<String>> = HashMap::new();
 
-        // Initialize
         for task in &operation.tasks {
             in_degree.insert(task.id.clone(), 0);
             adj_list.insert(task.id.clone(), Vec::new());
         }
 
-        // Build adjacency list and compute in-degrees
         for (task_id, deps) in &graph {
             let mut degree = 0;
             for dep in deps {
@@ -389,7 +364,6 @@ impl OperationHandler {
             in_degree.insert(task_id.clone(), degree);
         }
 
-        // Kahn's algorithm
         let mut current_layer: Vec<_> = in_degree
             .iter()
             .filter(|(_, degree)| **degree == 0)
@@ -429,7 +403,6 @@ impl OperationHandler {
         Ok(layers)
     }
 
-    /// Execute a task, skipping if dependencies failed.
     async fn execute_step_with_deps(
         &self,
         step: &Step,
@@ -480,9 +453,6 @@ impl OperationHandler {
         result
     }
 
-    /// Attempt to restore a step's outputs from the task cache.
-    ///
-    /// Returns `Some(TaskExecutionResult)` on cache hit, `None` on miss.
     async fn try_cache_hit(
         &self,
         step: &Step,
@@ -536,7 +506,6 @@ impl OperationHandler {
                 );
                 return None;
             }
-            // Set execute permission for binaries
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -557,10 +526,6 @@ impl OperationHandler {
         })
     }
 
-    /// Store step outputs in the task cache after successful execution.
-    ///
-    /// `existing_hashes` maps filenames to already-uploaded content hashes from
-    /// `collect_output`; files present there are reused without re-uploading.
     async fn store_in_cache(
         &self,
         step: &Step,
@@ -619,7 +584,6 @@ impl OperationHandler {
         }
     }
 
-    /// Build a deterministic cache key from argv + input file contents.
     async fn build_cache_key(
         &self,
         working_dir: &Path,
@@ -641,7 +605,6 @@ impl OperationHandler {
         ))
     }
 
-    /// Execute a single step
     #[instrument(skip(self, step, environments, shared_channels_dir, channel_names))]
     async fn execute_step(
         &self,
@@ -709,7 +672,6 @@ impl OperationHandler {
         })
     }
 
-    /// Prepare IO for task execution
     async fn prepare_io(
         &self,
         working_dir: &Path,
@@ -745,15 +707,6 @@ impl OperationHandler {
         Ok((stdin, stdout, stderr))
     }
 
-    /// Prepare single IO target.
-    ///
-    /// For channel pipes (name in `channel_names`), returns the absolute host
-    /// path to the pre-created FIFO in the shared channels directory. Both mock
-    /// and isolate sandboxes open stdin/stdout/stderr on the host before
-    /// entering the sandbox, so absolute host paths work correctly.
-    ///
-    /// For regular (non-channel) pipes, creates a per-environment FIFO at
-    /// `working_dir/pipes/{name}` as before.
     async fn prepare_io_target(
         &self,
         working_dir: &Path,
@@ -777,9 +730,6 @@ impl OperationHandler {
                             name
                         )
                     })?;
-                    // Return the in-sandbox absolute path. The channels directory
-                    // is mounted at "/channels" inside each sandbox via --dir,
-                    // so the FIFO is accessible at "/channels/{name}".
                     let fifo_path = PathBuf::from("/channels").join(name);
                     return Ok(Some(fifo_path));
                 }
@@ -809,9 +759,6 @@ impl OperationHandler {
                     .context("Failed to execute mkfifo")?;
 
                 if !output.status.success() {
-                    // Concurrent steps in the same layer may race to create
-                    // the same per-environment FIFO. If mkfifo fails because
-                    // the file already exists as a FIFO, treat it as success.
                     if let Ok(meta) = tokio::fs::metadata(&pipe_path).await
                         && meta.file_type().is_fifo()
                     {
@@ -854,7 +801,6 @@ impl OperationHandler {
         Ok(collected)
     }
 
-    /// Cleanup all sandboxes
     async fn cleanup_environments(
         &self,
         environments: &HashMap<String, EnvironmentList>,

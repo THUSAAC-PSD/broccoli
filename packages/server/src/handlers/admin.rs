@@ -326,12 +326,10 @@ pub async fn reload_all_plugins(
     }))
 }
 
-/// Body limit for plugin upload (128MB).
 pub fn upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(128 * 1024 * 1024)
 }
 
-/// Regex for valid plugin IDs.
 fn is_valid_plugin_id(id: &str) -> bool {
     if id.is_empty() {
         return false;
@@ -344,9 +342,7 @@ fn is_valid_plugin_id(id: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Maximum per-file decompression size (128MB).
 const MAX_FILE_SIZE: u64 = 128 * 1024 * 1024;
-/// Maximum aggregate extraction size (512MB).
 const MAX_AGGREGATE_SIZE: u64 = 512 * 1024 * 1024;
 
 #[utoipa::path(
@@ -502,13 +498,10 @@ pub async fn upload_plugin(
         )));
     }
 
-    // Extract files to disk (merge into plugins_dir). Runs in blocking context
-    // to avoid starving the async runtime with filesystem I/O.
     let dest_root = plugins_dir.join(&plugin_id);
     let dest_root_clone = dest_root.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         for (path, contents) in &validated_entries {
-            // Strip the top-level directory to get the relative path within the plugin
             let relative = path.iter().skip(1).collect::<PathBuf>();
             let dest = dest_root_clone.join(&relative);
 
@@ -521,7 +514,6 @@ pub async fn upload_plugin(
                     ))
                 })?;
 
-                // Set 0755 on all directories up to the plugin root
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -540,7 +532,6 @@ pub async fn upload_plugin(
                 AppError::Internal(format!("Failed to write '{}': {}", dest.display(), e))
             })?;
 
-            // Set file permissions (0644)
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -549,7 +540,6 @@ pub async fn upload_plugin(
             }
         }
 
-        // Set directory permissions (0755) for the plugin root
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -562,7 +552,6 @@ pub async fn upload_plugin(
     .await
     .map_err(|e| AppError::Internal(format!("Extraction task panicked: {}", e)))??;
 
-    // If plugin was previously loaded, purge its registrations
     let was_loaded = state.plugins.is_plugin_loaded(&plugin_id).unwrap_or(false);
     if was_loaded {
         purge_plugin_registrations(&state.registries, &plugin_id).await;

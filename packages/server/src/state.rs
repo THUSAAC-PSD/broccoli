@@ -14,7 +14,6 @@ use crate::registry::{
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 
-/// A pending device authorization request (RFC 8628).
 pub struct PendingDeviceAuth {
     pub user_code: String,
     pub token: Option<String>,
@@ -23,10 +22,8 @@ pub struct PendingDeviceAuth {
     pub last_poll: Option<Instant>,
 }
 
-/// Keyed by device_code (32-byte hex secret).
 pub type DeviceCodeStore = Arc<DashMap<String, PendingDeviceAuth>>;
 
-/// Grouped plugin registry and batch state.
 #[derive(Clone)]
 pub struct RegistryState {
     pub contest_type_registry: ContestTypeRegistry,

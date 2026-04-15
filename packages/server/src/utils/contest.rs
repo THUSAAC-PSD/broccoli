@@ -5,7 +5,6 @@ use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::utils::soft_delete::SoftDeletable;
 
-/// Check if a problem belongs to a contest.
 pub async fn is_problem_in_contest<C: sea_orm::ConnectionTrait>(
     db: &C,
     contest_id: i32,
@@ -18,7 +17,6 @@ pub async fn is_problem_in_contest<C: sea_orm::ConnectionTrait>(
     Ok(exists)
 }
 
-/// Verify the caller can access the given contest.
 pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
     db: &C,
     auth_user: &AuthUser,
@@ -46,7 +44,6 @@ pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
     Err(AppError::NotFound("Contest not found".into()))
 }
 
-/// Look up a contest by ID, returning 404 if not found.
 pub async fn find_contest<C: sea_orm::ConnectionTrait>(
     db: &C,
     id: i32,
@@ -57,7 +54,6 @@ pub async fn find_contest<C: sea_orm::ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Contest not found".into()))
 }
 
-/// Look up a contest-problem link, returning 404 if the problem is not in the contest.
 pub async fn find_contest_problem<C: sea_orm::ConnectionTrait>(
     db: &C,
     contest_id: i32,
@@ -69,9 +65,6 @@ pub async fn find_contest_problem<C: sea_orm::ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Contest problem not found".into()))
 }
 
-/// Check if the contest has started, returning 404 if the contest is not active yet, or 400 if it
-/// has not started yet.
-/// Admins with `contest:manage` bypass the check.
 pub fn require_contest_started(
     auth_user: &AuthUser,
     contest: &contest::Model,
@@ -91,9 +84,6 @@ pub fn require_contest_started(
     Ok(())
 }
 
-/// Check if the contest has started, returning 404 if the contest is not active yet, or 400 if it
-/// is not running (not started yet or already ended).
-/// Admins with `contest:manage` bypass the check.
 pub fn require_contest_running(
     auth_user: &AuthUser,
     contest: &contest::Model,
@@ -116,7 +106,6 @@ pub fn require_contest_running(
     Ok(())
 }
 
-/// Check if a user is a participant of a contest.
 pub async fn is_contest_participant<C: sea_orm::ConnectionTrait>(
     db: &C,
     contest_id: i32,
@@ -131,10 +120,6 @@ pub async fn is_contest_participant<C: sea_orm::ConnectionTrait>(
     Ok(exists)
 }
 
-/// Check if the user is a participant of the contest, returning 404 if the contest is not public
-/// and the user is not a participant, or 403 if the contest is public but the user is not a
-/// participant.
-/// Admins with `contest:manage` bypass the check.
 pub async fn require_contest_participant<C: sea_orm::ConnectionTrait>(
     db: &C,
     auth_user: &AuthUser,
@@ -153,9 +138,6 @@ pub async fn require_contest_participant<C: sea_orm::ConnectionTrait>(
     Err(AppError::NotFound("Contest not found".into()))
 }
 
-/// Check if a user can access a problem through any active (started) contest.
-/// Returns 404 if the problem is not in any contest, or the user has no access.
-/// Admins with `contest:manage` bypass the time gate.
 pub async fn can_access_problem_via_contest<C: sea_orm::ConnectionTrait>(
     db: &C,
     auth_user: &AuthUser,
@@ -214,9 +196,6 @@ pub async fn can_access_problem_via_contest<C: sea_orm::ConnectionTrait>(
     Err(AppError::NotFound("Problem not found".into()))
 }
 
-/// Check if a user can read a problem's content.
-/// Admins with `problem:create` or `problem:edit` can always read.
-/// Others can read if the problem is in an active contest they can access.
 pub async fn require_problem_read_access<C: sea_orm::ConnectionTrait>(
     db: &C,
     auth_user: &AuthUser,

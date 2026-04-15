@@ -13,21 +13,15 @@ pub struct PluginManifest {
     pub version: String,
     pub description: Option<String>,
 
-    /// Configuration for the Server environment
     pub server: Option<ServerConfig>,
 
-    /// Configuration for the Worker environment
     pub worker: Option<WorkerConfig>,
 
-    /// Configuration for the Web (Frontend) environment
     pub web: Option<WebConfig>,
 
-    /// Translations for i18n, where the key is the locale (e.g., "en-US") and
-    /// the value is a path to a translation file in TOML format.
     #[serde(default)]
     pub translations: HashMap<String, String>,
 
-    /// Config schemas declared by this plugin. Keys are namespace names.
     #[serde(default)]
     pub config: HashMap<String, ConfigNamespace>,
 }
@@ -53,9 +47,6 @@ impl PluginManifest {
         !self.has_server() && !self.has_worker() && !self.has_web() && !self.has_translations()
     }
 
-    /// Resolve external schema file references in config namespaces.
-    /// When a namespace declares `schema = "path/to/file.toml"`, the file is
-    /// read and its contents replace the inline `properties`.
     pub fn resolve_schema_includes(&mut self, root_dir: &Path) -> Result<(), PluginError> {
         let canonical_root = root_dir.canonicalize().map_err(|e| {
             PluginError::LoadFailed(format!(
@@ -114,93 +105,66 @@ impl Display for PluginManifest {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
-    /// Path to the Wasm file relative to the plugin root
     pub entry: String,
 
-    /// List of permissions requested by the plugin
     #[serde(default)]
     pub permissions: Vec<String>,
 
-    /// List of HTTP routes exposed by the plugin
     #[serde(default)]
     pub routes: Vec<ServerRouteConfig>,
 
-    /// Hook declarations: event topics this plugin intercepts
     #[serde(default)]
     pub hooks: Vec<HookDeclaration>,
 }
 
-/// A hook declared in plugin.toml that maps an event topic to a WASM function.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HookDeclaration {
-    /// Event topic to intercept, e.g., "before_submission"
     pub topic: String,
-    /// WASM function name to call when the event fires
     pub function: String,
-    /// What scope this hook runs in
     #[serde(default)]
     pub scope: HookScope,
-    /// Whether this hook blocks the caller or just receives a notification.
-    /// Defaults to `blocking` (the hook's response is respected).
     #[serde(default)]
     pub mode: HookMode,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct ServerRouteConfig {
-    /// The HTTP method for the route, e.g., "GET", "POST", etc.
     pub method: String,
 
-    /// The URL path for the route, e.g., "/problems/{id}/export".
     pub path: String,
 
-    /// The handler function for this route.
     pub handler: String,
 
-    /// The permission required to access this route, e.g., "problems:export".
-    /// If not specified, the route is public.
     #[serde(default)]
     pub permission: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WorkerConfig {
-    /// Path to the Wasm file relative to the plugin root
     pub entry: String,
 
-    /// List of permissions requested by the plugin
     #[serde(default)]
     pub permissions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebConfig {
-    /// The root directory for the web assets, e.g., "dist" or "public".
     pub root: String,
 
-    /// Path to the JS entry file relative to the web root, e.g., "index.js".
     pub entry: String,
 
-    /// Components exposed by the plugin, where the key is the component name
-    /// and the value is the name as exported by the JS entry file.
     #[serde(default)]
     pub components: ComponentMap,
 
-    /// Slots for UI extension.
     #[serde(default)]
     pub slots: Vec<WebSlotConfig>,
 
-    /// Routes for client-side navigation.
     #[serde(default)]
     pub routes: Vec<WebRouteConfig>,
 
-    /// CSS files to load alongside the JS entry point, relative to the web root.
-    /// e.g., `["style.css"]`
     #[serde(default)]
     pub css: Vec<String>,
 }
-
-// pub type ComponentMap = HashMap<String, String>;
 
 #[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema, Default)]
 #[schema(example = json!({
@@ -222,55 +186,38 @@ pub enum WebSlotPosition {
 
 #[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct WebSlotConfig {
-    /// Name of the slot to render into, e.g., "sidebar.footer".
     pub name: String,
 
-    /// Positioning strategy for the component in the slot.
     pub position: WebSlotPosition,
 
-    /// Name of the component to render in this slot, which must match a key in
-    /// the `components` map.
     pub component: String,
 
-    /// Priority for ordering when multiple plugins target the same slot.
     pub priority: Option<u32>,
 
-    /// Permission required to render this slot entry, e.g., "problem:create".
-    /// If not specified, the slot is visible to everyone.
     #[serde(default)]
     pub permission: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct WebRouteConfig {
-    /// Path for client-side navigation, e.g., "/problems/{id}/export".
     pub path: String,
 
-    /// Component to render for this route, which must match a key in the
-    /// `components` map.
     pub component: String,
 
-    /// Meta information for this route, which can be used for things like page
-    /// titles or icons in the frontend.
     pub meta: Option<HashMap<String, String>>,
 }
 
-/// A config namespace declaration with typed schema properties.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConfigNamespace {
     pub description: Option<String>,
-    /// Scopes where this config applies: "plugin", "problem", "contest", "contest_problem"
     #[serde(default)]
     pub scopes: Vec<String>,
-    /// External schema file path (relative to plugin root). Overrides inline properties.
     pub schema: Option<String>,
-    /// Inline schema properties.
     #[serde(default)]
     pub properties: HashMap<String, SchemaProperty>,
 }
 
 impl ConfigNamespace {
-    /// Build a JSON object from the `default` values declared in this namespace's properties.
     pub fn defaults(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
         for (key, prop) in &self.properties {
@@ -281,7 +228,6 @@ impl ConfigNamespace {
         serde_json::Value::Object(obj)
     }
 
-    /// Convert this namespace to a JSON Schema object.
     pub fn to_json_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
         schema.insert("type".into(), "object".into());
@@ -299,7 +245,6 @@ impl ConfigNamespace {
     }
 }
 
-/// A property definition that converts to JSON Schema.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SchemaProperty {
     #[serde(rename = "type")]
@@ -320,18 +265,13 @@ pub struct SchemaProperty {
     pub properties: HashMap<String, SchemaProperty>,
     pub required: Option<Vec<String>>,
     pub additional_properties: Option<bool>,
-    /// Stepper increment for numeric fields. Maps to JSON Schema `multipleOf`.
     pub step: Option<f64>,
-    /// Number of decimal places to display in the UI.
     pub precision: Option<u32>,
-    /// Unit suffix label for numeric fields (e.g., "s", "KB", "MB").
     pub unit: Option<String>,
-    /// Number of grid columns this field should span in the config UI (1 or 2).
     pub span: Option<u8>,
 }
 
 impl SchemaProperty {
-    /// Build a default value for this property from the schema declaration.
     pub fn default_value(&self) -> Option<serde_json::Value> {
         if let Some(ref d) = self.default {
             return Some(d.clone());
@@ -350,7 +290,6 @@ impl SchemaProperty {
         None
     }
 
-    /// Convert this property to a JSON Schema value.
     pub fn to_json_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
         schema.insert("type".into(), self.schema_type.clone().into());
@@ -583,7 +522,6 @@ mod tests {
         let prop: SchemaProperty = toml::from_str(toml_str).unwrap();
         let schema = prop.to_json_schema();
 
-        // Should only have "type", nothing else
         let obj = schema.as_object().unwrap();
         assert_eq!(obj.len(), 1);
         assert_eq!(obj["type"], "string");
@@ -615,7 +553,6 @@ mod tests {
 
         assert_eq!(defaults["cooldown_seconds"], 60);
         assert_eq!(defaults["enabled"], true);
-        // "label" has no default, so should be absent
         assert!(defaults.get("label").is_none());
     }
 
@@ -682,7 +619,6 @@ mod tests {
         "#;
 
         let prop: SchemaProperty = toml::from_str(toml_str).unwrap();
-        // Explicit default takes precedence over recursing into sub-properties
         assert_eq!(prop.default_value(), Some(json!({"key": "explicit"})));
     }
 
@@ -692,7 +628,6 @@ mod tests {
         let schema_dir = dir.path().join("config");
         std::fs::create_dir_all(&schema_dir).unwrap();
 
-        // Write external schema file
         std::fs::write(
             schema_dir.join("settings.schema.toml"),
             r#"
@@ -737,7 +672,6 @@ mod tests {
     #[test]
     fn resolve_schema_includes_rejects_path_traversal() {
         let dir = tempfile::tempdir().unwrap();
-        // Write the file *outside* the plugin directory
         let outside_file = dir.path().join("secret.toml");
         std::fs::write(
             &outside_file,
@@ -786,17 +720,14 @@ mod tests {
 
         assert_eq!(manifest.name, "standard-checkers");
 
-        // Verify config:read permission
         let server = manifest.server.unwrap();
         assert!(server.permissions.contains(&"config:read".to_string()));
 
-        // Verify config schema
         let testlib = &manifest.config["testlib"];
         assert_eq!(testlib.scopes, vec!["plugin"]);
         assert!(testlib.properties.contains_key("compile_time_limit_s"));
         assert!(testlib.properties.contains_key("cpp"));
 
-        // Verify JSON Schema conversion
         let schema = testlib.to_json_schema();
         assert_eq!(schema["type"], "object");
         assert!(
@@ -805,7 +736,6 @@ mod tests {
                 .is_some()
         );
 
-        // Verify step/precision/unit → multipleOf/x-precision/x-unit
         let compile_time = &schema["properties"]["compile_time_limit_s"];
         assert_eq!(compile_time["multipleOf"], 0.5);
         assert_eq!(compile_time["x-precision"], 1);
@@ -845,12 +775,12 @@ mod tests {
         assert_eq!(server.hooks[0].topic, "before_submission");
         assert_eq!(server.hooks[0].function, "check_cooldown");
         assert_eq!(server.hooks[0].scope, HookScope::Resource);
-        assert_eq!(server.hooks[0].mode, HookMode::Blocking); // default
+        assert_eq!(server.hooks[0].mode, HookMode::Blocking);
 
         assert_eq!(server.hooks[1].topic, "before_submission");
         assert_eq!(server.hooks[1].function, "global_audit");
         assert_eq!(server.hooks[1].scope, HookScope::Global);
-        assert_eq!(server.hooks[1].mode, HookMode::Blocking); // default
+        assert_eq!(server.hooks[1].mode, HookMode::Blocking);
     }
 
     #[test]

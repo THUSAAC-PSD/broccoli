@@ -1,7 +1,3 @@
-//! Shared helpers for contest-type plugin API handlers.
-//!
-//! Provides contest metadata loading, access control, and config loading
-//! that every contest plugin (ICPC, IOI, etc.) needs.
 
 use serde::Deserialize;
 
@@ -12,19 +8,15 @@ use crate::error::SdkError;
 use crate::types::PluginHttpRequest;
 use crate::types::PluginHttpResponse;
 
-/// Contest metadata loaded from the database, used for route-level access control.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContestInfo {
     pub contest_type: Option<String>,
     pub is_public: bool,
     pub is_active: bool,
-    /// `"before"`, `"during"`, or `"after"`.
     pub phase: String,
 }
 
 impl ContestInfo {
-    /// Verify this contest matches the expected `contest_type`.
-    /// Returns a 404 `ApiError` if not.
     pub fn require_type(&self, expected: &str) -> Result<(), ApiError> {
         if self.contest_type.as_deref() == Some(expected) {
             Ok(())
@@ -34,9 +26,6 @@ impl ContestInfo {
     }
 }
 
-/// Load contest routing metadata (type, visibility, phase).
-///
-/// Returns 404 `ApiError` if the contest does not exist.
 #[cfg(feature = "guest")]
 pub fn load_info(host: &crate::sdk::Host, contest_id: i32) -> Result<ContestInfo, ApiError> {
     let mut p = crate::db::Params::new();
@@ -58,10 +47,6 @@ pub fn load_info(host: &crate::sdk::Host, contest_id: i32) -> Result<ContestInfo
         .ok_or_else(|| PluginHttpResponse::error(404, "Contest not found").into())
 }
 
-/// Load contest metadata and verify the requesting user can view it.
-///
-/// Returns 404 `ApiError` if the contest does not exist or the user lacks access
-/// (404 instead of 403 to prevent enumeration).
 #[cfg(feature = "guest")]
 pub fn check_access(
     host: &crate::sdk::Host,
@@ -75,9 +60,6 @@ pub fn check_access(
     Ok(info)
 }
 
-/// Check if the requesting user can view a contest.
-///
-/// Admins can always view. Otherwise requires active + (public OR participant).
 #[cfg(feature = "guest")]
 fn can_view(
     host: &crate::sdk::Host,
@@ -100,7 +82,6 @@ fn can_view(
     }
 }
 
-/// Check if a user is enrolled as a participant in a contest.
 #[cfg(feature = "guest")]
 pub fn is_participant(
     host: &crate::sdk::Host,
@@ -127,7 +108,6 @@ pub fn is_participant(
         .is_some_and(|row| row.exists))
 }
 
-/// Check if a problem belongs to a contest.
 #[cfg(feature = "guest")]
 pub fn has_problem(
     host: &crate::sdk::Host,
@@ -154,13 +134,6 @@ pub fn has_problem(
         .is_some_and(|row| row.exists))
 }
 
-/// Verify a user can access a specific problem within a contest.
-///
-/// Requires: contest exists, user is admin or active participant, problem belongs to contest.
-/// Returns 404 for all denial cases to prevent enumeration.
-///
-/// This is for resource plugins (cooldown, submission-limit) that check access at the
-/// problem level within a contest, unlike `check_access` which checks contest-level visibility.
 #[cfg(feature = "guest")]
 pub fn check_problem_access(
     host: &crate::sdk::Host,
@@ -184,9 +157,6 @@ pub fn check_problem_access(
     Ok(())
 }
 
-/// Load a contest-scoped plugin config, deserializing into `T`.
-///
-/// Returns `T::default()` if no config has been set for this contest.
 #[cfg(feature = "guest")]
 pub fn load_config<T: serde::de::DeserializeOwned + Default>(
     host: &crate::sdk::Host,

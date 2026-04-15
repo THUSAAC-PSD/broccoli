@@ -30,7 +30,6 @@ use crate::utils::judging::{
 use crate::utils::problem::find_problem;
 use crate::utils::query::validate_sorting_params;
 use crate::utils::rate_limit::check_rate_limit;
-/// Dispatch `before_submission` hooks and convert the outcome to an AppError if rejected.
 async fn dispatch_before_submission_hooks(
     state: &AppState,
     event: &BeforeSubmissionEvent,
@@ -41,9 +40,8 @@ async fn dispatch_before_submission_hooks(
             .await?;
 
     match outcome {
-        HookOutcome::Allowed(_) | HookOutcome::Stopped => Ok(()), // Stopped is treated as success.
+        HookOutcome::Allowed(_) | HookOutcome::Stopped => Ok(()),
         HookOutcome::Rejected {
-            // Plugins can use Rejected to block.
             code,
             message,
             status_code,
@@ -57,7 +55,6 @@ async fn dispatch_before_submission_hooks(
     }
 }
 
-/// Fire `after_submission` hooks in the background. Non-blocking.
 fn fire_after_submission_hooks(
     state: &AppState,
     submission_id: i32,
@@ -81,11 +78,6 @@ fn fire_after_submission_hooks(
     );
 }
 
-/// Fire `after_judging` hooks in the background after plugin completes.
-///
-/// Re-reads the submission from DB to get the final verdict/score (set by the
-/// plugin via host functions during execution). Only fires if the submission
-/// reached a terminal state.
 async fn fire_after_judging_hooks(
     db: &DatabaseConnection,
     hook_registry: hooks::SharedHookRegistry,
@@ -106,7 +98,6 @@ async fn fire_after_judging_hooks(
         }
     };
 
-    // Only fire if the submission reached a terminal state
     if !sub.status.is_terminal() {
         return;
     }
@@ -116,7 +107,6 @@ async fn fire_after_judging_hooks(
         .map(|v| v.to_string())
         .unwrap_or_else(|| sub.status.to_string());
 
-    // Fetch enablements for contest-scoped hooks
     let enabled_plugins = match hooks::fetch_resource_enablements(problem_id, contest_id, db).await
     {
         Ok(e) => Some(e),
@@ -144,7 +134,6 @@ async fn fire_after_judging_hooks(
     );
 }
 
-/// Find a submission by ID or return 404.
 async fn find_submission<C: ConnectionTrait>(
     db: &C,
     id: i32,
@@ -155,7 +144,6 @@ async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
-/// Dispatch submission to plugin-based judging system.
 #[instrument(skip(state), fields(submission_id = submission.id))]
 pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
     use common::submission_dispatch::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
@@ -329,7 +317,6 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
                 match serde_json::from_slice::<OnSubmissionOutput>(&output_bytes) {
                     Ok(output) => {
                         if !output.success {
-                            // Plugin-level error
                             error!(
                                 submission_id,
                                 error = ?output.error_message,
@@ -375,7 +362,6 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
             }
         }
 
-        // Fire after_judging hooks (reads final verdict/score from DB)
         fire_after_judging_hooks(
             &db,
             hook_registry,
@@ -388,7 +374,6 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
     });
 }
 
-/// Build list items from submissions.
 async fn build_submission_list_items(
     db: &DatabaseConnection,
     submissions: Vec<(submission::Model, Option<user::Model>)>,
@@ -438,13 +423,11 @@ async fn build_submission_list_items(
     Ok(data)
 }
 
-/// Visibility context for determining what a viewer can see.
 struct VisibilityContext {
     viewer_id: i32,
     has_view_all: bool,
 }
 
-/// Lightweight test case metadata (excludes heavy I/O columns).
 #[derive(FromQueryResult)]
 struct TestCaseMeta {
     id: i32,
@@ -452,7 +435,6 @@ struct TestCaseMeta {
     position: i32,
 }
 
-/// Test case I/O data fetched only when needed.
 #[derive(FromQueryResult)]
 struct TestCaseIoData {
     id: i32,
@@ -460,7 +442,6 @@ struct TestCaseIoData {
     expected_output: String,
 }
 
-/// Build full submission response with related data.
 async fn build_submission_response(
     db: &DatabaseConnection,
     sub: submission::Model,
@@ -605,7 +586,6 @@ async fn build_submission_response(
             .collect();
 
         if is_running {
-            // Running: return partial results without submission-level aggregates
             Some(JudgeResultResponse {
                 verdict: None,
                 score: None,
@@ -617,7 +597,6 @@ async fn build_submission_response(
                 test_case_results,
             })
         } else {
-            // Terminal: full result with submission-level aggregates
             Some(JudgeResultResponse {
                 verdict: sub.verdict,
                 score: sub.score,
@@ -664,7 +643,6 @@ async fn build_submission_response(
     })
 }
 
-/// Create a standalone submission for a problem.
 #[utoipa::path(
     post,
     path = "/",
@@ -792,7 +770,6 @@ pub async fn create_submission(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// List submissions.
 #[utoipa::path(
     get,
     path = "/",
@@ -882,7 +859,6 @@ pub async fn list_submissions(
     }))
 }
 
-/// Get a single submission by ID.
 #[utoipa::path(
     get,
     path = "/{id}",
@@ -932,7 +908,6 @@ pub async fn get_submission(
     Ok(Json(response))
 }
 
-/// Rejudge a submission.
 #[utoipa::path(
     post,
     path = "/{id}/rejudge",
@@ -1001,7 +976,6 @@ pub async fn rejudge_submission(
     Ok(Json(response))
 }
 
-/// Create a contest submission.
 #[utoipa::path(
     post,
     path = "/",
@@ -1133,7 +1107,6 @@ pub async fn create_contest_submission(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// List submissions for a contest.
 #[utoipa::path(
     get,
     path = "/",
@@ -1238,7 +1211,6 @@ pub async fn list_contest_submissions(
     }))
 }
 
-/// Bulk rejudge submissions by explicit submission IDs.
 #[utoipa::path(
     post,
     path = "/bulk-rejudge",
@@ -1296,7 +1268,6 @@ pub async fn bulk_rejudge_submissions(
     for batch_ids in all_ids.chunks(BATCH_SIZE) {
         let txn = state.db.begin().await?;
 
-        // Lock rows for update (results discarded — we re-read after update for fresh epoch)
         let _lock = submission::Entity::find()
             .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
             .lock(LockType::Update)
@@ -1355,7 +1326,6 @@ pub async fn bulk_rejudge_submissions(
             .exec(&txn)
             .await?;
 
-        // Re-read after update to get the incremented judge_epoch
         let updated_submissions = submission::Entity::find()
             .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
             .all(&txn)
@@ -1382,7 +1352,6 @@ pub async fn bulk_rejudge_submissions(
     Ok(Json(BulkRejudgeResponse { queued }))
 }
 
-/// Body limit for submission requests.
 pub fn submission_body_limit(max_size: usize) -> axum::extract::DefaultBodyLimit {
     axum::extract::DefaultBodyLimit::max(max_size + 4096)
 }

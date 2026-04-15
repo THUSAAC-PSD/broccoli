@@ -5,7 +5,6 @@ use std::str::FromStr;
 #[cfg(feature = "sea-orm")]
 use sea_orm::entity::prelude::*;
 
-/// Status of a submission during the judging lifecycle.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, utoipa::ToSchema)]
 #[cfg_attr(
     feature = "sea-orm",
@@ -14,23 +13,16 @@ use sea_orm::entity::prelude::*;
 )]
 #[serde(rename_all = "PascalCase")]
 pub enum SubmissionStatus {
-    /// Waiting to be picked up by a worker.
     #[default]
     Pending,
-    /// Currently being compiled.
     Compiling,
-    /// Currently running test cases.
     Running,
-    /// Judging complete.
     Judged,
-    /// Compilation failed.
     CompilationError,
-    /// Internal system error.
     SystemError,
 }
 
 impl SubmissionStatus {
-    /// Returns true if this is a terminal state (judging is complete or failed).
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
@@ -38,17 +30,14 @@ impl SubmissionStatus {
         )
     }
 
-    /// Returns true if this is a successful completion.
     pub fn is_judged(&self) -> bool {
         matches!(self, Self::Judged)
     }
 
-    /// Returns true if this is an error state.
     pub fn is_error(&self) -> bool {
         matches!(self, Self::CompilationError | Self::SystemError)
     }
 
-    /// All possible status values.
     pub const ALL: &'static [SubmissionStatus] = &[
         Self::Pending,
         Self::Compiling,
@@ -58,7 +47,6 @@ impl SubmissionStatus {
         Self::SystemError,
     ];
 
-    /// Returns the string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "Pending",
@@ -77,7 +65,6 @@ impl fmt::Display for SubmissionStatus {
     }
 }
 
-/// Error when parsing an invalid status string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseStatusError {
     invalid: String,
@@ -118,7 +105,6 @@ impl FromStr for SubmissionStatus {
     }
 }
 
-/// Execution verdict for a test case or submission.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, utoipa::ToSchema, Default)]
 #[cfg_attr(
     feature = "sea-orm",
@@ -126,37 +112,26 @@ impl FromStr for SubmissionStatus {
     sea_orm(value_type = "String")
 )]
 pub enum Verdict {
-    /// All tests passed.
     Accepted,
-    /// Output did not match expected output.
     WrongAnswer,
-    /// Exceeded time limit.
     TimeLimitExceeded,
-    /// Exceeded memory limit.
     MemoryLimitExceeded,
-    /// Program crashed or exited with non-zero code.
     RuntimeError,
-    /// Internal judge error during test execution.
     #[default]
     SystemError,
-    /// Test case deliberately skipped (e.g., ICPC stop-on-failure).
     Skipped,
-    /// Plugin-defined custom verdict.
     Other(String),
 }
 
 impl Verdict {
-    /// Returns true if this is an accepted verdict.
     pub fn is_accepted(&self) -> bool {
         matches!(self, Self::Accepted)
     }
 
-    /// Returns true if this is a skipped verdict.
     pub fn is_skipped(&self) -> bool {
         matches!(self, Self::Skipped)
     }
 
-    /// All possible verdict values.
     pub const ALL: &'static [Verdict] = &[
         Self::Accepted,
         Self::WrongAnswer,
@@ -167,7 +142,6 @@ impl Verdict {
         Self::Skipped,
     ];
 
-    /// Returns the string representation.
     pub fn as_str(&self) -> &str {
         match self {
             Self::Accepted => "Accepted",
@@ -181,7 +155,6 @@ impl Verdict {
         }
     }
 
-    /// Severity of the verdict (higher = worse).
     pub fn severity(&self) -> u8 {
         match self {
             Self::Accepted => 0,
@@ -202,7 +175,6 @@ impl fmt::Display for Verdict {
     }
 }
 
-/// Error when parsing an invalid verdict string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseVerdictError {
     invalid: String,

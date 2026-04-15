@@ -11,7 +11,6 @@ pub struct Storage {
 
 #[cfg(target_arch = "wasm32")]
 impl Storage {
-    /// Get multiple keys. Missing keys are omitted from the result.
     pub fn get(&self, keys: &[&str]) -> Result<HashMap<String, String>, SdkError> {
         if keys.is_empty() {
             return Ok(HashMap::new());
@@ -31,13 +30,11 @@ impl Storage {
         Ok(values)
     }
 
-    /// Get a single key.
     pub fn get_one(&self, key: &str) -> Result<Option<String>, SdkError> {
         let mut map = self.get(&[key])?;
         Ok(map.remove(key))
     }
 
-    /// Set multiple key-value pairs.
     pub fn set(&self, entries: &[(&str, &str)]) -> Result<(), SdkError> {
         if entries.is_empty() {
             return Ok(());
@@ -51,7 +48,6 @@ impl Storage {
         Ok(())
     }
 
-    /// Delete multiple keys.
     pub fn delete(&self, keys: &[&str]) -> Result<(), SdkError> {
         if keys.is_empty() {
             return Ok(());
@@ -61,9 +57,6 @@ impl Storage {
         Ok(())
     }
 
-    /// Set `key` to `new` only if the current value equals `expected`.
-    /// Returns `true` if the swap succeeded.
-    /// `expected = None` means "only set if the key doesn't exist yet".
     pub fn compare_and_set(
         &self,
         key: &str,
@@ -81,27 +74,12 @@ impl Storage {
         Ok(result["swapped"].as_bool().unwrap_or(false))
     }
 
-    /// Atomically read-modify-write a JSON value.
-    ///
-    /// Reads the current value (or `T::default()` if absent), calls `f` to
-    /// modify it, and writes back. Retries automatically on contention.
-    ///
-    /// ```ignore
-    /// let state = host.storage.modify::<TokenState, _>(&key, |state| {
-    ///     if state.available == 0 {
-    ///         return Err(SdkError::Other("No tokens".into()));
-    ///     }
-    ///     state.used += 1;
-    ///     Ok(())
-    /// })?;
-    /// ```
     pub fn modify<T, F>(&self, key: &str, f: F) -> Result<T, SdkError>
     where
         T: serde::Serialize + DeserializeOwned + Default,
         F: Fn(&mut T) -> Result<(), SdkError>,
     {
         for _ in 0..100 {
-            // retry limit
             let old_raw = self.get_one(key)?;
             let mut val: T = match &old_raw {
                 Some(json) => serde_json::from_str(json)?,

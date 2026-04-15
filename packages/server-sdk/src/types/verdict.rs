@@ -15,7 +15,6 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    /// Severity of the verdict (higher = worse).
     pub fn severity(&self) -> u8 {
         match self {
             Self::Accepted => 0,
@@ -30,9 +29,6 @@ impl Verdict {
         }
     }
 
-    /// Maps this verdict to the DB-compatible string representation.
-    ///
-    /// `CompileError` -> `"SystemError"` in the DB.
     pub fn to_db_str(&self) -> &str {
         match self {
             Self::Accepted => "Accepted",

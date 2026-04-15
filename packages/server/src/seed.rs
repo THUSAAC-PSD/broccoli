@@ -7,12 +7,9 @@ use crate::entity::{
     submission, user,
 };
 
-/// Default roles seeded on startup.
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
 
-/// Default role-permission mappings seeded on startup.
 const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
-    // Admin: all permissions
     ("admin", "submission:submit"),
     ("admin", "submission:view_all"),
     ("admin", "submission:rejudge"),
@@ -26,18 +23,14 @@ const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
     ("admin", "role:manage"),
     ("admin", "plugin:manage"),
     ("admin", "dlq:manage"),
-    // Problem setter
     ("problem_setter", "submission:submit"),
     ("problem_setter", "submission:view_all"),
     ("problem_setter", "problem:create"),
     ("problem_setter", "problem:edit"),
-    // Contestant
     ("contestant", "submission:submit"),
 ];
 
-/// Seed the `role` and `role_permission` tables with defaults.
 pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // Seed roles
     let mut roles_inserted = 0u32;
     for &name in DEFAULT_ROLES {
         let model = role::ActiveModel {
@@ -64,7 +57,6 @@ pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr>
         info!("Seeded {} new roles", roles_inserted);
     }
 
-    // Seed role-permission mappings
     let mut perms_inserted = 0u32;
     for &(role, permission) in DEFAULT_MAPPINGS {
         let model = role_permission::ActiveModel {
@@ -98,13 +90,7 @@ pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr>
     Ok(())
 }
 
-/// Ensure required database indexes exist.
-///
-/// SeaORM's schema-sync doesn't support composite non-unique indexes,
-/// so we create them manually on startup.
 pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // Composite index for rate limiting queries:
-    // SELECT COUNT(*) FROM submission WHERE user_id = ? AND created_at > ?
     let stmt = Index::create()
         .if_not_exists()
         .name("idx_submission_user_created")
@@ -124,8 +110,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // Composite index for DLQ queries:
-    // list unresolved messages, filter by submission
     let stmt = Index::create()
         .if_not_exists()
         .name("idx_dlq_resolved_created")
@@ -144,9 +128,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // For soft-delete: user.username was previously a full UNIQUE constraint.
-    // The constraint is now dropped in init_db (before schema-sync).
-    // Here we only need to ensure the partial unique index exists.
     let stmt = Index::create()
         .if_not_exists()
         .unique()
@@ -161,7 +142,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         Err(e) => tracing::warn!("Failed to create idx_user_username_active: {}", e),
     }
 
-    // Unique composite index for problem_attachment upsert: (problem_id, path).
     let stmt = Index::create()
         .if_not_exists()
         .unique()
@@ -184,7 +164,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // Non-unique index for listing attachments by problem.
     let stmt = Index::create()
         .if_not_exists()
         .name("idx_problem_attachment_problem_id")
@@ -205,7 +184,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // Unique composite index for additional_file upsert: (problem_id, language, path).
     let stmt = Index::create()
         .if_not_exists()
         .unique()
@@ -229,7 +207,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // Non-unique index for listing additional files by problem.
     let stmt = Index::create()
         .if_not_exists()
         .name("idx_additional_file_problem_id")
@@ -250,7 +227,6 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
-    // Composite index for listing clarifications by contest.
     let stmt = Index::create()
         .if_not_exists()
         .name("idx_clarification_contest_created")

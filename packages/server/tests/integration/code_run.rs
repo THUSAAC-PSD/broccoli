@@ -1,7 +1,6 @@
 use crate::common::{TestApp, routes};
 use serde_json::json;
 
-/// Create a minimal valid code run payload with one custom test case.
 fn valid_code_run_body() -> serde_json::Value {
     json!({
         "files": [{"filename": "main.cpp", "content": "#include <iostream>\nint main() {}"}],
@@ -12,7 +11,6 @@ fn valid_code_run_body() -> serde_json::Value {
     })
 }
 
-/// Create a code run payload with multiple custom test cases.
 fn multi_tc_code_run_body() -> serde_json::Value {
     json!({
         "files": [{"filename": "main.cpp", "content": "#include <iostream>\nint main() {}"}],
@@ -50,7 +48,6 @@ mod code_run_creation {
         assert_eq!(res.body["problem_id"], problem_id);
         assert!(res.body["contest_id"].is_null());
 
-        // custom_test_cases is always present (not optional) on CodeRunResponse
         let tcs = res.body["custom_test_cases"].as_array().unwrap();
         assert_eq!(tcs.len(), 1);
         assert_eq!(tcs[0]["input"], "5\n1 2 3 4 5");
@@ -75,7 +72,6 @@ mod code_run_creation {
         assert_eq!(res.status, 201);
         let tcs = res.body["custom_test_cases"].as_array().unwrap();
         assert_eq!(tcs.len(), 3);
-        // Second test case has no expected_output
         assert!(tcs[1]["expected_output"].is_null());
     }
 
@@ -256,13 +252,11 @@ mod code_run_retrieval {
             .await;
         let code_run_id = create_res.id();
 
-        // Different user tries to access
         let other_token = app.create_authenticated_user("user2", "pass1234").await;
         let get_res = app
             .get_with_token(&routes::code_run(code_run_id), &other_token)
             .await;
 
-        // Returns 404 (not 403) to prevent enumeration
         assert_eq!(get_res.status, 404);
         assert_eq!(get_res.body["code"], "NOT_FOUND");
     }
@@ -328,7 +322,6 @@ mod code_run_isolation {
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
 
-        // Create a code run
         let run_body = valid_code_run_body();
         let run_res = app
             .post_with_token(
@@ -339,7 +332,6 @@ mod code_run_isolation {
             .await;
         assert_eq!(run_res.status, 201);
 
-        // Create a regular submission
         let sub_body = json!({
             "files": [{"filename": "main.cpp", "content": "#include <iostream>\nint main() {}"}],
             "language": "cpp",
@@ -353,7 +345,6 @@ mod code_run_isolation {
             .await;
         assert_eq!(sub_res.status, 201);
 
-        // List submissions — should only contain the submission, not the code run
         let list_res = app.get_with_token(routes::SUBMISSIONS, &user_token).await;
 
         assert_eq!(list_res.status, 200);
@@ -378,9 +369,7 @@ mod code_run_isolation {
             .await;
 
         assert_eq!(res.status, 201);
-        // CodeRunResponse should NOT have a "mode" field
         assert!(res.body.get("mode").is_none());
-        // But should always have custom_test_cases (not optional)
         assert!(res.body["custom_test_cases"].is_array());
     }
 
@@ -403,7 +392,6 @@ mod code_run_isolation {
             .await;
 
         assert_eq!(res.status, 201);
-        // SubmissionResponse should NOT have mode or custom_test_cases anymore
         assert!(res.body.get("mode").is_none());
         assert!(res.body.get("custom_test_cases").is_none());
     }
@@ -457,7 +445,6 @@ mod contest_code_runs {
             .await;
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
-        // Not registered as participant
 
         let body = valid_code_run_body();
         let res = app
@@ -481,7 +468,6 @@ mod contest_code_runs {
         let contest_id = app
             .create_contest(&admin_token, "Test Contest", true, false)
             .await;
-        // Problem NOT added to contest
 
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
         app.register_for_contest(contest_id, &user_token).await;
@@ -515,7 +501,6 @@ mod contest_code_runs {
         let user_token = app.create_authenticated_user("user1", "pass1234").await;
         app.register_for_contest(contest_id, &user_token).await;
 
-        // Create a code run in the contest
         let run_body = valid_code_run_body();
         let run_res = app
             .post_with_token(
@@ -526,7 +511,6 @@ mod contest_code_runs {
             .await;
         assert_eq!(run_res.status, 201);
 
-        // Create a regular submission in the contest
         let sub_body = json!({
             "files": [{"filename": "main.cpp", "content": "#include <iostream>\nint main() {}"}],
             "language": "cpp",
@@ -540,7 +524,6 @@ mod contest_code_runs {
             .await;
         assert_eq!(sub_res.status, 201);
 
-        // List contest submissions — should only show the submission
         let list_res = app
             .get_with_token(&routes::contest_submissions(contest_id), &admin_token)
             .await;

@@ -96,10 +96,8 @@ async fn list_config_inner<C: ConnectionTrait>(
         .into_iter()
         .map(|r| {
             let (plugin_id, namespace) = if scope == "plugin" {
-                // Plugin-global scope: ref_id is the plugin_id, namespace is raw
                 (ref_id.to_string(), r.namespace.clone())
             } else {
-                // Resource scopes: namespace is composite "{plugin_id}:{raw_ns}"
                 (
                     extract_plugin_id(&r.namespace).to_string(),
                     strip_namespace_prefix(&r.namespace).to_string(),
@@ -125,7 +123,6 @@ async fn list_config_inner<C: ConnectionTrait>(
         })
         .collect();
 
-    // Add skeleton entries for schemas that have no saved config
     for schema in available_schemas {
         let key = (schema.plugin_id.clone(), schema.namespace.clone());
         if !seen_keys.contains(&key) {
@@ -183,8 +180,6 @@ async fn get_config_inner<C: ConnectionTrait>(
     }
 }
 
-/// Upsert a config row. Response is constructed optimistically from input values
-/// (not re-read from DB), so `updated_at` reflects app-side `Utc::now()`.
 #[allow(clippy::too_many_arguments)]
 async fn upsert_config_inner<C: ConnectionTrait>(
     db: &C,
@@ -268,7 +263,6 @@ async fn delete_config_inner<C: ConnectionTrait>(
     }
 }
 
-/// Delete all config rows matching a scope and ref_id.
 pub async fn delete_config_by_scope<C: ConnectionTrait>(
     db: &C,
     scope: &str,
@@ -282,10 +276,6 @@ pub async fn delete_config_by_scope<C: ConnectionTrait>(
     Ok(())
 }
 
-/// Delete all config rows matching a scope and ref_id LIKE pattern.
-///
-/// `ref_id_pattern` must be constructed from integer IDs only (via `config_key::*_like` helpers).
-/// Do not pass user-supplied strings; they are not LIKE-escaped.
 pub async fn delete_config_by_scope_like<C: ConnectionTrait>(
     db: &C,
     scope: &str,
@@ -449,8 +439,6 @@ pub async fn delete_plugin_global_config(
     let ref_id = config_key::plugin(&plugin_id);
     delete_config_inner(&state.db, "plugin", &ref_id, &namespace).await
 }
-
-// ── Problem-level config endpoints ──────────────────────────────────────────
 
 #[utoipa::path(
     get,

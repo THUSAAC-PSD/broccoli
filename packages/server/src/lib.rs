@@ -65,7 +65,6 @@ impl Modify for SecurityAddon {
     }
 }
 
-/// Build the application router.
 pub fn build_router(state: AppState) -> axum::Router {
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
 

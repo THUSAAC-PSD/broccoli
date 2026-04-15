@@ -44,7 +44,6 @@ mod clarification_creation {
             .await;
         let cid = app.create_contest(&admin, "C1", true, false).await;
 
-        // Try announcement
         let body_ann = json!({
             "content": "Hack the server",
             "clarification_type": "announcement",
@@ -54,7 +53,6 @@ mod clarification_creation {
             .await;
         assert_eq!(res1.status, 403);
 
-        // Try DM
         let body_dm = json!({
             "content": "Psst",
             "clarification_type": "direct_message",
@@ -84,7 +82,7 @@ mod clarification_creation {
             .await;
 
         assert_eq!(res.status, 201);
-        assert_eq!(res.body["is_public"], true); // Forced to true by handler
+        assert_eq!(res.body["is_public"], true);
     }
 }
 
@@ -109,7 +107,6 @@ mod clarification_visibility {
         app.register_for_contest(cid, &u2).await;
         let u2_id = app.get_with_token(routes::ME, &u2).await.id();
 
-        // U1 asks a private question
         app.post_with_token(
             &routes::contest_clarifications(cid),
             &json!({
@@ -120,7 +117,6 @@ mod clarification_visibility {
         )
         .await;
 
-        // Admin creates a DM for U2
         app.post_with_token(
             &routes::contest_clarifications(cid),
             &json!({
@@ -132,7 +128,6 @@ mod clarification_visibility {
         )
         .await;
 
-        // Admin makes a public announcement
         app.post_with_token(
             &routes::contest_clarifications(cid),
             &json!({
@@ -143,13 +138,11 @@ mod clarification_visibility {
         )
         .await;
 
-        // Admin sees all 3
         let res_admin = app
             .get_with_token(&routes::contest_clarifications(cid), &admin)
             .await;
         assert_eq!(res_admin.body["data"].as_array().unwrap().len(), 3);
 
-        // U1 sees: own question + announcement
         let res_u1 = app
             .get_with_token(&routes::contest_clarifications(cid), &u1)
             .await;
@@ -165,9 +158,8 @@ mod clarification_visibility {
                 .iter()
                 .any(|c| c["content"] == "Public Announcement")
         );
-        assert!(!data_u1.iter().any(|c| c["content"] == "DM to U2")); // Cannot see DM to U2
+        assert!(!data_u1.iter().any(|c| c["content"] == "DM to U2"));
 
-        // U2 sees: DM + announcement
         let res_u2 = app
             .get_with_token(&routes::contest_clarifications(cid), &u2)
             .await;
@@ -178,7 +170,7 @@ mod clarification_visibility {
             !data_u2
                 .iter()
                 .any(|c| c["content"] == "U1 private question")
-        ); // Cannot see U1's Q
+        );
     }
 
     #[tokio::test]
@@ -195,7 +187,6 @@ mod clarification_visibility {
             .await;
         let cid = app.create_contest(&admin, "C1", true, false).await;
 
-        // U1 asks question
         let q_res = app
             .post_with_token(
                 &routes::contest_clarifications(cid),
@@ -208,7 +199,6 @@ mod clarification_visibility {
             .await;
         let clar_id = q_res.id();
 
-        // Admin replies (initially private)
         let rep_res = app
             .post_with_token(
                 &routes::contest_clarification_reply(cid, clar_id),
@@ -223,13 +213,11 @@ mod clarification_visibility {
 
         let reply_id = rep_res.body["replies"][0]["id"].as_i64().unwrap() as i32;
 
-        // U2 shouldn't see it yet
         let res_u2_before = app
             .get_with_token(&routes::contest_clarifications(cid), &u2)
             .await;
         assert_eq!(res_u2_before.body["data"].as_array().unwrap().len(), 0);
 
-        // Admin toggles reply to public, BUT does NOT include question (include_question=false default)
         app.post_with_token(
             &routes::contest_clarification_toggle(cid, clar_id, reply_id),
             &json!({}),
@@ -237,7 +225,6 @@ mod clarification_visibility {
         )
         .await;
 
-        // U2 should now see the thread, but question is redacted
         let res_u2_after = app
             .get_with_token(&routes::contest_clarifications(cid), &u2)
             .await;
@@ -283,7 +270,6 @@ mod clarification_actions {
             .await;
         let clar_id = q_res.id();
 
-        // Resolve
         let res = app
             .post_with_token(
                 &routes::contest_clarification_resolve(cid, clar_id),
@@ -295,7 +281,6 @@ mod clarification_actions {
         assert_eq!(res.body["resolved"], true);
         assert_eq!(res.body["resolved_by_name"], "u1");
 
-        // Reopen
         let res = app
             .post_with_token(
                 &routes::contest_clarification_resolve(cid, clar_id),
@@ -334,7 +319,6 @@ mod clarification_actions {
             .await;
         let clar_id = q_res.id();
 
-        // U2 tries to reply
         let rep_res = app
             .post_with_token(
                 &routes::contest_clarification_reply(cid, clar_id),
@@ -347,7 +331,6 @@ mod clarification_actions {
             .await;
         assert_eq!(rep_res.status, 403);
 
-        // U2 tries to resolve
         let res_res = app
             .post_with_token(
                 &routes::contest_clarification_resolve(cid, clar_id),

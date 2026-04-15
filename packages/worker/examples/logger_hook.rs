@@ -1,11 +1,9 @@
-// Example: Simple Logger Hook
 
 use anyhow::Result;
 use async_trait::async_trait;
 use common::hook::{Hook, HookAction};
 use common::worker::TaskEvent;
 
-/// A simple logger hook that logs all task events
 pub struct LoggerHook {
     topics: Vec<String>,
 }
@@ -62,10 +60,8 @@ impl Hook<TaskEvent> for LoggerHook {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Example usage of LoggerHook
     let mut registry = common::hook::HookRegistry::new(());
 
-    // Register the logger hook
     registry.add_hook(LoggerHook::new())?;
 
     println!("Logger hook example registered successfully!");

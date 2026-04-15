@@ -5,18 +5,13 @@ use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{EntityTrait, Set};
 
-/// Caches entire step outputs keyed by
-/// (input files hash + architecture + argv).
 #[async_trait]
 pub trait TaskCacheStore: Send + Sync {
-    /// Look up cached step outputs. Returns map of filename -> content_hash hex.
     async fn get(&self, cache_key: &str) -> Result<Option<HashMap<String, String>>, String>;
 
-    /// Store step outputs after successful execution.
     async fn put(&self, cache_key: &str, outputs: HashMap<String, String>) -> Result<(), String>;
 }
 
-/// Database-backed task cache store using an inline SeaORM entity.
 pub struct DatabaseTaskCacheStore {
     db: sea_orm::DatabaseConnection,
 }
@@ -87,7 +82,6 @@ impl TaskCacheStore for DatabaseTaskCacheStore {
     }
 }
 
-/// No-op task cache for tests. Will always return cache miss.
 pub struct NoopTaskCacheStore;
 
 #[async_trait]
@@ -110,11 +104,9 @@ pub mod task_cache {
     #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
     #[sea_orm(table_name = "task_cache")]
     pub struct Model {
-        /// SHA-256 cache key encoding (target triple + argv + input file contents).
         #[sea_orm(primary_key, auto_increment = false)]
         pub cache_key: String,
 
-        /// JSON map of output filename -> content_hash hex.
         #[sea_orm(column_type = "JsonBinary")]
         pub outputs: serde_json::Value,
 
@@ -124,15 +116,8 @@ pub mod task_cache {
     impl ActiveModelBehavior for ActiveModel {}
 }
 
-/// The full target triple (e.g. `x86_64-unknown-linux-gnu`), injected at compile
-/// time via `build.rs`.
 const TARGET_TRIPLE: &str = env!("TARGET_TRIPLE");
 
-/// Compute a deterministic cache key for a step.
-///
-/// Key = SHA256(target_triple + "\0" + toolchain_fingerprint + "\0" + argv_joined + "\0" + sorted(filename + "\0" + content_len + "\0" + content))
-///
-/// Pass `""` as `toolchain_fingerprint` when version probing is disabled or in tests.
 pub fn compute_cache_key(
     toolchain_fingerprint: &str,
     argv: &[String],

@@ -12,42 +12,18 @@ use super::error::StorageError;
 use super::hash::ContentHash;
 use super::traits::{BlobStore, BoxReader};
 
-/// Configuration for constructing an [`ObjectStorageBlobStore`].
 #[derive(Debug, Clone)]
 pub struct ObjectStorageConfig {
-    /// S3 bucket name.
     pub bucket: String,
-    /// Region name (e.g. `"us-east-1"`, arbitrary for MinIO).
     pub region: String,
-    /// Custom endpoint URL (e.g. `"http://localhost:9000"` for MinIO).
-    /// If `None`, the default AWS endpoint for the region is used.
     pub endpoint: Option<String>,
-    /// S3 access key.
     pub access_key: Option<String>,
-    /// S3 secret key.
     pub secret_key: Option<String>,
-    /// Use path-style addressing (required for MinIO / local S3-compat services).
     pub path_style: bool,
-    /// Maximum blob size in bytes.
     pub max_size: u64,
-    /// Temporary directory for streaming uploads.
-    /// Defaults to `std::env::temp_dir()` if not set.
     pub temp_dir: Option<PathBuf>,
 }
 
-/// A [`BlobStore`] backed by an S3-compatible object storage service.
-///
-/// Objects are stored with content-addressed keys in the format
-/// `{shard_prefix}/{shard_suffix}` (e.g. `ab/cdef0123…`), consistent
-/// with the [`FilesystemBlobStore`](super::filesystem::FilesystemBlobStore) layout.
-///
-/// ## Streaming
-///
-/// - **Upload** (`put_stream`): data is streamed to a local temp file while
-///   computing the SHA-256 hash, then the temp file is streamed to S3.
-/// - **Download** (`get_stream`): S3 response bytes are bridged to
-///   `tokio::io::AsyncRead` via `StreamReader`, so callers receive a streaming
-///   reader without buffering the whole object in memory.
 pub struct ObjectStorageBlobStore {
     bucket: Box<Bucket>,
     max_size: u64,
@@ -55,7 +31,6 @@ pub struct ObjectStorageBlobStore {
 }
 
 impl ObjectStorageBlobStore {
-    /// Create a new `ObjectStorageBlobStore` from the given config.
     pub fn new(config: ObjectStorageConfig) -> Result<Self, StorageError> {
         let region = match &config.endpoint {
             Some(endpoint) => Region::Custom {
@@ -71,9 +46,9 @@ impl ObjectStorageBlobStore {
         let credentials = Credentials::new(
             config.access_key.as_deref(),
             config.secret_key.as_deref(),
-            None, // security_token
-            None, // session_token
-            None, // profile
+            None,
+            None,
+            None,
         )
         .map_err(|e| StorageError::Backend(format!("invalid credentials: {e}")))?;
 
@@ -93,12 +68,10 @@ impl ObjectStorageBlobStore {
         })
     }
 
-    /// Compute the S3 object key for a given content hash.
     fn object_key(hash: &ContentHash) -> String {
         format!("{}/{}", hash.shard_prefix(), hash.shard_suffix())
     }
 
-    /// Path for a temporary file during streaming uploads.
     fn temp_path(&self) -> PathBuf {
         self.temp_dir
             .join(format!(".s3_upload_{}", uuid::Uuid::new_v4()))
@@ -108,7 +81,6 @@ impl ObjectStorageBlobStore {
 #[async_trait]
 impl BlobStore for ObjectStorageBlobStore {
     async fn put_stream(&self, mut reader: BoxReader) -> Result<ContentHash, StorageError> {
-        // Stream to a temp file while computing the hash.
         let temp_path = self.temp_path();
         let mut hasher = Sha256::new();
         let mut total_bytes: u64 = 0;
@@ -148,7 +120,6 @@ impl BlobStore for ObjectStorageBlobStore {
 
             debug!(key = %key, size = total_bytes, "streaming temp file to S3");
 
-            // Stream the temp file to S3.
             let mut upload_file = fs::File::open(&temp_path).await?;
             let put_response = self
                 .bucket
@@ -168,7 +139,6 @@ impl BlobStore for ObjectStorageBlobStore {
         }
         .await;
 
-        // Always clean up the temp file.
         let _ = fs::remove_file(&temp_path).await;
 
         result
@@ -193,7 +163,6 @@ impl BlobStore for ObjectStorageBlobStore {
             )));
         }
 
-        // rust-s3's ResponseDataStream implements AsyncRead under with-tokio.
         Ok(Box::new(response))
     }
 
@@ -204,7 +173,6 @@ impl BlobStore for ObjectStorageBlobStore {
             Ok(_) => Ok(true),
             Err(e) => {
                 let err_str = e.to_string();
-                // rust-s3 returns an error for 404 HEAD responses.
                 if err_str.contains("404") || err_str.contains("Not Found") {
                     Ok(false)
                 } else {
@@ -223,7 +191,6 @@ impl BlobStore for ObjectStorageBlobStore {
             .await
             .map_err(|e| StorageError::Backend(format!("delete_object failed: {e}")))?;
 
-        // S3 returns 204 on successful delete, 404 if not found.
         Ok(response.status_code() == 204)
     }
 

@@ -4,17 +4,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::event::{Event, GenericEvent};
 
-// TODO: add hook priorities?
-
-/// Typed hook, used for specific event type
 #[async_trait]
 pub trait Hook<E: Event>: Send + Sync {
     type Output: Event;
     type Context: Send + Sync + 'static;
 
-    /// Hook identifier
     fn id(&self) -> &str;
-    /// Get the topics this hook is interested in
     fn topics(&self) -> &[String];
 
     fn on_register(&self, _ctx: Self::Context) -> Result<()> {
@@ -26,8 +21,6 @@ pub trait Hook<E: Event>: Send + Sync {
     async fn on_event(&self, ctx: Self::Context, e: &E) -> Result<HookAction<E, Self::Output>>;
 }
 
-/// E: input event type
-/// O: output event type (for chaining)
 pub enum HookAction<E: Event, O: Event = E> {
     Pass,
     Stop,
@@ -38,14 +31,11 @@ pub enum HookAction<E: Event, O: Event = E> {
 
 pub type GenericHookAction = HookAction<GenericEvent>;
 
-/// Generic hook trait object for dynamic dispatch
 #[async_trait]
 pub trait GenericHook: Send + Sync {
     type Context: Send + Sync + 'static;
 
-    /// Hook identifier
     fn id(&self) -> &str;
-    /// Get the topics this hook is interested in
     fn topics(&self) -> &[String];
 
     fn on_register(&self, _ctx: Self::Context) -> Result<()> {
@@ -57,7 +47,6 @@ pub trait GenericHook: Send + Sync {
     async fn on_event(&self, ctx: Self::Context, e: &GenericEvent) -> Result<GenericHookAction>;
 }
 
-/// Adapter to convert typed `Hook<E>` into GenericHook
 pub struct HookAdapter<E: Event, H: Hook<E>> {
     hook: Arc<H>,
     _phantom: std::marker::PhantomData<E>,
@@ -102,8 +91,6 @@ impl<E: Event, H: Hook<E>> GenericHook for HookAdapter<E, H> {
     }
 }
 
-/// Generic hook registry to manage hooks
-/// All hooks share the same context in a single registry
 #[derive(Clone)]
 pub struct HookRegistry<Context: Send + Sync + Copy + 'static = ()> {
     ctx: Context,
@@ -118,7 +105,6 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         }
     }
 
-    /// Add a typed hook to the registry
     pub fn add_hook<E: Event + 'static, H: Hook<E, Context = C> + 'static>(
         &mut self,
         hook: H,
@@ -138,7 +124,6 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         Ok(())
     }
 
-    /// Add a generic hook to the registry
     pub fn add_generic_hook(&mut self, hook: Arc<dyn GenericHook<Context = C>>) -> Result<()> {
         hook.on_register(self.ctx)?;
         for topic in hook.topics() {
@@ -150,7 +135,6 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         Ok(())
     }
 
-    /// Remove the first hook matching `hook_id`.
     pub fn remove_hook(&mut self, hook_id: &str) -> Result<()> {
         let hooks = &mut self.hooks;
 
@@ -165,17 +149,12 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
         Err(anyhow::anyhow!("Hook not found: {}", hook_id))
     }
 
-    /// Remove ALL hooks whose `id()` matches `hook_id` across all topics.
-    ///
-    /// Used when unloading a plugin that registered multiple hooks.
     pub fn remove_hooks_by_id(&mut self, hook_id: &str) {
         for hooks_list in self.hooks.values_mut() {
             hooks_list.retain(|h| h.id() != hook_id);
         }
     }
 
-    /// Trigger all hooks for an event
-    /// @return true if event is allowed to proceed, false if stopped
     pub async fn trigger<E: Event>(&self, event: &E) -> Result<HookAction<E>> {
         let topic = event.topic();
         let hooks = match self.hooks.get(topic) {
@@ -199,7 +178,6 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
                     return Ok(HookAction::Reject(reason));
                 }
                 HookAction::Chain(events) => {
-                    // TODO: whether to auto trigger these chained events
                     return Ok(HookAction::Chain(
                         events
                             .into_iter()
@@ -218,7 +196,6 @@ impl<C: Send + Sync + Copy + 'static> HookRegistry<C> {
 mod tests {
     use super::*;
 
-    /// A test hook that always returns a configurable action.
     struct FixedActionHook {
         id: String,
         topics: Vec<String>,
@@ -266,7 +243,6 @@ mod tests {
         let event = make_event("test");
         let result = registry.trigger(&event).await;
 
-        // The bug was: Reject was returned as Err. After fix, it's Ok(Reject).
         assert!(result.is_ok(), "Reject should be Ok, not Err");
         match result.unwrap() {
             HookAction::Reject(reason) => assert_eq!(reason, "cooldown active"),

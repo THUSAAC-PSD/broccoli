@@ -14,20 +14,17 @@ use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-/// Input for get_next_evaluate_result
 #[derive(Deserialize)]
 struct GetNextEvaluateResultInput {
     batch_id: String,
     timeout_ms: u64,
 }
 
-/// Input for cancel_evaluate_batch
 #[derive(Deserialize)]
 struct CancelEvaluateBatchInput {
     batch_id: String,
 }
 
-/// Named context for evaluate host functions.
 struct EvaluateContext {
     plugin_id: String,
     plugin_manager: Arc<dyn PluginManager>,
@@ -131,7 +128,6 @@ fn start_evaluate_batch_fn(
     let resolved_inputs = if input.test_cases.is_empty() {
         Vec::new()
     } else {
-        // Only query DB for test cases that aren't inline (custom run TCs have inline_input)
         let tc_ids: Vec<i32> = input
             .test_cases
             .iter()
@@ -164,7 +160,6 @@ fn start_evaluate_batch_fn(
         let (tc_data_map, problem_model, checker_config_model, additional_file_refs) =
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    // Get test case input + expected_output (only for DB-backed TCs)
                     let tc_models = if tc_ids.is_empty() {
                         Vec::new()
                     } else {
@@ -182,7 +177,6 @@ fn start_evaluate_batch_fn(
                         .map(|m| (m.id, (m.input, m.expected_output)))
                         .collect();
 
-                    // Get problem checker info
                     let problem_model = problem::Entity::find_by_id(problem_id)
                         .one(&db)
                         .await
@@ -190,7 +184,6 @@ fn start_evaluate_batch_fn(
                             extism::Error::msg(format!("Failed to query problem: {}", e))
                         })?;
 
-                    // Get checker config (namespaced under the calling plugin's ID)
                     let checker_ns = format!("{}:checker", caller_plugin_id);
                     let checker_config = plugin_config::Entity::find_by_id((
                         "problem".to_string(),
@@ -259,7 +252,6 @@ fn start_evaluate_batch_fn(
                 let (test_input, expected_output, tc_checker_format) =
                     if let Some(ref inline) = tc.inline_input {
                         let expected = tc.inline_expected_output.clone().unwrap_or_default();
-                        // No expected output so use "none" checker (always Accepted)
                         let fmt = if tc.inline_expected_output.is_none() {
                             Some("none".to_string())
                         } else {

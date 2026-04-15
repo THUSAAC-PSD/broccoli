@@ -137,7 +137,6 @@ mod user_deletion {
             .await;
         assert_eq!(delete_res.status, 204, "delete failed: {}", delete_res.text);
 
-        // Refresh token should be revoked
         let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
         assert_eq!(refresh_res.status, 401);
         assert_eq!(refresh_res.body["code"], "TOKEN_INVALID");
@@ -207,7 +206,6 @@ mod user_modification {
         let victim_token = app.create_authenticated_user("victim", "old_pass").await;
         let victim_id = app.get_with_token(routes::ME, &victim_token).await.id();
 
-        // Admin updates the password
         let res = app
             .patch_with_token(
                 &routes::user(victim_id),
@@ -217,12 +215,10 @@ mod user_modification {
             .await;
         assert_eq!(res.status, 200);
 
-        // Refresh token should be revoked
         let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
         assert_eq!(refresh_res.status, 401);
         assert_eq!(refresh_res.body["code"], "TOKEN_INVALID");
 
-        // Old password should fail
         let login_old = app
             .post_without_token(
                 routes::LOGIN,
@@ -231,7 +227,6 @@ mod user_modification {
             .await;
         assert_eq!(login_old.status, 401);
 
-        // New password should succeed
         let login_new = app
             .post_without_token(
                 routes::LOGIN,
@@ -253,7 +248,6 @@ mod user_modification {
             .patch_with_token(&routes::user(id), &json!({"username": "new_name"}), &token)
             .await;
 
-        // Fails because the user doesn't have 'user:manage' even for their own ID
         assert_eq!(res.status, 403);
     }
 
@@ -268,7 +262,6 @@ mod user_modification {
             .await;
         let user_id = app.get_with_token(routes::ME, &user_token).await.id();
 
-        // Assign 'problem_setter' role
         let assign_res = app
             .post_with_token(
                 &routes::user_roles(user_id),
@@ -278,12 +271,10 @@ mod user_modification {
             .await;
         assert_eq!(assign_res.status, 201);
 
-        // Refresh token should be revoked
         let refresh_res = app.post_without_token(routes::REFRESH, &json!({})).await;
         assert_eq!(refresh_res.status, 401);
         assert_eq!(refresh_res.body["code"], "TOKEN_INVALID");
 
-        // Re-login to get updated roles
         let login_res = app
             .post_without_token(
                 routes::LOGIN,
@@ -294,13 +285,11 @@ mod user_modification {
         let roles = login_res.body["roles"].as_array().unwrap();
         assert!(roles.contains(&json!("problem_setter")));
 
-        // Unassign the role
         let unassign_res = app
             .delete_with_token(&routes::user_role(user_id, "problem_setter"), &admin_token)
             .await;
         assert_eq!(unassign_res.status, 204);
 
-        // Verify it is gone
         let me_res_after = app.get_with_token(routes::ME, &user_token).await;
         assert!(
             !me_res_after.body["roles"]
@@ -331,13 +320,11 @@ mod role_management {
     #[tokio::test]
     async fn admin_can_manage_role_permissions() {
         let app = TestApp::spawn().await;
-        // Assume 'admin' role has 'role:manage' permission
         let admin_token = app
             .create_user_with_role("super_admin", "securepass", "admin")
             .await;
         let test_role = "contestant";
 
-        // Grant a new permission
         let grant_res = app
             .post_with_token(
                 &routes::role_permissions(test_role),
@@ -347,14 +334,12 @@ mod role_management {
             .await;
         assert_eq!(grant_res.status, 201);
 
-        // List permissions and verify
         let list_res = app
             .get_with_token(&routes::role_permissions(test_role), &admin_token)
             .await;
         let perms = list_res.body.as_array().unwrap();
         assert!(perms.contains(&json!("experimental:feature")));
 
-        // Revoke the permission
         let revoke_res = app
             .delete_with_token(
                 &routes::role_permission(test_role, "experimental:feature"),
@@ -363,7 +348,6 @@ mod role_management {
             .await;
         assert_eq!(revoke_res.status, 204);
 
-        // Verify it's gone
         let list_res_final = app
             .get_with_token(&routes::role_permissions(test_role), &admin_token)
             .await;

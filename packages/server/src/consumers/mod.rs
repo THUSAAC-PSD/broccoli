@@ -9,14 +9,6 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, DbBackend, Set, Statement};
 
 use crate::entity::code_run;
 
-/// Mark a submission as SystemError with the given error code and message.
-///
-/// When `judge_epoch` is provided, the update is epoch-guarded. It only applies
-/// if the submission's current epoch matches AND it hasn't already reached a
-/// terminal status. This prevents a stale plugin crash from overwriting a newer
-/// epoch's successful result.
-///
-/// When `judge_epoch` is `None`, the update is unconditional (pre-epoch callers).
 pub async fn mark_submission_system_error<C: ConnectionTrait>(
     conn: &C,
     submission_id: i32,
@@ -27,7 +19,6 @@ pub async fn mark_submission_system_error<C: ConnectionTrait>(
         .await
 }
 
-/// Epoch-aware variant of `mark_submission_system_error`.
 pub async fn mark_submission_system_error_with_epoch<C: ConnectionTrait>(
     conn: &C,
     submission_id: i32,
@@ -70,7 +61,6 @@ pub async fn mark_submission_system_error_with_epoch<C: ConnectionTrait>(
     Ok(())
 }
 
-/// Mark a code run as SystemError with the given error code and message.
 pub async fn mark_code_run_system_error<C: ConnectionTrait>(
     conn: &C,
     code_run_id: i32,

@@ -7,7 +7,6 @@ use anyhow::Result;
 
 use self::variables::TemplateVars;
 
-/// Replace all `{{var_name}}` placeholders in a template string.
 pub fn render(template: &str, vars: &TemplateVars) -> String {
     template
         .replace("{{plugin_name}}", &vars.plugin_name)
@@ -18,8 +17,6 @@ pub fn render(template: &str, vars: &TemplateVars) -> String {
         .replace("{{web_root}}", &vars.web_root)
 }
 
-/// Render a template and write it to the given output path, creating parent
-/// directories as needed.
 pub fn write_template(template: &str, output: &Path, vars: &TemplateVars) -> Result<()> {
     let content = render(template, vars);
     if let Some(parent) = output.parent() {

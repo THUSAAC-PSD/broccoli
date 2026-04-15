@@ -11,11 +11,8 @@ use crate::manifest::PluginManifest;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PluginStatus {
-    /// Found on disk, parsed successfully, but not running.
     Unloaded,
-    /// Fully loaded and running in the runtime.
     Loaded,
-    /// Encountered an error during discovery or activation.
     Failed(String),
 }
 
@@ -30,7 +27,6 @@ pub struct RouteMetaData {
     pub permission: Option<String>,
 }
 
-/// Represents an entry in the plugin registry.
 pub struct PluginEntry {
     pub id: String,
     pub root_dir: PathBuf,
@@ -42,7 +38,6 @@ pub struct PluginEntry {
 
 pub type PluginRegistry = Arc<RwLock<HashMap<String, PluginEntry>>>;
 
-/// Represents the public information about a plugin, suitable for API responses.
 #[derive(Debug, Clone, Serialize)]
 pub struct PluginInfo {
     pub id: String,
@@ -108,7 +103,6 @@ impl PluginEntry {
         })
     }
 
-    /// Loads a plugin from a directory by parsing the plugin.toml.
     pub fn from_dir(plugin_dir: &Path) -> Result<Self, PluginError> {
         if !plugin_dir.exists() || !plugin_dir.is_dir() {
             return Err(PluginError::LoadFailed(format!(
@@ -135,17 +129,12 @@ impl PluginEntry {
         Self::new(id, plugin_dir.to_path_buf(), manifest)
     }
 
-    /// Resolves a web asset path based on the plugin's manifest configuration.
     pub fn resolve_web_asset(&self, relative_path: &str) -> Result<PathBuf, AssetError> {
         let web_config = self.manifest.web.as_ref().ok_or(AssetError::NoWebConfig)?;
 
         let web_root = self.root_dir.join(&web_config.root);
         let asset_path = web_root.join(relative_path);
 
-        // TODO: Path traversal is actually prevented by axum's Path extractor,
-        // consider removing this check in the future.
-
-        // Prevent path traversal attacks
         let canonical_web_root = web_root.canonicalize().map_err(AssetError::Io)?;
         let canonical_asset_path = asset_path
             .canonicalize()

@@ -20,7 +20,7 @@ mod attachment_upload {
         assert_eq!(res.body["path"].as_str().unwrap(), "figure.png");
         assert!(res.body["id"].as_str().is_some());
         assert!(res.body["content_hash"].as_str().is_some());
-        assert_eq!(res.body["size"].as_i64().unwrap(), 8); // b"PNG_DATA".len()
+        assert_eq!(res.body["size"].as_i64().unwrap(), 8);
     }
 
     #[tokio::test]
@@ -81,7 +81,6 @@ mod attachment_upload {
 
         assert_eq!(res1.status, 201);
         assert_eq!(res2.status, 201);
-        // Same content hash, different ref IDs.
         assert_eq!(
             res1.body["content_hash"].as_str().unwrap(),
             res2.body["content_hash"].as_str().unwrap()
@@ -122,7 +121,6 @@ mod attachment_upload {
             .await;
         assert_eq!(res2.status, 201);
 
-        // Content hash changed, but list should only have one entry.
         assert_ne!(
             res1.body["content_hash"].as_str().unwrap(),
             res2.body["content_hash"].as_str().unwrap()
@@ -142,7 +140,6 @@ mod attachment_upload {
             .await;
         let problem_id = app.create_problem(&token, "Problem path validation").await;
 
-        // Path traversal.
         let res = app
             .upload_attachment(
                 problem_id,
@@ -154,7 +151,6 @@ mod attachment_upload {
             .await;
         assert_eq!(res.status, 400);
 
-        // Hidden segment.
         let res = app
             .upload_attachment(
                 problem_id,
@@ -205,7 +201,6 @@ mod attachment_upload {
             .await;
         let problem_id = app.create_problem(&token, "No filename").await;
 
-        // Send a file part without the filename attribute.
         let part = reqwest::multipart::Part::bytes(b"data".to_vec())
             .mime_str("application/octet-stream")
             .unwrap();
@@ -253,7 +248,6 @@ mod attachment_upload {
             .await;
         let problem_id = app.create_problem(&token, "Missing file").await;
 
-        // Send multipart with only a path field, no file.
         let form = reqwest::multipart::Form::new().text("path", "images/fig.png");
         let res = app
             .client
@@ -465,7 +459,6 @@ mod attachment_download {
             .await;
         let ref_id = upload.body["id"].as_str().unwrap();
 
-        // Try to download p1's attachment via p2's URL.
         let res = app
             .get_with_token(&routes::attachment(p2, ref_id), &token)
             .await;
@@ -494,7 +487,6 @@ mod attachment_delete {
             .await;
         assert_eq!(res.status, 204);
 
-        // Verify it's gone.
         let list = app
             .get_with_token(&routes::attachments(problem_id), &token)
             .await;
@@ -512,7 +504,6 @@ mod attachment_delete {
 
         let content = b"shared-content-blob".to_vec();
 
-        // Upload identical content to two different problems.
         let upload1 = app
             .upload_attachment(p1, "shared.bin", content.clone(), None, &token)
             .await;
@@ -520,20 +511,17 @@ mod attachment_delete {
             .upload_attachment(p2, "shared.bin", content.clone(), None, &token)
             .await;
 
-        // Same blob content → same content_hash.
         assert_eq!(
             upload1.body["content_hash"].as_str().unwrap(),
             upload2.body["content_hash"].as_str().unwrap()
         );
 
-        // Delete the ref on problem 1.
         let ref_id_1 = upload1.body["id"].as_str().unwrap();
         let res = app
             .delete_with_token(&routes::attachment(p1, ref_id_1), &token)
             .await;
         assert_eq!(res.status, 204);
 
-        // Problem 2's attachment should still download correctly.
         let ref_id_2 = upload2.body["id"].as_str().unwrap();
         let res = app
             .download_raw(&routes::attachment(p2, ref_id_2), &token)
@@ -595,13 +583,11 @@ mod attachment_delete {
         app.upload_attachment(problem_id, "b.txt", b"bbb".to_vec(), None, &token)
             .await;
 
-        // Delete the problem.
         let res = app
             .delete_with_token(&routes::problem(problem_id), &token)
             .await;
         assert_eq!(res.status, 204);
 
-        // Attachments should be gone (problem doesn't exist anymore, so 404).
         let res = app
             .get_with_token(&routes::attachments(problem_id), &token)
             .await;
@@ -609,8 +595,6 @@ mod attachment_delete {
     }
 }
 
-/// Creates a problem linked to a contest, with one attachment uploaded.
-/// Returns (contest_id, problem_id, ref_id, admin_token).
 async fn setup_contest_with_attachment(
     app: &TestApp,
     admin_name: &str,
@@ -641,8 +625,6 @@ async fn setup_contest_with_attachment(
     (contest_id, problem_id, ref_id, token)
 }
 
-/// Adds a contestant to a private contest via admin enrollment.
-/// Returns the contestant's token.
 async fn enroll_contestant(
     app: &TestApp,
     username: &str,
@@ -666,8 +648,6 @@ async fn enroll_contestant(
 mod contest_based_access {
     use super::*;
 
-    // --- Download via problem-scoped endpoint with contest-based access ---
-
     #[tokio::test]
     async fn participant_can_download_via_problem_endpoint() {
         let app = TestApp::spawn().await;
@@ -689,7 +669,6 @@ mod contest_based_access {
         let (_contest_id, problem_id, ref_id, _admin_token) =
             setup_contest_with_attachment(&app, "cadm2", true).await;
 
-        // Not enrolled — but contest is public.
         let outsider = app
             .create_user_with_role("cuser2", "pass1234", "contestant")
             .await;
@@ -745,7 +724,6 @@ mod contest_based_access {
         let admin = app
             .create_user_with_role("cadm5", "pass1234", "admin")
             .await;
-        // Problem not linked to any contest — admin can still download.
         let problem_id = app.create_problem(&admin, "Admin-only problem").await;
 
         let upload = app
@@ -766,7 +744,6 @@ mod contest_based_access {
             setup_contest_with_attachment(&app, "cadm6", false).await;
         let contestant = enroll_contestant(&app, "cuser6", contest_id, &admin_token).await;
 
-        // First download to get ETag.
         let res = app
             .download_raw(&routes::attachment(problem_id, &ref_id), &contestant)
             .await;
@@ -778,7 +755,6 @@ mod contest_based_access {
             .unwrap()
             .to_string();
 
-        // Second request with If-None-Match → 304.
         let res = app
             .client
             .get(format!(
@@ -793,8 +769,6 @@ mod contest_based_access {
             .unwrap();
         assert_eq!(res.status().as_u16(), 304);
     }
-
-    // --- List via problem-scoped endpoint with contest-based access ---
 
     #[tokio::test]
     async fn participant_can_list_attachments_via_problem_endpoint() {
@@ -845,8 +819,6 @@ mod contest_based_access {
             .await;
         assert_eq!(res.status, 404);
     }
-
-    // --- Contestant cannot upload or delete ---
 
     #[tokio::test]
     async fn contestant_cannot_upload_even_with_contest_access() {

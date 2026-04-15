@@ -20,7 +20,7 @@ use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024) // 128 MB
+    DefaultBodyLimit::max(128 * 1024 * 1024)
 }
 
 #[utoipa::path(
@@ -84,7 +84,7 @@ pub async fn upload_attachment(
                     .map_err(|e| AppError::Validation(format!("Failed to read path: {e}")))?;
                 virtual_path = Some(text);
             }
-            _ => {} // Ignore unknown fields.
+            _ => {}
         }
     }
 
@@ -277,7 +277,6 @@ pub async fn delete_attachment(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Query all attachments for a problem, ordered by creation time.
 async fn list_problem_attachments<C: sea_orm::ConnectionTrait>(
     db: &C,
     problem_id: i32,

@@ -8,7 +8,6 @@ use serde::de::DeserializeOwned;
 #[cfg(target_arch = "wasm32")]
 use serde_json::Value as JsonValue;
 
-/// Response envelope from DB host functions.
 #[cfg(target_arch = "wasm32")]
 #[derive(serde::Deserialize)]
 pub(super) struct HostDbResponse {
@@ -39,7 +38,6 @@ pub(super) fn parse_affected(data: Option<JsonValue>) -> u64 {
     data.and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
-/// Execute a parameterized SELECT via raw FFI. Returns deserialized rows.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn raw_query<T: DeserializeOwned>(
     sql: &str,
@@ -51,7 +49,6 @@ pub(super) fn raw_query<T: DeserializeOwned>(
     parse_rows(resp.into_result()?)
 }
 
-/// Execute a parameterized statement via raw FFI. Returns affected row count.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn raw_execute(sql: &str, args: &[impl serde::Serialize]) -> Result<u64, SdkError> {
     let args_json = serde_json::to_string(args)?;
@@ -60,7 +57,6 @@ pub(super) fn raw_execute(sql: &str, args: &[impl serde::Serialize]) -> Result<u
     Ok(parse_affected(resp.into_result()?))
 }
 
-/// Push SET clauses shared by submission and code_run updates.
 pub(super) fn push_judge_sets(
     p: &mut Params,
     sets: &mut Vec<String>,

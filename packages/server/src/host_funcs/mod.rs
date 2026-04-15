@@ -38,7 +38,6 @@ pub fn init_host_functions(
 ) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
 
-    // Logger permission
     hr.register("logger", |plugin_id| {
         Function::new(
             "log_info",
@@ -49,7 +48,6 @@ pub fn init_host_functions(
         )
     });
 
-    // Storage permission (single JSON input, matching SDK)
     let db_clone = db.clone();
     hr.register("storage", move |plugin_id| {
         Function::new(

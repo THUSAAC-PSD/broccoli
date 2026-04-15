@@ -11,7 +11,6 @@ pub struct PluginHttpAuth {
     pub permissions: Vec<String>,
 }
 
-/// Data passed to the Wasm plugin when a route is triggered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginHttpRequest {
     pub method: String,
@@ -29,7 +28,6 @@ pub struct PluginHttpRequest {
     pub auth: Option<PluginHttpAuth>,
 }
 
-/// Response returned by the Wasm plugin after processing a route.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginHttpResponse {
     pub status: u16,

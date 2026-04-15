@@ -99,7 +99,6 @@ pub async fn grant_permission_to_role(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("role:manage")?;
 
-    // Check if the permission already exists
     let existing = role_permission::Entity::find_by_id((role_name.clone(), req.permission.clone()))
         .one(&state.db)
         .await?;
@@ -109,7 +108,6 @@ pub async fn grant_permission_to_role(
         ));
     }
 
-    // Insert the new permission grant
     let new_grant = role_permission::ActiveModel {
         role: Set(role_name),
         permission: Set(req.permission),

@@ -4,7 +4,6 @@ use crate::Host;
 use crate::error::SdkError;
 use crate::types::*;
 
-/// Ready-made handler for on_code_run. Plugins call this from their WASM export.
 pub fn handle_code_run(host: &Host, input: &str) -> Result<String, SdkError> {
     let req: OnCodeRunInput = serde_json::from_str(input)
         .map_err(|e| SdkError::Serialization(format!("Failed to parse OnCodeRunInput: {e}")))?;
@@ -13,9 +12,6 @@ pub fn handle_code_run(host: &Host, input: &str) -> Result<String, SdkError> {
         .map_err(|e| SdkError::Serialization(format!("Failed to serialize OnCodeRunOutput: {e}")))
 }
 
-/// Evaluate a code run (custom test cases).
-///
-/// Contest plugins should delegate to this function from their `on_code_run` handler.
 pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput, SdkError> {
     let test_cases = &req.test_cases;
 

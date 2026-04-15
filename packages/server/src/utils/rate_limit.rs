@@ -6,19 +6,13 @@ use sea_orm::*;
 use crate::entity::{code_run, submission};
 use crate::error::AppError;
 
-/// Check rate limit for a user.
-///
-/// Uses an optimistic (non-locking) approach, so technically concurrent
-/// requests within a very short window may both pass the rate check before
-/// either insert completes, but this is an accepted trade-off compared to
-/// pessimistic locking which adds latency to each request.
 pub async fn check_rate_limit(
     db: &DatabaseConnection,
     user_id: i32,
     limit_per_minute: u32,
 ) -> Result<(), AppError> {
     if limit_per_minute == 0 {
-        return Ok(()); // Rate limiting disabled
+        return Ok(());
     }
 
     let one_minute_ago = Utc::now() - Duration::minutes(1);

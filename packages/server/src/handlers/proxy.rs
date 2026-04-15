@@ -106,7 +106,6 @@ async fn handle_plugin_request_impl(
         )
     };
 
-    // Authorization check
     if let Some(ref permission) = required_permission {
         let user = auth_user.as_ref().ok_or_else(|| {
             warn!("Unauthorized access attempt to protected plugin route");
@@ -119,7 +118,6 @@ async fn handle_plugin_request_impl(
         user.require_permission(permission)?;
     }
 
-    // Construct request payload for Wasm
     let request = PluginHttpRequest {
         method: method.to_string(),
         path: normalized_path,
@@ -163,9 +161,7 @@ async fn handle_plugin_request_impl(
         .map_err(|e| AppError::Internal(format!("Failed to build plugin response: {}", e)))
 }
 
-/// Generate a per-method proxy handler with its own utoipa operation_id.
 macro_rules! proxy_handler {
-    // With request_body
     ($fn_name:ident, $method:ident, $op_id:expr, $summary:expr, request_body = $body_type:ty) => {
         #[utoipa::path(
             $method,
@@ -201,7 +197,6 @@ macro_rules! proxy_handler {
         }
     };
 
-    // Without request_body
     ($fn_name:ident, $method:ident, $op_id:expr, $summary:expr) => {
         #[utoipa::path(
             $method,
@@ -237,7 +232,6 @@ macro_rules! proxy_handler {
     };
 }
 
-// Methods with request body
 proxy_handler!(
     post_plugin_request,
     post,
@@ -267,7 +261,6 @@ proxy_handler!(
     request_body = serde_json::Value
 );
 
-// Methods without request body
 proxy_handler!(
     get_plugin_request,
     get,

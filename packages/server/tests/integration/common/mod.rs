@@ -31,19 +31,14 @@ use server::registry::{
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
 
-/// PostgreSQL container shared across all tests in this binary.
 static SHARED_PG: OnceCell<(ContainerAsync<Postgres>, u16)> = OnceCell::const_new();
 
-/// Monotonic counter for unique database names.
 static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-/// Serializes CREATE DATABASE operations to prevent connection exhaustion.
 static CREATE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-/// Container ID for atexit cleanup.
 static CONTAINER_ID: OnceLock<String> = OnceLock::new();
 
-/// Shared admin connection pool for CREATE DATABASE operations.
 extern "C" fn cleanup_container() {
     if let Some(id) = CONTAINER_ID.get() {
         let _ = std::process::Command::new("docker")
@@ -52,8 +47,6 @@ extern "C" fn cleanup_container() {
     }
 }
 
-/// Start (or reuse) the shared PostgreSQL container, create and initialize a
-/// template database, and return the host port.
 async fn shared_pg_port() -> u16 {
     let (_, port) = SHARED_PG
         .get_or_init(|| async {
@@ -101,8 +94,6 @@ async fn shared_pg_port() -> u16 {
 
             let _ = CONTAINER_ID.set(container.id().to_string());
 
-            // The `watchdog` feature handles signal-based
-            // cleanup (Ctrl+C), but normal process exit doesn't trigger `Drop` on statics.
             unsafe { libc::atexit(cleanup_container) };
 
             let template_url =
@@ -365,47 +356,37 @@ pub mod routes {
     }
 }
 
-/// A running test server.
 pub struct TestApp {
     pub addr: SocketAddr,
     pub client: Client,
     pub db: DatabaseConnection,
-    /// Handle to the spawned axum server task. Aborted on Drop to free connections.
     server_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for TestApp {
     fn drop(&mut self) {
-        // Abort the server task immediately (non-blocking).
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
         }
     }
 }
 
-/// Path to the test fixtures directory.
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Parsed HTTP response for test assertions.
 pub struct TestResponse {
     pub status: u16,
-    /// Headers from the response.
     pub headers: reqwest::header::HeaderMap,
-    /// Raw response body as text.
     pub text: String,
-    /// Parsed JSON body, or `Null` if the response is not valid JSON.
     pub body: Value,
 }
 
 impl TestApp {
-    /// Spawn a test server WITHOUT loading plugins (fast path for most tests).
     pub async fn spawn() -> Self {
         Self::spawn_internal(false).await
     }
 
-    /// Spawn a test server WITH plugins loaded (slow, only for plugin-specific tests).
     pub async fn spawn_with_plugins() -> Self {
         Self::spawn_internal(true).await
     }
@@ -419,8 +400,8 @@ impl TestApp {
         let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
         let mut admin_opts = ConnectOptions::new(&admin_url);
         admin_opts
-            .max_connections(1) // Only need 1 connection for CREATE DATABASE
-            .min_connections(0); // Don't maintain idle connections
+            .max_connections(1)
+            .min_connections(0);
         let admin_conn = Database::connect(admin_opts)
             .await
             .expect("Failed to connect to admin database");
@@ -490,7 +471,7 @@ impl TestApp {
         let plugins = ServerManager::new(
             app_config.plugin.clone(),
             db.clone(),
-            None, // mq
+            None,
             operation_batches.clone(),
             operation_waiters.clone(),
             contest_type_registry.clone(),
@@ -503,8 +484,6 @@ impl TestApp {
         .expect("Failed to initialize plugin manager");
 
         if !load_plugins {
-            // Register built-in defaults so create_problem validation passes
-            // without needing actual plugins loaded.
             evaluator_registry.write().await.insert(
                 "standard".into(),
                 server::registry::PluginHandler {
@@ -564,9 +543,6 @@ impl TestApp {
 
         Self {
             addr,
-            // Integration tests talk to a local ephemeral axum server.
-            // Disable proxy resolution to avoid corporate/system proxies
-            // turning localhost calls into spurious 502 responses.
             client: Client::builder()
                 .no_proxy()
                 .cookie_store(true)
@@ -723,7 +699,6 @@ impl TestApp {
         TestResponse::from_response(res).await
     }
 
-    /// Register a user and log in, returning the auth token.
     pub async fn create_authenticated_user(&self, username: &str, password: &str) -> String {
         let body = serde_json::json!({
             "username": username,
@@ -742,7 +717,6 @@ impl TestApp {
             .to_string()
     }
 
-    /// Create a problem via the API and return its `id`.
     pub async fn create_problem(&self, token: &str, title: &str) -> i32 {
         let res = self
             .post_with_token(
@@ -762,7 +736,6 @@ impl TestApp {
         res.id()
     }
 
-    /// Create a test case for a problem via the API and return its `id`.
     pub async fn create_test_case(&self, problem_id: i32, token: &str) -> i32 {
         let res = self
             .post_with_token(
@@ -780,7 +753,6 @@ impl TestApp {
         res.id()
     }
 
-    /// Create a contest via the API and return its `id`.
     pub async fn create_contest(
         &self,
         token: &str,
@@ -807,7 +779,6 @@ impl TestApp {
         res.id()
     }
 
-    /// Create a submission via the API and return its `id`.
     pub async fn create_submission(
         &self,
         problem_id: i32,
@@ -837,7 +808,6 @@ impl TestApp {
         res.id()
     }
 
-    /// Add a problem to a contest via the API.
     pub async fn add_problem_to_contest(&self, contest_id: i32, problem_id: i32, token: &str) {
         let res = self
             .post_with_token(
@@ -856,7 +826,6 @@ impl TestApp {
         );
     }
 
-    /// Register a user as a participant in a contest.
     pub async fn register_for_contest(&self, contest_id: i32, token: &str) {
         let res = self
             .post_with_token(
@@ -868,7 +837,6 @@ impl TestApp {
         assert_eq!(res.status, 201, "register_for_contest failed: {}", res.text);
     }
 
-    /// Upload an attachment with optional virtual path.
     pub async fn upload_attachment(
         &self,
         problem_id: i32,
@@ -898,7 +866,6 @@ impl TestApp {
         TestResponse::from_response(res).await
     }
 
-    /// Download raw bytes from a URL path.
     pub async fn download_raw(&self, path: &str, token: &str) -> reqwest::Response {
         self.client
             .get(self.url(path))
@@ -908,7 +875,6 @@ impl TestApp {
             .expect("Failed to send download request")
     }
 
-    /// Register a user with a specific role, then log in and return the auth token.
     pub async fn create_user_with_role(
         &self,
         username: &str,
@@ -932,7 +898,6 @@ impl TestApp {
 
         let txn = self.db.begin().await.expect("Failed to begin transaction");
 
-        // Clear any existing roles
         user_role::Entity::delete_many()
             .filter(user_role::Column::UserId.eq(db_user.id))
             .exec(&txn)

@@ -44,8 +44,6 @@ async fn create_dlq_entry(
     result.id
 }
 
-/// Insert a submission directly into the DB with a specific status.
-/// Requires a valid problem_id (create the problem via API first).
 async fn insert_submission(
     app: &TestApp,
     user_id: i32,
@@ -123,7 +121,6 @@ mod dlq_listing {
         create_dlq_entry(&app, 20, "operation_task", false).await;
         create_dlq_entry(&app, 21, "operation_task", true).await;
 
-        // Filter unresolved
         let res = app
             .get_with_token(&format!("{}?resolved=false", routes::DLQ), &admin_token)
             .await;
@@ -132,7 +129,6 @@ mod dlq_listing {
         assert_eq!(data.len(), 1);
         assert_eq!(data[0]["resolved"], false);
 
-        // Filter resolved
         let res = app
             .get_with_token(&format!("{}?resolved=true", routes::DLQ), &admin_token)
             .await;
@@ -309,13 +305,11 @@ mod dlq_detail {
 
         let dlq_id = create_dlq_entry(&app, 301, "operation_task", false).await;
 
-        // Admin can access
         let res = app
             .get_with_token(&routes::dlq_message(dlq_id), &admin_token)
             .await;
         assert_eq!(res.status, 200);
 
-        // Contestant cannot
         let res = app
             .get_with_token(&routes::dlq_message(dlq_id), &contestant_token)
             .await;
@@ -340,7 +334,6 @@ mod dlq_resolve {
             .await;
         assert_eq!(res.status, 204);
 
-        // Verify it's now resolved
         let msg = dead_letter_message::Entity::find_by_id(dlq_id)
             .one(&app.db)
             .await
@@ -404,13 +397,10 @@ mod dlq_retry {
             .create_user_with_role("admin_retry1", "password123", "admin")
             .await;
 
-        // Create a problem via API so FK is satisfied
         let problem_id = app.create_problem(&admin_token, "Retry Test Problem").await;
 
-        // Insert a submission in SystemError state
         let sub_id = insert_submission(&app, 1, problem_id, SubmissionStatus::SystemError).await;
 
-        // Create a stuck_submission DLQ entry pointing to this submission
         let dlq_id = create_dlq_entry(&app, sub_id, "stuck_submission", false).await;
 
         let res = app
@@ -418,7 +408,6 @@ mod dlq_retry {
             .await;
         assert_eq!(res.status, 200);
 
-        // Verify submission status is reset to Pending
         let sub = submission::Entity::find_by_id(sub_id)
             .one(&app.db)
             .await
@@ -428,7 +417,6 @@ mod dlq_retry {
         assert!(sub.error_code.is_none());
         assert!(sub.error_message.is_none());
 
-        // Verify DLQ entry is resolved
         let msg = dead_letter_message::Entity::find_by_id(dlq_id)
             .one(&app.db)
             .await
@@ -487,7 +475,6 @@ mod dlq_retry {
             .create_problem(&admin_token, "Retry State Problem")
             .await;
 
-        // Insert a submission in Judged state (not retryable)
         let sub_id = insert_submission(&app, 1, problem_id, SubmissionStatus::Judged).await;
         let dlq_id = create_dlq_entry(&app, sub_id, "stuck_submission", false).await;
 
@@ -539,7 +526,6 @@ mod dlq_retry {
             .create_user_with_role("admin15", "password123", "admin")
             .await;
 
-        // Create a stuck_submission DLQ entry pointing to a non-existent submission
         let dlq_id = create_dlq_entry(&app, 99999, "stuck_submission", false).await;
 
         let res = app
@@ -580,7 +566,6 @@ mod bulk_retry_dlq {
         assert_eq!(res.body["retried"], 2);
         assert_eq!(res.body["skipped"], 0);
 
-        // Verify submissions are reset to Pending
         let s1 = submission::Entity::find_by_id(sub1)
             .one(&app.db)
             .await
@@ -603,7 +588,6 @@ mod bulk_retry_dlq {
             .create_user_with_role("admin_br1b", "password123", "admin")
             .await;
 
-        // operation_task entries are skipped (not retryable)
         let dlq1 = create_dlq_entry(&app, 600, "operation_task", false).await;
         let dlq2 = create_dlq_entry(&app, 601, "operation_task", false).await;
 
@@ -725,7 +709,6 @@ mod bulk_retry_dlq {
         let sub1 = insert_submission(&app, 1, problem_id, SubmissionStatus::SystemError).await;
         create_dlq_entry(&app, sub1, "stuck_submission", false).await;
 
-        // Also create an operation_task entry that should not be retried
         create_dlq_entry(&app, 9999, "operation_task", false).await;
 
         let res = app
@@ -737,7 +720,6 @@ mod bulk_retry_dlq {
             .await;
 
         assert_eq!(res.status, 200);
-        // At least the one stuck_submission should be retried
         assert!(res.body["retried"].as_u64().unwrap() >= 1);
     }
 }
@@ -767,7 +749,6 @@ mod bulk_delete_dlq {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["deleted"], 2);
 
-        // Verify those two are now resolved
         let msg1 = dead_letter_message::Entity::find_by_id(dlq1)
             .one(&app.db)
             .await
@@ -782,7 +763,6 @@ mod bulk_delete_dlq {
             .expect("msg2 should exist");
         assert!(msg2.resolved);
 
-        // dlq3 should still be unresolved
         let msg3 = dead_letter_message::Entity::find_by_id(dlq3)
             .one(&app.db)
             .await
@@ -810,7 +790,6 @@ mod bulk_delete_dlq {
             .await;
 
         assert_eq!(res.status, 200);
-        // Only the unresolved one counts as newly deleted
         assert_eq!(res.body["deleted"], 1);
     }
 

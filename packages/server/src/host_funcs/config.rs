@@ -10,8 +10,6 @@ type ConfigSetUserData = (String, DatabaseConnection);
 
 const VALID_SCOPES: &[&str] = &["problem", "contest_problem", "contest", "plugin"];
 
-/// Validate the raw namespace provided by the plugin, BEFORE auto-prefixing.
-/// Rejects `:` so plugins cannot craft ambiguous composite namespaces.
 fn validate_raw_namespace(namespace: &str) -> Result<(), extism::Error> {
     if namespace.is_empty() || namespace.len() > 128 {
         return Err(extism::Error::msg("namespace must be 1-128 characters"));
@@ -27,7 +25,6 @@ fn validate_raw_namespace(namespace: &str) -> Result<(), extism::Error> {
     Ok(())
 }
 
-/// Validate the resolved (possibly prefixed) config input.
 fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(), extism::Error> {
     if !VALID_SCOPES.contains(&scope) {
         return Err(extism::Error::msg(format!(
@@ -42,7 +39,6 @@ fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(
     if namespace.is_empty() || namespace.len() > 256 {
         return Err(extism::Error::msg("namespace must be 1-256 characters"));
     }
-    // After resolve_namespace, colons appear in auto-prefixed namespaces (e.g. "plugin_id:ns")
     if !namespace
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':')
@@ -54,8 +50,6 @@ fn validate_config_input(scope: &str, ref_id: &str, namespace: &str) -> Result<(
     Ok(())
 }
 
-/// For non-plugin scopes, prefix the namespace with `{plugin_id}:` to prevent
-/// cross-plugin collisions in shared resource configs.
 pub fn resolve_namespace(scope: &str, plugin_id: &str, namespace: &str) -> String {
     if scope == "plugin" {
         namespace.to_string()
@@ -64,7 +58,6 @@ pub fn resolve_namespace(scope: &str, plugin_id: &str, namespace: &str) -> Strin
     }
 }
 
-/// Strip the `{plugin_id}:` prefix from a composite namespace, returning the raw namespace.
 pub fn strip_namespace_prefix(composite: &str) -> &str {
     composite
         .split_once(':')
@@ -72,7 +65,6 @@ pub fn strip_namespace_prefix(composite: &str) -> &str {
         .unwrap_or(composite)
 }
 
-/// Extract the plugin_id from a composite namespace.
 pub fn extract_plugin_id(composite: &str) -> &str {
     composite
         .split_once(':')
@@ -164,7 +156,6 @@ fn config_get_fn(
             serde_json::json!({ "config": row.config, "is_default": false, "enabled": row.enabled })
         }
         None => {
-            // No explicit config, so we build defaults from the plugin manifest's schema
             let defaults = registry
                 .read()
                 .ok()
@@ -290,7 +281,6 @@ mod tests {
 
     #[test]
     fn strip_namespace_prefix_multiple_colons() {
-        // Only splits on the first colon
         assert_eq!(strip_namespace_prefix("a:b:c"), "b:c");
     }
 
@@ -307,7 +297,6 @@ mod tests {
 
     #[test]
     fn extract_plugin_id_multiple_colons() {
-        // Only splits on the first colon
         assert_eq!(extract_plugin_id("a:b:c"), "a");
     }
 

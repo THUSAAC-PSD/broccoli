@@ -2,7 +2,6 @@ use serde_json::json;
 
 use crate::common::{TestApp, routes};
 
-/// Checks that the plugin with the given ID has the expected status.
 async fn assert_plugin_status(app: &TestApp, token: &str, plugin_id: &str, expected_status: &str) {
     let res = app
         .get_with_token(&routes::admin_plugin_details(plugin_id), token)
@@ -44,10 +43,8 @@ mod plugin_management {
             .create_user_with_role("admin_user", "securepass", "admin")
             .await;
 
-        // Check initial status
         assert_plugin_status(&app, &token, "server-plugin", "Loaded").await;
 
-        // Disable the plugin first
         let res = app
             .post_with_token(
                 &routes::admin_plugin_disable("server-plugin"),
@@ -58,7 +55,6 @@ mod plugin_management {
         assert_eq!(res.status, 200);
         assert_plugin_status(&app, &token, "server-plugin", "Unloaded").await;
 
-        // Enable the plugin again
         let res = app
             .post_with_token(
                 &routes::admin_plugin_enable("server-plugin"),
@@ -217,7 +213,6 @@ mod sql {
     async fn plugin_can_execute_parameterized_sql() {
         let app = TestApp::spawn().await;
 
-        // Insert a legitimate user
         let res = app
             .post_without_token(
                 &routes::plugin_proxy("server-plugin", "sql/params"),
@@ -227,7 +222,6 @@ mod sql {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["found"], 1);
 
-        // Attempt SQL injection
         let injection_attempt = "'; DROP TABLE p_names; --";
         let res = app
             .post_without_token(
@@ -238,7 +232,6 @@ mod sql {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["found"], 1);
 
-        // Verify that the table still exists
         let res = app
             .post_without_token(
                 &routes::plugin_proxy("server-plugin", "sql/params"),
