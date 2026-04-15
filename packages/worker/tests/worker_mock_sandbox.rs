@@ -86,6 +86,7 @@ async fn execute_operation_with_mock(
         payload: serde_json::to_value(operation).unwrap(),
         result_queue: "test_results".into(),
         priority: None,
+        trace_context: None,
     };
 
     let result = worker.execute_task(task).await.unwrap();
