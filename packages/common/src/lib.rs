@@ -3,6 +3,7 @@ pub mod dlq;
 pub mod event;
 pub mod hook;
 pub mod mq;
+pub mod observability;
 pub mod retry;
 pub mod storage;
 pub mod submission_dispatch;

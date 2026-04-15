@@ -36,6 +36,10 @@ tokio-util = { version = "0.7", features = ["io"] }
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-prometheus.workspace = true
+prometheus.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 utoipa-scalar.workspace = true
@@ -58,7 +62,7 @@ reqwest = { version = "0.12", features = ["cookies", "json", "multipart"] }
 sea-orm = { workspace = true, features = ["mock"] }
 tempfile = "3"
 testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["postgres"] }
+testcontainers-modules = { version = "0.11", features = ["postgres", "redis"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 testcontainers = { version = "0.23", features = ["watchdog"] }

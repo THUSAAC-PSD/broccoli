@@ -104,3 +104,54 @@ impl Default for MqAppConfig {
         }
     }
 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OtlpConfig {
+    #[serde(default = "default_otlp_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "default_otlp_service_name")]
+    pub service_name: String,
+}
+
+fn default_otlp_endpoint() -> String {
+    String::new()
+}
+fn default_otlp_service_name() -> String {
+    "broccoli".into()
+}
+
+impl Default for OtlpConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_otlp_endpoint(),
+            service_name: default_otlp_service_name(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ObservabilityConfig {
+    #[serde(default = "default_log_format")]
+    pub log_format: String,
+    #[serde(default = "default_log_filter")]
+    pub log_filter: String,
+    #[serde(default)]
+    pub otlp: OtlpConfig,
+}
+
+fn default_log_format() -> String {
+    "pretty".into()
+}
+fn default_log_filter() -> String {
+    "info".into()
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            log_format: default_log_format(),
+            log_filter: default_log_filter(),
+            otlp: OtlpConfig::default(),
+        }
+    }
+}

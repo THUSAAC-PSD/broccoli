@@ -75,6 +75,8 @@ impl AppConfig {
         let s = Config::builder()
             .set_default("server.host", "127.0.0.1")?
             .set_default("server.port", 3000)?
+            .set_default("server.cors.allow_origins", Vec::<String>::new())?
+            .set_default("server.cors.max_age", 3600_i64)?
             .set_default("plugin.plugins_dir", "./plugins")?
             .set_default("plugin.enable_wasi", true)?
             .set_default("submission.max_size", 1_048_576_i64)?
