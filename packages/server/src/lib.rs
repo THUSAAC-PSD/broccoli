@@ -98,6 +98,7 @@ pub fn build_router(state: AppState) -> axum::Router {
     ));
 
     let metrics_on_request = metrics.clone();
+    let metrics_on_failure = metrics.clone();
     let metrics_on_response = metrics;
 
     axum::Router::new()
@@ -142,8 +143,10 @@ pub fn build_router(state: AppState) -> axum::Router {
                     move |response: &axum::http::Response<_>,
                           latency: std::time::Duration,
                           _span: &tracing::Span| {
-                        let status = response.status().as_u16().to_string();
-                        let attrs = [KeyValue::new("http.response.status_code", status)];
+                        let attrs = [KeyValue::new(
+                            "http.response.status_code",
+                            response.status().as_u16() as i64,
+                        )];
 
                         metrics_on_response.http_requests_in_flight.add(-1, &[]);
                         metrics_on_response.http_requests_total.add(1, &attrs);
@@ -156,6 +159,13 @@ pub fn build_router(state: AppState) -> axum::Router {
                             latency_ms = latency.as_millis() as u64,
                             "response",
                         );
+                    },
+                )
+                .on_failure(
+                    move |_error: tower_http::classify::ServerErrorsFailureClass,
+                          _latency: std::time::Duration,
+                          _span: &tracing::Span| {
+                        metrics_on_failure.http_requests_in_flight.add(-1, &[]);
                     },
                 ),
         )

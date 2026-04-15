@@ -42,11 +42,13 @@ pub async fn report_error(
     StatusCode::NO_CONTENT
 }
 
+const MAX_VITALS_PER_REQUEST: usize = 50;
+
 pub async fn report_vitals(
     State(_state): State<AppState>,
     Json(payload): Json<WebVitalsPayload>,
 ) -> StatusCode {
-    for vital in &payload.vitals {
+    for vital in payload.vitals.iter().take(MAX_VITALS_PER_REQUEST) {
         tracing::info!(
             name = %vital.name,
             value = vital.value,
