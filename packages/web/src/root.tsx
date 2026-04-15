@@ -4,9 +4,15 @@ import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import sharedDepsMap from 'virtual:shared-deps-map';
 
+import { reportVitals } from '~/lib/telemetry';
+
 export function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.style.opacity = '';
+  }, []);
+
+  useEffect(() => {
+    reportVitals();
   }, []);
 
   return (

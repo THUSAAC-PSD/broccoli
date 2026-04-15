@@ -1,3 +1,4 @@
+use axum::routing::post;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::AppConfig;
@@ -21,6 +22,15 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
         .nest("/submissions", submission_routes())
         .nest("/code-runs", code_run_routes())
         .nest("/dlq", dlq_routes())
+        .nest("/telemetry", telemetry_routes())
+}
+
+fn telemetry_routes() -> OpenApiRouter<AppState> {
+    let plain = axum::Router::new()
+        .route("/errors", post(handlers::telemetry::report_error))
+        .route("/vitals", post(handlers::telemetry::report_vitals));
+
+    OpenApiRouter::new().merge(plain.into())
 }
 
 fn auth_routes() -> OpenApiRouter<AppState> {
