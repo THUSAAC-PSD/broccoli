@@ -42,6 +42,13 @@ export function reportVitals() {
           `${TELEMETRY_BASE}/vitals`,
           new Blob([body], { type: 'application/json' }),
         );
+      } else {
+        fetch(`${TELEMETRY_BASE}/vitals`, {
+          method: 'POST',
+          body,
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+        }).catch(() => {});
       }
     };
 
