@@ -3,7 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use extism::{Manifest, PluginBuilder, Pool, Wasm};
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::config::PluginConfig;
 use crate::error::{AssetError, PluginError};
@@ -287,12 +287,15 @@ pub trait PluginManager: Send + Sync {
         Ok(new_ids)
     }
 
+    #[instrument(skip(self, input), fields(plugin_id = %plugin_id, function = %func_name))]
     async fn call_raw(
         &self,
         plugin_id: &str,
         func_name: &str,
         input: Vec<u8>,
     ) -> Result<Vec<u8>, PluginError> {
+        let start = std::time::Instant::now();
+
         let timeout = Duration::from_secs(self.get_config().call_timeout_secs);
         let registry = self
             .get_registry()
@@ -345,9 +348,16 @@ pub trait PluginManager: Send + Sync {
                     func_name: func_name.to_string(),
                     message: e.to_string(),
                 })
-        })?;
+        });
 
-        Ok(result)
+        let duration = start.elapsed();
+        debug!(
+            duration_ms = duration.as_millis() as u64,
+            success = result.is_ok(),
+            "plugin call completed"
+        );
+
+        Ok(result?)
     }
 }
 
