@@ -12,6 +12,8 @@ pub struct Task {
     pub result_queue: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
