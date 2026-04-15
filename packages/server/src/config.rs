@@ -62,6 +62,8 @@ pub struct AppConfig {
     pub storage: BlobStoreConfig,
     #[serde(default)]
     pub mq: MqAppConfig,
+    #[serde(default)]
+    pub observability: common::config::ObservabilityConfig,
     #[serde(default = "default_batch_max_age_secs")]
     pub batch_max_age_secs: u64,
 }
@@ -87,6 +89,9 @@ impl AppConfig {
             .set_default("mq.operation_queue_name", "operation_tasks")?
             .set_default("mq.operation_result_queue_name", "operation_results")?
             .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
+            .set_default("observability.log_format", "pretty")?
+            .set_default("observability.log_filter", "info")?
+            .set_default("observability.otlp.service_name", "broccoli-server")?
             .add_source(File::with_name("config/config").required(false))
             .add_source(Environment::with_prefix("BROCCOLI").separator("__"))
             .build()?;

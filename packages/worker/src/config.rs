@@ -94,6 +94,8 @@ pub struct WorkerAppConfig {
     pub mq: MqAppConfig,
     #[serde(default)]
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub observability: common::config::ObservabilityConfig,
 }
 
 impl WorkerAppConfig {
@@ -112,6 +114,9 @@ impl WorkerAppConfig {
             .set_default("mq.operation_queue_name", "operation_tasks")?
             .set_default("mq.operation_result_queue_name", "operation_results")?
             .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
+            .set_default("observability.log_format", "pretty")?
+            .set_default("observability.log_filter", "info")?
+            .set_default("observability.otlp.service_name", "broccoli-worker")?
             .set_default("database.url", "postgres://localhost/broccoli")?
             .set_default("storage.backend", "database")?
             .set_default("storage.data_dir", "./data")?

@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use mq::{MqConfig as MqConnConfig, init_mq};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{Level, info, warn};
+use tracing::{info, warn};
 
 use server::build_router;
 use server::config::AppConfig;
@@ -23,12 +23,9 @@ use server::utils::plugin::sync_plugins;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .with_target(false)
-        .init();
-
     let app_config = AppConfig::load().context("Failed to load configuration")?;
+
+    let _telemetry_guard = common::observability::init_tracing(&app_config.observability);
 
     let db = server::database::init_db(&app_config.database.url).await?;
     server::seed::seed_role_permissions(&db).await?;
