@@ -24,6 +24,10 @@ impl Drop for TelemetryGuard {
 }
 
 pub fn init_tracing(config: &ObservabilityConfig) -> TelemetryGuard {
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
+
     let is_json = config.log_format.eq_ignore_ascii_case("json");
 
     let filter_directive = std::env::var("RUST_LOG").unwrap_or_else(|_| config.log_filter.clone());

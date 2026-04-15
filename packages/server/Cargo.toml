@@ -36,6 +36,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-opentelemetry.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-prometheus.workspace = true
