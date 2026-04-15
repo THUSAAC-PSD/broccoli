@@ -45,4 +45,6 @@ pub struct AppState {
     pub blob_store: Arc<dyn BlobStore>,
     pub registries: RegistryState,
     pub device_codes: DeviceCodeStore,
+    pub metrics: common::metrics::Metrics,
+    pub prometheus_registry: prometheus::Registry,
 }
