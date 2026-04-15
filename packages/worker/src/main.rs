@@ -164,6 +164,14 @@ async fn process_message(
         "Received task"
     );
 
+    if let Some(ref tc) = task.trace_context {
+        if let Some(remote_cx) = common::observability::extract_trace_context(tc) {
+            use opentelemetry::trace::TraceContextExt;
+            use tracing_opentelemetry::OpenTelemetrySpanExt;
+            tracing::Span::current().add_link(remote_cx.span().span_context().clone());
+        }
+    }
+
     let mut cleanup_guard = RetryCleanupGuard::new(retry_tracker, &task_id);
 
     loop {

@@ -17,10 +17,15 @@ pub mod seed;
 pub mod state;
 pub mod utils;
 
+use axum::extract::{MatchedPath, State};
+use axum::response::IntoResponse;
+use tower_http::trace::TraceLayer;
+use tracing::{info, info_span};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_scalar::{Scalar, Servable as ScalarServable};
 use utoipa_swagger_ui::SwaggerUi;
+use uuid::Uuid;
 
 use crate::state::AppState;
 
@@ -65,6 +70,22 @@ impl Modify for SecurityAddon {
     }
 }
 
+async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
+    use prometheus::Encoder;
+
+    let encoder = prometheus::TextEncoder::new();
+    let families = state.prometheus_registry.gather();
+    let mut buf = Vec::new();
+    encoder.encode(&families, &mut buf).unwrap();
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        buf,
+    )
+}
+
 pub fn build_router(state: AppState) -> axum::Router {
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
 
@@ -75,6 +96,7 @@ pub fn build_router(state: AppState) -> axum::Router {
 
     axum::Router::new()
         .nest("/api", router)
+        .route("/metrics", axum::routing::get(metrics_handler))
         .route(
             "/assets/{plugin_id}/{*file_path}",
             axum::routing::get(handlers::assets::serve_plugin_asset),
@@ -82,4 +104,39 @@ pub fn build_router(state: AppState) -> axum::Router {
         .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api.clone()))
         .merge(Scalar::with_url("/scalar", api))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    let path = request
+                        .extensions()
+                        .get::<MatchedPath>()
+                        .map(|mp| mp.as_str().to_owned())
+                        .unwrap_or_else(|| request.uri().path().to_owned());
+
+                    let request_id = request
+                        .headers()
+                        .get("x-request-id")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_owned())
+                        .unwrap_or_else(|| Uuid::now_v7().to_string());
+
+                    info_span!(
+                        "http_request",
+                        method = %request.method(),
+                        path,
+                        request_id,
+                    )
+                })
+                .on_response(
+                    |response: &axum::http::Response<_>,
+                     latency: std::time::Duration,
+                     _span: &tracing::Span| {
+                        info!(
+                            status = response.status().as_u16(),
+                            latency_ms = latency.as_millis() as u64,
+                            "response",
+                        );
+                    },
+                ),
+        )
 }

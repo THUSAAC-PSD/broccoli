@@ -173,6 +173,7 @@ fn start_operation_batch_fn(
                 .map_err(|e| extism::Error::msg(format!("Failed to serialize operation: {}", e)))?,
             result_queue: result_queue_name.clone(),
             priority: op.priority,
+            trace_context: common::observability::inject_trace_context(),
         };
 
         tokio::task::block_in_place(|| {

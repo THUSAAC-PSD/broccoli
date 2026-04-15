@@ -27,6 +27,9 @@ async fn main() -> anyhow::Result<()> {
 
     let _telemetry_guard = common::observability::init_tracing(&app_config.observability);
 
+    let (metrics, prometheus_registry) =
+        common::observability::init_metrics(&app_config.observability.otlp.service_name);
+
     let db = server::database::init_db(&app_config.database.url).await?;
     server::seed::seed_role_permissions(&db).await?;
     server::seed::ensure_indexes(&db).await?;
@@ -195,6 +198,8 @@ async fn main() -> anyhow::Result<()> {
             hook_registry: server::hooks::new_shared_registry(),
         },
         device_codes,
+        metrics,
+        prometheus_registry,
     };
 
     sync_plugins(&state).await?;
@@ -222,6 +227,7 @@ async fn main() -> anyhow::Result<()> {
                 HeaderName::from_static("content-type"),
                 HeaderName::from_static("authorization"),
                 HeaderName::from_static("idempotency-key"),
+                HeaderName::from_static("x-request-id"),
             ])
             .allow_credentials(true)
             .max_age(Duration::from_secs(app_config.server.cors.max_age)),
