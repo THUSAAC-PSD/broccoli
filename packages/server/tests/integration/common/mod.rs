@@ -456,6 +456,7 @@ impl TestApp {
                 enabled: false,
                 ..Default::default()
             },
+            observability: common::config::ObservabilityConfig::default(),
             batch_max_age_secs: 600,
         };
 
@@ -525,6 +526,23 @@ impl TestApp {
                 hook_registry: server::hooks::new_shared_registry(),
             },
             device_codes: std::sync::Arc::new(dashmap::DashMap::new()),
+            metrics: {
+                let prom_registry = prometheus::Registry::new();
+                let exporter = opentelemetry_prometheus::exporter()
+                    .with_registry(prom_registry)
+                    .build()
+                    .expect("Failed to build test Prometheus exporter");
+                let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+                    .with_reader(exporter)
+                    .build();
+                let scope =
+                    opentelemetry::InstrumentationScope::builder("broccoli-test".to_string())
+                        .build();
+                let meter =
+                    opentelemetry::metrics::MeterProvider::meter_with_scope(&provider, scope);
+                common::metrics::Metrics::new(&meter)
+            },
+            prometheus_registry: prometheus::Registry::new(),
         };
         if load_plugins {
             sync_plugins(&state).await.expect("Failed to sync plugins");
