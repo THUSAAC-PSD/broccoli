@@ -15,4 +15,5 @@ pub mod problem;
 pub mod proxy;
 pub mod role;
 pub mod submission;
+pub mod telemetry;
 pub mod user;
