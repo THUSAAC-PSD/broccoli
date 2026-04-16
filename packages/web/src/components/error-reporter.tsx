@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-import { reportError } from '~/lib/telemetry';
+import { reportError } from '@/lib/telemetry';
 
 interface Props {
   children: ReactNode;
