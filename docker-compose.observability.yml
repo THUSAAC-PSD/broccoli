@@ -15,7 +15,7 @@ services:
       - jaeger
 
   jaeger:
-    image: jaegertracing/jaeger:2
+    image: jaegertracing/jaeger:2.17.0
     ports:
       - "16686:16686"
       - "4318:4318"
