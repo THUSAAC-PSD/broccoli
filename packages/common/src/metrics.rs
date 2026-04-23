@@ -15,6 +15,15 @@ pub struct Metrics {
     pub mq_queue_depth: UpDownCounter<i64>,
 }
 
+const HTTP_BUCKETS_SECONDS: &[f64] = &[
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
+const JUDGE_BUCKETS_SECONDS: &[f64] =
+    &[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0];
+
+const PLUGIN_BUCKETS_SECONDS: &[f64] = &[0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0];
+
 impl Metrics {
     pub fn new(meter: &Meter) -> Self {
         Self {
@@ -22,6 +31,7 @@ impl Metrics {
                 .f64_histogram("http.server.request.duration")
                 .with_unit("s")
                 .with_description("Duration of HTTP server requests")
+                .with_boundaries(HTTP_BUCKETS_SECONDS.to_vec())
                 .build(),
             http_requests_total: meter
                 .u64_counter("http.server.request.total")
@@ -36,6 +46,7 @@ impl Metrics {
                 .f64_histogram("broccoli.task.process.duration")
                 .with_unit("s")
                 .with_description("Duration of task processing in the worker pipeline")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
             task_retries_total: meter
                 .u64_counter("broccoli.task.retries")
@@ -50,6 +61,7 @@ impl Metrics {
                 .f64_histogram("broccoli.plugin.call.duration")
                 .with_unit("s")
                 .with_description("Duration of WASM plugin calls")
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
                 .build(),
 
             mq_queue_depth: meter
