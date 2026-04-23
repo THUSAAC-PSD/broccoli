@@ -79,6 +79,7 @@ pub struct OperationHandler {
     file_cacher: Box<dyn FileCacher>,
     task_cache: Box<dyn TaskCacheStore>,
     toolchain_fingerprint: String,
+    metrics: common::metrics::Metrics,
 }
 
 impl OperationHandler {
@@ -87,12 +88,14 @@ impl OperationHandler {
         file_cacher: Box<dyn FileCacher>,
         task_cache: Box<dyn TaskCacheStore>,
         toolchain_fingerprint: String,
+        metrics: common::metrics::Metrics,
     ) -> Self {
         Self {
             sandbox_manager,
             file_cacher,
             task_cache,
             toolchain_fingerprint,
+            metrics,
         }
     }
 
@@ -411,8 +414,19 @@ impl OperationHandler {
         shared_channels_dir: Option<&Path>,
         channel_names: &HashSet<String>,
     ) -> TaskExecutionResult {
+        use opentelemetry::KeyValue;
+
+        let start = std::time::Instant::now();
+        let record_metric = |outcome: &'static str| {
+            self.metrics.step_duration.record(
+                start.elapsed().as_secs_f64(),
+                &[KeyValue::new("outcome", outcome)],
+            );
+        };
+
         if !deps_ok {
             warn!(task_id = %step.id, "Skipping task due to dependency failure");
+            record_metric("skipped");
             return TaskExecutionResult {
                 task_id: step.id.clone(),
                 success: false,
@@ -424,6 +438,7 @@ impl OperationHandler {
         if let Some(cache_spec) = &step.cache
             && let Some(cached) = self.try_cache_hit(step, environments, cache_spec).await
         {
+            record_metric("cache_hit");
             return cached;
         }
 
@@ -434,6 +449,7 @@ impl OperationHandler {
             Ok(result) => result,
             Err(e) => {
                 error!(task_id = %step.id, error = %e, "Task execution error");
+                record_metric("failure");
                 return TaskExecutionResult {
                     task_id: step.id.clone(),
                     success: false,
@@ -450,6 +466,7 @@ impl OperationHandler {
                 .await;
         }
 
+        record_metric(if result.success { "success" } else { "failure" });
         result
     }
 

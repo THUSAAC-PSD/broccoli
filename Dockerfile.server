@@ -1,0 +1,75 @@
+# Stage 1: Build the server binary
+FROM rust:bookworm AS builder
+
+ARG USE_CN_MIRRORS=false
+
+# China mirrors for cargo (rsproxy.cn)
+RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      mkdir -p /usr/local/cargo && \
+      printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/crates.io-index/"\n\n[registries.rsproxy-sparse]\nindex = "sparse+https://rsproxy.cn/crates.io-index/"\n' \
+        > /usr/local/cargo/config.toml; \
+    fi
+
+WORKDIR /build
+
+# Copy workspace manifests for dependency caching
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY packages/common/Cargo.toml packages/common/Cargo.toml
+COPY packages/mq/Cargo.toml packages/mq/Cargo.toml
+COPY packages/plugin-core/Cargo.toml packages/plugin-core/Cargo.toml
+COPY packages/server/Cargo.toml packages/server/Cargo.toml
+COPY packages/worker/Cargo.toml packages/worker/Cargo.toml
+COPY packages/server-sdk/Cargo.toml packages/server-sdk/Cargo.toml
+COPY packages/cli/Cargo.toml packages/cli/Cargo.toml
+
+# Create stub source files so cargo can resolve the workspace
+RUN mkdir -p packages/common/src && echo "" > packages/common/src/lib.rs \
+    && mkdir -p packages/mq/src && echo "" > packages/mq/src/lib.rs \
+    && mkdir -p packages/plugin-core/src && echo "" > packages/plugin-core/src/lib.rs \
+    && mkdir -p packages/server/src && echo "fn main() {}" > packages/server/src/main.rs \
+    && mkdir -p packages/worker/src && echo "fn main() {}" > packages/worker/src/main.rs \
+    && echo "" > packages/worker/src/lib.rs \
+    && mkdir -p packages/server-sdk/src && echo "" > packages/server-sdk/src/lib.rs \
+    && mkdir -p packages/cli/src && echo "fn main() {}" > packages/cli/src/main.rs
+
+# Pre-build dependencies (cached layer)
+RUN cargo build --release -p server 2>/dev/null || true
+
+# Copy real source code
+COPY packages/common packages/common
+COPY packages/mq packages/mq
+COPY packages/plugin-core packages/plugin-core
+COPY packages/server packages/server
+COPY packages/worker packages/worker
+COPY packages/server-sdk packages/server-sdk
+
+# Touch to invalidate stubs
+RUN find packages -name "*.rs" | xargs touch
+
+RUN cargo build --release -p server
+
+# Stage 2: Minimal runtime
+FROM debian:bookworm-slim
+
+ARG USE_CN_MIRRORS=false
+
+RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+# Server needs minimal deps: TLS, postgres client libs (linked via rustls, but
+# extism WASM runtime may need libc components).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libgcc-s1 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/server /usr/local/bin/broccoli-server
+
+# Plugins are mounted as a volume at runtime
+RUN mkdir -p /plugins /data
+
+ENV RUST_LOG=info
+
+EXPOSE 3000
+
+CMD ["broccoli-server"]

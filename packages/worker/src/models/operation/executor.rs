@@ -19,7 +19,7 @@ pub struct OperationTaskExecutor {
 }
 
 impl OperationTaskExecutor {
-    pub async fn from_config() -> Self {
+    pub async fn from_config(metrics: common::metrics::Metrics) -> Self {
         let config = WorkerAppConfig::load()
             .inspect_err(|e| warn!(error = %e, "Failed to load config, using defaults"))
             .ok();
@@ -35,6 +35,7 @@ impl OperationTaskExecutor {
                 file_cacher,
                 task_cache,
                 fingerprint,
+                metrics,
             ),
         }
     }
@@ -42,6 +43,7 @@ impl OperationTaskExecutor {
     #[allow(dead_code)]
     pub fn new_with_sandbox_manager(
         sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
+        metrics: common::metrics::Metrics,
     ) -> Self {
         Self {
             operation_executor: OperationHandler::new(
@@ -49,6 +51,7 @@ impl OperationTaskExecutor {
                 Box::new(NoopFileCacher),
                 Box::new(NoopTaskCacheStore),
                 String::new(),
+                metrics,
             ),
         }
     }
@@ -163,22 +166,6 @@ impl OperationTaskExecutor {
         };
 
         (file_cacher, task_cache)
-    }
-}
-
-impl Default for OperationTaskExecutor {
-    fn default() -> Self {
-        let config = WorkerAppConfig::load()
-            .inspect_err(|e| warn!(error = %e, "Failed to load config, using defaults"))
-            .ok();
-        Self {
-            operation_executor: OperationHandler::new(
-                Self::sandbox_manager_from_config(config.as_ref()),
-                Box::new(NoopFileCacher),
-                Box::new(NoopTaskCacheStore),
-                String::new(),
-            ),
-        }
     }
 }
 

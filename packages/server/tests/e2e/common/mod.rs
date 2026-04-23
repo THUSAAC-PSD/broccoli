@@ -418,7 +418,7 @@ impl E2eTestApp {
                 hook_registry: server::hooks::new_shared_registry(),
             },
             device_codes: Arc::new(dashmap::DashMap::new()),
-            metrics: e2e_metrics,
+            metrics: e2e_metrics.clone(),
             prometheus_registry: e2e_prom_registry,
         };
 
@@ -438,6 +438,7 @@ impl E2eTestApp {
             let sandbox_manager = create_sandbox_manager();
             let executor = Arc::new(OperationTaskExecutor::new_with_sandbox_manager(
                 sandbox_manager,
+                e2e_metrics.clone(),
             ));
             let worker_queue = operation_queue.clone();
             let worker_mq = Arc::clone(&mq);

@@ -5607,6 +5607,7 @@ dependencies = [
  "mime_guess",
  "mq",
  "opentelemetry",
+ "opentelemetry-http",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
  "plugin-core",
@@ -8212,6 +8213,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "broccoli-server-sdk",
  "chrono",
  "common",

@@ -7,6 +7,7 @@ pub struct Metrics {
     pub http_requests_in_flight: UpDownCounter<i64>,
 
     pub task_process_duration: Histogram<f64>,
+    pub step_duration: Histogram<f64>,
     pub task_retries_total: Counter<u64>,
     pub dlq_messages_total: Counter<u64>,
 
@@ -46,6 +47,12 @@ impl Metrics {
                 .f64_histogram("broccoli.task.process.duration")
                 .with_unit("s")
                 .with_description("Duration of task processing in the worker pipeline")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            step_duration: meter
+                .f64_histogram("broccoli.step.duration")
+                .with_unit("s")
+                .with_description("Duration of individual pipeline steps in seconds")
                 .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
             task_retries_total: meter
