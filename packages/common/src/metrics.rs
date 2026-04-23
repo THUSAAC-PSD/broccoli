@@ -35,7 +35,7 @@ impl Metrics {
                 .with_boundaries(HTTP_BUCKETS_SECONDS.to_vec())
                 .build(),
             http_requests_total: meter
-                .u64_counter("http.server.request.total")
+                .u64_counter("http.server.request")
                 .with_description("Total number of HTTP server requests")
                 .build(),
             http_requests_in_flight: meter
