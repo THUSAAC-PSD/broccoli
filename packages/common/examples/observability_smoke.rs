@@ -67,13 +67,8 @@ async fn main() {
         .unwrap();
     let text = String::from_utf8(buf).unwrap();
     let lines = text.lines().filter(|l| !l.starts_with('#')).count();
-    println!(
-        "\n=== Prometheus /metrics preview ({} data lines) ===",
-        lines
-    );
-    for line in text.lines().take(20) {
-        println!("{line}");
-    }
+    println!("\n=== Prometheus /metrics ({} data lines) ===", lines);
+    println!("{text}");
 
     println!("\n=== Next steps ===");
     println!("1. Jaeger UI: http://localhost:16686 (service: broccoli-smoke-test)");
