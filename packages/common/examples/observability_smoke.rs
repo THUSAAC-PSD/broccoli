@@ -54,6 +54,12 @@ async fn main() {
         info!(%verdict, "task completed");
     }
 
+    for outcome in ["success", "success", "cache_hit", "failure"] {
+        metrics
+            .step_duration
+            .record(0.800, &[KeyValue::new("outcome", outcome)]);
+    }
+
     use prometheus::Encoder;
     let mut buf = Vec::new();
     prometheus::TextEncoder::new()

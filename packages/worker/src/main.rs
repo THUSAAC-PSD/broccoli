@@ -28,8 +28,10 @@ async fn main() -> anyhow::Result<()> {
     let _telemetry_guard = common::observability::init_tracing(&config.observability);
     info!("Worker starting: {}", config.worker.id);
 
-    let (metrics, _prometheus_registry) =
+    let (metrics, prometheus_registry) =
         common::observability::init_metrics(&config.observability.otlp.service_name);
+
+    spawn_metrics_server(prometheus_registry);
 
     let mq = Arc::new(
         init_mq(MqConfig {
@@ -64,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     let op_dlq_queue = config.mq.operation_dlq_queue_name.clone();
     let dlq_config = config.mq.dlq.clone();
     let mq_for_handler = Arc::clone(&mq);
-    let worker = Arc::new(Worker::new().await);
+    let worker = Arc::new(Worker::new(metrics.clone()).await);
 
     let retry_tracker = Arc::new(Mutex::new(RetryTracker::new(dlq_config.max_retries)));
 
@@ -321,4 +323,43 @@ async fn process_task(
     );
 
     Ok(())
+}
+
+fn spawn_metrics_server(registry: prometheus::Registry) {
+    tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/metrics",
+            axum::routing::get(move || {
+                let registry = registry.clone();
+                async move {
+                    use prometheus::Encoder;
+                    let encoder = prometheus::TextEncoder::new();
+                    let mut buf = Vec::new();
+                    if let Err(e) = encoder.encode(&registry.gather(), &mut buf) {
+                        error!(error = %e, "Failed to encode Prometheus metrics");
+                    }
+                    (
+                        [(
+                            axum::http::header::CONTENT_TYPE,
+                            "text/plain; version=0.0.4; charset=utf-8",
+                        )],
+                        buf,
+                    )
+                }
+            }),
+        );
+
+        let addr = "0.0.0.0:9091";
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                info!(addr, "Worker metrics endpoint listening");
+                if let Err(e) = axum::serve(listener, app).await {
+                    error!(error = %e, "Metrics server exited with error");
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, addr, "Failed to bind worker metrics endpoint");
+            }
+        }
+    });
 }

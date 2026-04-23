@@ -87,12 +87,14 @@ fn build_operation_task(command: &str) -> OperationTask {
 }
 
 async fn build_worker_with_isolate_sandbox() -> Worker {
-    let worker = Worker::new().await;
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
+    let worker = Worker::new(metrics.clone()).await;
     worker.register_executor(
         "operation",
-        Arc::new(OperationTaskExecutor::new_with_sandbox_manager(Box::new(
-            IsolateSandboxManager::default(),
-        ))),
+        Arc::new(OperationTaskExecutor::new_with_sandbox_manager(
+            Box::new(IsolateSandboxManager::default()),
+            metrics,
+        )),
     );
     worker
 }

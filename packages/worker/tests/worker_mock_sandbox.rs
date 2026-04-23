@@ -64,12 +64,14 @@ fn build_operation_task(command: &str) -> OperationTask {
 }
 
 async fn build_worker_with_mock_sandbox() -> Worker {
-    let worker = Worker::new().await;
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
+    let worker = Worker::new(metrics.clone()).await;
     worker.register_executor(
         "operation",
-        Arc::new(OperationTaskExecutor::new_with_sandbox_manager(Box::new(
-            MockSandboxManager::new(unique_mock_base_dir()),
-        ))),
+        Arc::new(OperationTaskExecutor::new_with_sandbox_manager(
+            Box::new(MockSandboxManager::new(unique_mock_base_dir())),
+            metrics,
+        )),
     );
     worker
 }
@@ -548,11 +550,13 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
         .await
         .expect("create blob store file cacher should succeed");
 
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
     let handler = OperationHandler::new(
         Box::new(MockSandboxManager::new(unique_mock_base_dir())),
         Box::new(cacher),
         Box::new(NoopTaskCacheStore),
         String::new(),
+        metrics,
     );
 
     let operation = OperationTask {

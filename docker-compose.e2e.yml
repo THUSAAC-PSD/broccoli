@@ -1,0 +1,111 @@
+# Full-stack E2E test environment.
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yml up --build -d
+#   E2E_SERVER_URL=http://127.0.0.1:3000 E2E_DATABASE_URL=postgres://postgres:password@127.0.0.1:5433/broccoli cargo test -p server --test e2e
+#   docker compose -f docker-compose.e2e.yml down -v
+#
+# China mirrors:
+#   docker compose -f docker-compose.e2e.yml build --build-arg USE_CN_MIRRORS=true
+#
+
+x-worker-common: &worker-common
+  build:
+    context: .
+    dockerfile: Dockerfile.worker
+  privileged: true
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  environment: &worker-env
+    BROCCOLI__DATABASE__URL: "postgres://postgres:password@db:5432/broccoli"
+    BROCCOLI__MQ__URL: "redis://redis:6379"
+    BROCCOLI__MQ__ENABLED: "true"
+    BROCCOLI__WORKER__SANDBOX_BACKEND: "isolate"
+    BROCCOLI__WORKER__ISOLATE_BIN: "isolate"
+    BROCCOLI__WORKER__ENABLE_CGROUPS: "true"
+    BROCCOLI__STORAGE__BACKEND: "database"
+    BROCCOLI__STORAGE__DATA_DIR: "/data"
+    RUST_LOG: "info"
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: broccoli
+    volumes:
+      - e2e_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d broccoli"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      BROCCOLI__SERVER__HOST: "0.0.0.0"
+      BROCCOLI__SERVER__PORT: "3000"
+      BROCCOLI__DATABASE__URL: "postgres://postgres:password@db:5432/broccoli"
+      BROCCOLI__MQ__URL: "redis://redis:6379"
+      BROCCOLI__MQ__ENABLED: "true"
+      BROCCOLI__AUTH__JWT_SECRET: "e2e-docker-jwt-secret"
+      BROCCOLI__PLUGIN__PLUGINS_DIR: "/plugins"
+      BROCCOLI__STORAGE__BACKEND: "database"
+      RUST_LOG: "info"
+    volumes:
+      - ./plugins:/plugins:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/api-docs/openapi.json > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+  worker-1:
+    <<: *worker-common
+    environment:
+      <<: *worker-env
+      BROCCOLI__WORKER__ID: "worker-1"
+
+  worker-2:
+    <<: *worker-common
+    environment:
+      <<: *worker-env
+      BROCCOLI__WORKER__ID: "worker-2"
+
+  worker-3:
+    <<: *worker-common
+    environment:
+      <<: *worker-env
+      BROCCOLI__WORKER__ID: "worker-3"
+
+volumes:
+  e2e_pg_data:

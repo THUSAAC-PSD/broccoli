@@ -12,7 +12,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub async fn new() -> Self {
+    pub async fn new(metrics: common::metrics::Metrics) -> Self {
         let worker = Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
             hook_registry: Arc::new(Mutex::new(HookRegistry::new(()))),
@@ -20,7 +20,7 @@ impl Worker {
 
         worker.register_executor(
             "operation",
-            Arc::new(OperationTaskExecutor::from_config().await),
+            Arc::new(OperationTaskExecutor::from_config(metrics).await),
         );
         worker
     }
