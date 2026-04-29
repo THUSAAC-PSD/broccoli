@@ -138,7 +138,14 @@ pub fn init_metrics(service_name: &str) -> (crate::metrics::Metrics, prometheus:
         .build()
         .expect("Failed to build Prometheus exporter");
 
-    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+    let resource = opentelemetry_sdk::Resource::builder()
+        .with_service_name(service_name.to_string())
+        .build();
+
+    let provider = SdkMeterProvider::builder()
+        .with_reader(exporter)
+        .with_resource(resource)
+        .build();
 
     let scope = opentelemetry::InstrumentationScope::builder(service_name.to_string()).build();
     let meter = provider.meter_with_scope(scope);
