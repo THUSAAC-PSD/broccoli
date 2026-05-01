@@ -8,5 +8,7 @@ pub mod error;
 pub mod events;
 pub mod fixtures;
 pub mod load;
+pub mod report;
+pub mod runner;
 pub mod scenarios;
 pub mod ui;
