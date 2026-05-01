@@ -6226,6 +6226,7 @@ dependencies = [
  "clap",
  "crossterm",
  "hdrhistogram",
+ "rand 0.9.2",
  "ratatui",
  "reqwest",
  "serde",
