@@ -37,6 +37,12 @@ pub struct Cli {
     pub p95_budget_ms: u64,
 
     #[arg(long)]
+    pub contest_type: Option<String>,
+
+    #[arg(long)]
+    pub problem_type: Option<String>,
+
+    #[arg(long)]
     pub contest_id: Option<i32>,
 
     #[arg(long)]
