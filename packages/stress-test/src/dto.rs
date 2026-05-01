@@ -75,6 +75,14 @@ pub struct TestCaseResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct RegistriesResponse {
+    pub problem_types: Vec<String>,
+    pub checker_formats: Vec<String>,
+    pub contest_types: Vec<String>,
+    pub languages: Vec<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ContestProblemResponse {
     pub contest_id: i32,
     pub problem_id: i32,

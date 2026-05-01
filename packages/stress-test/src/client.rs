@@ -7,7 +7,8 @@ use tokio::sync::RwLock;
 
 use crate::dto::{
     ContestProblemResponse, CreateProblemRequest, CreateSubmissionRequest, CreateTestCaseRequest,
-    ErrorBody, LoginRequest, LoginResponse, ProblemResponse, SubmissionResponse, TestCaseResponse,
+    ErrorBody, LoginRequest, LoginResponse, ProblemResponse, RegistriesResponse,
+    SubmissionResponse, TestCaseResponse,
 };
 use crate::error::{StressError, StressResult};
 
@@ -95,6 +96,15 @@ impl Client {
         let mut token = self.0.token.write().await;
         *token = parsed.token;
         Ok(())
+    }
+
+    pub async fn list_registries(&self) -> StressResult<RegistriesResponse> {
+        let url = format!("{}/api/v1/plugins/registries", self.0.base_url);
+        let resp = self.0.http.get(url).send().await?;
+        if !resp.status().is_success() {
+            return Err(drain_error(resp).await);
+        }
+        decode_json(resp).await
     }
 
     pub async fn create_problem(
@@ -609,6 +619,41 @@ mod tests {
             .await;
 
         client.delete_problem(12).await.expect("delete ok");
+    }
+
+    #[tokio::test]
+    async fn list_registries_uses_public_endpoint_without_auth() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "ignored-token").await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v1/plugins/registries"))
+            .and(NoBearerHeader)
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "problem_types": ["batch", "interactive"],
+                "checker_formats": ["exact", "tokens"],
+                "contest_types": ["icpc", "ioi"],
+                "languages": []
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let r = client.list_registries().await.expect("registries ok");
+        assert_eq!(r.problem_types, vec!["batch", "interactive"]);
+        assert_eq!(r.contest_types, vec!["icpc", "ioi"]);
+        assert_eq!(r.checker_formats, vec!["exact", "tokens"]);
+    }
+
+    struct NoBearerHeader;
+
+    impl wiremock::Match for NoBearerHeader {
+        fn matches(&self, req: &Request) -> bool {
+            !req.headers.iter().any(|(name, value)| {
+                name.as_str().eq_ignore_ascii_case("authorization")
+                    && value.as_bytes().starts_with(b"Bearer ")
+            })
+        }
     }
 
     struct MultipartFieldMatcher {
