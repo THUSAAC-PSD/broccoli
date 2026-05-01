@@ -74,6 +74,15 @@ pub struct TestCaseResponse {
     pub problem_id: i32,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ContestProblemResponse {
+    pub contest_id: i32,
+    pub problem_id: i32,
+    pub label: String,
+    pub position: i32,
+    pub problem_title: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubmissionFileDto {
     pub filename: String,
