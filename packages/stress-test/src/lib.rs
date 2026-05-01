@@ -7,5 +7,6 @@ pub mod dto;
 pub mod error;
 pub mod events;
 pub mod fixtures;
+pub mod load;
 pub mod scenarios;
 pub mod ui;
