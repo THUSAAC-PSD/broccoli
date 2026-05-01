@@ -4,3 +4,4 @@ pub mod client;
 pub mod dto;
 pub mod error;
 pub mod fixtures;
+pub mod scenarios;
