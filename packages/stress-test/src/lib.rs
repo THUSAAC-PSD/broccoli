@@ -2,6 +2,7 @@
 pub mod bootstrap;
 pub mod cli;
 pub mod client;
+pub mod correctness;
 pub mod dto;
 pub mod error;
 pub mod events;
