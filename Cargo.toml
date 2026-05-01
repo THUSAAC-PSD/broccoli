@@ -6,6 +6,15 @@ members = [
   "packages/server",
   "packages/worker",
   "packages/cli",
+  "packages/stress-test",
+]
+default-members = [
+  "packages/common",
+  "packages/mq",
+  "packages/plugin-core",
+  "packages/server",
+  "packages/worker",
+  "packages/cli",
 ]
 exclude = [
   "examples",
@@ -72,3 +81,9 @@ tar = "0.4"
 dirs = "6"
 open = "5"
 notify = "7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
+clap = { version = "4", features = ["derive"] }
+ratatui = "0.28"
+crossterm = "0.28"
+hdrhistogram = "7"
+wiremock = "0.6"
