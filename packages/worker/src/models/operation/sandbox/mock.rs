@@ -25,7 +25,10 @@ pub struct MockSandboxManager {
 
 impl Default for MockSandboxManager {
     fn default() -> Self {
-        Self::new(std::env::temp_dir().join("broccoli-mock-sandbox"))
+        // Scope the base directory by PID so concurrent worker processes don't
+        // race on the same `box_id` directory under a shared temp root.
+        let pid = std::process::id();
+        Self::new(std::env::temp_dir().join(format!("broccoli-mock-sandbox-{pid}")))
     }
 }
 
