@@ -126,11 +126,8 @@ pub fn validate_virtual_path(path: &str) -> Result<String, &'static str> {
         }
     }
 
-    if !trimmed
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
-    {
-        return Err("Path contains invalid characters (allowed: a-zA-Z0-9, /, -, _, .)");
+    if trimmed.chars().any(|c| c.is_control()) {
+        return Err("Path must not contain control characters");
     }
 
     Ok(trimmed.to_string())
@@ -339,10 +336,19 @@ mod tests {
     }
 
     #[test]
-    fn validate_virtual_path_rejects_unsafe_characters() {
-        assert!(validate_virtual_path("file name.txt").is_err());
-        assert!(validate_virtual_path("file@name.txt").is_err());
-        assert!(validate_virtual_path("dir/file#1.txt").is_err());
+    fn validate_virtual_path_rejects_control_characters() {
+        assert!(validate_virtual_path("file\r\nname.txt").is_err());
+        assert!(validate_virtual_path("file\tname.txt").is_err());
+        assert!(validate_virtual_path("file\x7fname.txt").is_err());
+    }
+
+    #[test]
+    fn validate_virtual_path_accepts_unicode_filenames() {
+        assert!(validate_virtual_path("测试附件.png").is_ok());
+        assert!(validate_virtual_path("attachments/テスト.pdf").is_ok());
+        assert!(validate_virtual_path("문서/한글.txt").is_ok());
+        assert!(validate_virtual_path("file name.txt").is_ok());
+        assert!(validate_virtual_path("résumé.pdf").is_ok());
     }
 
     #[test]
