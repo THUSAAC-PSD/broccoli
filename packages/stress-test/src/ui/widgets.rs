@@ -1,5 +1,5 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table};
@@ -261,6 +261,44 @@ pub fn render_event_log(frame: &mut Frame, area: Rect, state: &AppState, theme: 
     frame.render_widget(table, inner);
 }
 
+pub fn render_dashboard(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+    let header = format!(
+        " BROCCOLI STRESS TEST  {}  {} ",
+        state.target_url,
+        state.elapsed_clock()
+    );
+    let outer = themed_outer_block(theme, &header);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let [r_top, r_mid, r_inflight, r_log, r_footer] = Layout::vertical([
+        Constraint::Length(5),
+        Constraint::Length(7),
+        Constraint::Length(3),
+        Constraint::Min(4),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+
+    let split_left = inner.width.min(34);
+    let [t_left, t_right] =
+        Layout::horizontal([Constraint::Length(split_left), Constraint::Min(0)]).areas(r_top);
+    render_phase_ladder(frame, t_left, state, theme);
+    render_throughput_sparkline(frame, t_right, state, theme);
+
+    let [m_left, m_right] =
+        Layout::horizontal([Constraint::Length(split_left), Constraint::Min(0)]).areas(r_mid);
+    render_latency_bars(frame, m_left, state, theme);
+    render_verdict_chart(frame, m_right, state, theme);
+
+    render_in_flight(frame, r_inflight, state, theme);
+    render_event_log(frame, r_log, state, theme);
+
+    let footer = Paragraph::new(" [q] quit  [p] pause  [up/down] scroll log")
+        .style(Style::default().fg(theme.color(ColorToken::Dim)));
+    frame.render_widget(footer, r_footer);
+}
+
 pub fn render_in_flight(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     let title = format!("IN FLIGHT {}/{}", state.in_flight, state.concurrency);
     let block = themed_inner_block(theme, &title);
@@ -479,6 +517,45 @@ mod tests {
         state.concurrency = 0;
         let lines = render_to_lines(30, 3, |f, a| render_in_flight(f, a, &state, &theme));
         assert!(!lines.is_empty());
+    }
+
+    #[test]
+    fn dashboard_renders_all_panels_at_minimum_size() {
+        let theme = ascii_theme();
+        let mut state = make_state();
+        state.correctness_state = PhaseState::Passed;
+        state.correctness_progress = (9, 9);
+        state.load_state = PhaseState::Running;
+        state.load_progress = (142, 200);
+        state.passthrough_state = PhaseState::Pending;
+        state.in_flight = 25;
+        state.latency_p50_ms = 820;
+        state.latency_p95_ms = 2104;
+        state.verdict_counts.insert("Accepted".into(), 98);
+        state.verdict_counts.insert("WrongAnswer".into(), 12);
+        state.push_log(LogEntry {
+            timestamp: chrono::Utc
+                .with_ymd_and_hms(2026, 5, 1, 14, 32, 18)
+                .unwrap(),
+            severity: LogSeverity::Ok,
+            phase: "load".into(),
+            message: "submission #142 Accepted".into(),
+        });
+
+        let lines = render_to_lines(80, 24, |f, a| render_dashboard(f, a, &state, &theme));
+        let body = lines.join("\n");
+        assert!(body.contains("BROCCOLI STRESS TEST"));
+        assert!(body.contains("PHASES"));
+        assert!(body.contains("THROUGHPUT"));
+        assert!(body.contains("LATENCY"));
+        assert!(body.contains("VERDICTS"));
+        assert!(body.contains("IN FLIGHT"));
+        assert!(body.contains("EVENT LOG"));
+        assert!(body.contains("[q] quit"));
+        assert!(body.contains("Correctness"));
+        assert!(body.contains("9/9"));
+        assert!(body.contains("142/200"));
+        assert!(body.contains("Accepted"));
     }
 
     #[test]

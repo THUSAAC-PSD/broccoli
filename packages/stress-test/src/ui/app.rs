@@ -1,7 +1,10 @@
 use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
+use hdrhistogram::Histogram;
+
+use crate::events::{Event, Phase};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhaseState {
@@ -27,7 +30,7 @@ pub struct LogEntry {
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AppState {
     pub target_url: String,
     pub started_at: Instant,
@@ -49,6 +52,7 @@ pub struct AppState {
     pub latency_p99_ms: u64,
     pub latency_max_ms: u64,
     pub p95_budget_ms: u64,
+    pub latency_hist: Histogram<u64>,
 
     pub verdict_counts: HashMap<String, u64>,
 
@@ -84,6 +88,8 @@ impl AppState {
             latency_p99_ms: 0,
             latency_max_ms: 0,
             p95_budget_ms,
+            latency_hist: Histogram::<u64>::new_with_bounds(1, 600_000, 3)
+                .expect("static histogram bounds are valid"),
             verdict_counts: HashMap::new(),
             in_flight: 0,
             concurrency,
@@ -136,6 +142,168 @@ impl AppState {
             0.0
         } else {
             (self.in_flight as f64 / self.concurrency as f64).clamp(0.0, 1.0)
+        }
+    }
+
+    pub fn record_latency(&mut self, latency_ms: u64) {
+        let clamped = latency_ms.clamp(1, 600_000);
+        let _ = self.latency_hist.record(clamped);
+        self.latency_max_ms = self.latency_max_ms.max(latency_ms);
+    }
+
+    pub fn refresh_latency_percentiles(&mut self) {
+        if self.latency_hist.is_empty() {
+            return;
+        }
+        self.latency_p50_ms = self.latency_hist.value_at_quantile(0.5);
+        self.latency_p95_ms = self.latency_hist.value_at_quantile(0.95);
+        self.latency_p99_ms = self.latency_hist.value_at_quantile(0.99);
+    }
+
+    pub fn tick(&mut self, now: Instant) {
+        if now.duration_since(self.last_bucket_tick) >= Duration::from_secs(1) {
+            self.throughput_buckets.push_back(self.current_bucket_count);
+            while self.throughput_buckets.len() > Self::THROUGHPUT_BUCKETS {
+                self.throughput_buckets.pop_front();
+            }
+            self.current_bucket_count = 0;
+            self.last_bucket_tick = now;
+        }
+        self.refresh_latency_percentiles();
+    }
+
+    pub fn apply_event(&mut self, event: &Event) {
+        match event {
+            Event::PhaseStarted { phase } => match phase {
+                Phase::Bootstrap => self.bootstrap_state = PhaseState::Running,
+                Phase::Correctness => self.correctness_state = PhaseState::Running,
+                Phase::Load => self.load_state = PhaseState::Running,
+                Phase::Passthrough => self.passthrough_state = PhaseState::Running,
+                Phase::Cleanup => {}
+            },
+            Event::PhaseFinished { phase, ok } => {
+                let next = if *ok {
+                    PhaseState::Passed
+                } else {
+                    PhaseState::Failed
+                };
+                match phase {
+                    Phase::Bootstrap => self.bootstrap_state = next,
+                    Phase::Correctness => self.correctness_state = next,
+                    Phase::Load => self.load_state = next,
+                    Phase::Passthrough => self.passthrough_state = next,
+                    Phase::Cleanup => {}
+                }
+            }
+            Event::ScenarioStarted { id } => {
+                self.correctness_progress.1 += 1;
+                self.push_log(LogEntry {
+                    timestamp: Utc::now(),
+                    severity: LogSeverity::Ok,
+                    phase: "correctness".into(),
+                    message: format!("scenario {id} starting"),
+                });
+            }
+            Event::ScenarioFinished {
+                id,
+                ok,
+                status,
+                verdict,
+                duration_ms,
+            } => {
+                if *ok {
+                    self.correctness_progress.0 += 1;
+                }
+                let verdict_label = verdict
+                    .as_ref()
+                    .map(|v| format!("{v:?}"))
+                    .unwrap_or_else(|| format!("{status:?}"));
+                self.push_log(LogEntry {
+                    timestamp: Utc::now(),
+                    severity: if *ok {
+                        LogSeverity::Ok
+                    } else {
+                        LogSeverity::Err
+                    },
+                    phase: "correctness".into(),
+                    message: format!("{id} {verdict_label} {duration_ms}ms"),
+                });
+            }
+            Event::LoadSubmitted { sequence, scenario } => {
+                self.load_progress.1 += 1;
+                self.in_flight = self.in_flight.saturating_add(1);
+                let _ = sequence;
+                let _ = scenario;
+            }
+            Event::LoadCompleted {
+                sequence,
+                ok,
+                latency_ms,
+                expected,
+                actual,
+            } => {
+                self.load_progress.0 += 1;
+                self.in_flight = self.in_flight.saturating_sub(1);
+                self.current_bucket_count = self.current_bucket_count.saturating_add(1);
+                self.record_latency(*latency_ms);
+                let actual_label = actual
+                    .verdict
+                    .as_ref()
+                    .map(|v| format!("{v:?}"))
+                    .unwrap_or_else(|| format!("{:?}", actual.status));
+                *self.verdict_counts.entry(actual_label.clone()).or_insert(0) += 1;
+                let severity = if *ok {
+                    LogSeverity::Ok
+                } else {
+                    LogSeverity::Err
+                };
+                let expected_label = expected
+                    .verdict
+                    .as_ref()
+                    .map(|v| format!("{v:?}"))
+                    .unwrap_or_else(|| format!("{:?}", expected.status));
+                let message = if *ok {
+                    format!("#{sequence} {actual_label} {latency_ms}ms")
+                } else {
+                    format!(
+                        "#{sequence} expected {expected_label} got {actual_label} {latency_ms}ms"
+                    )
+                };
+                self.push_log(LogEntry {
+                    timestamp: Utc::now(),
+                    severity,
+                    phase: "load".into(),
+                    message,
+                });
+            }
+            Event::PassthroughSkipped { reason } => {
+                self.passthrough_state = PhaseState::Skipped;
+                self.push_log(LogEntry {
+                    timestamp: Utc::now(),
+                    severity: LogSeverity::Warn,
+                    phase: "passthrough".into(),
+                    message: format!("skipped: {reason}"),
+                });
+            }
+            Event::PassthroughCompleted { ok, count } => {
+                self.passthrough_progress = (*count, *count);
+                self.passthrough_state = if *ok {
+                    PhaseState::Passed
+                } else {
+                    PhaseState::Failed
+                };
+            }
+            Event::Error { phase, message } => {
+                let label = phase
+                    .map(|p| p.label().to_string())
+                    .unwrap_or_else(|| "global".into());
+                self.push_log(LogEntry {
+                    timestamp: Utc::now(),
+                    severity: LogSeverity::Err,
+                    phase: label,
+                    message: message.clone(),
+                });
+            }
         }
     }
 }
@@ -208,5 +376,149 @@ mod tests {
         s.throughput_buckets.extend([10, 20, 30, 40]);
         assert_eq!(s.throughput_peak(), 40);
         assert!((s.throughput_sustained() - 25.0).abs() < 1e-9);
+    }
+
+    use crate::dto::{SubmissionStatus, Verdict};
+    use crate::events::{ActualTerminal, ExpectedTerminal, Phase};
+
+    #[test]
+    fn phase_started_finished_advance_state() {
+        let mut s = make();
+        s.apply_event(&Event::PhaseStarted {
+            phase: Phase::Correctness,
+        });
+        assert_eq!(s.correctness_state, PhaseState::Running);
+        s.apply_event(&Event::PhaseFinished {
+            phase: Phase::Correctness,
+            ok: true,
+        });
+        assert_eq!(s.correctness_state, PhaseState::Passed);
+        s.apply_event(&Event::PhaseFinished {
+            phase: Phase::Load,
+            ok: false,
+        });
+        assert_eq!(s.load_state, PhaseState::Failed);
+    }
+
+    #[test]
+    fn scenario_events_track_progress_and_log() {
+        let mut s = make();
+        s.apply_event(&Event::ScenarioStarted {
+            id: "ab-cpp-ac".into(),
+        });
+        assert_eq!(s.correctness_progress, (0, 1));
+        s.apply_event(&Event::ScenarioFinished {
+            id: "ab-cpp-ac".into(),
+            ok: true,
+            status: SubmissionStatus::Judged,
+            verdict: Some(Verdict::Accepted),
+            duration_ms: 412,
+        });
+        assert_eq!(s.correctness_progress, (1, 1));
+        assert!(
+            s.event_log
+                .iter()
+                .any(|e| e.message.contains("ab-cpp-ac") && e.message.contains("Accepted"))
+        );
+    }
+
+    #[test]
+    fn load_events_increment_and_decrement_in_flight() {
+        let mut s = make();
+        s.apply_event(&Event::LoadSubmitted {
+            sequence: 1,
+            scenario: "ab-cpp-ac".into(),
+        });
+        s.apply_event(&Event::LoadSubmitted {
+            sequence: 2,
+            scenario: "ab-cpp-ac".into(),
+        });
+        assert_eq!(s.in_flight, 2);
+        assert_eq!(s.load_progress.1, 2);
+        s.apply_event(&Event::LoadCompleted {
+            sequence: 1,
+            ok: true,
+            latency_ms: 800,
+            expected: ExpectedTerminal {
+                status: SubmissionStatus::Judged,
+                verdict: Some(Verdict::Accepted),
+            },
+            actual: ActualTerminal {
+                status: SubmissionStatus::Judged,
+                verdict: Some(Verdict::Accepted),
+            },
+        });
+        assert_eq!(s.in_flight, 1);
+        assert_eq!(s.load_progress, (1, 2));
+        assert_eq!(s.verdict_counts.get("Accepted").copied().unwrap_or(0), 1);
+        assert!(s.latency_max_ms >= 800);
+    }
+
+    #[test]
+    fn passthrough_skipped_marks_skipped_state() {
+        let mut s = make();
+        s.apply_event(&Event::PassthroughSkipped {
+            reason: "no contest id".into(),
+        });
+        assert_eq!(s.passthrough_state, PhaseState::Skipped);
+        assert!(matches!(
+            s.event_log.back().unwrap().severity,
+            LogSeverity::Warn
+        ));
+    }
+
+    #[test]
+    fn passthrough_completed_sets_progress_and_state() {
+        let mut s = make();
+        s.apply_event(&Event::PassthroughCompleted { ok: true, count: 7 });
+        assert_eq!(s.passthrough_state, PhaseState::Passed);
+        assert_eq!(s.passthrough_progress, (7, 7));
+    }
+
+    #[test]
+    fn error_event_pushes_err_log_entry() {
+        let mut s = make();
+        s.apply_event(&Event::Error {
+            phase: Some(Phase::Load),
+            message: "boom".into(),
+        });
+        let last = s.event_log.back().unwrap();
+        assert!(matches!(last.severity, LogSeverity::Err));
+        assert_eq!(last.phase, "load");
+        assert_eq!(last.message, "boom");
+    }
+
+    #[test]
+    fn tick_rolls_throughput_after_one_second() {
+        let mut s = make();
+        s.current_bucket_count = 5;
+        let later = s.last_bucket_tick + Duration::from_secs(1);
+        s.tick(later);
+        assert_eq!(s.throughput_buckets.back().copied(), Some(5));
+        assert_eq!(s.current_bucket_count, 0);
+    }
+
+    #[test]
+    fn tick_caps_throughput_buckets_at_60() {
+        let mut s = make();
+        for _ in 0..70 {
+            s.last_bucket_tick -= Duration::from_secs(1);
+            s.current_bucket_count = 1;
+            s.tick(Instant::now());
+        }
+        assert_eq!(s.throughput_buckets.len(), AppState::THROUGHPUT_BUCKETS);
+    }
+
+    #[test]
+    fn refresh_latency_percentiles_after_recording() {
+        let mut s = make();
+        for ms in [100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000] {
+            s.record_latency(ms);
+        }
+        s.refresh_latency_percentiles();
+        assert!(s.latency_p50_ms >= 100);
+        assert!(s.latency_p95_ms >= s.latency_p50_ms);
+        assert!(s.latency_p99_ms >= s.latency_p95_ms);
+        assert_eq!(s.latency_max_ms, 5000);
     }
 }
