@@ -127,13 +127,33 @@ pub async fn run(cli: Cli) -> u8 {
         }
     }
 
-    if cli.contest_id.is_some() {
-        let reason = "pass-through phase not yet implemented (Phase C)".to_string();
-        tx.send(Event::PassthroughSkipped {
-            reason: reason.clone(),
-        })
-        .ok();
-        summary.passthrough = PassthroughSummary::Skipped { reason };
+    if let Some(contest_id) = cli.contest_id {
+        let pt_config = crate::passthrough::PassthroughConfig {
+            contest_id,
+            problem_id: cli.problem_id,
+            concurrency: cli.contest_concurrency,
+            per_job_timeout: Duration::from_secs(cli.per_job_timeout),
+        };
+        match crate::passthrough::run(&client, &pt_config, &tx).await {
+            Ok(outcome) => {
+                summary.passthrough = passthrough_summary_from_outcome(&outcome);
+                if !outcome.passed() && overall_exit == exit_code::PASS {
+                    overall_exit = exit_code::PASSTHROUGH_FAIL;
+                }
+            }
+            Err(e) => {
+                summary.passthrough = PassthroughSummary::Completed {
+                    ok: false,
+                    count: 0,
+                };
+                if overall_exit == exit_code::PASS {
+                    overall_exit = exit_code::PASSTHROUGH_FAIL;
+                }
+                summary
+                    .cleanup_warnings
+                    .push(format!("pass-through setup error: {e}"));
+            }
+        }
     } else {
         tx.send(Event::PassthroughSkipped {
             reason: "no --contest-id".into(),
@@ -176,6 +196,22 @@ fn build_creds(cli: &Cli) -> AuthCreds {
         AuthCreds::UsernamePassword {
             username: cli.admin_username.clone().unwrap_or_default(),
             password: cli.admin_password.clone().unwrap_or_default(),
+        }
+    }
+}
+
+fn passthrough_summary_from_outcome(
+    outcome: &crate::passthrough::PassthroughOutcome,
+) -> PassthroughSummary {
+    match outcome {
+        crate::passthrough::PassthroughOutcome::Skipped { reason } => PassthroughSummary::Skipped {
+            reason: reason.clone(),
+        },
+        crate::passthrough::PassthroughOutcome::Completed { count, .. } => {
+            PassthroughSummary::Completed {
+                ok: outcome.passed(),
+                count: *count,
+            }
         }
     }
 }

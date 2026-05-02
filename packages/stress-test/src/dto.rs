@@ -67,6 +67,20 @@ pub struct CreateTestCaseRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TestCaseResponse {
     pub id: i32,
+    #[serde(default)]
+    pub input: String,
+    #[serde(default)]
+    pub expected_output: String,
+    pub score: i32,
+    pub label: String,
+    pub is_sample: bool,
+    pub position: i32,
+    pub problem_id: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TestCaseListItem {
+    pub id: i32,
     pub score: i32,
     pub label: String,
     pub is_sample: bool,
@@ -82,7 +96,7 @@ pub struct RegistriesResponse {
     pub languages: Vec<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ContestProblemResponse {
     pub contest_id: i32,
     pub problem_id: i32,
@@ -91,13 +105,20 @@ pub struct ContestProblemResponse {
     pub problem_title: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ContestResponse {
+    pub id: i32,
+    pub title: String,
+    pub contest_type: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubmissionFileDto {
     pub filename: String,
     pub content: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CreateSubmissionRequest {
     pub files: Vec<SubmissionFileDto>,
     pub language: String,
