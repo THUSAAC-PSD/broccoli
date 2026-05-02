@@ -217,6 +217,72 @@ mod token_refresh {
         assert_eq!(res.status, 401);
         assert_eq!(res.body["code"], "TOKEN_MISSING");
     }
+
+    #[tokio::test]
+    async fn refresh_rotates_the_refresh_cookie() {
+        fn extract_refresh_cookie(resp: &TestResponse) -> String {
+            for hv in resp.headers.get_all("set-cookie").iter() {
+                let s = hv.to_str().expect("set-cookie utf-8");
+                if let Some(rest) = s.strip_prefix("broccoli_refresh=") {
+                    let val = rest.split(';').next().unwrap_or("").to_string();
+                    if !val.is_empty() {
+                        return val;
+                    }
+                }
+            }
+            panic!("no broccoli_refresh Set-Cookie on response");
+        }
+
+        let app = TestApp::spawn().await;
+        let body = json!({"username": "alice", "password": "securepass"});
+        app.post_without_token(routes::REGISTER, &body).await;
+
+        let login_res = app.post_without_token(routes::LOGIN, &body).await;
+        let cookie_a = extract_refresh_cookie(&login_res);
+
+        // First refresh via the cookie-store-aware client: success, sets cookie B.
+        let r1 = app.post_without_token(routes::REFRESH, &json!({})).await;
+        assert_eq!(r1.status, 200);
+        let cookie_b = extract_refresh_cookie(&r1);
+        assert_ne!(
+            cookie_a, cookie_b,
+            "refresh must rotate the cookie (selector + validator)"
+        );
+
+        let raw_client = reqwest::Client::builder()
+            .no_proxy()
+            .cookie_store(false)
+            .build()
+            .unwrap();
+        let replay_a = raw_client
+            .post(format!("http://{}{}", app.addr, routes::REFRESH))
+            .header("cookie", format!("broccoli_refresh={}", cookie_a))
+            .json(&json!({}))
+            .send()
+            .await
+            .expect("send refresh replay A");
+        assert_eq!(replay_a.status(), 401);
+        let replay_a_body: serde_json::Value = replay_a.json().await.unwrap();
+        assert_eq!(replay_a_body["code"], "TOKEN_INVALID");
+
+        // Second legit refresh with cookie B (via the cookie-store client): rotates to cookie C.
+        let r2 = app.post_without_token(routes::REFRESH, &json!({})).await;
+        assert_eq!(r2.status, 200);
+        let cookie_c = extract_refresh_cookie(&r2);
+        assert_ne!(cookie_b, cookie_c, "second refresh must also rotate");
+
+        // Replay cookie B: 401 TOKEN_INVALID.
+        let replay_b = raw_client
+            .post(format!("http://{}{}", app.addr, routes::REFRESH))
+            .header("cookie", format!("broccoli_refresh={}", cookie_b))
+            .json(&json!({}))
+            .send()
+            .await
+            .expect("send refresh replay B");
+        assert_eq!(replay_b.status(), 401);
+        let replay_b_body: serde_json::Value = replay_b.json().await.unwrap();
+        assert_eq!(replay_b_body["code"], "TOKEN_INVALID");
+    }
 }
 
 mod logout {

@@ -187,6 +187,8 @@ pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<impl IntoResponse, AppError> {
+    use sea_orm::sea_query::LockType;
+
     let cookie_value = jar
         .get(refresh::REFRESH_COOKIE_NAME)
         .map(|c| c.value().to_string())
@@ -195,40 +197,45 @@ pub async fn refresh(
     let (selector, validator) =
         refresh::parse_refresh_token(&cookie_value).map_err(|_| AppError::TokenInvalid)?;
 
-    let maybe_record = refresh_token::Entity::find_by_id(selector)
-        .find_also_related(user::Entity)
-        .one(&state.db)
+    let txn = state.db.begin().await?;
+
+    let maybe_rt = refresh_token::Entity::find_by_id(selector.to_string())
+        .lock(LockType::Update)
+        .one(&txn)
         .await?;
 
-    let is_valid = hash::verify_password(
-        validator,
-        maybe_record.as_ref().map(|(rt, _)| rt.validator.as_str()),
-    )
-    .map_err(|e| AppError::Internal(format!("Refresh token verify error: {}", e)))?;
+    let is_valid =
+        hash::verify_password(validator, maybe_rt.as_ref().map(|rt| rt.validator.as_str()))
+            .map_err(|e| AppError::Internal(format!("Refresh token verify error: {}", e)))?;
 
-    let (rt_model, maybe_user) = match maybe_record {
-        Some((rt, user)) if is_valid => (rt, user),
+    let rt_model = match maybe_rt {
+        Some(rt) if is_valid => rt,
         _ => return Err(AppError::TokenInvalid),
     };
 
     if rt_model.expires_at < chrono::Utc::now() {
-        rt_model.delete(&state.db).await?;
+        rt_model.delete(&txn).await?;
+        txn.commit().await?;
         return Err(AppError::TokenInvalid);
     }
+
+    let user_id = rt_model.user_id;
+    let maybe_user = user::Entity::find_by_id(user_id).one(&txn).await?;
 
     let user = match maybe_user {
         Some(u) if u.deleted_at.is_none() => u,
         _ => {
-            rt_model.delete(&state.db).await?;
+            rt_model.delete(&txn).await?;
+            txn.commit().await?;
             return Err(AppError::PermissionDenied);
         }
     };
 
-    let role_models = user.find_related(role::Entity).all(&state.db).await?;
+    let role_models = user.find_related(role::Entity).all(&txn).await?;
     let roles: Vec<String> = role_models.iter().map(|r| r.name.clone()).collect();
 
     let permissions: Vec<String> = role_models
-        .load_many(role_permission::Entity, &state.db)
+        .load_many(role_permission::Entity, &txn)
         .await?
         .into_iter()
         .flatten()
@@ -244,13 +251,39 @@ pub async fn refresh(
     )
     .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
-    Ok(Json(LoginResponse {
-        token: new_access_token,
-        id: user.id,
-        username: user.username,
-        roles,
-        permissions,
-    }))
+    let now = chrono::Utc::now();
+    let new_expiry = now + chrono::Duration::days(refresh::REFRESH_TOKEN_EXPIRY_DAYS);
+    let new_selector = hash::generate_random_string();
+    let new_validator = hash::generate_random_string();
+    let new_validator_hash = hash::hash_password(&new_validator)
+        .map_err(|e| AppError::Internal(format!("Refresh token hash error: {}", e)))?;
+
+    rt_model.delete(&txn).await?;
+
+    refresh_token::ActiveModel {
+        selector: Set(new_selector.clone()),
+        validator: Set(new_validator_hash),
+        user_id: Set(user.id),
+        expires_at: Set(new_expiry),
+        created_at: Set(now),
+    }
+    .insert(&txn)
+    .await?;
+
+    txn.commit().await?;
+
+    let new_cookie = refresh::build_refresh_cookie(&new_selector, &new_validator);
+
+    Ok((
+        jar.add(new_cookie),
+        Json(LoginResponse {
+            token: new_access_token,
+            id: user.id,
+            username: user.username,
+            roles,
+            permissions,
+        }),
+    ))
 }
 
 #[utoipa::path(
