@@ -67,7 +67,7 @@ pub struct SubmissionListQuery {
     pub sort_order: Option<String>,
 }
 
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SubmissionResponse {
     #[schema(example = 1)]
     pub id: i32,
@@ -94,7 +94,7 @@ pub struct SubmissionResponse {
     pub result: Option<JudgeResultResponse>,
 }
 
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SubmissionListItem {
     #[schema(example = 1)]
     pub id: i32,
@@ -132,7 +132,7 @@ pub struct SubmissionListResponse {
     pub pagination: Pagination,
 }
 
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
     #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
@@ -148,7 +148,7 @@ pub struct JudgeResultResponse {
     pub test_case_results: Vec<TestCaseResultResponse>,
 }
 
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
