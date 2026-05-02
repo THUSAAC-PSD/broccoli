@@ -13,7 +13,7 @@ use crate::entity::idempotency_key;
 use crate::error::AppError;
 use crate::state::AppState;
 
-const MAX_RESPONSE_BODY_SIZE: usize = 1_048_576;
+const MAX_RESPONSE_BODY_SIZE: usize = 4 * 1_048_576;
 
 const STALE_PENDING_SECS: i64 = 120;
 
@@ -168,6 +168,16 @@ async fn handle_existing_key(
                 .body(Body::from(body))
                 .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
         }
+        "completed_too_large" => {
+            if existing.request_path != request_path || existing.request_method != request_method {
+                return AppError::IdempotencyKeyMismatch(format!(
+                    "This key was used with {} {} but this request is {} {}",
+                    existing.request_method, existing.request_path, request_method, request_path
+                ))
+                .into_response();
+            }
+            AppError::IdempotencyResponseTooLarge.into_response()
+        }
         "pending" => {
             let age_secs = (Utc::now() - existing.created_at).num_seconds();
             if age_secs < STALE_PENDING_SECS {
@@ -183,9 +193,7 @@ async fn handle_existing_key(
                         let response = next.run(request).await;
                         complete_key(db, key, user_id, response).await
                     }
-                    Ok(false) => {
-                        AppError::IdempotencyKeyInProgress.into_response()
-                    }
+                    Ok(false) => AppError::IdempotencyKeyInProgress.into_response(),
                     Err(e) => {
                         warn!(error = %e, "Failed to reclaim stale key, passing through");
                         next.run(request).await
@@ -244,35 +252,44 @@ async fn complete_key(
 
     if is_success {
         let (parts, body) = response.into_parts();
-        match to_bytes(body, MAX_RESPONSE_BODY_SIZE).await {
+        match to_bytes(body, usize::MAX).await {
             Ok(bytes) => {
-                let body_str = match String::from_utf8(bytes.to_vec()) {
-                    Ok(s) => s,
-                    Err(_) => {
-                        warn!("Response body is not valid UTF-8, skipping idempotency cache");
-                        let _ = delete_key(db, key, user_id).await;
-                        return Response::from_parts(parts, Body::from(bytes.to_vec()));
+                if bytes.len() <= MAX_RESPONSE_BODY_SIZE {
+                    let body_str = match String::from_utf8(bytes.to_vec()) {
+                        Ok(s) => s,
+                        Err(_) => {
+                            warn!("Response body is not valid UTF-8, skipping idempotency cache");
+                            let _ = delete_key(db, key, user_id).await;
+                            return Response::from_parts(parts, Body::from(bytes.to_vec()));
+                        }
+                    };
+                    if let Err(e) =
+                        mark_completed(db, key, user_id, parts.status.as_u16() as i16, &body_str)
+                            .await
+                    {
+                        error!(error = %e, "Failed to cache idempotency response");
                     }
-                };
-                if let Err(e) =
-                    mark_completed(db, key, user_id, parts.status.as_u16() as i16, &body_str).await
-                {
-                    error!(error = %e, "Failed to cache idempotency response");
+                    Response::from_parts(parts, Body::from(bytes.to_vec()))
+                } else {
+                    // Too large to cache. Pass the FULL body through to the
+                    // current client, then mark the key so retries get 409.
+                    warn!(
+                        body_len = bytes.len(),
+                        cap = MAX_RESPONSE_BODY_SIZE,
+                        "Response body too large to cache for idempotency; passing original body through, retries will be rejected"
+                    );
+                    if let Err(e) =
+                        mark_too_large(db, key, user_id, parts.status.as_u16() as i16).await
+                    {
+                        error!(error = %e, "Failed to mark oversized idempotency key as completed_too_large");
+                    }
+                    Response::from_parts(parts, Body::from(bytes.to_vec()))
                 }
-                Response::from_parts(parts, Body::from(bytes.to_vec()))
             }
             Err(e) => {
-                warn!(error = %e, "Response body too large to cache for idempotency");
-                if let Err(e) =
-                    mark_completed(db, key, user_id, parts.status.as_u16() as i16, "{}").await
-                {
-                    error!(error = %e, "Failed to mark oversized idempotency key as completed");
-                }
-                Response::builder()
-                    .status(parts.status)
-                    .header("content-type", "application/json")
-                    .body(Body::from("{}"))
-                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                error!(error = %e, "Failed to read response body for idempotency cache");
+                let _ = delete_key(db, key, user_id).await;
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
         }
     } else {
@@ -281,6 +298,28 @@ async fn complete_key(
         }
         response
     }
+}
+
+async fn mark_too_large(
+    db: &DatabaseConnection,
+    key: &str,
+    user_id: i32,
+    response_status: i16,
+) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        r#"UPDATE idempotency_key
+           SET status = 'completed_too_large', response_status = $1, response_body = NULL, completed_at = $2
+           WHERE key = $3 AND user_id = $4 AND status = 'pending'"#,
+        [
+            response_status.into(),
+            Utc::now().into(),
+            key.into(),
+            user_id.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
 }
 
 async fn mark_completed(

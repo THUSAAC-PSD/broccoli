@@ -43,6 +43,8 @@ pub enum AppError {
     },
     IdempotencyKeyInProgress,
     IdempotencyKeyMismatch(String),
+    /// Idempotent response was too large to cache and cannot be replayed.
+    IdempotencyResponseTooLarge,
     Internal(String),
 }
 
@@ -128,6 +130,15 @@ impl AppError {
             AppError::IdempotencyKeyMismatch(msg) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 simple("IDEMPOTENCY_KEY_MISMATCH", msg),
+            ),
+            AppError::IdempotencyResponseTooLarge => (
+                StatusCode::CONFLICT,
+                simple(
+                    "CONFLICT",
+                    "Idempotent response too large to replay; original request \
+                     succeeded but cannot be safely re-issued"
+                        .into(),
+                ),
             ),
             AppError::Internal(detail) => {
                 tracing::error!("Internal error: {}", detail);
