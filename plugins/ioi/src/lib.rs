@@ -706,12 +706,13 @@ fn handle_submission_status(
 
     #[derive(Deserialize)]
     struct LastVerdict {
+        id: i32,
         verdict: Option<String>,
         score: Option<f64>,
     }
     let mut p = Params::new();
     let sql = format!(
-        "SELECT verdict, score FROM submission \
+        "SELECT id, verdict, score FROM submission \
          WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
          AND status = 'Judged' AND verdict IS NOT NULL \
          ORDER BY created_at DESC LIMIT 1",
@@ -719,18 +720,39 @@ fn handle_submission_status(
         p.bind(problem_id),
         p.bind(contest_id)
     );
-    let (last_verdict, last_score) = host
+    let (last_submission_id, last_verdict, last_score) = host
         .db
         .query_one_with_args::<LastVerdict>(&sql, &p.into_args())?
-        .map(|r| (r.verdict, r.score))
-        .unwrap_or((None, None));
+        .map(|r| (Some(r.id), r.verdict, r.score))
+        .unwrap_or((None, None, None));
+
+    let contest_config: ContestConfig = contest::load_config(host, contest_id)?;
+
+    let can_view_full_feedback = can_view_privileged_submission_feedback(&req)
+        || match last_submission_id {
+            Some(sid) => {
+                tokens_enabled(&contest_config)
+                    && viewer_has_token_feedback_for_submission(host, &req, contest_id, sid)?
+            }
+            None => false,
+        };
+
+    let (visible_verdict, visible_score) = if can_view_full_feedback {
+        (last_verdict, last_score)
+    } else {
+        match contest_config.feedback_level {
+            FeedbackLevel::Full => (last_verdict, last_score),
+            FeedbackLevel::SubtaskScores | FeedbackLevel::TotalOnly => (last_verdict, last_score),
+            FeedbackLevel::None => (None, None),
+        }
+    };
 
     Ok(PluginHttpResponse {
         status: 200,
         headers: None,
         body: Some(serde_json::json!({
-            "last_submission_verdict": last_verdict,
-            "last_submission_score": last_score,
+            "last_submission_verdict": visible_verdict,
+            "last_submission_score": visible_score,
         })),
     })
 }
