@@ -14,6 +14,8 @@ struct RegisterContestTypeInput {
     contest_type: String,
     submission_handler: String,
     code_run_handler: String,
+    #[serde(default)]
+    filter_submission_handler: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -178,6 +180,11 @@ fn register_contest_type_fn(
                     plugin_id: plugin_id.to_string(),
                     submission_fn: input.submission_handler.clone(),
                     code_run_fn: input.code_run_handler.clone(),
+                    filter_submission_fn: input
+                        .filter_submission_handler
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                        .cloned(),
                 },
             );
             tracing::info!(
@@ -185,6 +192,7 @@ fn register_contest_type_fn(
                 key = %key,
                 submission_fn = %input.submission_handler,
                 code_run_fn = %input.code_run_handler,
+                filter_submission_fn = ?input.filter_submission_handler,
                 "Contest type registered"
             );
         })

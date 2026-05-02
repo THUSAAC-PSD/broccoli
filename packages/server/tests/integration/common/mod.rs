@@ -399,9 +399,7 @@ impl TestApp {
 
         let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
         let mut admin_opts = ConnectOptions::new(&admin_url);
-        admin_opts
-            .max_connections(1)
-            .min_connections(0);
+        admin_opts.max_connections(1).min_connections(0);
         let admin_conn = Database::connect(admin_opts)
             .await
             .expect("Failed to connect to admin database");
@@ -505,6 +503,7 @@ impl TestApp {
                     plugin_id: "__test__".into(),
                     submission_fn: "noop".into(),
                     code_run_fn: "noop".into(),
+                    filter_submission_fn: None,
                 },
             );
         }
