@@ -1,5 +1,7 @@
+use std::time::Duration;
+
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::Utc;
@@ -8,11 +10,14 @@ use common::submission_dispatch::{OnCodeRunInput, OnCodeRunOutput, SourceFile, T
 use sea_orm::*;
 use tracing::{error, info, instrument, warn};
 
+const CODE_RUN_DISPATCH_TIMEOUT: Duration = Duration::from_secs(180);
+
 use crate::consumers::mark_code_run_system_error;
 use crate::entity::{code_run, code_run_result, problem, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::models::code_run::*;
 use crate::state::AppState;
 use crate::utils::contest::{
@@ -155,9 +160,30 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, code_run: code_run::Mode
     );
 
     tokio::spawn(async move {
-        let result = plugins
-            .call_raw(&plugin_id, &function_name, input_bytes)
-            .await;
+        let call_fut = plugins.call_raw(&plugin_id, &function_name, input_bytes);
+        let result = match tokio::time::timeout(CODE_RUN_DISPATCH_TIMEOUT, call_fut).await {
+            Ok(r) => r,
+            Err(_) => {
+                error!(
+                    code_run_id,
+                    plugin_id = %plugin_id,
+                    function_name = %function_name,
+                    timeout_secs = CODE_RUN_DISPATCH_TIMEOUT.as_secs(),
+                    "Code run dispatch timed out"
+                );
+                let _ = mark_code_run_system_error(
+                    &db,
+                    code_run_id,
+                    "DISPATCH_TIMEOUT",
+                    &format!(
+                        "Code run dispatch exceeded {}s timeout",
+                        CODE_RUN_DISPATCH_TIMEOUT.as_secs()
+                    ),
+                )
+                .await;
+                return;
+            }
+        };
 
         match result {
             Ok(output_bytes) => match serde_json::from_slice::<OnCodeRunOutput>(&output_bytes) {
@@ -322,7 +348,7 @@ async fn build_code_run_response(
 pub async fn run_code(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<RunCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
@@ -406,7 +432,7 @@ pub async fn run_code(
 pub async fn run_contest_code(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((id, problem_id)): Path<(i32, i32)>,
+    AppPath((id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<RunCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
@@ -500,7 +526,7 @@ pub async fn run_contest_code(
 pub async fn get_code_run(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<CodeRunResponse>, AppError> {
     let cr = code_run::Entity::find_by_id(id)
         .one(&state.db)
