@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use sea_orm::*;
@@ -10,6 +10,7 @@ use crate::entity::{clarification, clarification_reply, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::models::clarification::*;
 use crate::state::AppState;
 use crate::utils::contest::{check_contest_access, find_contest};
@@ -55,7 +56,7 @@ async fn resolve_usernames(
 pub async fn list_clarifications(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     Query(query): Query<ClarificationListQuery>,
 ) -> Result<Json<ClarificationListResponse>, AppError> {
     let contest = find_contest(&state.db, contest_id).await?;
@@ -75,22 +76,7 @@ pub async fn list_clarifications(
             Condition::any()
                 .add(clarification::Column::AuthorId.eq(auth_user.user_id))
                 .add(clarification::Column::IsPublic.eq(true))
-                .add(clarification::Column::ReplyIsPublic.eq(true))
-                .add(clarification::Column::RecipientId.eq(auth_user.user_id))
-                .add(
-                    clarification::Column::Id.in_subquery(
-                        sea_orm::sea_query::Query::select()
-                            .column(clarification_reply::Column::ClarificationId)
-                            .from(sea_orm::sea_query::Alias::new("clarification_reply"))
-                            .and_where(
-                                sea_orm::sea_query::Expr::col(
-                                    clarification_reply::Column::IsPublic,
-                                )
-                                .eq(true),
-                            )
-                            .to_owned(),
-                    ),
-                ),
+                .add(clarification::Column::RecipientId.eq(auth_user.user_id)),
         );
     }
 
@@ -232,7 +218,7 @@ pub async fn list_clarifications(
 pub async fn create_clarification(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<CreateClarificationRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     validate_create_clarification(&payload)?;
@@ -330,7 +316,7 @@ pub async fn create_clarification(
 pub async fn reply_clarification(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, clarification_id)): Path<(i32, i32)>,
+    AppPath((contest_id, clarification_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<ReplyClarificationRequest>,
 ) -> Result<Json<ClarificationResponse>, AppError> {
     validate_reply_clarification(&payload)?;
@@ -474,7 +460,7 @@ pub async fn reply_clarification(
 pub async fn toggle_reply_public(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, clarification_id, reply_id)): Path<(i32, i32, i32)>,
+    AppPath((contest_id, clarification_id, reply_id)): AppPath<(i32, i32, i32)>,
     Query(query): Query<ToggleReplyPublicQuery>,
 ) -> Result<Json<ClarificationReplyResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -555,7 +541,7 @@ pub async fn toggle_reply_public(
 pub async fn resolve_clarification(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, clarification_id)): Path<(i32, i32)>,
+    AppPath((contest_id, clarification_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<ResolveClarificationRequest>,
 ) -> Result<Json<ClarificationResponse>, AppError> {
     let existing = clarification::Entity::find_by_id(clarification_id)
