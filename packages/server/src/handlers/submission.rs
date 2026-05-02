@@ -12,9 +12,9 @@ use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::{error, info, instrument, warn};
 
-use crate::entity::{
-    contest, plugin_config, plugin_storage, problem, submission, test_case, test_case_result, user,
-};
+use plugin_core::traits::PluginManagerExt;
+
+use crate::entity::{contest, problem, submission, test_case, test_case_result, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -645,135 +645,123 @@ async fn build_submission_response(
     })
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum IoiFeedbackLevel {
-    Full,
-    SubtaskScores,
-    TotalOnly,
-    None,
+/// Generic per-contest-type submission filter dispatch. Looks up the registered
+/// `filter_submission_fn` for the submission's contest_type and invokes it.
+/// Returns the input unchanged if no contest_id, no plugin handler, or no
+/// `filter_submission_fn` is registered.
+#[derive(serde::Serialize)]
+struct FilterSubmissionInput<'a> {
+    submission: &'a serde_json::Value,
+    is_list_item: bool,
+    contest_id: Option<i32>,
+    viewer_user_id: Option<i32>,
+    viewer_permissions: Vec<String>,
 }
 
-impl IoiFeedbackLevel {
-    fn from_str(s: &str) -> Self {
-        match s {
-            "none" => Self::None,
-            "total_only" => Self::TotalOnly,
-            "subtask_scores" => Self::SubtaskScores,
-            _ => Self::Full,
-        }
-    }
+#[derive(serde::Deserialize)]
+struct FilterSubmissionOutput {
+    submission: serde_json::Value,
 }
 
-async fn load_ioi_feedback_level(
-    db: &DatabaseConnection,
-    contest_id: i32,
-) -> Result<IoiFeedbackLevel, AppError> {
-    let row = plugin_config::Entity::find_by_id((
-        "contest".to_string(),
-        contest_id.to_string(),
-        "ioi:contest".to_string(),
-    ))
-    .one(db)
-    .await?;
-
-    let level = row
-        .as_ref()
-        .and_then(|r| r.config.get("feedback_level"))
-        .and_then(|v| v.as_str())
-        .map(IoiFeedbackLevel::from_str)
-        .unwrap_or(IoiFeedbackLevel::Full);
-    Ok(level)
-}
-
-async fn ioi_submission_is_tokened(
-    db: &DatabaseConnection,
-    contest_id: i32,
-    user_id: i32,
-    submission_id: i32,
-) -> Result<bool, AppError> {
-    let key = format!("tokens:{}:{}", contest_id, user_id);
-    let row = plugin_storage::Entity::find_by_id(("ioi".to_string(), "default".to_string(), key))
-        .one(db)
-        .await?;
-
-    let Some(row) = row else {
-        return Ok(false);
-    };
-    // Plugin storage wraps payloads as Value::String(json_text). Decode either form.
-    let inner: serde_json::Value = match &row.data {
-        serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
-        other => other.clone(),
-    };
-    let tokened = inner
-        .get("tokened_submission_ids")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_i64())
-                .any(|id| id == submission_id as i64)
-        })
-        .unwrap_or(false);
-    Ok(tokened)
-}
-
-/// Redact a submission response in place to honor the IOI plugin's
-/// `feedback_level` config. Only applies when the submission belongs to an
-/// IOI contest and the viewer is a non-privileged contestant. Tokened
-/// submissions bypass redaction.
-async fn apply_ioi_feedback_redaction(
-    db: &DatabaseConnection,
-    response: &mut SubmissionResponse,
+async fn filter_submission_via_plugin(
+    state: &AppState,
+    contest_type: &str,
+    contest_id: Option<i32>,
+    submission_value: serde_json::Value,
+    is_list_item: bool,
     visibility: Option<&VisibilityContext>,
-) -> Result<(), AppError> {
-    if response.contest_type != "ioi" {
-        return Ok(());
+) -> Result<serde_json::Value, AppError> {
+    if contest_id.is_none() {
+        return Ok(submission_value);
     }
-    let Some(contest_id) = response.contest_id else {
-        return Ok(());
+
+    let handler = {
+        let registry = state.registries.contest_type_registry.read().await;
+        registry.get(contest_type).cloned()
     };
-    let Some(ctx) = visibility else {
-        return Ok(());
+    let Some(handler) = handler else {
+        return Ok(submission_value);
     };
-    if ctx.has_view_all {
-        return Ok(());
-    }
+    let Some(filter_fn) = handler.filter_submission_fn.clone() else {
+        return Ok(submission_value);
+    };
 
-    let is_owner = ctx.viewer_id == response.user_id;
-    if is_owner && ioi_submission_is_tokened(db, contest_id, ctx.viewer_id, response.id).await? {
-        return Ok(());
-    }
-
-    let level = load_ioi_feedback_level(db, contest_id).await?;
-
-    if let Some(result) = response.result.as_mut() {
-        match level {
-            IoiFeedbackLevel::Full => {}
-            IoiFeedbackLevel::SubtaskScores | IoiFeedbackLevel::TotalOnly => {
-                for tcr in result.test_case_results.iter_mut() {
-                    tcr.verdict = Verdict::Skipped;
-                    tcr.score = 0.0;
-                    tcr.time_used = None;
-                    tcr.memory_used = None;
-                    tcr.input = None;
-                    tcr.expected_output = None;
-                    tcr.stdout = None;
-                    tcr.stderr = None;
-                    tcr.checker_output = None;
-                }
+    let viewer_permissions: Vec<String> = visibility
+        .map(|ctx| {
+            let mut perms = Vec::new();
+            if ctx.has_view_all {
+                perms.push("submission:view_all".to_string());
             }
-            IoiFeedbackLevel::None => {
-                result.verdict = None;
-                result.score = None;
-                result.time_used = None;
-                result.memory_used = None;
-                result.compile_output = None;
-                result.error_message = None;
-                result.test_case_results.clear();
-            }
+            perms
+        })
+        .unwrap_or_default();
+
+    let input = FilterSubmissionInput {
+        submission: &submission_value,
+        is_list_item,
+        contest_id,
+        viewer_user_id: visibility.map(|ctx| ctx.viewer_id),
+        viewer_permissions,
+    };
+
+    let output: Result<FilterSubmissionOutput, _> = state
+        .plugins
+        .call(&handler.plugin_id, &filter_fn, &input)
+        .await;
+
+    match output {
+        Ok(out) => Ok(out.submission),
+        Err(e) => {
+            warn!(
+                contest_type = %contest_type,
+                plugin_id = %handler.plugin_id,
+                func = %filter_fn,
+                error = %e,
+                "filter_submission plugin call failed; returning unfiltered"
+            );
+            Ok(submission_value)
         }
     }
+}
 
-    Ok(())
+async fn apply_filter_to_response(
+    state: &AppState,
+    response: SubmissionResponse,
+    visibility: Option<&VisibilityContext>,
+) -> Result<SubmissionResponse, AppError> {
+    let contest_type = response.contest_type.clone();
+    let contest_id = response.contest_id;
+    let value = serde_json::to_value(&response).map_err(|e| {
+        AppError::Internal(format!("Failed to serialize submission for filter: {}", e))
+    })?;
+    let filtered =
+        filter_submission_via_plugin(state, &contest_type, contest_id, value, false, visibility)
+            .await?;
+    serde_json::from_value::<SubmissionResponse>(filtered)
+        .map_err(|e| AppError::Internal(format!("Plugin returned invalid submission JSON: {}", e)))
+}
+
+async fn apply_filter_to_list(
+    state: &AppState,
+    items: Vec<SubmissionListItem>,
+    visibility: Option<&VisibilityContext>,
+) -> Result<Vec<SubmissionListItem>, AppError> {
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let contest_type = item.contest_type.clone();
+        let contest_id = item.contest_id;
+        let value = serde_json::to_value(&item).map_err(|e| {
+            AppError::Internal(format!("Failed to serialize submission for filter: {}", e))
+        })?;
+        let filtered =
+            filter_submission_via_plugin(state, &contest_type, contest_id, value, true, visibility)
+                .await?;
+        let item: SubmissionListItem = serde_json::from_value(filtered).map_err(|e| {
+            AppError::Internal(format!("Plugin returned invalid list item JSON: {}", e))
+        })?;
+        out.push(item);
+    }
+    Ok(out)
 }
 
 #[utoipa::path(
@@ -979,6 +967,11 @@ pub async fn list_submissions(
         .await?;
 
     let data = build_submission_list_items(&state.db, submissions).await?;
+    let visibility = Some(VisibilityContext {
+        viewer_id: auth_user.user_id,
+        has_view_all: can_view_all,
+    });
+    let data = apply_filter_to_list(&state, data, visibility.as_ref()).await?;
     let total_pages = total.div_ceil(per_page);
 
     Ok(Json(SubmissionListResponse {
@@ -1037,8 +1030,8 @@ pub async fn get_submission(
         viewer_id: auth_user.user_id,
         has_view_all: can_view_all,
     });
-    let mut response = build_submission_response(&state.db, sub, visibility).await?;
-    apply_ioi_feedback_redaction(&state.db, &mut response, visibility.as_ref()).await?;
+    let response = build_submission_response(&state.db, sub, visibility).await?;
+    let response = apply_filter_to_response(&state, response, visibility.as_ref()).await?;
     Ok(Json(response))
 }
 
@@ -1332,6 +1325,11 @@ pub async fn list_contest_submissions(
         .await?;
 
     let data = build_submission_list_items(&state.db, submissions).await?;
+    let visibility = Some(VisibilityContext {
+        viewer_id: auth_user.user_id,
+        has_view_all: can_view_all,
+    });
+    let data = apply_filter_to_list(&state, data, visibility.as_ref()).await?;
     let total_pages = total.div_ceil(per_page);
 
     Ok(Json(SubmissionListResponse {
