@@ -1,4 +1,3 @@
-
 use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, Instant};
 
@@ -77,6 +76,7 @@ pub async fn run(cli: Cli) -> u8 {
                     cleanup_warnings: vec![],
                 }),
                 exit_code::SETUP_FAIL,
+                cli.json,
             )
             .await;
         }
@@ -186,7 +186,7 @@ pub async fn run(cli: Cli) -> u8 {
     }
 
     summary.duration = started.elapsed();
-    finalize(tx, renderer, Some(summary), overall_exit).await
+    finalize(tx, renderer, Some(summary), overall_exit, cli.json).await
 }
 
 fn build_creds(cli: &Cli) -> AuthCreds {
@@ -242,17 +242,20 @@ async fn finalize(
     renderer: Option<tokio::task::JoinHandle<()>>,
     summary: Option<RunSummary>,
     exit_code: u8,
+    json: bool,
 ) -> u8 {
     drop(tx);
     if let Some(r) = renderer {
         let _ = r.await;
     }
     if let Some(s) = summary {
-        let block = format_summary(&s);
         let mut stdout = io::stdout();
-        if stdout.is_terminal() {
-            let _ = stdout.write_all(block.as_bytes());
+        if json {
+            let payload = s.to_json(exit_code);
+            let _ = serde_json::to_writer(&mut stdout, &payload);
+            let _ = stdout.write_all(b"\n");
         } else {
+            let block = format_summary(&s);
             let _ = stdout.write_all(block.as_bytes());
         }
         let _ = stdout.flush();
