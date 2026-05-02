@@ -35,10 +35,15 @@ pub async fn run(cli: Cli) -> u8 {
 
     let (tx, rx) = mpsc::unbounded_channel::<Event>();
 
-    let renderer = if cli.json {
-        None
-    } else {
-        Some(spawn_plain_renderer(rx))
+    let choice = pick_renderer(
+        cli.json,
+        io::stdout().is_terminal(),
+        crossterm::terminal::size().ok(),
+    );
+    let renderer = match choice {
+        RendererChoice::None => None,
+        RendererChoice::Plain => Some(spawn_plain_renderer(rx)),
+        RendererChoice::Tui => Some(spawn_tui_renderer(rx, &cli)),
     };
 
     tx.send(Event::PhaseStarted {
@@ -237,6 +242,40 @@ fn spawn_plain_renderer(rx: mpsc::UnboundedReceiver<Event>) -> tokio::task::Join
     })
 }
 
+fn spawn_tui_renderer(
+    rx: mpsc::UnboundedReceiver<Event>,
+    cli: &Cli,
+) -> tokio::task::JoinHandle<()> {
+    let url = cli.url.clone();
+    let p95 = cli.p95_budget_ms;
+    let concurrency = cli.concurrency as usize;
+    tokio::spawn(async move {
+        if let Err(e) = crate::ui::tui::run_tui(rx, url, p95, concurrency).await {
+            let _ = writeln!(io::stderr(), "tui error: {e}");
+        }
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RendererChoice {
+    None,
+    Plain,
+    Tui,
+}
+
+pub fn pick_renderer(json: bool, is_tty: bool, size: Option<(u16, u16)>) -> RendererChoice {
+    if json {
+        return RendererChoice::None;
+    }
+    if !is_tty {
+        return RendererChoice::Plain;
+    }
+    match size {
+        Some((w, h)) if w >= 80 && h >= 24 => RendererChoice::Tui,
+        _ => RendererChoice::Plain,
+    }
+}
+
 async fn finalize(
     tx: mpsc::UnboundedSender<Event>,
     renderer: Option<tokio::task::JoinHandle<()>>,
@@ -261,4 +300,51 @@ async fn finalize(
         let _ = stdout.flush();
     }
     exit_code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_forces_no_renderer() {
+        assert_eq!(
+            pick_renderer(true, true, Some((200, 60))),
+            RendererChoice::None,
+        );
+        assert_eq!(pick_renderer(true, false, None), RendererChoice::None);
+    }
+
+    #[test]
+    fn non_tty_falls_back_to_plain() {
+        assert_eq!(
+            pick_renderer(false, false, Some((200, 60))),
+            RendererChoice::Plain,
+        );
+    }
+
+    #[test]
+    fn small_terminal_falls_back_to_plain() {
+        assert_eq!(
+            pick_renderer(false, true, Some((79, 30))),
+            RendererChoice::Plain,
+        );
+        assert_eq!(
+            pick_renderer(false, true, Some((100, 23))),
+            RendererChoice::Plain,
+        );
+        assert_eq!(pick_renderer(false, true, None), RendererChoice::Plain);
+    }
+
+    #[test]
+    fn tty_at_minimum_size_picks_tui() {
+        assert_eq!(
+            pick_renderer(false, true, Some((80, 24))),
+            RendererChoice::Tui,
+        );
+        assert_eq!(
+            pick_renderer(false, true, Some((200, 60))),
+            RendererChoice::Tui,
+        );
+    }
 }
