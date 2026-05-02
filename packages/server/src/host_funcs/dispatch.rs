@@ -188,7 +188,16 @@ fn start_operation_batch_fn(
                 .await
             })
         })
-        .map_err(|e| extism::Error::msg(format!("MQ publish error: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                queue = %queue_name,
+                batch_id = %batch_id,
+                correlation_id = %correlation_id,
+                "Failed to publish operation task to MQ"
+            );
+            extism::Error::msg(format!("MQ publish error: {}", e))
+        })?;
 
         tracing::debug!(
             batch_id = %batch_id,
