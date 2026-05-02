@@ -4,6 +4,7 @@ pub mod operation_result;
 pub use operation_dlq::consume_operation_dlq;
 pub use operation_result::consume_operation_results;
 
+use broccoli_server_sdk::types::sanitize_text_field;
 use common::SubmissionStatus;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, DbBackend, Set, Statement};
 
@@ -26,6 +27,8 @@ pub async fn mark_submission_system_error_with_epoch<C: ConnectionTrait>(
     error_message: &str,
     judge_epoch: Option<i32>,
 ) -> anyhow::Result<()> {
+    let safe_code = sanitize_text_field(error_code);
+    let safe_message = sanitize_text_field(error_message);
     let (sql, values) = if let Some(epoch) = judge_epoch {
         (
             r#"UPDATE submission SET status = $1, error_code = $2, error_message = $3
@@ -33,8 +36,8 @@ pub async fn mark_submission_system_error_with_epoch<C: ConnectionTrait>(
                  AND status NOT IN ('Judged', 'CompilationError', 'SystemError')"#,
             vec![
                 SubmissionStatus::SystemError.to_string().into(),
-                error_code.to_string().into(),
-                error_message.to_string().into(),
+                safe_code.as_ref().to_string().into(),
+                safe_message.as_ref().to_string().into(),
                 submission_id.into(),
                 epoch.into(),
             ],
@@ -45,8 +48,8 @@ pub async fn mark_submission_system_error_with_epoch<C: ConnectionTrait>(
                WHERE id = $4"#,
             vec![
                 SubmissionStatus::SystemError.to_string().into(),
-                error_code.to_string().into(),
-                error_message.to_string().into(),
+                safe_code.as_ref().to_string().into(),
+                safe_message.as_ref().to_string().into(),
                 submission_id.into(),
             ],
         )
@@ -70,8 +73,8 @@ pub async fn mark_code_run_system_error<C: ConnectionTrait>(
     let update = code_run::ActiveModel {
         id: Set(code_run_id),
         status: Set(SubmissionStatus::SystemError),
-        error_code: Set(Some(error_code.to_string())),
-        error_message: Set(Some(error_message.to_string())),
+        error_code: Set(Some(sanitize_text_field(error_code).into_owned())),
+        error_message: Set(Some(sanitize_text_field(error_message).into_owned())),
         ..Default::default()
     };
     update.update(conn).await?;
