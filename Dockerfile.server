@@ -21,6 +21,7 @@ COPY packages/server/Cargo.toml packages/server/Cargo.toml
 COPY packages/worker/Cargo.toml packages/worker/Cargo.toml
 COPY packages/server-sdk/Cargo.toml packages/server-sdk/Cargo.toml
 COPY packages/cli/Cargo.toml packages/cli/Cargo.toml
+COPY packages/stress-test/Cargo.toml packages/stress-test/Cargo.toml
 
 # Create stub source files so cargo can resolve the workspace
 RUN mkdir -p packages/common/src && echo "" > packages/common/src/lib.rs \
@@ -30,7 +31,8 @@ RUN mkdir -p packages/common/src && echo "" > packages/common/src/lib.rs \
     && mkdir -p packages/worker/src && echo "fn main() {}" > packages/worker/src/main.rs \
     && echo "" > packages/worker/src/lib.rs \
     && mkdir -p packages/server-sdk/src && echo "" > packages/server-sdk/src/lib.rs \
-    && mkdir -p packages/cli/src && echo "fn main() {}" > packages/cli/src/main.rs
+    && mkdir -p packages/cli/src && echo "fn main() {}" > packages/cli/src/main.rs \
+    && mkdir -p packages/stress-test/src && echo "fn main() {}" > packages/stress-test/src/main.rs
 
 # Pre-build dependencies (cached layer)
 RUN cargo build --release -p server 2>/dev/null || true
