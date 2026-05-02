@@ -148,3 +148,29 @@ e2e-docker *args:
 e2e-docker-up-cn *args:
     docker compose -f docker-compose.e2e.yml build --build-arg USE_CN_MIRRORS=true
     docker compose -f docker-compose.e2e.yml up -d {{args}}
+
+# ---------------------------------------------------------------------------
+# Stress-test cross-builds (static musl binaries via `cross`)
+# ---------------------------------------------------------------------------
+
+# Cross-build static x86_64 Linux binary
+stress-test-linux-x86_64:
+    mkdir -p dist
+    cross build --target x86_64-unknown-linux-musl --release -p stress-test
+    cp target/x86_64-unknown-linux-musl/release/broccoli-stress-test \
+       dist/broccoli-stress-test-linux-x86_64
+
+# Cross-build static aarch64 Linux binary
+stress-test-linux-aarch64:
+    mkdir -p dist
+    cross build --target aarch64-unknown-linux-musl --release -p stress-test
+    cp target/aarch64-unknown-linux-musl/release/broccoli-stress-test \
+       dist/broccoli-stress-test-linux-aarch64
+
+# Build all stress-test release artifacts and write SHA256SUMS
+stress-test-all: stress-test-linux-x86_64 stress-test-linux-aarch64
+    cd dist && sha256sum broccoli-stress-test-linux-* > SHA256SUMS
+
+# Run portability harness (requires prebuilt musl binaries; Linux only)
+stress-test-portability:
+    STRESS_TEST_PORTABILITY=1 cargo test -p stress-test --test portability
