@@ -1,5 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { useApiClient, useSetApiAccessToken } from '@/api';
 import {
@@ -30,6 +36,7 @@ export function AuthProvider({
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const bootstrapStartedRef = useRef(false);
 
   const apiClient = useApiClient();
   const setApiAccessToken = useSetApiAccessToken();
@@ -122,9 +129,15 @@ export function AuthProvider({
     window.addEventListener('storage', handleStorage);
 
     const initAuth = async () => {
+      if (bootstrapStartedRef.current) return;
+      bootstrapStartedRef.current = true;
+
       const sessionHint = localStorage.getItem(sessionStatusKey);
       if (sessionHint === 'true') {
         await refresh();
+        // Re-run any queries that fired before the access token was restored
+        // and got a 401 because no Authorization header was attached.
+        queryClient.invalidateQueries();
       }
       setIsLoading(false);
     };
