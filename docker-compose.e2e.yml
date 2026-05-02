@@ -81,6 +81,7 @@ services:
       BROCCOLI__AUTH__JWT_SECRET: "e2e-docker-jwt-secret"
       BROCCOLI__PLUGIN__PLUGINS_DIR: "/plugins"
       BROCCOLI__STORAGE__BACKEND: "database"
+      BROCCOLI__SUBMISSION__RATE_LIMIT_PER_MINUTE: "10000"
       RUST_LOG: "info"
     volumes:
       - ./plugins:/plugins:ro
