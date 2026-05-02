@@ -110,14 +110,50 @@ then list the resource ids.
 
 ### CI integration
 
-`--json` forces non-TTY output and emits a single JSON object on stdout once the
-run finishes. (Currently the JSON output mode is a stub — emitted but minimal.
-Phase C delivers the full schema.) Errors from the event stream are written
-line-by-line to stdout as they happen, even in JSON mode, prefixed with
-timestamps.
+`--json` suppresses the human-readable plain-text renderer and emits a single
+JSON object on stdout once the run finishes. The schema is versioned via the
+top-level `schema_version` field (currently `1`) so consumers can pin against a
+known shape.
 
-The tool always uses stderr for `tracing` log lines (filter via `RUST_LOG`);
-structured progress goes to stdout. Pipe-safe.
+```json
+{
+  "schema_version": 1,
+  "result": "pass",
+  "exit_code": 0,
+  "target_url": "http://localhost:3000",
+  "duration_seconds": 21.7,
+  "bootstrap": { "ok": true, "error": null },
+  "correctness": { "total": 9, "passed": 9, "failed_scenarios": [] },
+  "load": {
+    "total": 200,
+    "completed": 200,
+    "passed": 200,
+    "p50_ms": 820,
+    "p95_ms": 2104,
+    "p99_ms": 3401,
+    "max_ms": 4012,
+    "p95_budget_ms": 15000,
+    "passed_budget": true,
+    "error_count": 0,
+    "passed_overall": true
+  },
+  "passthrough": {
+    "state": "not_run",
+    "reason": null,
+    "ok": null,
+    "count": null
+  },
+  "cleanup": { "warnings": [] }
+}
+```
+
+`correctness` and `load` are `null` when the corresponding `--skip-*` flag was
+set. `passthrough.state` is one of `not_run` (no `--contest-id`), `skipped`
+(opted in but auto-skipped, e.g. Testlib checker), or `completed`. The
+`exit_code` field always matches the process exit status.
+
+The tool uses stderr for `tracing` log lines (filter via `RUST_LOG`); the JSON
+payload goes to stdout. Pipe-safe.
 
 ### Caveats
 
@@ -226,6 +262,6 @@ end-to-end with a plain-text event stream and PASS/FAIL summary.
 **Phase B (TUI):** not started. The htop-style UI from the design doc will live
 under `src/ui/` alongside the existing plain renderer.
 
-**Phase C (polish):** partially complete. Cleanup and pass-through are done.
-Full JSON schema, portability harness (cross-builds), real-server e2e test, and
-full release tooling are pending.
+**Phase C (polish):** partially complete. Cleanup, pass-through, and the
+versioned `--json` schema are done. Portability harness (cross-builds),
+real-server e2e test, and full release tooling are pending.
