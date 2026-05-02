@@ -1,4 +1,3 @@
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -110,6 +109,25 @@ pub struct ContestResponse {
     pub id: i32,
     pub title: String,
     pub contest_type: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct CreateContestRequest {
+    pub title: String,
+    pub description: String,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub is_public: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contest_type: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct AddContestProblemRequest {
+    pub problem_id: i32,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

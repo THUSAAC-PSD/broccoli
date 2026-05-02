@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 
 use reqwest::{StatusCode, multipart};
@@ -6,9 +5,10 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::RwLock;
 
 use crate::dto::{
-    ContestProblemResponse, ContestResponse, CreateProblemRequest, CreateSubmissionRequest,
-    CreateTestCaseRequest, ErrorBody, LoginRequest, LoginResponse, ProblemResponse,
-    RegistriesResponse, SubmissionResponse, TestCaseListItem, TestCaseResponse,
+    AddContestProblemRequest, ContestProblemResponse, ContestResponse, CreateContestRequest,
+    CreateProblemRequest, CreateSubmissionRequest, CreateTestCaseRequest, ErrorBody, LoginRequest,
+    LoginResponse, ProblemResponse, RegistriesResponse, SubmissionResponse, TestCaseListItem,
+    TestCaseResponse,
 };
 use crate::error::{StressError, StressResult};
 
@@ -155,6 +155,53 @@ impl Client {
             reqwest::Method::POST,
             &format!("/api/v1/problems/{}/submissions", problem_id),
             Some(req),
+        )
+        .await
+    }
+
+    pub async fn create_contest_submission(
+        &self,
+        contest_id: i32,
+        problem_id: i32,
+        req: &CreateSubmissionRequest,
+    ) -> StressResult<SubmissionResponse> {
+        self.send_json_with_retry(
+            reqwest::Method::POST,
+            &format!(
+                "/api/v1/contests/{}/problems/{}/submissions",
+                contest_id, problem_id,
+            ),
+            Some(req),
+        )
+        .await
+    }
+
+    pub async fn create_contest(
+        &self,
+        req: &CreateContestRequest,
+    ) -> StressResult<ContestResponse> {
+        self.send_json_with_retry(reqwest::Method::POST, "/api/v1/contests", Some(req))
+            .await
+    }
+
+    pub async fn add_problem_to_contest(
+        &self,
+        contest_id: i32,
+        req: &AddContestProblemRequest,
+    ) -> StressResult<ContestProblemResponse> {
+        self.send_json_with_retry(
+            reqwest::Method::POST,
+            &format!("/api/v1/contests/{}/problems", contest_id),
+            Some(req),
+        )
+        .await
+    }
+
+    pub async fn delete_contest(&self, contest_id: i32) -> StressResult<()> {
+        self.send_unit_with_retry::<()>(
+            reqwest::Method::DELETE,
+            &format!("/api/v1/contests/{}", contest_id),
+            None,
         )
         .await
     }
@@ -650,6 +697,124 @@ mod tests {
             .await;
 
         client.delete_problem(12).await.expect("delete ok");
+    }
+
+    #[tokio::test]
+    async fn create_contest_posts_v1_contests_and_returns_response() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "tok").await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests"))
+            .and(header("authorization", "Bearer tok"))
+            .and(body_partial_json(json!({
+                "title": "stress-test scratch",
+                "is_public": false,
+                "contest_type": "icpc"
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": 7,
+                "title": "stress-test scratch",
+                "contest_type": "icpc"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let req = CreateContestRequest {
+            title: "stress-test scratch".into(),
+            description: "auto".into(),
+            start_time: chrono::Utc::now(),
+            end_time: chrono::Utc::now() + chrono::Duration::hours(24),
+            is_public: false,
+            contest_type: Some("icpc".into()),
+        };
+        let resp = client.create_contest(&req).await.expect("ok");
+        assert_eq!(resp.id, 7);
+    }
+
+    #[tokio::test]
+    async fn add_problem_to_contest_posts_v1_contests_id_problems() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "tok").await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests/7/problems"))
+            .and(header("authorization", "Bearer tok"))
+            .and(body_partial_json(json!({ "problem_id": 11, "label": "A" })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "contest_id": 7,
+                "problem_id": 11,
+                "label": "A",
+                "position": 0,
+                "problem_title": "stress-test:ab-cpp-ac"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let req = AddContestProblemRequest {
+            problem_id: 11,
+            label: "A".into(),
+            position: None,
+        };
+        let resp = client.add_problem_to_contest(7, &req).await.expect("ok");
+        assert_eq!(resp.problem_id, 11);
+        assert_eq!(resp.label, "A");
+    }
+
+    #[tokio::test]
+    async fn delete_contest_treats_204_as_success() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "tok").await;
+
+        Mock::given(method("DELETE"))
+            .and(path("/api/v1/contests/7"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        client.delete_contest(7).await.expect("ok");
+    }
+
+    #[tokio::test]
+    async fn create_contest_submission_targets_contest_problem_path() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "tok").await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests/7/problems/11/submissions"))
+            .and(header("authorization", "Bearer tok"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": 99,
+                "language": "cpp",
+                "status": "Pending",
+                "user_id": 1,
+                "username": "admin",
+                "problem_id": 11,
+                "problem_title": "stress-test:ab-cpp-ac",
+                "contest_id": 7,
+                "contest_type": "icpc",
+                "judge_epoch": 0,
+                "created_at": "2026-05-01T00:00:00Z",
+                "result": null
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let req = CreateSubmissionRequest {
+            files: vec![],
+            language: "cpp".into(),
+            contest_type: None,
+        };
+        let s = client
+            .create_contest_submission(7, 11, &req)
+            .await
+            .expect("ok");
+        assert_eq!(s.id, 99);
+        assert_eq!(s.contest_id, Some(7));
     }
 
     #[tokio::test]
