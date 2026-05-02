@@ -142,11 +142,26 @@ pub async fn run(cli: Cli) -> u8 {
         summary.passthrough = PassthroughSummary::NotRun;
     }
 
-    if !cli.keep_fixtures {
+    if cli.keep_fixtures {
         for (scenario_id, problem_id) in &state.problem_ids_by_scenario {
             summary.cleanup_warnings.push(format!(
-                "cleanup not yet implemented; manually DELETE /api/v1/problems/{problem_id} for scenario {scenario_id}"
+                "kept (--keep-fixtures): problem {problem_id} for scenario {scenario_id}"
             ));
+        }
+    } else {
+        tx.send(Event::PhaseStarted {
+            phase: Phase::Cleanup,
+        })
+        .ok();
+        let outcome = crate::cleanup::run(&client, &state).await;
+        tx.send(Event::PhaseFinished {
+            phase: Phase::Cleanup,
+            ok: outcome.is_clean(),
+        })
+        .ok();
+        summary.cleanup_warnings = outcome.warnings;
+        if overall_exit == exit_code::PASS && !summary.cleanup_warnings.is_empty() {
+            overall_exit = exit_code::CLEANUP_DEGRADED;
         }
     }
 
