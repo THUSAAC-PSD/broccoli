@@ -1,4 +1,3 @@
-
 use crate::dto::{SubmissionStatus, Verdict};
 use crate::fixtures;
 
@@ -118,7 +117,7 @@ pub const SCENARIOS: &[Scenario] = &[
         files: &[("solution.cpp", fixtures::SOLUTION_AB_CPP_IGNCASE)],
         time_limit_ms: DEFAULT_PROBLEM_TIME_LIMIT_MS,
         memory_limit_kb: DEFAULT_PROBLEM_MEMORY_LIMIT_KB,
-        checker_format: "ignore_case",
+        checker_format: "tokens-case-insensitive",
         test_input: "1 2\n",
         test_expected_output: "YES\n",
         expected_status: SubmissionStatus::Judged,
@@ -244,12 +243,12 @@ mod tests {
     }
 
     #[test]
-    fn igncase_scenario_uses_ignore_case_checker() {
+    fn igncase_scenario_uses_case_insensitive_checker() {
         let s = SCENARIOS
             .iter()
             .find(|s| s.id == "ab-cpp-igncase")
             .expect("igncase scenario exists");
-        assert_eq!(s.checker_format, "ignore_case");
+        assert_eq!(s.checker_format, "tokens-case-insensitive");
         assert_ne!(
             s.test_expected_output.trim(),
             "yes",
