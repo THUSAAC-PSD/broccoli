@@ -1,5 +1,6 @@
 
 pub mod bootstrap;
+pub mod cleanup;
 pub mod cli;
 pub mod client;
 pub mod correctness;
