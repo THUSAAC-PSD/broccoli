@@ -30,6 +30,76 @@ pub struct RegistriesResponse {
     pub contest_types: Vec<String>,
 
     pub languages: Vec<LanguageRegistryItem>,
+
+    pub evaluators: Vec<EvaluatorEntry>,
+
+    pub checker_format_handlers: Vec<CheckerFormatEntry>,
+
+    pub contest_type_handlers: Vec<ContestTypeEntry>,
+
+    pub hooks: Vec<HookEntryInfo>,
+}
+
+/// A single evaluator registration entry.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct EvaluatorEntry {
+    /// Problem type this evaluator handles (e.g. "batch", "communication").
+    #[schema(example = "communication")]
+    pub problem_type: String,
+    /// Plugin that registered this evaluator.
+    #[schema(example = "communication-evaluator")]
+    pub plugin_id: String,
+    /// Plugin function invoked to evaluate test cases for this problem type.
+    #[schema(example = "evaluate_communication")]
+    pub function_name: String,
+}
+
+/// A single checker format registration entry.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct CheckerFormatEntry {
+    /// Checker format identifier (e.g. "exact", "tokens", "testlib").
+    #[schema(example = "exact")]
+    pub checker_format: String,
+    /// Plugin that registered this checker format.
+    #[schema(example = "standard-checkers")]
+    pub plugin_id: String,
+    /// Plugin function invoked to run the checker.
+    #[schema(example = "check_exact")]
+    pub function_name: String,
+}
+
+/// A single contest type registration entry.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ContestTypeEntry {
+    /// Contest type identifier (e.g. "icpc", "ioi").
+    #[schema(example = "icpc")]
+    pub contest_type: String,
+    /// Plugin that registered this contest type.
+    #[schema(example = "icpc")]
+    pub plugin_id: String,
+    /// Function name invoked on submission.
+    #[schema(example = "on_submission")]
+    pub submission_fn: String,
+    /// Function name invoked for code-run / sample-run dispatch.
+    #[schema(example = "on_code_run")]
+    pub code_run_fn: String,
+}
+
+/// A single hook registration entry.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct HookEntryInfo {
+    /// Event topic the hook is bound to (e.g. "submission.created").
+    #[schema(example = "submission.created")]
+    pub topic: String,
+    /// Plugin that registered the hook.
+    #[schema(example = "submission-limit")]
+    pub plugin_id: String,
+    /// Hook scope ("global", "contest", "problem", "user", ...).
+    #[schema(example = "global")]
+    pub scope: String,
+    /// Hook execution mode ("async", "sync", ...).
+    #[schema(example = "async")]
+    pub mode: String,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -126,6 +196,11 @@ pub struct PluginFullDetailResponse {
     pub worker: Option<WorkerDetailResponse>,
     pub web: Option<WebDetailResponse>,
     pub translations: Vec<String>,
+
+    /// Config schemas declared by this plugin (from `[server.config_schemas.<key>]`
+    /// sections in plugin.toml). Used by the admin UI to render config forms and
+    /// by the server for validation.
+    pub config_schemas: Vec<ConfigSchemaResponse>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -285,6 +360,19 @@ impl From<PluginInfo> for PluginFullDetailResponse {
 
         let translations: Vec<String> = info.manifest.translations.keys().cloned().collect();
 
+        let mut config_schemas: Vec<_> = info
+            .manifest
+            .config
+            .iter()
+            .map(|(ns, entry)| ConfigSchemaResponse {
+                namespace: ns.clone(),
+                description: entry.description.clone(),
+                scopes: entry.scopes.clone(),
+                json_schema: entry.to_json_schema(),
+            })
+            .collect();
+        config_schemas.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+
         Self {
             id: info.id,
             status: info.status.into(),
@@ -298,6 +386,7 @@ impl From<PluginInfo> for PluginFullDetailResponse {
             worker,
             web,
             translations,
+            config_schemas,
         }
     }
 }

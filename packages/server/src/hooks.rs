@@ -73,6 +73,17 @@ impl ServerHookRegistry {
     fn get_hooks(&self, topic: &str) -> Option<&Vec<HookEntry>> {
         self.hooks.get(topic)
     }
+
+    pub fn iter_summaries(&self) -> Vec<(String, String, HookScope, HookMode)> {
+        self.hooks
+            .iter()
+            .flat_map(|(topic, entries)| {
+                entries
+                    .iter()
+                    .map(move |e| (topic.clone(), e.plugin_id.clone(), e.scope, e.mode))
+            })
+            .collect()
+    }
 }
 
 pub type SharedHookRegistry = Arc<RwLock<ServerHookRegistry>>;

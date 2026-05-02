@@ -3,7 +3,10 @@ use plugin_core::registry::PluginStatus;
 use tracing::instrument;
 
 use crate::error::AppError;
-use crate::models::plugin::{ActivePluginResponse, LanguageRegistryItem, RegistriesResponse};
+use crate::models::plugin::{
+    ActivePluginResponse, CheckerFormatEntry, ContestTypeEntry, EvaluatorEntry, HookEntryInfo,
+    LanguageRegistryItem, RegistriesResponse,
+};
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -21,35 +24,73 @@ use crate::state::AppState;
 pub async fn list_registries(
     State(state): State<AppState>,
 ) -> Result<Json<RegistriesResponse>, AppError> {
-    let mut problem_types: Vec<String> = state
-        .registries
-        .evaluator_registry
-        .read()
-        .await
-        .keys()
-        .cloned()
-        .collect();
+    let mut evaluators: Vec<EvaluatorEntry> = {
+        let reg = state.registries.evaluator_registry.read().await;
+        reg.iter()
+            .map(|(problem_type, h)| EvaluatorEntry {
+                problem_type: problem_type.clone(),
+                plugin_id: h.plugin_id.clone(),
+                function_name: h.function_name.clone(),
+            })
+            .collect()
+    };
+    evaluators.sort_by(|a, b| a.problem_type.cmp(&b.problem_type));
+    let mut problem_types: Vec<String> =
+        evaluators.iter().map(|e| e.problem_type.clone()).collect();
     problem_types.sort();
 
-    let mut checker_formats: Vec<String> = state
-        .registries
-        .checker_format_registry
-        .read()
-        .await
-        .keys()
-        .cloned()
+    let mut checker_format_handlers: Vec<CheckerFormatEntry> = {
+        let reg = state.registries.checker_format_registry.read().await;
+        reg.iter()
+            .map(|(checker_format, h)| CheckerFormatEntry {
+                checker_format: checker_format.clone(),
+                plugin_id: h.plugin_id.clone(),
+                function_name: h.function_name.clone(),
+            })
+            .collect()
+    };
+    checker_format_handlers.sort_by(|a, b| a.checker_format.cmp(&b.checker_format));
+    let mut checker_formats: Vec<String> = checker_format_handlers
+        .iter()
+        .map(|e| e.checker_format.clone())
         .collect();
     checker_formats.sort();
 
-    let mut contest_types: Vec<String> = state
-        .registries
-        .contest_type_registry
-        .read()
-        .await
-        .keys()
-        .cloned()
+    let mut contest_type_handlers: Vec<ContestTypeEntry> = {
+        let reg = state.registries.contest_type_registry.read().await;
+        reg.iter()
+            .map(|(contest_type, h)| ContestTypeEntry {
+                contest_type: contest_type.clone(),
+                plugin_id: h.plugin_id.clone(),
+                submission_fn: h.submission_fn.clone(),
+                code_run_fn: h.code_run_fn.clone(),
+            })
+            .collect()
+    };
+    contest_type_handlers.sort_by(|a, b| a.contest_type.cmp(&b.contest_type));
+    let mut contest_types: Vec<String> = contest_type_handlers
+        .iter()
+        .map(|e| e.contest_type.clone())
         .collect();
     contest_types.sort();
+
+    let mut hooks: Vec<HookEntryInfo> = {
+        let reg = state.registries.hook_registry.read().await;
+        reg.iter_summaries()
+            .into_iter()
+            .map(|(topic, plugin_id, scope, mode)| HookEntryInfo {
+                topic,
+                plugin_id,
+                scope: format!("{:?}", scope).to_lowercase(),
+                mode: format!("{:?}", mode).to_lowercase(),
+            })
+            .collect()
+    };
+    hooks.sort_by(|a, b| {
+        a.topic
+            .cmp(&b.topic)
+            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
+    });
 
     let mut languages: Vec<LanguageRegistryItem> = state
         .registries
@@ -72,6 +113,10 @@ pub async fn list_registries(
         checker_formats,
         contest_types,
         languages,
+        evaluators,
+        checker_format_handlers,
+        contest_type_handlers,
+        hooks,
     }))
 }
 
