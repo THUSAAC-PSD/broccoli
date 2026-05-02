@@ -23,7 +23,7 @@ export default function AppShell() {
       <ApiClientProvider baseUrl={appConfig.api.baseUrl}>
         <I18nProvider defaultLocale="en" coreI18n={{ en }}>
           <ThemeProvider defaultTheme="light" storageKey="theme">
-            <AuthProvider>
+            <AuthProvider sessionStatusKey={appConfig.api.sessionStatusKey}>
               <ContestProvider>
                 <SlotPermissionsBridge>
                   <PluginRegistryProvider
