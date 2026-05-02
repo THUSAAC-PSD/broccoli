@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use axum::extract::DefaultBodyLimit;
 use axum::{
     Json,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -15,6 +15,7 @@ use tracing::instrument;
 use crate::entity::plugin as plugin_entity;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
+use crate::extractors::path::AppPath;
 use crate::models::plugin::{
     PluginDetailResponse, PluginFullDetailResponse, ReloadAllResponse, ReloadFailure,
 };
@@ -73,7 +74,7 @@ pub async fn list_all_plugins(
 pub async fn get_plugin_details(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    AppPath(id): AppPath<String>,
 ) -> Result<Json<PluginFullDetailResponse>, AppError> {
     auth_user.require_permission("plugin:manage")?;
 
@@ -109,7 +110,7 @@ pub async fn get_plugin_details(
 pub async fn enable_plugin(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth_user.require_permission("plugin:manage")?;
 
@@ -155,7 +156,7 @@ pub async fn enable_plugin(
 pub async fn disable_plugin(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth_user.require_permission("plugin:manage")?;
 
@@ -203,7 +204,7 @@ pub async fn disable_plugin(
 pub async fn reload_plugin(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     auth_user.require_permission("plugin:manage")?;
 

@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use chrono::Utc;
@@ -10,6 +10,7 @@ use tracing::instrument;
 use crate::entity::{contest, contest_user, refresh_token, role, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
+use crate::extractors::path::AppPath;
 use crate::models::user::{RoleAssignmentRequest, UpdateUserRequest, UserResponse};
 use crate::state::AppState;
 use crate::utils::hash;
@@ -68,7 +69,7 @@ pub async fn list_users(
 pub async fn get_user(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<UserResponse>, AppError> {
     auth_user.require_permission("user:manage")?;
 
@@ -103,7 +104,7 @@ pub async fn get_user(
 pub async fn update_user(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>, AppError> {
     auth_user.require_permission("user:manage")?;
@@ -160,7 +161,7 @@ pub async fn update_user(
 pub async fn delete_user(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("user:manage")?;
 
@@ -243,7 +244,7 @@ pub async fn delete_user(
 pub async fn assign_role(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
     Json(payload): Json<RoleAssignmentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("user:manage")?;
@@ -289,7 +290,7 @@ pub async fn assign_role(
 pub async fn revoke_role(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((id, role_name)): Path<(i32, String)>,
+    AppPath((id, role_name)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("user:manage")?;
 

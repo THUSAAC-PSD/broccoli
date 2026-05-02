@@ -1,10 +1,8 @@
-use axum::{
-    Json,
-    extract::{Path, State},
-};
+use axum::{Json, extract::State};
 use plugin_core::i18n::TranslationMap;
 
 use crate::error::AppError;
+use crate::extractors::path::AppPath;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -52,7 +50,7 @@ pub async fn get_locales(State(state): State<AppState>) -> Json<Vec<String>> {
 )]
 pub async fn get_translations(
     State(state): State<AppState>,
-    Path(locale): Path<String>,
+    AppPath(locale): AppPath<String>,
 ) -> Result<Json<TranslationMap>, AppError> {
     let translations = state
         .plugins

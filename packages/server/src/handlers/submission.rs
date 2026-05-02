@@ -2,7 +2,7 @@ use std::cmp;
 use std::collections::HashMap;
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use broccoli_server_sdk::types::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent};
@@ -16,6 +16,7 @@ use crate::entity::{contest, problem, submission, test_case, test_case_result, u
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::hooks::{self, HookOutcome};
 use crate::models::shared::Pagination;
 use crate::models::submission::*;
@@ -668,7 +669,7 @@ async fn build_submission_response(
 pub async fn create_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
@@ -881,7 +882,7 @@ pub async fn list_submissions(
 pub async fn get_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<SubmissionResponse>, AppError> {
     let sub = find_submission(&state.db, id).await?;
 
@@ -930,7 +931,7 @@ pub async fn get_submission(
 pub async fn rejudge_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<SubmissionResponse>, AppError> {
     auth_user.require_permission("submission:rejudge")?;
 
@@ -1002,7 +1003,7 @@ pub async fn rejudge_submission(
 pub async fn create_contest_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((id, problem_id)): Path<(i32, i32)>,
+    AppPath((id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("submission:submit")?;
@@ -1130,7 +1131,7 @@ pub async fn create_contest_submission(
 pub async fn list_contest_submissions(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     Query(query): Query<SubmissionListQuery>,
 ) -> Result<Json<SubmissionListResponse>, AppError> {
     validate_sorting_params(

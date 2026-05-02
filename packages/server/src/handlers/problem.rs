@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::Read;
 
 use axum::Json;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum_typed_multipart::BaseMultipart;
@@ -15,6 +15,7 @@ use crate::entity::{contest, contest_problem, problem, test_case, test_case_resu
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::plugin_config::config_key;
 use crate::models::problem::*;
@@ -217,7 +218,7 @@ pub async fn list_problems(
 pub async fn get_problem(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<ProblemResponse>, AppError> {
     require_problem_read_access(&state.db, &auth_user, id).await?;
 
@@ -248,7 +249,7 @@ pub async fn get_problem(
 pub async fn update_problem(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UpdateProblemRequest>,
 ) -> Result<Json<ProblemResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -351,7 +352,7 @@ pub async fn update_problem(
 pub async fn delete_problem(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:delete")?;
 
@@ -418,7 +419,7 @@ pub async fn delete_problem(
 pub async fn create_test_case(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<CreateTestCaseRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -478,7 +479,7 @@ pub async fn create_test_case(
 pub async fn list_test_cases(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<Vec<TestCaseListItem>>, AppError> {
     auth_user.require_any_permission(&["problem:create", "problem:edit"])?;
 
@@ -545,7 +546,7 @@ pub async fn list_test_cases(
 pub async fn get_test_case(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, tc_id)): Path<(i32, i32)>,
+    AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
 ) -> Result<Json<TestCaseResponse>, AppError> {
     let tc = find_test_case_for_problem(&state.db, problem_id, tc_id).await?;
 
@@ -585,7 +586,7 @@ pub async fn get_test_case(
 pub async fn update_test_case(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, tc_id)): Path<(i32, i32)>,
+    AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<UpdateTestCaseRequest>,
 ) -> Result<Json<TestCaseResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -656,7 +657,7 @@ pub async fn update_test_case(
 pub async fn delete_test_case(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, tc_id)): Path<(i32, i32)>,
+    AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
@@ -703,7 +704,7 @@ pub async fn delete_test_case(
 pub async fn upload_test_cases(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     BaseMultipart { data, .. }: BaseMultipart<UploadTestCasesRequest, AppError>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -836,7 +837,7 @@ pub async fn upload_test_cases(
 pub async fn reorder_test_cases(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<ReorderTestCasesRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -904,7 +905,7 @@ pub async fn reorder_test_cases(
 pub async fn bulk_delete_test_cases(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkDeleteTestCasesRequest>,
 ) -> Result<Json<BulkDeleteTestCasesResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -1258,7 +1259,7 @@ fn parse_zip_test_cases(
 pub async fn upload_checker_source(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UploadCheckerSourceRequest>,
 ) -> Result<Json<CheckerSourceResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -1297,7 +1298,7 @@ pub async fn upload_checker_source(
 pub async fn get_checker_source(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<CheckerSourceResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
 
@@ -1330,7 +1331,7 @@ pub async fn get_checker_source(
 pub async fn delete_checker_source(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<StatusCode, AppError> {
     auth_user.require_permission("problem:edit")?;
 

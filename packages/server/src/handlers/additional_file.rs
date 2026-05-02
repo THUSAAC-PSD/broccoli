@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::entity::{additional_file, problem};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
+use crate::extractors::path::AppPath;
 use crate::models::attachment::{AdditionalFileListResponse, AdditionalFileResponse};
 use crate::state::AppState;
 use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
@@ -66,7 +67,7 @@ fn validate_language_code(lang: &str) -> Result<(), AppError> {
 pub async fn upload_additional_file(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -217,7 +218,7 @@ pub async fn upload_additional_file(
 pub async fn list_additional_files(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<AdditionalFileListResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
 
@@ -263,7 +264,7 @@ pub async fn list_additional_files(
 pub async fn download_additional_file(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, ref_id)): Path<(i32, String)>,
+    AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -306,7 +307,7 @@ pub async fn download_additional_file(
 pub async fn delete_additional_file(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, ref_id)): Path<(i32, String)>,
+    AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
 
