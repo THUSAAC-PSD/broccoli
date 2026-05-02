@@ -11,6 +11,8 @@ pub struct Model {
 
     pub submission_id: i32,
     pub test_case_id: Option<i32>,
+    /// 0-based ordinal for custom run test cases. NULL for DB-backed test cases.
+    pub run_index: Option<i32>,
 
     #[sea_orm(column_type = "Text")]
     pub verdict: Verdict,
