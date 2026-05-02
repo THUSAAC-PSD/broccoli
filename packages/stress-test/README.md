@@ -267,17 +267,47 @@ cargo run -p stress-test -- \
     --admin-password ...
 ```
 
-## For releases
+### Real-server e2e test
 
-The plan calls for static musl builds via `cross` for both x86_64 and aarch64
-Linux, distributed as single binaries. **This is currently deferred** — see Task
-23 of the implementation plan (`docs/plans/2026-05-01-stress-test-impl.md`).
-Until then, admins build locally:
+`tests/e2e_real.rs` runs the bin against a live stack and asserts a clean PASS.
+It's `#[ignore]`-by-default so it never runs under plain `cargo test`. Bring up
+the full Docker stack (server + workers + Postgres + Redis) and seed an admin
+first:
 
 ```sh
-cargo build -p stress-test --release
-# Resulting binary: target/release/broccoli-stress-test
+just e2e-docker-up
+# seed an admin via your usual provisioning path, then:
+STRESS_TEST_E2E_URL=http://127.0.0.1:3000 \
+STRESS_TEST_E2E_USERNAME=admin \
+STRESS_TEST_E2E_PASSWORD='<password>' \
+    cargo test -p stress-test --test e2e_real -- --ignored
 ```
+
+The test passes `--skip-load --json`, so it covers correctness + cleanup but
+keeps wall-clock time down. Any non-zero exit or `result != "pass"` in the JSON
+payload fails the test with the full stdout/stderr captured.
+
+## For releases
+
+Static musl binaries for x86_64 and aarch64 Linux ship via `cross`. Recipes live
+in the workspace `justfile`:
+
+```sh
+just stress-test-linux-x86_64    # → dist/broccoli-stress-test-linux-x86_64
+just stress-test-linux-aarch64   # → dist/broccoli-stress-test-linux-aarch64
+just stress-test-all             # both targets + dist/SHA256SUMS
+```
+
+`tests/portability.rs` (Linux-only, gated on `STRESS_TEST_PORTABILITY=1`)
+verifies each artifact is statically linked (`file` + `ldd`) and runs the binary
+inside `alpine:3.18` to confirm it boots on a barebones libc-less host. Run it
+after building:
+
+```sh
+just stress-test-portability
+```
+
+The harness is a no-op on non-Linux build hosts (cfg-gated to compile away).
 
 ## Status
 
@@ -289,6 +319,6 @@ auto-activates on a TTY ≥ 80×24, with truecolor / 256 / 16 / no-color and
 Unicode / ASCII fallbacks driven by env-var detection. Plain renderer remains
 the fallback for piped output and small terminals; `--json` short-circuits both.
 
-**Phase C (polish):** partially complete. Cleanup, pass-through, the versioned
-`--json` schema, and the TUI are done. Portability harness (musl cross-builds),
-real-server e2e test, and full release tooling are pending.
+**Phase C (polish):** complete. Cleanup, pass-through, the versioned `--json`
+schema, the TUI, the musl cross-build recipes (`just stress-test-all`), the
+Linux-only portability harness, and the real-server e2e test are all in.
