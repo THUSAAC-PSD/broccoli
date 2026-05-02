@@ -1007,7 +1007,7 @@ mod authoring_zip_upload {
             )
             .await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 1);
     }
 
@@ -1039,7 +1039,7 @@ mod authoring_zip_upload {
             )
             .await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 3);
     }
 
@@ -1069,7 +1069,7 @@ mod authoring_zip_upload {
             )
             .await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 2);
         assert_eq!(res.body["test_cases"][0]["is_sample"], true);
         assert_eq!(res.body["test_cases"][1]["is_sample"], false);
@@ -1229,7 +1229,7 @@ mod authoring_zip_upload {
             )
             .await;
 
-        assert_eq!(res.status, 200);
+        assert_eq!(res.status, 201);
         assert_eq!(res.body["created"], 1);
     }
 }
