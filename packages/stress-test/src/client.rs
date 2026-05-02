@@ -6,9 +6,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::RwLock;
 
 use crate::dto::{
-    ContestProblemResponse, CreateProblemRequest, CreateSubmissionRequest, CreateTestCaseRequest,
-    ErrorBody, LoginRequest, LoginResponse, ProblemResponse, RegistriesResponse,
-    SubmissionResponse, TestCaseResponse,
+    ContestProblemResponse, ContestResponse, CreateProblemRequest, CreateSubmissionRequest,
+    CreateTestCaseRequest, ErrorBody, LoginRequest, LoginResponse, ProblemResponse,
+    RegistriesResponse, SubmissionResponse, TestCaseListItem, TestCaseResponse,
 };
 use crate::error::{StressError, StressResult};
 
@@ -175,6 +175,37 @@ impl Client {
         self.send_json_with_retry::<(), _>(
             reqwest::Method::GET,
             &format!("/api/v1/contests/{}/problems", contest_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn get_contest(&self, contest_id: i32) -> StressResult<ContestResponse> {
+        self.send_json_with_retry::<(), _>(
+            reqwest::Method::GET,
+            &format!("/api/v1/contests/{}", contest_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn list_test_cases(&self, problem_id: i32) -> StressResult<Vec<TestCaseListItem>> {
+        self.send_json_with_retry::<(), _>(
+            reqwest::Method::GET,
+            &format!("/api/v1/problems/{}/test-cases", problem_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn get_test_case(
+        &self,
+        problem_id: i32,
+        tc_id: i32,
+    ) -> StressResult<TestCaseResponse> {
+        self.send_json_with_retry::<(), _>(
+            reqwest::Method::GET,
+            &format!("/api/v1/problems/{}/test-cases/{}", problem_id, tc_id),
             None,
         )
         .await

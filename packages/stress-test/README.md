@@ -71,25 +71,32 @@ broccoli-stress-test --url ... --admin-username ... --admin-password ... \
 ```
 
 After the self-contained correctness + load phases pass, this fires a small
-concurrent burst against your actual contest. Asserts liveness and determinism
-rather than verdict correctness (we don't know your problem's right answer).
-Skipped automatically for problems with custom checkers.
+concurrent burst against your actual contest. Asserts liveness (every submission
+reaches a terminal status within `--per-job-timeout`) and determinism (every
+submission produces the same final verdict) rather than verdict correctness — we
+don't know your problem's right answer.
 
-> **Note:** the pass-through phase is currently stubbed and surfaces as
-> `Pass-through skipped (pass-through phase not yet implemented (Phase C))`. The
-> flag is accepted but doesn't do anything yet.
+The phase auto-skips with a clear reason in any of:
+
+- The contest has zero problems.
+- The selected problem has no sample test cases.
+- The selected problem uses a Testlib checker (sample-echo cannot reliably match
+  a custom checker).
+
+Skipping is **not** a failure. Pass `--problem-id <id>` to target a specific
+problem within the contest; otherwise the lowest-position problem is chosen.
 
 ### Exit codes
 
-| Code | Meaning                                                    |
-| ---- | ---------------------------------------------------------- |
-| `0`  | PASS — system is ready for contest.                        |
-| `1`  | Correctness phase failed.                                  |
-| `2`  | Load phase failed.                                         |
-| `3`  | Pass-through phase failed (reserved; not yet implemented). |
-| `4`  | Bootstrap or setup error (couldn't even start).            |
-| `5`  | Otherwise-passing run had cleanup warnings.                |
-| `64` | Bad CLI arguments.                                         |
+| Code | Meaning                                              |
+| ---- | ---------------------------------------------------- |
+| `0`  | PASS — system is ready for contest.                  |
+| `1`  | Correctness phase failed.                            |
+| `2`  | Load phase failed.                                   |
+| `3`  | Pass-through phase failed (liveness or determinism). |
+| `4`  | Bootstrap or setup error (couldn't even start).      |
+| `5`  | Otherwise-passing run had cleanup warnings.          |
+| `64` | Bad CLI arguments.                                   |
 
 ### What the test creates and tears down
 
@@ -160,6 +167,7 @@ src/
 ├── bootstrap.rs      # registry resolution + problem creation
 ├── correctness.rs    # phase 1 runner
 ├── load.rs           # phase 2 runner (rate limiter + hdrhistogram)
+├── passthrough.rs    # phase 3 runner (sample-echo + liveness + determinism)
 ├── cleanup.rs        # best-effort delete of created resources
 ├── report.rs         # final summary block
 └── ui/
@@ -173,11 +181,13 @@ src/
 cargo test -p stress-test
 ```
 
-83 tests (Phase A complete) cover the DTO contract, HTTP client behaviour (auth,
-401 retry, multipart, error decoding), bootstrap sequencing, scenario validity,
-plain-text rendering, every phase runner's pass/fail/timeout/error paths,
-cleanup outcomes, and summary formatting. Wiremock drives most tests;
-`tokio::time::pause` keeps the timeout/load tests deterministic.
+95 tests cover the DTO contract, HTTP client behaviour (auth, 401 retry,
+multipart, error decoding), bootstrap sequencing, scenario validity, plain-text
+rendering, every phase runner's pass/fail/timeout/error paths (correctness +
+load + pass-through), the sample-echo Python encoder's byte-safety properties,
+the determinism / liveness aggregator, cleanup outcomes, and summary formatting.
+Wiremock drives most tests; `tokio::time::pause` keeps the timeout/load tests
+deterministic.
 
 ### Local dev workflow
 
@@ -216,6 +226,6 @@ end-to-end with a plain-text event stream and PASS/FAIL summary.
 **Phase B (TUI):** not started. The htop-style UI from the design doc will live
 under `src/ui/` alongside the existing plain renderer.
 
-**Phase C (polish):** partially complete. Cleanup is done. Pass-through, full
-JSON schema, portability harness (cross-builds), real-server e2e test, and full
-release tooling are pending.
+**Phase C (polish):** partially complete. Cleanup and pass-through are done.
+Full JSON schema, portability harness (cross-builds), real-server e2e test, and
+full release tooling are pending.
