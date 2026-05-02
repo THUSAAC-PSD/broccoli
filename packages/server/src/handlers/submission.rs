@@ -12,7 +12,9 @@ use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::{error, info, instrument, warn};
 
-use crate::entity::{contest, problem, submission, test_case, test_case_result, user};
+use crate::entity::{
+    contest, plugin_config, plugin_storage, problem, submission, test_case, test_case_result, user,
+};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -314,42 +316,40 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
             .await;
 
         match result {
-            Ok(output_bytes) => {
-                match serde_json::from_slice::<OnSubmissionOutput>(&output_bytes) {
-                    Ok(output) => {
-                        if !output.success {
-                            error!(
-                                submission_id,
-                                error = ?output.error_message,
-                                "Plugin reported failure"
-                            );
-                            let _ = crate::consumers::mark_submission_system_error_with_epoch(
-                                &db,
-                                submission_id,
-                                "PLUGIN_ERROR",
-                                &output
-                                    .error_message
-                                    .unwrap_or_else(|| "Unknown plugin error".to_string()),
-                                Some(judge_epoch),
-                            )
-                            .await;
-                        } else {
-                            info!(submission_id, "Plugin completed successfully");
-                        }
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to parse plugin output");
+            Ok(output_bytes) => match serde_json::from_slice::<OnSubmissionOutput>(&output_bytes) {
+                Ok(output) => {
+                    if !output.success {
+                        error!(
+                            submission_id,
+                            error = ?output.error_message,
+                            "Plugin reported failure"
+                        );
                         let _ = crate::consumers::mark_submission_system_error_with_epoch(
                             &db,
                             submission_id,
-                            "PLUGIN_INVALID_OUTPUT",
-                            &format!("Plugin returned invalid output: {}", e),
+                            "PLUGIN_ERROR",
+                            &output
+                                .error_message
+                                .unwrap_or_else(|| "Unknown plugin error".to_string()),
                             Some(judge_epoch),
                         )
                         .await;
+                    } else {
+                        info!(submission_id, "Plugin completed successfully");
                     }
                 }
-            }
+                Err(e) => {
+                    error!(error = %e, "Failed to parse plugin output");
+                    let _ = crate::consumers::mark_submission_system_error_with_epoch(
+                        &db,
+                        submission_id,
+                        "PLUGIN_INVALID_OUTPUT",
+                        &format!("Plugin returned invalid output: {}", e),
+                        Some(judge_epoch),
+                    )
+                    .await;
+                }
+            },
             Err(e) => {
                 error!(error = %e, "Plugin execution failed");
                 let _ = crate::consumers::mark_submission_system_error_with_epoch(
@@ -424,6 +424,7 @@ async fn build_submission_list_items(
     Ok(data)
 }
 
+#[derive(Clone, Copy)]
 struct VisibilityContext {
     viewer_id: i32,
     has_view_all: bool,
@@ -642,6 +643,137 @@ async fn build_submission_response(
         created_at: sub.created_at,
         result: result_response,
     })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IoiFeedbackLevel {
+    Full,
+    SubtaskScores,
+    TotalOnly,
+    None,
+}
+
+impl IoiFeedbackLevel {
+    fn from_str(s: &str) -> Self {
+        match s {
+            "none" => Self::None,
+            "total_only" => Self::TotalOnly,
+            "subtask_scores" => Self::SubtaskScores,
+            _ => Self::Full,
+        }
+    }
+}
+
+async fn load_ioi_feedback_level(
+    db: &DatabaseConnection,
+    contest_id: i32,
+) -> Result<IoiFeedbackLevel, AppError> {
+    let row = plugin_config::Entity::find_by_id((
+        "contest".to_string(),
+        contest_id.to_string(),
+        "ioi:contest".to_string(),
+    ))
+    .one(db)
+    .await?;
+
+    let level = row
+        .as_ref()
+        .and_then(|r| r.config.get("feedback_level"))
+        .and_then(|v| v.as_str())
+        .map(IoiFeedbackLevel::from_str)
+        .unwrap_or(IoiFeedbackLevel::Full);
+    Ok(level)
+}
+
+async fn ioi_submission_is_tokened(
+    db: &DatabaseConnection,
+    contest_id: i32,
+    user_id: i32,
+    submission_id: i32,
+) -> Result<bool, AppError> {
+    let key = format!("tokens:{}:{}", contest_id, user_id);
+    let row = plugin_storage::Entity::find_by_id(("ioi".to_string(), "default".to_string(), key))
+        .one(db)
+        .await?;
+
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    // Plugin storage wraps payloads as Value::String(json_text). Decode either form.
+    let inner: serde_json::Value = match &row.data {
+        serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
+        other => other.clone(),
+    };
+    let tokened = inner
+        .get("tokened_submission_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_i64())
+                .any(|id| id == submission_id as i64)
+        })
+        .unwrap_or(false);
+    Ok(tokened)
+}
+
+/// Redact a submission response in place to honor the IOI plugin's
+/// `feedback_level` config. Only applies when the submission belongs to an
+/// IOI contest and the viewer is a non-privileged contestant. Tokened
+/// submissions bypass redaction.
+async fn apply_ioi_feedback_redaction(
+    db: &DatabaseConnection,
+    response: &mut SubmissionResponse,
+    visibility: Option<&VisibilityContext>,
+) -> Result<(), AppError> {
+    if response.contest_type != "ioi" {
+        return Ok(());
+    }
+    let Some(contest_id) = response.contest_id else {
+        return Ok(());
+    };
+    let Some(ctx) = visibility else {
+        return Ok(());
+    };
+    if ctx.has_view_all {
+        return Ok(());
+    }
+
+    let is_owner = ctx.viewer_id == response.user_id;
+    if is_owner && ioi_submission_is_tokened(db, contest_id, ctx.viewer_id, response.id).await? {
+        return Ok(());
+    }
+
+    let level = load_ioi_feedback_level(db, contest_id).await?;
+
+    if let Some(result) = response.result.as_mut() {
+        match level {
+            IoiFeedbackLevel::Full => {}
+            IoiFeedbackLevel::SubtaskScores | IoiFeedbackLevel::TotalOnly => {
+                for tcr in result.test_case_results.iter_mut() {
+                    tcr.verdict = Verdict::Skipped;
+                    tcr.score = 0.0;
+                    tcr.time_used = None;
+                    tcr.memory_used = None;
+                    tcr.input = None;
+                    tcr.expected_output = None;
+                    tcr.stdout = None;
+                    tcr.stderr = None;
+                    tcr.checker_output = None;
+                }
+            }
+            IoiFeedbackLevel::None => {
+                result.verdict = None;
+                result.score = None;
+                result.time_used = None;
+                result.memory_used = None;
+                result.compile_output = None;
+                result.error_message = None;
+                result.test_case_results.clear();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[utoipa::path(
@@ -905,7 +1037,8 @@ pub async fn get_submission(
         viewer_id: auth_user.user_id,
         has_view_all: can_view_all,
     });
-    let response = build_submission_response(&state.db, sub, visibility).await?;
+    let mut response = build_submission_response(&state.db, sub, visibility).await?;
+    apply_ioi_feedback_redaction(&state.db, &mut response, visibility.as_ref()).await?;
     Ok(Json(response))
 }
 
