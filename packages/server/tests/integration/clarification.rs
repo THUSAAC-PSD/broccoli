@@ -174,7 +174,7 @@ mod clarification_visibility {
     }
 
     #[tokio::test]
-    async fn public_reply_makes_thread_visible_with_redacted_question() {
+    async fn public_reply_alone_does_not_leak_private_question() {
         let app = TestApp::spawn().await;
         let admin = app
             .create_user_with_role("admin1", "pass1234", "admin")
@@ -229,18 +229,55 @@ mod clarification_visibility {
             .get_with_token(&routes::contest_clarifications(cid), &u2)
             .await;
         let data = res_u2_after.body["data"].as_array().unwrap();
-        assert_eq!(data.len(), 1);
+        assert_eq!(
+            data.len(),
+            0,
+            "Public reply on a private clarification must not leak the parent to other contestants"
+        );
 
-        let thread = &data[0];
-        assert_eq!(thread["content"], "", "Question content should be redacted");
+        // U1 (the author) still sees their own thread with the public reply.
+        let res_u1 = app
+            .get_with_token(&routes::contest_clarifications(cid), &u1)
+            .await;
+        let data_u1 = res_u1.body["data"].as_array().unwrap();
+        assert_eq!(data_u1.len(), 1);
+        assert_eq!(data_u1[0]["content"], "Secret cheat code?");
+        assert_eq!(data_u1[0]["replies"][0]["is_public"], true);
+
+        // Promoting the question explicitly (toggle again with include_question=true,
+        // which flips the reply back to private; instead use a fresh setup-style
+        // assertion via direct toggle of the question via re-toggle path).
+        // To verify the "public question + public reply" path makes the thread
+        // visible, toggle the reply public again with include_question=true.
+        app.post_with_token(
+            &routes::contest_clarification_toggle(cid, clar_id, reply_id),
+            &json!({}),
+            &admin,
+        )
+        .await;
+        // Reply is now private again; flip once more, this time including question.
+        app.post_with_token(
+            &format!(
+                "{}?include_question=true",
+                routes::contest_clarification_toggle(cid, clar_id, reply_id)
+            ),
+            &json!({}),
+            &admin,
+        )
+        .await;
+
+        let res_u2_final = app
+            .get_with_token(&routes::contest_clarifications(cid), &u2)
+            .await;
+        let data_final = res_u2_final.body["data"].as_array().unwrap();
         assert_eq!(
-            thread["author_name"], "Anonymous",
-            "Author should be hidden"
+            data_final.len(),
+            1,
+            "Once the question itself is made public, U2 can see the thread"
         );
-        assert_eq!(
-            thread["replies"][0]["content"], "No.",
-            "Reply content visible"
-        );
+        assert_eq!(data_final[0]["content"], "Secret cheat code?");
+        assert_eq!(data_final[0]["is_public"], true);
+        assert_eq!(data_final[0]["replies"][0]["content"], "No.");
     }
 }
 
