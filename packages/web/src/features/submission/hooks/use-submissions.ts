@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { CodeRun, Submission } from '@broccoli/web-sdk/submission';
 import { useQueryClient } from '@tanstack/react-query';
@@ -102,6 +103,11 @@ export function useSubmissions({
   const pollersRef = useRef<Map<number, ReturnType<typeof setInterval>>>(
     new Map(),
   );
+  // Stable Idempotency-Key per logical submission attempt: retries of the same
+  // logical submission (e.g., user re-clicks Submit after a network error)
+  // reuse the same key so the backend can return the cached response. The key
+  // is reset on success so the next logical submission gets a fresh one.
+  const { getKey, resetKey } = useIdempotencyKey();
 
   const stopPolling = useCallback((entryId: number) => {
     const interval = pollersRef.current.get(entryId);
@@ -216,7 +222,7 @@ export function useSubmissions({
       try {
         let data: Submission;
         const idempotencyHeaders = {
-          'Idempotency-Key': crypto.randomUUID(),
+          'Idempotency-Key': getKey(),
         };
 
         if (contestId) {
@@ -242,6 +248,9 @@ export function useSubmissions({
           data = res.data;
         }
 
+        // Success: clear key so the next logical submission gets a fresh one.
+        resetKey();
+
         setEntries((prev) =>
           prev.map((e) =>
             e.id === entryId
@@ -262,6 +271,8 @@ export function useSubmissions({
         toast.success(t('toast.submission.submitted'));
         startSubmissionPolling(entryId, data.id);
       } catch (err) {
+        // On error: keep the key so a retry of the same logical operation
+        // sends the same Idempotency-Key (allowing backend dedup).
         console.error('Submission failed:', err);
         const submissionError = parseSubmissionError(err);
         setEntries((prev) =>
@@ -274,7 +285,16 @@ export function useSubmissions({
         toast.error(t('toast.submission.error'));
       }
     },
-    [apiClient, contestId, problemId, queryClient, startSubmissionPolling, t],
+    [
+      apiClient,
+      contestId,
+      getKey,
+      problemId,
+      queryClient,
+      resetKey,
+      startSubmissionPolling,
+      t,
+    ],
   );
 
   const run = useCallback(

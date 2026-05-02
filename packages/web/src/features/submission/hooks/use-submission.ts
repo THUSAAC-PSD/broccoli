@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { Submission } from '@broccoli/web-sdk/submission';
 import { useQueryClient } from '@tanstack/react-query';
@@ -89,6 +90,10 @@ export function useSubmission({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<SubmissionError | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Stable Idempotency-Key per logical submission attempt: retries of the same
+  // logical submission (e.g., user re-clicks Submit after a network error)
+  // reuse the same key so the backend can return the cached response.
+  const { getKey, resetKey } = useIdempotencyKey();
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -139,7 +144,7 @@ export function useSubmission({
         let data: Submission;
 
         const idempotencyHeaders = {
-          'Idempotency-Key': crypto.randomUUID(),
+          'Idempotency-Key': getKey(),
         };
 
         if (contestId) {
@@ -166,6 +171,8 @@ export function useSubmission({
         }
 
         setSubmission(data);
+        // Success: clear key so the next logical submission gets a fresh one.
+        resetKey();
         if (contestId) {
           await queryClient.invalidateQueries({
             queryKey: ['contest-submissions-table', String(contestId)],
@@ -177,6 +184,8 @@ export function useSubmission({
         toast.success(t('toast.submission.submitted'));
         startPolling(data.id);
       } catch (err) {
+        // On error: keep the key so a retry of the same logical operation
+        // sends the same Idempotency-Key (allowing backend dedup).
         console.error('Submission failed:', err);
         setError(parseSubmissionError(err));
         toast.error(t('toast.submission.error'));
@@ -186,8 +195,10 @@ export function useSubmission({
     [
       apiClient,
       contestId,
+      getKey,
       problemId,
       queryClient,
+      resetKey,
       startPolling,
       stopPolling,
       t,

@@ -23,11 +23,12 @@ export async function createClarification(
   apiClient: ApiClient,
   contestId: number,
   body: CreateClarificationBody,
+  idempotencyKey: string,
 ): Promise<Clarification> {
   const { data, error } = await apiClient.POST(
     '/contests/{id}/clarifications',
     {
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': idempotencyKey },
       params: { path: { id: contestId } },
       body,
     },
@@ -41,11 +42,12 @@ export async function replyClarification(
   contestId: number,
   clarificationId: number,
   body: ReplyClarificationBody,
+  idempotencyKey: string,
 ): Promise<Clarification> {
   const { data, error } = await apiClient.POST(
     '/contests/{id}/clarifications/{clarification_id}/reply',
     {
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': idempotencyKey },
       params: { path: { id: contestId, clarification_id: clarificationId } },
       body,
     },
