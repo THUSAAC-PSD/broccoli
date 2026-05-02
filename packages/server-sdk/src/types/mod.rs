@@ -27,6 +27,7 @@ pub use operation::{
 };
 pub use persistence::{
     CodeRunResultRow, CodeRunUpdate, SubmissionStatus, SubmissionUpdate, TestCaseResultRow,
+    sanitize_text_field,
 };
 pub use query::{ProblemCheckerInfo, TestCaseData, TestCaseRow};
 pub use submission::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
