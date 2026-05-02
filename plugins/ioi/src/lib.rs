@@ -123,8 +123,12 @@ fn should_include_in_contest_aggregations(
 #[plugin_fn]
 pub fn init() -> FnResult<String> {
     let host = Host::new();
-    host.registry
-        .register_contest_type("ioi", "handle_ioi_submission", "handle_ioi_code_run")?;
+    host.registry.register_contest_type_with_filter(
+        "ioi",
+        "handle_ioi_submission",
+        "handle_ioi_code_run",
+        Some("filter_submission_for_viewer"),
+    )?;
     host.log.info("IOI contest plugin registered")?;
     Ok("ok".into())
 }
@@ -168,6 +172,136 @@ pub fn handle_ioi_code_run(input: String) -> FnResult<String> {
     Ok(broccoli_server_sdk::evaluator::handle_code_run(
         &host, &input,
     )?)
+}
+
+#[derive(Deserialize)]
+struct FilterSubmissionInput {
+    submission: serde_json::Value,
+    #[allow(dead_code)]
+    is_list_item: bool,
+    contest_id: Option<i32>,
+    viewer_user_id: Option<i32>,
+    #[serde(default)]
+    viewer_permissions: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct FilterSubmissionOutput {
+    submission: serde_json::Value,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[plugin_fn]
+pub fn filter_submission_for_viewer(input: String) -> FnResult<String> {
+    let host = Host::new();
+    let req: FilterSubmissionInput = serde_json::from_str(&input)?;
+
+    let submission = match apply_feedback_filter(&host, &req) {
+        Ok(s) => s,
+        Err(e) => {
+            host.log
+                .info(&format!("filter_submission_for_viewer error: {e:?}"))?;
+            req.submission
+        }
+    };
+
+    Ok(serde_json::to_string(&FilterSubmissionOutput {
+        submission,
+    })?)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn apply_feedback_filter(
+    host: &Host,
+    req: &FilterSubmissionInput,
+) -> Result<serde_json::Value, SdkError> {
+    let mut submission = req.submission.clone();
+
+    // Admin / view-all bypass.
+    if req
+        .viewer_permissions
+        .iter()
+        .any(|p| p == "submission:view_all")
+    {
+        return Ok(submission);
+    }
+
+    let Some(contest_id) = req.contest_id else {
+        return Ok(submission);
+    };
+
+    let owner_id = submission.get("user_id").and_then(|v| v.as_i64());
+    let submission_id = submission.get("id").and_then(|v| v.as_i64());
+    let viewer_id = req.viewer_user_id.map(|x| x as i64);
+
+    let is_owner = matches!((owner_id, viewer_id), (Some(o), Some(v)) if o == v);
+
+    if is_owner && let (Some(viewer), Some(sid)) = (req.viewer_user_id, submission_id) {
+        let token_state = load_token_state(host, contest_id, viewer)?;
+        if token_state.tokened_submission_ids.contains(&(sid as i32)) {
+            return Ok(submission);
+        }
+    }
+
+    let contest_config: ContestConfig = contest::load_config(host, contest_id)?;
+    let level = contest_config.feedback_level;
+
+    redact_submission_for_level(&mut submission, level);
+    Ok(submission)
+}
+
+fn redact_submission_for_level(submission: &mut serde_json::Value, level: FeedbackLevel) {
+    use serde_json::Value;
+
+    // List items omit the `result` field entirely; detail responses include it
+    // (possibly null). Use that to decide which shape to redact.
+    let in_list = submission.get("result").is_none();
+
+    match level {
+        FeedbackLevel::Full => {}
+        FeedbackLevel::SubtaskScores | FeedbackLevel::TotalOnly => {
+            // Keep total verdict + score; blank per-test-case data.
+            if let Some(result) = submission.get_mut("result")
+                && let Some(tcrs) = result.get_mut("test_case_results")
+                && let Some(arr) = tcrs.as_array_mut()
+            {
+                for tcr in arr.iter_mut() {
+                    if let Some(obj) = tcr.as_object_mut() {
+                        obj.insert("verdict".into(), Value::String("Skipped".into()));
+                        obj.insert("score".into(), Value::from(0.0));
+                        obj.insert("time_used".into(), Value::Null);
+                        obj.insert("memory_used".into(), Value::Null);
+                        obj.insert("input".into(), Value::Null);
+                        obj.insert("expected_output".into(), Value::Null);
+                        obj.insert("stdout".into(), Value::Null);
+                        obj.insert("stderr".into(), Value::Null);
+                        obj.insert("checker_output".into(), Value::Null);
+                    }
+                }
+            }
+        }
+        FeedbackLevel::None => {
+            if in_list {
+                // SubmissionListItem: blank verdict + score + time/memory.
+                if let Some(obj) = submission.as_object_mut() {
+                    obj.insert("verdict".into(), Value::Null);
+                    obj.insert("score".into(), Value::Null);
+                    obj.insert("time_used".into(), Value::Null);
+                    obj.insert("memory_used".into(), Value::Null);
+                }
+            } else if let Some(result) = submission.get_mut("result")
+                && let Some(obj) = result.as_object_mut()
+            {
+                obj.insert("verdict".into(), Value::Null);
+                obj.insert("score".into(), Value::Null);
+                obj.insert("time_used".into(), Value::Null);
+                obj.insert("memory_used".into(), Value::Null);
+                obj.insert("compile_output".into(), Value::Null);
+                obj.insert("error_message".into(), Value::Null);
+                obj.insert("test_case_results".into(), Value::Array(vec![]));
+            }
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -915,9 +1049,16 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
 
     let mut entries: Vec<RankEntry> = Vec::new();
 
+    // During before/during phase, contestants only see themselves; organizers
+    // (with contest:manage) see the full live scoreboard for supervision.
+    let can_view_all = req.has_permission("contest:manage");
     let visible_participants: Vec<&Participant> = participants
         .iter()
-        .filter(|p| !(phase == "before" || phase == "during") || req.user_id() == Some(p.user_id))
+        .filter(|p| {
+            !(phase == "before" || phase == "during")
+                || can_view_all
+                || req.user_id() == Some(p.user_id)
+        })
         .collect();
 
     let all_keys: Vec<String> = visible_participants
