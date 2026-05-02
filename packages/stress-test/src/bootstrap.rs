@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use tracing::info;
@@ -301,7 +300,7 @@ mod tests {
             .and(path("/api/v1/plugins/registries"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "problem_types": ["batch"],
-                "checker_formats": ["exact", "ignore_case"],
+                "checker_formats": ["exact", "tokens-case-insensitive"],
                 "contest_types": ["icpc"],
                 "languages": []
             })))
