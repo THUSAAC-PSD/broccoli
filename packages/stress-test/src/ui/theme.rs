@@ -1,4 +1,5 @@
 use ratatui::style::Color;
+use ratatui::symbols::border::Set as BorderSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Capability {
@@ -157,6 +158,56 @@ impl Theme {
                 bottom_right: '+',
                 horizontal: '-',
                 vertical: '|',
+            },
+        }
+    }
+
+    pub fn outer_border_set(&self) -> BorderSet {
+        match self.glyphs {
+            GlyphSet::Unicode => BorderSet {
+                top_left: "\u{2554}",
+                top_right: "\u{2557}",
+                bottom_left: "\u{255A}",
+                bottom_right: "\u{255D}",
+                vertical_left: "\u{2551}",
+                vertical_right: "\u{2551}",
+                horizontal_top: "\u{2550}",
+                horizontal_bottom: "\u{2550}",
+            },
+            GlyphSet::Ascii => BorderSet {
+                top_left: "+",
+                top_right: "+",
+                bottom_left: "+",
+                bottom_right: "+",
+                vertical_left: "|",
+                vertical_right: "|",
+                horizontal_top: "=",
+                horizontal_bottom: "=",
+            },
+        }
+    }
+
+    pub fn inner_border_set(&self) -> BorderSet {
+        match self.glyphs {
+            GlyphSet::Unicode => BorderSet {
+                top_left: "\u{250C}",
+                top_right: "\u{2510}",
+                bottom_left: "\u{2514}",
+                bottom_right: "\u{2518}",
+                vertical_left: "\u{2502}",
+                vertical_right: "\u{2502}",
+                horizontal_top: "\u{2500}",
+                horizontal_bottom: "\u{2500}",
+            },
+            GlyphSet::Ascii => BorderSet {
+                top_left: "+",
+                top_right: "+",
+                bottom_left: "+",
+                bottom_right: "+",
+                vertical_left: "|",
+                vertical_right: "|",
+                horizontal_top: "-",
+                horizontal_bottom: "-",
             },
         }
     }
