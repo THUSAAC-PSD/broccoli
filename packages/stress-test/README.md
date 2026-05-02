@@ -37,6 +37,24 @@ Read the final summary block. If it says
 `RESULT: FAIL — DO NOT RUN CONTEST until these are resolved.`, the issues block
 names what broke.
 
+### Output modes
+
+Three renderers, picked automatically:
+
+| Condition                                          | Renderer                                                                                                   |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `--json`                                           | suppresses human output; emits a single JSON object at the end                                             |
+| stdout is a TTY ≥ 80×24                            | live TUI dashboard (phases, throughput sparkline, latency bars, verdict chart, in-flight gauge, event log) |
+| stdout is piped, redirected, or smaller than 80×24 | plain-text event stream, one structured line per event                                                     |
+
+The TUI auto-detects color (`COLORTERM=truecolor` → 24-bit, `TERM=*-256color` →
+256, `NO_COLOR` → none) and Unicode (`LANG`/`LC_CTYPE` containing `UTF-8` →
+box-drawing glyphs, otherwise an ASCII fallback table).
+
+TUI key bindings: `q` / `Esc` / `Ctrl-C` quit, `p` toggle event log pause, `↑` /
+`↓` scroll the event log. The final summary block always prints to plain stdout
+after the TUI exits, so it survives in scrollback.
+
 ### Quick post-deploy sanity (~30s)
 
 ```sh
@@ -207,8 +225,12 @@ src/
 ├── cleanup.rs        # best-effort delete of created resources
 ├── report.rs         # final summary block
 └── ui/
-    ├── mod.rs        # current consumer: plain-text renderer
-    └── plain.rs      # one structured line per event, no escape codes
+    ├── mod.rs        # module declarations
+    ├── plain.rs      # one structured line per event, no escape codes
+    ├── theme.rs      # color + glyph capability detection (NO_COLOR, COLORTERM, TERM, LANG)
+    ├── app.rs        # AppState + apply_event + tick + latency histogram
+    ├── widgets.rs    # phase ladder, sparkline, latency bars, verdict chart, log table, in-flight gauge, full dashboard layout
+    └── tui.rs        # alternate-screen lifecycle + tokio::select! loop on events / keys / 4 Hz tick
 ```
 
 ### Tests
@@ -217,13 +239,16 @@ src/
 cargo test -p stress-test
 ```
 
-95 tests cover the DTO contract, HTTP client behaviour (auth, 401 retry,
+154 tests cover the DTO contract, HTTP client behaviour (auth, 401 retry,
 multipart, error decoding), bootstrap sequencing, scenario validity, plain-text
 rendering, every phase runner's pass/fail/timeout/error paths (correctness +
 load + pass-through), the sample-echo Python encoder's byte-safety properties,
-the determinism / liveness aggregator, cleanup outcomes, and summary formatting.
-Wiremock drives most tests; `tokio::time::pause` keeps the timeout/load tests
-deterministic.
+the determinism / liveness aggregator, cleanup outcomes, summary formatting, TUI
+theme detection and capability fallbacks, every widget's TestBackend snapshot,
+the AppState event handler for every event variant, the TUI render loop driving
+a canned event stream to completion, and the renderer-selection matrix (json /
+non-tty / small / TTY). Wiremock drives most tests; `tokio::time::pause` keeps
+the timeout/load tests deterministic.
 
 ### Local dev workflow
 
@@ -259,9 +284,11 @@ cargo build -p stress-test --release
 **Phase A (MVP):** complete. Bootstrap → correctness → load → cleanup work
 end-to-end with a plain-text event stream and PASS/FAIL summary.
 
-**Phase B (TUI):** not started. The htop-style UI from the design doc will live
-under `src/ui/` alongside the existing plain renderer.
+**Phase B (TUI):** complete. The htop-style dashboard from the design doc
+auto-activates on a TTY ≥ 80×24, with truecolor / 256 / 16 / no-color and
+Unicode / ASCII fallbacks driven by env-var detection. Plain renderer remains
+the fallback for piped output and small terminals; `--json` short-circuits both.
 
-**Phase C (polish):** partially complete. Cleanup, pass-through, and the
-versioned `--json` schema are done. Portability harness (cross-builds),
+**Phase C (polish):** partially complete. Cleanup, pass-through, the versioned
+`--json` schema, and the TUI are done. Portability harness (musl cross-builds),
 real-server e2e test, and full release tooling are pending.
