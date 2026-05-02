@@ -1,4 +1,6 @@
-const TELEMETRY_BASE = '/api/v1/telemetry';
+import { appConfig } from '@/config';
+
+const TELEMETRY_BASE = `${appConfig.api.baseUrl}/telemetry`;
 
 export function reportError(error: {
   message: string;
