@@ -201,18 +201,22 @@ component = "SubtaskEditor"
 name = "ranking.content"
 position = "wrap"
 component = "IoiScoreboard"
+contest_type = "ioi"
 
 [[web.slots]]
 name = "submission-result.content"
 position = "wrap"
 component = "IoiSubmissionResult"
+contest_type = "ioi"
 
 [[web.slots]]
 name = "problem-detail.sidebar"
 position = "prepend"
 component = "TokenPanel"
+contest_type = "ioi"
 
 [[web.slots]]
 name = "contest-overview.content"
 position = "prepend"
 component = "IoiContestInfo"
+contest_type = "ioi"

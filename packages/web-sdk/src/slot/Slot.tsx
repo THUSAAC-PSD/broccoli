@@ -3,6 +3,7 @@ import React, { type ReactNode } from 'react';
 import { PluginErrorBoundary } from '@/plugin/PluginErrorBoundary';
 import { usePluginRegistry } from '@/plugin/registry/use-plugin-registry';
 import type { SlotConfig } from '@/plugin/types';
+import { useContestSlotContext } from '@/slot/contest-slot-context';
 import { useSlotPermissions } from '@/slot/slot-permissions-context';
 
 interface SlotProps {
@@ -26,14 +27,27 @@ export function Slot({
   const { getSlots, components } = usePluginRegistry();
   const slotPermissions = useSlotPermissions();
   const userPermissions = slotPermissions?.permissions ?? [];
+  const contestSlotContext = useContestSlotContext();
+  const currentContestType = contestSlotContext?.contestType ?? null;
 
   const allSlots = getSlots(name);
 
   // Filter out slots that require a permission the user doesn't have.
   // Slots without a `permission` field are visible to everyone.
+  // Filter out slots that target a contest_type which doesn't match the
+  // current contest. Slots without a `contest_type` field always pass; slots
+  // with a `contest_type` only render when a ContestSlotContext is in scope
+  // and its contestType matches.
   const slots = allSlots.filter((slot) => {
-    if (!slot.permission) return true;
-    return userPermissions.includes(slot.permission);
+    if (slot.permission && !userPermissions.includes(slot.permission)) {
+      return false;
+    }
+    const slotContestType = slot.contest_type ?? null;
+    if (slotContestType) {
+      if (!contestSlotContext) return false;
+      if (slotContestType !== currentContestType) return false;
+    }
+    return true;
   });
 
   const Container = as;

@@ -4112,6 +4112,12 @@ export interface components {
        *     the `components` map.
        */
       component: string;
+      /**
+       * @description Restrict rendering to contests of this type. When set, the host only
+       *     renders this slot entry on contest pages whose contest matches this
+       *     type (e.g. "ioi", "icpc"). When unset, the slot is rendered everywhere.
+       */
+      contest_type?: string | null;
       /** @description Name of the slot to render into, e.g., "sidebar.footer". */
       name: string;
       /**
