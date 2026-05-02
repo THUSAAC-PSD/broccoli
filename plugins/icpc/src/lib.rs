@@ -218,14 +218,16 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         .collect();
     let problem_ids: Vec<i32> = problems.iter().map(|p| p.problem_id).collect();
 
-    // Fetch participants (during before/during phase, only fetch the requesting user)
+    // Fetch participants (during before/during phase, only fetch the requesting user
+    // unless they have contest:manage so organizers can supervise live scoring).
     #[derive(Deserialize)]
     struct Participant {
         user_id: i32,
         username: String,
     }
     let phase = &info.phase;
-    let is_restricted = phase == "before" || phase == "during";
+    let can_view_all = req.has_permission("contest:manage");
+    let is_restricted = (phase == "before" || phase == "during") && !can_view_all;
     let mut p = Params::new();
     let user_filter = if is_restricted {
         match req.user_id() {
