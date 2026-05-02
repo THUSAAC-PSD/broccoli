@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use axum::http::header::AUTHORIZATION;
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::{HeaderMap, Method, Response},
     response::IntoResponse,
 };
@@ -13,6 +13,7 @@ use tracing::{info, instrument, warn};
 
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
+use crate::extractors::path::AppPath;
 use crate::state::AppState;
 use crate::utils::jwt;
 
@@ -187,7 +188,7 @@ macro_rules! proxy_handler {
         #[instrument(skip(state, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
         pub async fn $fn_name(
             State(state): State<AppState>,
-            Path((plugin_id, sub_path)): Path<(String, String)>,
+            AppPath((plugin_id, sub_path)): AppPath<(String, String)>,
             method: Method,
             headers: HeaderMap,
             Query(query): Query<HashMap<String, String>>,
@@ -221,7 +222,7 @@ macro_rules! proxy_handler {
         #[instrument(skip(state, headers, body), fields(plugin_id = %plugin_id, sub_path = %sub_path))]
         pub async fn $fn_name(
             State(state): State<AppState>,
-            Path((plugin_id, sub_path)): Path<(String, String)>,
+            AppPath((plugin_id, sub_path)): AppPath<(String, String)>,
             method: Method,
             headers: HeaderMap,
             Query(query): Query<HashMap<String, String>>,

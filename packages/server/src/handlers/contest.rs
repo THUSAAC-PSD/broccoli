@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use sea_orm::prelude::Expr;
@@ -11,6 +11,7 @@ use crate::entity::{contest, contest_problem, contest_user, problem, role, user,
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::contest::*;
 use crate::models::plugin_config::config_key;
@@ -214,7 +215,7 @@ pub async fn list_contests(
 pub async fn get_contest(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<ContestResponse>, AppError> {
     let model = find_contest(&state.db, id).await?;
     check_contest_access(&state.db, &auth_user, &model).await?;
@@ -240,7 +241,7 @@ pub async fn get_contest(
 pub async fn get_contest_my_info(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<ContestUserContextResponse>, AppError> {
     let model = find_contest(&state.db, id).await?;
     check_contest_access(&state.db, &auth_user, &model).await?;
@@ -279,7 +280,7 @@ pub async fn get_contest_my_info(
 pub async fn update_contest(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UpdateContestRequest>,
 ) -> Result<Json<ContestResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -363,7 +364,7 @@ pub async fn update_contest(
 pub async fn delete_contest(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:delete")?;
 
@@ -409,7 +410,7 @@ pub async fn delete_contest(
 pub async fn add_contest_problem(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<AddContestProblemRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -487,7 +488,7 @@ pub async fn add_contest_problem(
 pub async fn list_contest_problems(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
 ) -> Result<Json<Vec<ContestProblemResponse>>, AppError> {
     let contest_model = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest_model).await?;
@@ -534,7 +535,7 @@ pub async fn list_contest_problems(
 pub async fn update_contest_problem(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id)): Path<(i32, i32)>,
+    AppPath((contest_id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<UpdateContestProblemRequest>,
 ) -> Result<Json<ContestProblemResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -613,7 +614,7 @@ pub async fn update_contest_problem(
 pub async fn remove_contest_problem(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id)): Path<(i32, i32)>,
+    AppPath((contest_id, problem_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
 
@@ -657,7 +658,7 @@ pub async fn remove_contest_problem(
 pub async fn reorder_contest_problems(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<ReorderContestProblemsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -723,7 +724,7 @@ pub async fn reorder_contest_problems(
 pub async fn add_participant(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<AddParticipantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -784,7 +785,7 @@ pub async fn add_participant(
 pub async fn list_participants(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
 ) -> Result<Json<Vec<ContestParticipantResponse>>, AppError> {
     let contest_model = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest_model).await?;
@@ -837,7 +838,7 @@ pub async fn list_participants(
 pub async fn remove_participant(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, user_id)): Path<(i32, i32)>,
+    AppPath((contest_id, user_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
 
@@ -876,7 +877,7 @@ pub async fn remove_participant(
 pub async fn register_for_contest(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let now = chrono::Utc::now();
     let txn = state.db.begin().await?;
@@ -929,7 +930,7 @@ pub async fn register_for_contest(
 pub async fn unregister_from_contest(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
@@ -967,7 +968,7 @@ pub async fn unregister_from_contest(
 pub async fn bulk_delete_contest_problems(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkDeleteContestProblemsRequest>,
 ) -> Result<Json<BulkDeleteContestProblemsResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -1040,7 +1041,7 @@ pub async fn bulk_delete_contest_problems(
 pub async fn bulk_add_participants(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkAddParticipantsRequest>,
 ) -> Result<Json<BulkAddParticipantsResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;

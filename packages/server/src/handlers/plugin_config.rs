@@ -1,9 +1,4 @@
-use axum::{
-    Json,
-    extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set,
@@ -20,6 +15,7 @@ use crate::entity::plugin_config;
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::host_funcs::config::{extract_plugin_id, resolve_namespace, strip_namespace_prefix};
 use crate::models::plugin_config::{PluginConfigResponse, UpsertPluginConfigRequest, config_key};
 use crate::state::AppState;
@@ -325,7 +321,7 @@ fn validate_plugin_id(id: &str) -> Result<(), AppError> {
 pub async fn list_plugin_global_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(plugin_id): Path<String>,
+    AppPath(plugin_id): AppPath<String>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
@@ -356,7 +352,7 @@ pub async fn list_plugin_global_config(
 pub async fn get_plugin_global_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((plugin_id, namespace)): Path<(String, String)>,
+    AppPath((plugin_id, namespace)): AppPath<(String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
@@ -388,7 +384,7 @@ pub async fn get_plugin_global_config(
 pub async fn upsert_plugin_global_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((plugin_id, namespace)): Path<(String, String)>,
+    AppPath((plugin_id, namespace)): AppPath<(String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("plugin:manage")?;
@@ -431,7 +427,7 @@ pub async fn upsert_plugin_global_config(
 pub async fn delete_plugin_global_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((plugin_id, namespace)): Path<(String, String)>,
+    AppPath((plugin_id, namespace)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
@@ -459,7 +455,7 @@ pub async fn delete_plugin_global_config(
 pub async fn list_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(problem_id): Path<i32>,
+    AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("problem:edit")?;
     find_problem(&state.db, problem_id).await?;
@@ -492,7 +488,7 @@ pub async fn list_problem_config(
 pub async fn get_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, plugin_id, namespace)): Path<(i32, String, String)>,
+    AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
     validate_plugin_id(&plugin_id)?;
@@ -530,7 +526,7 @@ pub async fn get_problem_config(
 pub async fn upsert_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, plugin_id, namespace)): Path<(i32, String, String)>,
+    AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
@@ -578,7 +574,7 @@ pub async fn upsert_problem_config(
 pub async fn delete_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((problem_id, plugin_id, namespace)): Path<(i32, String, String)>,
+    AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("problem:edit")?;
     validate_plugin_id(&plugin_id)?;
@@ -614,7 +610,7 @@ pub async fn delete_problem_config(
 pub async fn list_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id)): Path<(i32, i32)>,
+    AppPath((contest_id, problem_id)): AppPath<(i32, i32)>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("contest:manage")?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
@@ -651,7 +647,7 @@ pub async fn list_contest_problem_config(
 pub async fn get_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id, plugin_id, namespace)): Path<(i32, i32, String, String)>,
+    AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
     validate_plugin_id(&plugin_id)?;
@@ -697,7 +693,7 @@ pub async fn get_contest_problem_config(
 pub async fn upsert_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id, plugin_id, namespace)): Path<(i32, i32, String, String)>,
+    AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -749,7 +745,7 @@ pub async fn upsert_contest_problem_config(
 pub async fn delete_contest_problem_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, problem_id, plugin_id, namespace)): Path<(i32, i32, String, String)>,
+    AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
     validate_plugin_id(&plugin_id)?;
@@ -782,7 +778,7 @@ pub async fn delete_contest_problem_config(
 pub async fn list_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(contest_id): Path<i32>,
+    AppPath(contest_id): AppPath<i32>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("contest:manage")?;
     find_contest(&state.db, contest_id).await?;
@@ -815,7 +811,7 @@ pub async fn list_contest_config(
 pub async fn get_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, plugin_id, namespace)): Path<(i32, String, String)>,
+    AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
     validate_plugin_id(&plugin_id)?;
@@ -853,7 +849,7 @@ pub async fn get_contest_config(
 pub async fn upsert_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, plugin_id, namespace)): Path<(i32, String, String)>,
+    AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     auth_user.require_permission("contest:manage")?;
@@ -901,7 +897,7 @@ pub async fn upsert_contest_config(
 pub async fn delete_contest_config(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((contest_id, plugin_id, namespace)): Path<(i32, String, String)>,
+    AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("contest:manage")?;
     validate_plugin_id(&plugin_id)?;

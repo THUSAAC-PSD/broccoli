@@ -1,16 +1,17 @@
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use tracing::instrument;
 
 use crate::error::AppError;
+use crate::extractors::path::AppPath;
 use crate::state::AppState;
 
 #[instrument(skip(state, headers))]
 pub async fn serve_plugin_asset(
     State(state): State<AppState>,
-    Path((plugin_id, file_path)): Path<(String, String)>,
+    AppPath((plugin_id, file_path)): AppPath<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let safe_path = state

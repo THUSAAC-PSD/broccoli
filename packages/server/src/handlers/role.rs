@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use sea_orm::*;
@@ -8,6 +8,7 @@ use crate::entity::{role, role_permission};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::models::user::PermissionGrantRequest;
 use crate::state::AppState;
 
@@ -59,7 +60,7 @@ pub async fn list_roles(
 pub async fn list_role_permissions(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(role_name): Path<String>,
+    AppPath(role_name): AppPath<String>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("role:manage")?;
 
@@ -94,7 +95,7 @@ pub async fn list_role_permissions(
 pub async fn grant_permission_to_role(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(role_name): Path<String>,
+    AppPath(role_name): AppPath<String>,
     AppJson(req): AppJson<PermissionGrantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("role:manage")?;
@@ -139,7 +140,7 @@ pub async fn grant_permission_to_role(
 pub async fn revoke_permission_from_role(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path((role_name, permission_name)): Path<(String, String)>,
+    AppPath((role_name, permission_name)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("role:manage")?;
 

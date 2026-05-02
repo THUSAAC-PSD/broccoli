@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -16,6 +16,7 @@ use crate::entity::{dead_letter_message, submission};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
+use crate::extractors::path::AppPath;
 use crate::handlers::submission::dispatch_to_plugin;
 use crate::models::dlq::*;
 use crate::models::shared::Pagination;
@@ -119,7 +120,7 @@ pub async fn get_dlq_stats(
 pub async fn get_dlq_message(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<DlqMessageDetailResponse>, AppError> {
     auth_user.require_permission("dlq:manage")?;
 
@@ -154,7 +155,7 @@ pub async fn get_dlq_message(
 pub async fn retry_dlq_message(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<Json<DlqRetryResponse>, AppError> {
     auth_user.require_permission("dlq:manage")?;
 
@@ -262,7 +263,7 @@ pub async fn retry_dlq_message(
 pub async fn delete_dlq_message(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<i32>,
+    AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission("dlq:manage")?;
 
