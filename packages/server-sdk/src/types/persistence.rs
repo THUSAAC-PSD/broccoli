@@ -1,4 +1,14 @@
+use std::borrow::Cow;
+
 use super::verdict::Verdict;
+
+pub fn sanitize_text_field(s: &str) -> Cow<'_, str> {
+    if s.contains('\0') {
+        Cow::Owned(s.replace('\0', "\u{FFFD}"))
+    } else {
+        Cow::Borrowed(s)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmissionStatus {
@@ -92,4 +102,34 @@ pub struct CodeRunResultRow {
     pub message: Option<String>,
     pub stdout: Option<String>,
     pub stderr: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_text_field_passes_through_clean_strings() {
+        let s = "hello world\nline2";
+        let out = sanitize_text_field(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, "hello world\nline2");
+    }
+
+    #[test]
+    fn sanitize_text_field_replaces_nul_with_replacement_char() {
+        let s = "abc\0def\0\0xyz";
+        let out = sanitize_text_field(s);
+        assert!(matches!(out, Cow::Owned(_)));
+        assert_eq!(out, "abc\u{FFFD}def\u{FFFD}\u{FFFD}xyz");
+        // 1 NUL byte → 1 replacement char (not stripped), so char count is preserved.
+        assert_eq!(out.chars().count(), s.chars().count());
+    }
+
+    #[test]
+    fn sanitize_text_field_handles_empty_and_only_nul() {
+        assert_eq!(sanitize_text_field(""), "");
+        assert_eq!(sanitize_text_field("\0"), "\u{FFFD}");
+        assert_eq!(sanitize_text_field("\0\0\0"), "\u{FFFD}\u{FFFD}\u{FFFD}");
+    }
 }

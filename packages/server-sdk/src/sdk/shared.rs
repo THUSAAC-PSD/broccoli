@@ -1,5 +1,5 @@
 use crate::db::Params;
-use crate::types::{SubmissionStatus, Verdict};
+use crate::types::{SubmissionStatus, Verdict, sanitize_text_field};
 
 #[cfg(target_arch = "wasm32")]
 use crate::error::SdkError;
@@ -109,7 +109,10 @@ fn push_double_opt_str(
     val: &Option<Option<String>>,
 ) {
     match val {
-        Some(Some(v)) => sets.push(format!("{col} = {}", p.bind(v.as_str()))),
+        Some(Some(v)) => sets.push(format!(
+            "{col} = {}",
+            p.bind(sanitize_text_field(v).as_ref())
+        )),
         Some(None) => sets.push(format!("{col} = NULL")),
         None => {}
     }

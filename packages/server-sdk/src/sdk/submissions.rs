@@ -58,6 +58,7 @@ impl Submissions {
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
         use crate::db::Params;
+        use crate::types::sanitize_text_field;
         use serde_json::json;
 
         if results.is_empty() {
@@ -69,6 +70,9 @@ impl Submissions {
 
         for r in results {
             let score_val = if r.score.is_finite() { r.score } else { 0.0 };
+            let message = r.message.as_deref().map(sanitize_text_field);
+            let stdout = r.stdout.as_deref().map(sanitize_text_field);
+            let stderr = r.stderr.as_deref().map(sanitize_text_field);
             rows.push(format!(
                 "({}, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.submission_id),
@@ -78,9 +82,9 @@ impl Submissions {
                 p.bind(score_val),
                 p.bind(json!(r.time_used)),
                 p.bind(json!(r.memory_used)),
-                p.bind(json!(r.message.as_deref())),
-                p.bind(json!(r.stdout.as_deref())),
-                p.bind(json!(r.stderr.as_deref())),
+                p.bind(json!(message.as_deref())),
+                p.bind(json!(stdout.as_deref())),
+                p.bind(json!(stderr.as_deref())),
             ));
         }
 
