@@ -196,6 +196,12 @@ pub struct WebSlotConfig {
 
     #[serde(default)]
     pub permission: Option<String>,
+
+    /// Restrict rendering to contests of this type. When set, the host only
+    /// renders this slot entry on contest pages whose contest matches this
+    /// type (e.g. "ioi", "icpc"). When unset, the slot is rendered everywhere.
+    #[serde(default)]
+    pub contest_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]

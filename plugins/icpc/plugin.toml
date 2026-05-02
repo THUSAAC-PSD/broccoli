@@ -64,8 +64,10 @@ IcpcContestInfo = "IcpcContestInfo"
 name = "ranking.content"
 position = "wrap"
 component = "IcpcScoreboard"
+contest_type = "icpc"
 
 [[web.slots]]
 name = "contest-overview.content"
 position = "prepend"
 component = "IcpcContestInfo"
+contest_type = "icpc"
