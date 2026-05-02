@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:18-alpine
+    image: postgres:17-alpine
     ports:
       - '127.0.0.1:5433:5432'
     environment:
