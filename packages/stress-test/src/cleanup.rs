@@ -1,4 +1,3 @@
-
 use crate::bootstrap::BootstrapState;
 use crate::client::Client;
 use crate::error::StressError;
@@ -17,6 +16,18 @@ impl CleanupOutcome {
 
 pub async fn run(client: &Client, state: &BootstrapState) -> CleanupOutcome {
     let mut outcome = CleanupOutcome::default();
+
+    match client.delete_contest(state.contest_id).await {
+        Ok(()) => {}
+        Err(StressError::Api { status: 404, .. }) => {}
+        Err(e) => {
+            outcome.warnings.push(format!(
+                "could not delete scratch contest {}: {}",
+                state.contest_id, e
+            ));
+        }
+    }
+
     for (scenario_id, problem_id) in &state.problem_ids_by_scenario {
         match client.delete_problem(*problem_id).await {
             Ok(()) => {
@@ -45,6 +56,8 @@ mod tests {
     use wiremock::matchers::{method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    const TEST_CONTEST_ID: i32 = 9999;
+
     async fn build_client(server: &MockServer) -> Client {
         Mock::given(method("POST"))
             .and(path("/api/v1/auth/login"))
@@ -53,7 +66,7 @@ mod tests {
                 "id": 1,
                 "username": "admin",
                 "roles": ["admin"],
-                "permissions": ["problem:delete"],
+                "permissions": ["problem:delete", "contest:delete"],
             })))
             .mount(server)
             .await;
@@ -69,6 +82,14 @@ mod tests {
         .expect("client built")
     }
 
+    async fn mount_default_contest_delete(server: &MockServer) {
+        Mock::given(method("DELETE"))
+            .and(path(format!("/api/v1/contests/{TEST_CONTEST_ID}")))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(server)
+            .await;
+    }
+
     fn state_with(ids: &[(&'static str, i32)]) -> BootstrapState {
         let mut map = HashMap::new();
         for (k, v) in ids {
@@ -77,6 +98,7 @@ mod tests {
         BootstrapState {
             contest_type: "icpc".into(),
             problem_type: "batch".into(),
+            contest_id: TEST_CONTEST_ID,
             problem_ids_by_scenario: map,
         }
     }
@@ -85,6 +107,7 @@ mod tests {
     async fn happy_path_deletes_every_problem() {
         let server = MockServer::start().await;
         let client = build_client(&server).await;
+        mount_default_contest_delete(&server).await;
 
         Mock::given(method("DELETE"))
             .and(path_regex(r"^/api/v1/problems/\d+$"))
@@ -105,6 +128,7 @@ mod tests {
     async fn not_found_counts_as_already_clean_no_warning() {
         let server = MockServer::start().await;
         let client = build_client(&server).await;
+        mount_default_contest_delete(&server).await;
 
         Mock::given(method("DELETE"))
             .and(path("/api/v1/problems/10"))
@@ -130,6 +154,7 @@ mod tests {
     async fn server_error_recorded_as_warning_not_panic() {
         let server = MockServer::start().await;
         let client = build_client(&server).await;
+        mount_default_contest_delete(&server).await;
 
         Mock::given(method("DELETE"))
             .and(path("/api/v1/problems/10"))
@@ -159,11 +184,72 @@ mod tests {
     async fn empty_state_returns_clean_outcome() {
         let server = MockServer::start().await;
         let client = build_client(&server).await;
+        mount_default_contest_delete(&server).await;
 
         let state = state_with(&[]);
         let outcome = run(&client, &state).await;
 
         assert_eq!(outcome.deleted, 0);
         assert!(outcome.is_clean());
+    }
+
+    #[tokio::test]
+    async fn contest_delete_404_is_silent() {
+        let server = MockServer::start().await;
+        let client = build_client(&server).await;
+
+        Mock::given(method("DELETE"))
+            .and(path(format!("/api/v1/contests/{TEST_CONTEST_ID}")))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "code": "NOT_FOUND",
+                "message": "contest not found",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path_regex(r"^/api/v1/problems/\d+$"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let state = state_with(&[("a", 10)]);
+        let outcome = run(&client, &state).await;
+
+        assert!(outcome.warnings.is_empty(), "404 must not warn");
+        assert_eq!(outcome.deleted, 1);
+    }
+
+    #[tokio::test]
+    async fn contest_delete_500_warns_but_continues_to_delete_problems() {
+        let server = MockServer::start().await;
+        let client = build_client(&server).await;
+
+        Mock::given(method("DELETE"))
+            .and(path(format!("/api/v1/contests/{TEST_CONTEST_ID}")))
+            .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+                "code": "INTERNAL_ERROR",
+                "message": "boom",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/api/v1/problems/10"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = state_with(&[("a", 10)]);
+        let outcome = run(&client, &state).await;
+
+        assert_eq!(outcome.deleted, 1, "problems still get deleted");
+        assert_eq!(outcome.warnings.len(), 1);
+        assert!(
+            outcome.warnings[0].contains("scratch contest"),
+            "warning must mention contest, got: {}",
+            outcome.warnings[0]
+        );
     }
 }

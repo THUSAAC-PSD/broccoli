@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -280,6 +279,7 @@ pub async fn run(
         };
 
         let req = build_submission_request(scenario, &state.contest_type);
+        let contest_id = state.contest_id;
         let client = client.clone();
         let tx = tx.clone();
         let histogram = histogram.clone();
@@ -296,7 +296,9 @@ pub async fn run(
             let _permit = permit;
             let started = Instant::now();
 
-            let post_result = client.create_submission(problem_id, &req).await;
+            let post_result = client
+                .create_contest_submission(contest_id, problem_id, &req)
+                .await;
             let submitted = match post_result {
                 Ok(s) => s,
                 Err(e) => {
@@ -502,10 +504,13 @@ mod tests {
         .expect("client builds")
     }
 
+    const TEST_CONTEST_ID: i32 = 9001;
+
     fn make_state() -> BootstrapState {
         BootstrapState {
             contest_type: "icpc".into(),
             problem_type: "batch".into(),
+            contest_id: TEST_CONTEST_ID,
             problem_ids_by_scenario: SCENARIOS
                 .iter()
                 .enumerate()
@@ -576,7 +581,10 @@ mod tests {
         for (idx, scenario) in SCENARIOS.iter().enumerate() {
             let problem_id = state.problem_ids_by_scenario[scenario.id];
             let submission_id = 1000 + idx as i32;
-            let post_path = format!("/api/v1/problems/{}/submissions", problem_id);
+            let post_path = format!(
+                "/api/v1/contests/{}/problems/{}/submissions",
+                TEST_CONTEST_ID, problem_id
+            );
             let get_path = format!("/api/v1/submissions/{}", submission_id);
 
             Mock::given(method("POST"))
@@ -719,7 +727,10 @@ mod tests {
         for (idx, scenario) in SCENARIOS.iter().enumerate() {
             let problem_id = state.problem_ids_by_scenario[scenario.id];
             let submission_id = 1000 + idx as i32;
-            let post_path = format!("/api/v1/problems/{}/submissions", problem_id);
+            let post_path = format!(
+                "/api/v1/contests/{}/problems/{}/submissions",
+                TEST_CONTEST_ID, problem_id
+            );
             let get_path = format!("/api/v1/submissions/{}", submission_id);
 
             Mock::given(method("POST"))
@@ -796,7 +807,10 @@ mod tests {
         for (idx, scenario) in SCENARIOS.iter().enumerate() {
             let problem_id = state.problem_ids_by_scenario[scenario.id];
             let submission_id = 1000 + idx as i32;
-            let post_path = format!("/api/v1/problems/{}/submissions", problem_id);
+            let post_path = format!(
+                "/api/v1/contests/{}/problems/{}/submissions",
+                TEST_CONTEST_ID, problem_id
+            );
             let get_path = format!("/api/v1/submissions/{}", submission_id);
 
             Mock::given(method("POST"))
@@ -861,7 +875,10 @@ mod tests {
         for (idx, scenario) in SCENARIOS.iter().enumerate() {
             let problem_id = state.problem_ids_by_scenario[scenario.id];
             let submission_id = 1000 + idx as i32;
-            let post_path = format!("/api/v1/problems/{}/submissions", problem_id);
+            let post_path = format!(
+                "/api/v1/contests/{}/problems/{}/submissions",
+                TEST_CONTEST_ID, problem_id
+            );
             let get_path = format!("/api/v1/submissions/{}", submission_id);
 
             Mock::given(method("POST"))

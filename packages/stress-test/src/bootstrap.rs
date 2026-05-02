@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use tracing::info;
 
 use crate::client::Client;
-use crate::dto::{CreateProblemRequest, CreateTestCaseRequest, RegistriesResponse};
+use crate::dto::{
+    AddContestProblemRequest, CreateContestRequest, CreateProblemRequest, CreateTestCaseRequest,
+    RegistriesResponse,
+};
 use crate::error::{StressError, StressResult};
 use crate::scenarios::Scenario;
 
@@ -11,6 +14,7 @@ use crate::scenarios::Scenario;
 pub struct BootstrapState {
     pub contest_type: String,
     pub problem_type: String,
+    pub contest_id: i32,
     pub problem_ids_by_scenario: HashMap<&'static str, i32>,
 }
 
@@ -35,9 +39,14 @@ pub async fn bootstrap(
         "stress-test bootstrap resolved registry types",
     );
 
+    let contest = client
+        .create_contest(&build_create_contest_request(&contest_type))
+        .await?;
+    info!(contest_id = contest.id, "bootstrap created scratch contest",);
+
     let mut problem_ids_by_scenario = HashMap::with_capacity(scenarios.len());
 
-    for scenario in scenarios {
+    for (idx, scenario) in scenarios.iter().enumerate() {
         let req = build_create_problem_request(scenario, &contest_type, &problem_type);
         let problem = client.create_problem(&req).await?;
 
@@ -50,6 +59,15 @@ pub async fn bootstrap(
         };
         client.create_test_case(problem.id, &tc_req).await?;
 
+        let attach_req = AddContestProblemRequest {
+            problem_id: problem.id,
+            label: contest_label(idx),
+            position: None,
+        };
+        client
+            .add_problem_to_contest(contest.id, &attach_req)
+            .await?;
+
         info!(
             scenario_id = scenario.id,
             problem_id = problem.id,
@@ -61,8 +79,33 @@ pub async fn bootstrap(
     Ok(BootstrapState {
         contest_type,
         problem_type,
+        contest_id: contest.id,
         problem_ids_by_scenario,
     })
+}
+
+fn build_create_contest_request(contest_type: &str) -> CreateContestRequest {
+    let now = chrono::Utc::now();
+    let suffix = now.timestamp();
+    CreateContestRequest {
+        title: format!("stress-test-{suffix}"),
+        description: "Auto-created by broccoli-stress-test. \
+                      Will be deleted after the run unless --keep-fixtures is set."
+            .into(),
+        start_time: now - chrono::Duration::seconds(60),
+        end_time: now + chrono::Duration::hours(24),
+        is_public: false,
+        contest_type: Some(contest_type.to_string()),
+    }
+}
+
+fn contest_label(index: usize) -> String {
+    const ALPHA: usize = (b'Z' - b'A' + 1) as usize;
+    if index < ALPHA {
+        ((b'A' + index as u8) as char).to_string()
+    } else {
+        format!("X{index}")
+    }
 }
 
 fn resolve_contest_type(
@@ -291,6 +334,46 @@ mod tests {
             .await;
     }
 
+    async fn mount_contest_creation(server: &MockServer, contest_id: i32, contest_type: &str) {
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": contest_id,
+                "title": "stress-test-scratch",
+                "contest_type": contest_type,
+            })))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    async fn mount_contest_problem_attach(server: &MockServer, contest_id: i32) {
+        Mock::given(method("POST"))
+            .and(path(format!("/api/v1/contests/{contest_id}/problems")))
+            .respond_with(|req: &Request| {
+                let parsed: Value = serde_json::from_slice(&req.body).unwrap();
+                let pid = parsed
+                    .get("problem_id")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as i32;
+                let label = parsed
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("A")
+                    .to_string();
+                ResponseTemplate::new(201).set_body_json(json!({
+                    "contest_id": 9001,
+                    "problem_id": pid,
+                    "label": label,
+                    "position": 0,
+                    "problem_title": "stress-test:x",
+                }))
+            })
+            .expect(9)
+            .mount(server)
+            .await;
+    }
+
     #[tokio::test]
     async fn happy_path_creates_one_problem_and_one_test_case_per_scenario() {
         let server = MockServer::start().await;
@@ -308,6 +391,8 @@ mod tests {
             .mount(&server)
             .await;
 
+        mount_contest_creation(&server, 9001, "icpc").await;
+        mount_contest_problem_attach(&server, 9001).await;
         let capture: &'static CapturingMatcher = Box::leak(Box::default());
         mount_problem_creation_with_capture(&server, capture).await;
         mount_test_case_creation(&server).await;
@@ -318,6 +403,7 @@ mod tests {
 
         assert_eq!(state.contest_type, "icpc");
         assert_eq!(state.problem_type, "batch");
+        assert_eq!(state.contest_id, 9001);
         assert_eq!(state.problem_ids_by_scenario.len(), 9);
         for s in SCENARIOS {
             assert!(
@@ -383,6 +469,8 @@ mod tests {
             .mount(&server)
             .await;
 
+        mount_contest_creation(&server, 9002, "ioi").await;
+        mount_contest_problem_attach(&server, 9002).await;
         let capture: &'static CapturingMatcher = Box::leak(Box::default());
         mount_problem_creation_with_capture(&server, capture).await;
         mount_test_case_creation(&server).await;
@@ -400,6 +488,7 @@ mod tests {
 
         assert_eq!(state.contest_type, "ioi");
         assert_eq!(state.problem_type, "batch");
+        assert_eq!(state.contest_id, 9002);
 
         for body in capture.snapshot() {
             assert_eq!(
@@ -446,6 +535,16 @@ mod tests {
             msg.contains("icpc"),
             "error must list available types; got: {msg}"
         );
+    }
+
+    #[test]
+    fn contest_label_uses_uppercase_letters_and_falls_back_for_overflow() {
+        assert_eq!(contest_label(0), "A");
+        assert_eq!(contest_label(1), "B");
+        assert_eq!(contest_label(8), "I");
+        assert_eq!(contest_label(25), "Z");
+        assert_eq!(contest_label(26), "X26");
+        assert_eq!(contest_label(99), "X99");
     }
 
     #[tokio::test]

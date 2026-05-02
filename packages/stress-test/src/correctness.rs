@@ -1,4 +1,3 @@
-
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
@@ -82,7 +81,10 @@ async fn run_scenario(
 
     let req = build_submission_request(scenario, &state.contest_type);
 
-    let submitted = match client.create_submission(problem_id, &req).await {
+    let submitted = match client
+        .create_contest_submission(state.contest_id, problem_id, &req)
+        .await
+    {
         Ok(s) => s,
         Err(e) => {
             let _ = tx.send(Event::Error {
@@ -250,10 +252,13 @@ mod tests {
         .expect("client builds")
     }
 
+    const TEST_CONTEST_ID: i32 = 9001;
+
     fn make_state() -> BootstrapState {
         BootstrapState {
             contest_type: "icpc".into(),
             problem_type: "batch".into(),
+            contest_id: TEST_CONTEST_ID,
             problem_ids_by_scenario: SCENARIOS
                 .iter()
                 .enumerate()
@@ -324,7 +329,10 @@ mod tests {
         for (idx, scenario) in SCENARIOS.iter().enumerate() {
             let problem_id = state.problem_ids_by_scenario[scenario.id];
             let submission_id = 1000 + idx as i32;
-            let post_path = format!("/api/v1/problems/{}/submissions", problem_id);
+            let post_path = format!(
+                "/api/v1/contests/{}/problems/{}/submissions",
+                TEST_CONTEST_ID, problem_id,
+            );
             let get_path = format!("/api/v1/submissions/{}", submission_id);
 
             Mock::given(method("POST"))
@@ -477,11 +485,12 @@ mod tests {
         let state = BootstrapState {
             contest_type: "icpc".into(),
             problem_type: "batch".into(),
+            contest_id: 555,
             problem_ids_by_scenario: [(scenario.id, 200)].into_iter().collect(),
         };
 
         Mock::given(method("POST"))
-            .and(path("/api/v1/problems/200/submissions"))
+            .and(path("/api/v1/contests/555/problems/200/submissions"))
             .respond_with(
                 ResponseTemplate::new(201).set_body_json(submission_json(7777, "Pending", None)),
             )
@@ -533,11 +542,12 @@ mod tests {
         let state = BootstrapState {
             contest_type: "icpc".into(),
             problem_type: "batch".into(),
+            contest_id: 555,
             problem_ids_by_scenario: [(scenario.id, 300)].into_iter().collect(),
         };
 
         Mock::given(method("POST"))
-            .and(path("/api/v1/problems/300/submissions"))
+            .and(path("/api/v1/contests/555/problems/300/submissions"))
             .respond_with(
                 ResponseTemplate::new(201).set_body_json(submission_json(42, "Pending", None)),
             )
