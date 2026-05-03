@@ -13,6 +13,12 @@ use crate::entity::{code_run, dead_letter_message, submission};
 
 use super::DlqService;
 
+const IN_PROGRESS_STATUSES: [SubmissionStatus; 3] = [
+    SubmissionStatus::Pending,
+    SubmissionStatus::Compiling,
+    SubmissionStatus::Running,
+];
+
 pub async fn run_stuck_job_detector(db: DatabaseConnection, config: DlqConfig) {
     let scan_interval = Duration::from_secs(config.stuck_job_scan_interval_secs);
 
@@ -43,7 +49,7 @@ async fn detect_and_handle_stuck_jobs(
     let stuck_submission_ids: Vec<i32> = submission::Entity::find()
         .select_only()
         .column(submission::Column::Id)
-        .filter(submission::Column::Status.eq(SubmissionStatus::Pending))
+        .filter(submission::Column::Status.is_in(IN_PROGRESS_STATUSES))
         .filter(submission::Column::CreatedAt.lt(timeout_threshold))
         .into_tuple()
         .all(db)
@@ -69,7 +75,7 @@ async fn detect_and_handle_stuck_jobs(
     let stuck_code_run_ids: Vec<i32> = code_run::Entity::find()
         .select_only()
         .column(code_run::Column::Id)
-        .filter(code_run::Column::Status.eq(SubmissionStatus::Pending))
+        .filter(code_run::Column::Status.is_in(IN_PROGRESS_STATUSES))
         .filter(code_run::Column::CreatedAt.lt(timeout_threshold))
         .into_tuple()
         .all(db)
@@ -114,7 +120,7 @@ async fn handle_stuck_submission(
         return Ok(());
     };
 
-    if submission.status != SubmissionStatus::Pending {
+    if submission.status.is_terminal() {
         txn.rollback().await?;
         return Ok(());
     }
@@ -151,8 +157,8 @@ async fn handle_stuck_submission(
         payload,
         DlqErrorCode::StuckJob,
         format!(
-            "Submission stuck in Pending for over {} seconds",
-            config.stuck_job_timeout_secs
+            "Submission stuck in {} for over {} seconds",
+            submission.status, config.stuck_job_timeout_secs
         ),
     )
     .await?;
