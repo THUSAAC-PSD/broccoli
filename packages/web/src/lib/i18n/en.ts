@@ -880,9 +880,9 @@ export const en: Record<string, string> = {
   'dlq.detail.payload': 'Payload',
   'dlq.detail.retryHistory': 'Retry history',
   'dlq.detail.retryAction': 'Retry',
-  'dlq.detail.retryUnsupported':
-    'Retry is only available for stuck_submission messages. operation_task messages are coordinated by the contest plugin — resolve & delete instead.',
   'dlq.detail.deleteAction': 'Resolve & delete',
+  'dlq.type.operationTask': 'Pipeline op',
+  'dlq.type.stuckSubmission': 'Submission',
   'dlq.detail.retrySuccess': 'Message requeued.',
   'dlq.detail.retryError': 'Retry failed.',
   'dlq.detail.deleteSuccess': 'Message resolved.',

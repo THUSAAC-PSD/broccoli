@@ -2,6 +2,7 @@ import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge } from '@broccoli/web-sdk/ui';
 
 import type { DlqMessage } from '@/features/dlq/types';
+import { messageTypeMeta } from '@/features/dlq/utils/messageType';
 
 interface Props {
   message: DlqMessage;
@@ -24,6 +25,8 @@ function timeAgo(iso: string, t: (k: string, p?: object) => string) {
 
 export function DlqMessageRow({ message, onClick }: Props) {
   const { t } = useTranslation();
+  const meta = messageTypeMeta(message.message_type);
+  const Icon = meta.icon;
 
   return (
     <tr
@@ -43,9 +46,10 @@ export function DlqMessageRow({ message, onClick }: Props) {
         </div>
       </td>
       <td className="p-3 align-top">
-        <Badge variant="outline" className="font-mono text-[10px]">
-          {message.message_type}
-        </Badge>
+        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/30 px-1.5 py-0.5 text-[10px]">
+          <Icon className="h-3 w-3 text-muted-foreground" />
+          {t(meta.labelKey)}
+        </span>
       </td>
       <td className="p-3 align-top">
         <div className="flex flex-col gap-0.5">
