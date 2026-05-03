@@ -60,7 +60,7 @@ fn list_ip_addresses() -> Vec<String> {
         })
         .collect();
 
-    out.sort_by(|a, b| ip_sort_key(a).cmp(&ip_sort_key(b)));
+    out.sort_by_key(|s| ip_sort_key(s));
     out.dedup();
     out
 }
@@ -122,8 +122,8 @@ mod tests {
 
     #[test]
     fn ip_sort_puts_v4_before_v6() {
-        let mut ips = vec!["fe80::1".to_string(), "192.168.0.1".to_string()];
-        ips.sort_by(|a, b| ip_sort_key(a).cmp(&ip_sort_key(b)));
+        let mut ips = ["fe80::1".to_string(), "192.168.0.1".to_string()];
+        ips.sort_by_key(|s| ip_sort_key(s));
         assert_eq!(ips[0], "192.168.0.1");
     }
 }

@@ -406,6 +406,7 @@ impl E2eTestApp {
             db: db.clone(),
             config: app_config,
             mq: Some(Arc::clone(&mq)),
+            redis_client: None,
             blob_store,
             registries: server::state::RegistryState {
                 contest_type_registry,
