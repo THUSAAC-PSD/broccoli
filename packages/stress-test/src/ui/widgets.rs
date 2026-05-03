@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table};
+use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
 
 use crate::ui::app::{AppState, LogSeverity, PhaseState};
 use crate::ui::theme::{ColorToken, PhaseGlyph, Theme};
@@ -33,180 +33,215 @@ pub fn themed_outer_block<'a>(theme: &Theme, title: &'a str) -> Block<'a> {
         .border_style(Style::default().fg(theme.color(ColorToken::Dim)))
 }
 
-pub fn render_phase_ladder(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
-    let block = themed_inner_block(theme, "PHASES");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+const DASH: &str = "—";
 
-    let lines = vec![
-        phase_line(
-            theme,
-            state.correctness_state,
-            "Correctness",
-            state.correctness_progress,
-        ),
-        phase_line(theme, state.load_state, "Load", state.load_progress),
-        phase_line(
-            theme,
-            state.passthrough_state,
-            "Pass through",
-            state.passthrough_progress,
-        ),
-    ];
-    frame.render_widget(Paragraph::new(lines), inner);
+fn phase_glyph_token(state: PhaseState) -> (PhaseGlyph, ColorToken) {
+    match state {
+        PhaseState::Pending => (PhaseGlyph::Pending, ColorToken::Dim),
+        PhaseState::Running => (PhaseGlyph::Running, ColorToken::Accent),
+        PhaseState::Passed => (PhaseGlyph::Passed, ColorToken::Ok),
+        PhaseState::Failed => (PhaseGlyph::Failed, ColorToken::Err),
+        PhaseState::Skipped => (PhaseGlyph::Skipped, ColorToken::Dim),
+    }
 }
 
-fn phase_line(
-    theme: &Theme,
-    state: PhaseState,
-    label: &str,
-    progress: (usize, usize),
-) -> Line<'static> {
-    let glyph_kind = match state {
-        PhaseState::Pending => PhaseGlyph::Pending,
-        PhaseState::Running => PhaseGlyph::Running,
-        PhaseState::Passed => PhaseGlyph::Passed,
-        PhaseState::Failed => PhaseGlyph::Failed,
-        PhaseState::Skipped => PhaseGlyph::Skipped,
-    };
-    let token = match state {
-        PhaseState::Pending | PhaseState::Skipped => ColorToken::Dim,
-        PhaseState::Running => ColorToken::Accent,
-        PhaseState::Passed => ColorToken::Ok,
-        PhaseState::Failed => ColorToken::Err,
-    };
-    let counter = match state {
-        PhaseState::Pending | PhaseState::Skipped => "  -  ".to_string(),
-        _ => format!("{}/{}", progress.0, progress.1),
-    };
-    Line::from(vec![
+fn phase_segment(theme: &Theme, label: &str, state: PhaseState) -> Vec<Span<'static>> {
+    let (glyph, token) = phase_glyph_token(state);
+    let color = theme.color(token);
+    vec![
+        Span::styled(label.to_string(), Style::default().fg(color)),
         Span::raw(" "),
         Span::styled(
-            theme.phase_glyph(glyph_kind).to_string(),
-            Style::default().fg(theme.color(token)),
+            theme.phase_glyph(glyph).to_string(),
+            Style::default().fg(color),
+        ),
+    ]
+}
+
+fn render_phase_strip(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+    let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
+    spans.extend(phase_segment(theme, "Bootstrap", state.bootstrap_state));
+    spans.push(Span::raw("   "));
+    spans.extend(phase_segment(theme, "Correctness", state.correctness_state));
+    if matches!(
+        state.correctness_state,
+        PhaseState::Running | PhaseState::Passed | PhaseState::Failed
+    ) {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!(
+                "{}/{}",
+                state.correctness_progress.0, state.correctness_progress.1
+            ),
+            Style::default().fg(theme.color(ColorToken::Dim)),
+        ));
+    }
+    spans.push(Span::raw("   "));
+    spans.extend(phase_segment(theme, "Load", state.load_state));
+    if matches!(
+        state.load_state,
+        PhaseState::Running | PhaseState::Passed | PhaseState::Failed
+    ) {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("{}/{}", state.load_progress.0, state.load_progress.1),
+            Style::default().fg(theme.color(ColorToken::Dim)),
+        ));
+    }
+    spans.push(Span::raw("   "));
+    spans.extend(phase_segment(
+        theme,
+        "Pass-through",
+        state.passthrough_state,
+    ));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn render_latency_strip(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+    let dim = Style::default().fg(theme.color(ColorToken::Dim));
+    let has_data = !state.latency_hist.is_empty();
+    let value_style = |token: ColorToken| {
+        if has_data {
+            Style::default().fg(theme.color(token))
+        } else {
+            dim
+        }
+    };
+    let fmt = |v: u64| {
+        if has_data {
+            v.to_string()
+        } else {
+            DASH.to_string()
+        }
+    };
+
+    let p95_over = has_data && state.latency_p95_ms > state.p95_budget_ms;
+    let p95_token = if p95_over {
+        ColorToken::Err
+    } else if has_data {
+        ColorToken::Warn
+    } else {
+        ColorToken::Dim
+    };
+
+    let spans: Vec<Span<'static>> = vec![
+        Span::styled(" Latency  ", dim),
+        Span::styled("p50 ", dim),
+        Span::styled(fmt(state.latency_p50_ms), value_style(ColorToken::Ok)),
+        Span::styled("   p95 ", dim),
+        Span::styled(
+            fmt(state.latency_p95_ms),
+            Style::default().fg(theme.color(p95_token)),
+        ),
+        Span::styled("   p99 ", dim),
+        Span::styled(fmt(state.latency_p99_ms), value_style(ColorToken::Warn)),
+        Span::styled("   max ", dim),
+        Span::styled(fmt(state.latency_max_ms), value_style(ColorToken::Err)),
+        Span::styled(format!("   budget p95 < {}ms", state.p95_budget_ms), dim),
+    ];
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn inflight_bar(state: &AppState) -> String {
+    const WIDTH: usize = 8;
+    let cap = state.concurrency.max(1);
+    let filled = ((state.in_flight * WIDTH) / cap).min(WIDTH);
+    let mut s = String::with_capacity(WIDTH * 3);
+    for _ in 0..filled {
+        s.push('\u{2588}');
+    }
+    for _ in 0..WIDTH.saturating_sub(filled) {
+        s.push('\u{2591}');
+    }
+    s
+}
+
+fn render_load_strip(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+    let dim = Style::default().fg(theme.color(ColorToken::Dim));
+    let has_throughput =
+        !state.throughput_buckets.is_empty() && state.throughput_buckets.iter().any(|b| *b > 0);
+
+    let inflight_token = if state.in_flight_ratio() > 0.85 {
+        ColorToken::Warn
+    } else {
+        ColorToken::Ok
+    };
+
+    let peak = if has_throughput {
+        state.throughput_peak().to_string()
+    } else {
+        DASH.to_string()
+    };
+    let sustained = if has_throughput {
+        format!("{:.1}", state.throughput_sustained())
+    } else {
+        DASH.to_string()
+    };
+
+    let spans: Vec<Span<'static>> = vec![
+        Span::styled(" In-flight ", dim),
+        Span::styled(
+            inflight_bar(state),
+            Style::default().fg(theme.color(inflight_token)),
         ),
         Span::raw(" "),
-        Span::raw(format!("{:<14}", label)),
-        Span::styled(counter, Style::default().fg(theme.color(token))),
-    ])
+        Span::styled(
+            format!("{}/{}", state.in_flight, state.concurrency),
+            Style::default().fg(theme.color(inflight_token)),
+        ),
+        Span::styled("   peak ", dim),
+        Span::styled(peak, Style::default().fg(theme.color(ColorToken::Accent))),
+        Span::styled("/s   sustained ", dim),
+        Span::styled(
+            sustained,
+            Style::default().fg(theme.color(ColorToken::Accent)),
+        ),
+        Span::styled("/s", dim),
+    ];
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-pub fn render_throughput_sparkline(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
-    let block = themed_inner_block(theme, "THROUGHPUT subs/sec, last 60s");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    if inner.height < 2 {
-        return;
+fn verdict_short(name: &str) -> &str {
+    match name {
+        "Accepted" => "AC",
+        "WrongAnswer" => "WA",
+        "TimeLimitExceeded" => "TLE",
+        "MemoryLimitExceeded" => "MLE",
+        "RuntimeError" => "RE",
+        "CompilationError" => "CE",
+        "SystemError" => "SE",
+        "Pending" => "PEND",
+        "Running" => "RUN",
+        other => other,
     }
-
-    let data: Vec<u64> = state.throughput_buckets.iter().copied().collect();
-    let sparkline_area = Rect::new(inner.x, inner.y, inner.width, inner.height - 1);
-    let footer_area = Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1);
-
-    let sparkline = Sparkline::default()
-        .data(&data)
-        .style(Style::default().fg(theme.color(ColorToken::Warn)));
-    frame.render_widget(sparkline, sparkline_area);
-
-    let footer = format!(
-        " peak {} / sustained {:.1}",
-        state.throughput_peak(),
-        state.throughput_sustained()
-    );
-    frame.render_widget(
-        Paragraph::new(footer).style(Style::default().fg(theme.color(ColorToken::Dim))),
-        footer_area,
-    );
 }
 
-pub fn render_latency_bars(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
-    let block = themed_inner_block(theme, "LATENCY ms");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let display_max = state
-        .p95_budget_ms
-        .max(state.latency_max_ms.max(state.latency_p99_ms))
-        .max(1);
-
-    let bar_width = inner.width.saturating_sub(20) as usize;
-
-    let rows: Vec<Line> = [
-        ("p50", state.latency_p50_ms, ColorToken::Ok),
-        ("p95", state.latency_p95_ms, ColorToken::Warn),
-        ("p99", state.latency_p99_ms, ColorToken::Warn),
-        ("max", state.latency_max_ms, ColorToken::Err),
-    ]
-    .into_iter()
-    .map(|(label, value, color)| {
-        let filled = if display_max == 0 {
-            0
-        } else {
-            ((value as u128 * bar_width as u128) / display_max as u128) as usize
-        };
-        let filled = filled.min(bar_width);
-        let bar_filled: String = "\u{2588}".repeat(filled);
-        let bar_empty: String = "\u{2591}".repeat(bar_width.saturating_sub(filled));
-        Line::from(vec![
-            Span::raw(format!(" {:<4}", label)),
-            Span::styled(bar_filled, Style::default().fg(theme.color(color))),
-            Span::styled(bar_empty, Style::default().fg(theme.color(ColorToken::Dim))),
-            Span::raw(format!(" {:>6}", value)),
-        ])
-    })
-    .collect();
-
-    let mut all = rows;
-    all.push(Line::from(Span::styled(
-        format!(" budget p95 < {}", state.p95_budget_ms),
-        Style::default().fg(theme.color(ColorToken::Dim)),
-    )));
-
-    frame.render_widget(Paragraph::new(all), inner);
+fn verdict_color(short: &str, theme: &Theme) -> Style {
+    let token = if short == "AC" {
+        ColorToken::Ok
+    } else {
+        ColorToken::Err
+    };
+    Style::default().fg(theme.color(token))
 }
 
-pub fn render_verdict_chart(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
-    let block = themed_inner_block(theme, "VERDICTS");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+fn render_verdict_strip(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+    let dim = Style::default().fg(theme.color(ColorToken::Dim));
+    let mut spans: Vec<Span<'static>> = vec![Span::styled(" Verdicts ", dim)];
 
     let entries = state.verdicts_sorted();
-    let max = entries.iter().map(|(_, c)| *c).max().unwrap_or(0).max(1);
-    let bar_width = inner.width.saturating_sub(24) as usize;
-
-    let lines: Vec<Line> = entries
-        .into_iter()
-        .take(inner.height as usize)
-        .map(|(name, count)| {
-            let filled = ((count as u128 * bar_width as u128) / max as u128) as usize;
-            let filled = filled.min(bar_width);
-            let token = verdict_color(&name);
-            let bar: String = "\u{2588}".repeat(filled);
-            Line::from(vec![
-                Span::raw(format!(" {:<18}", truncate(&name, 18))),
-                Span::styled(bar, Style::default().fg(theme.color(token))),
-                Span::raw(format!(" {:>4}", count)),
-            ])
-        })
-        .collect();
-
-    frame.render_widget(Paragraph::new(lines), inner);
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
+    if entries.is_empty() {
+        spans.push(Span::styled(" ".to_string() + DASH, dim));
     } else {
-        s.chars().take(max - 1).collect::<String>() + "\u{2026}"
+        for (name, count) in entries {
+            let short = verdict_short(&name).to_string();
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(short.clone(), verdict_color(&short, theme)));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(count.to_string(), dim));
+        }
     }
-}
-
-fn verdict_color(name: &str) -> ColorToken {
-    match name {
-        "Accepted" => ColorToken::Ok,
-        _ => ColorToken::Err,
-    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 pub fn render_event_log(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
@@ -271,299 +306,23 @@ pub fn render_dashboard(frame: &mut Frame, area: Rect, state: &AppState, theme: 
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let [r_top, r_mid, r_inflight, r_log, r_footer] = Layout::vertical([
-        Constraint::Length(5),
-        Constraint::Length(7),
-        Constraint::Length(3),
-        Constraint::Min(4),
+    let [r_phases, r_latency, r_load, r_verdicts, r_log, r_footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(3),
         Constraint::Length(1),
     ])
     .areas(inner);
 
-    let split_left = inner.width.min(34);
-    let [t_left, t_right] =
-        Layout::horizontal([Constraint::Length(split_left), Constraint::Min(0)]).areas(r_top);
-    render_phase_ladder(frame, t_left, state, theme);
-    render_throughput_sparkline(frame, t_right, state, theme);
-
-    let [m_left, m_right] =
-        Layout::horizontal([Constraint::Length(split_left), Constraint::Min(0)]).areas(r_mid);
-    render_latency_bars(frame, m_left, state, theme);
-    render_verdict_chart(frame, m_right, state, theme);
-
-    render_in_flight(frame, r_inflight, state, theme);
+    render_phase_strip(frame, r_phases, state, theme);
+    render_latency_strip(frame, r_latency, state, theme);
+    render_load_strip(frame, r_load, state, theme);
+    render_verdict_strip(frame, r_verdicts, state, theme);
     render_event_log(frame, r_log, state, theme);
 
     let footer = Paragraph::new(" [q] quit  [p] pause  [up/down] scroll log")
         .style(Style::default().fg(theme.color(ColorToken::Dim)));
     frame.render_widget(footer, r_footer);
-}
-
-pub fn render_in_flight(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
-    let title = format!("IN FLIGHT {}/{}", state.in_flight, state.concurrency);
-    let block = themed_inner_block(theme, &title);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let token = if state.in_flight_ratio() > 0.85 {
-        ColorToken::Warn
-    } else {
-        ColorToken::Ok
-    };
-    let gauge = Gauge::default()
-        .ratio(state.in_flight_ratio())
-        .gauge_style(Style::default().fg(theme.color(token)))
-        .label(format!("{} / {}", state.in_flight, state.concurrency));
-    frame.render_widget(gauge, inner);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ui::app::LogEntry;
-    use crate::ui::theme::{Capability, GlyphSet};
-    use chrono::TimeZone;
-    use ratatui::Terminal;
-    use ratatui::backend::TestBackend;
-    use ratatui::buffer::Buffer;
-
-    fn ascii_theme() -> Theme {
-        Theme::new(Capability::Ansi16, GlyphSet::Ascii)
-    }
-
-    fn unicode_theme() -> Theme {
-        Theme::new(Capability::Truecolor, GlyphSet::Unicode)
-    }
-
-    fn buffer_lines(buf: &Buffer) -> Vec<String> {
-        (0..buf.area.height)
-            .map(|y| {
-                (0..buf.area.width)
-                    .map(|x| buf[(x, y)].symbol().chars().next().unwrap_or(' '))
-                    .collect::<String>()
-            })
-            .collect()
-    }
-
-    fn render_to_lines<F>(width: u16, height: u16, draw: F) -> Vec<String>
-    where
-        F: Fn(&mut Frame, Rect),
-    {
-        let backend = TestBackend::new(width, height);
-        let mut terminal = Terminal::new(backend).expect("terminal");
-        terminal
-            .draw(|f| {
-                let area = f.area();
-                draw(f, area);
-            })
-            .expect("draw");
-        buffer_lines(terminal.backend().buffer())
-    }
-
-    fn make_state() -> AppState {
-        AppState::new("http://x".into(), 15000, 50)
-    }
-
-    #[test]
-    fn phase_ladder_shows_three_phases_with_counters_ascii() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.correctness_state = PhaseState::Passed;
-        state.correctness_progress = (9, 9);
-        state.load_state = PhaseState::Running;
-        state.load_progress = (142, 200);
-        state.passthrough_state = PhaseState::Pending;
-
-        let lines = render_to_lines(34, 5, |f, a| render_phase_ladder(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains("[x] Correctness"));
-        assert!(body.contains("9/9"));
-        assert!(body.contains("[*] Load"));
-        assert!(body.contains("142/200"));
-        assert!(body.contains("[ ] Pass through"));
-    }
-
-    #[test]
-    fn phase_ladder_skipped_passthrough_uses_dash_glyph_ascii() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.passthrough_state = PhaseState::Skipped;
-        let lines = render_to_lines(34, 5, |f, a| render_phase_ladder(f, a, &state, &theme));
-        assert!(lines.join("\n").contains("[-] Pass through"));
-    }
-
-    #[test]
-    fn phase_ladder_failed_load_uses_failed_glyph_ascii() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.load_state = PhaseState::Failed;
-        state.load_progress = (180, 200);
-        let lines = render_to_lines(34, 5, |f, a| render_phase_ladder(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains("[!] Load"));
-        assert!(body.contains("180/200"));
-    }
-
-    #[test]
-    fn throughput_widget_shows_peak_and_sustained_ascii() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.throughput_buckets.extend([10, 20, 30, 20]);
-        let lines = render_to_lines(40, 5, |f, a| {
-            render_throughput_sparkline(f, a, &state, &theme)
-        });
-        let body = lines.join("\n");
-        assert!(body.contains("THROUGHPUT"));
-        assert!(body.contains("peak 30"));
-        assert!(body.contains("sustained 20.0"));
-    }
-
-    #[test]
-    fn latency_bars_renders_all_four_with_values() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.latency_p50_ms = 820;
-        state.latency_p95_ms = 2104;
-        state.latency_p99_ms = 3401;
-        state.latency_max_ms = 4012;
-        let lines = render_to_lines(30, 7, |f, a| render_latency_bars(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains("p50"));
-        assert!(body.contains("820"));
-        assert!(body.contains("p95"));
-        assert!(body.contains("2104"));
-        assert!(body.contains("p99"));
-        assert!(body.contains("3401"));
-        assert!(body.contains("max"));
-        assert!(body.contains("4012"));
-        assert!(body.contains("budget p95 < 15000"));
-    }
-
-    #[test]
-    fn verdict_chart_lists_counts_in_descending_order() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.verdict_counts.insert("Accepted".into(), 98);
-        state.verdict_counts.insert("WrongAnswer".into(), 12);
-        state.verdict_counts.insert("RuntimeError".into(), 5);
-        let lines = render_to_lines(40, 8, |f, a| render_verdict_chart(f, a, &state, &theme));
-        let acc_idx = lines.iter().position(|l| l.contains("Accepted")).unwrap();
-        let wa_idx = lines
-            .iter()
-            .position(|l| l.contains("WrongAnswer"))
-            .unwrap();
-        let re_idx = lines
-            .iter()
-            .position(|l| l.contains("RuntimeError"))
-            .unwrap();
-        assert!(acc_idx < wa_idx);
-        assert!(wa_idx < re_idx);
-        assert!(lines.iter().any(|l| l.contains("98")));
-    }
-
-    #[test]
-    fn event_log_renders_recent_entries() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        let ts = chrono::Utc
-            .with_ymd_and_hms(2026, 5, 1, 14, 32, 18)
-            .unwrap();
-        state.push_log(LogEntry {
-            timestamp: ts,
-            severity: LogSeverity::Ok,
-            phase: "load".into(),
-            message: "submission #142 Accepted".into(),
-        });
-        state.push_log(LogEntry {
-            timestamp: ts,
-            severity: LogSeverity::Err,
-            phase: "load".into(),
-            message: "submission #143 WrongAnswer".into(),
-        });
-        let lines = render_to_lines(60, 6, |f, a| render_event_log(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains("14:32:18"));
-        assert!(body.contains("OK"));
-        assert!(body.contains("ERR"));
-        assert!(body.contains("Accepted"));
-        assert!(body.contains("WrongAnswer"));
-    }
-
-    #[test]
-    fn event_log_paused_title_changes() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.log_paused = true;
-        let lines = render_to_lines(40, 4, |f, a| render_event_log(f, a, &state, &theme));
-        assert!(lines.join("\n").contains("paused"));
-    }
-
-    #[test]
-    fn in_flight_gauge_shows_label_with_counter() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.in_flight = 25;
-        state.concurrency = 50;
-        let lines = render_to_lines(30, 3, |f, a| render_in_flight(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains("IN FLIGHT 25/50"));
-        assert!(body.contains("25 / 50"));
-    }
-
-    #[test]
-    fn in_flight_gauge_zero_concurrency_does_not_panic() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.concurrency = 0;
-        let lines = render_to_lines(30, 3, |f, a| render_in_flight(f, a, &state, &theme));
-        assert!(!lines.is_empty());
-    }
-
-    #[test]
-    fn dashboard_renders_all_panels_at_minimum_size() {
-        let theme = ascii_theme();
-        let mut state = make_state();
-        state.correctness_state = PhaseState::Passed;
-        state.correctness_progress = (9, 9);
-        state.load_state = PhaseState::Running;
-        state.load_progress = (142, 200);
-        state.passthrough_state = PhaseState::Pending;
-        state.in_flight = 25;
-        state.latency_p50_ms = 820;
-        state.latency_p95_ms = 2104;
-        state.verdict_counts.insert("Accepted".into(), 98);
-        state.verdict_counts.insert("WrongAnswer".into(), 12);
-        state.push_log(LogEntry {
-            timestamp: chrono::Utc
-                .with_ymd_and_hms(2026, 5, 1, 14, 32, 18)
-                .unwrap(),
-            severity: LogSeverity::Ok,
-            phase: "load".into(),
-            message: "submission #142 Accepted".into(),
-        });
-
-        let lines = render_to_lines(80, 24, |f, a| render_dashboard(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains("BROCCOLI STRESS TEST"));
-        assert!(body.contains("PHASES"));
-        assert!(body.contains("THROUGHPUT"));
-        assert!(body.contains("LATENCY"));
-        assert!(body.contains("VERDICTS"));
-        assert!(body.contains("IN FLIGHT"));
-        assert!(body.contains("EVENT LOG"));
-        assert!(body.contains("[q] quit"));
-        assert!(body.contains("Correctness"));
-        assert!(body.contains("9/9"));
-        assert!(body.contains("142/200"));
-        assert!(body.contains("Accepted"));
-    }
-
-    #[test]
-    fn unicode_theme_renders_box_drawing_borders() {
-        let theme = unicode_theme();
-        let state = make_state();
-        let lines = render_to_lines(34, 5, |f, a| render_phase_ladder(f, a, &state, &theme));
-        let body = lines.join("\n");
-        assert!(body.contains('\u{250C}') || body.contains('\u{2500}'));
-    }
 }

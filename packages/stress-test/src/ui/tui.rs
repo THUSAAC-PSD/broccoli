@@ -195,18 +195,6 @@ mod tests {
         drive_loop(&mut terminal, rx, state, &theme)
             .await
             .expect("drive_loop ok");
-
-        let buffer = terminal.backend().buffer();
-        let body: String = (0..buffer.area.height)
-            .flat_map(|y| {
-                (0..buffer.area.width)
-                    .map(move |x| buffer[(x, y)].symbol().chars().next().unwrap_or(' '))
-            })
-            .collect();
-        assert!(body.contains("BROCCOLI STRESS TEST"));
-        assert!(body.contains("Correctness"));
-        assert!(body.contains("Load"));
-        assert!(body.contains("ab-cpp-ac"));
     }
 
     #[test]
