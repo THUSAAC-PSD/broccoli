@@ -9,6 +9,7 @@ pub mod config_upload;
 pub mod contest;
 pub mod dlq;
 pub mod i18n;
+pub mod meta;
 pub mod plugin;
 pub mod plugin_config;
 pub mod problem;
