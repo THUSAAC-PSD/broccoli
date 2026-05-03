@@ -332,7 +332,8 @@ async fn finalize(
             let _ = serde_json::to_writer(&mut stdout, &payload);
             let _ = stdout.write_all(b"\n");
         } else {
-            let block = format_summary(&s);
+            let use_color = io::stdout().is_terminal();
+            let block = format_summary(&s, use_color);
             let _ = stdout.write_all(block.as_bytes());
         }
         let _ = stdout.flush();

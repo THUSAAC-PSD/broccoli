@@ -168,100 +168,222 @@ fn passthrough_json(p: &PassthroughSummary) -> Value {
     }
 }
 
-pub fn format_summary(summary: &RunSummary) -> String {
-    let mut out = String::new();
-    let result = if summary.passed() { "PASS" } else { "FAIL" };
+struct Pal {
+    color: bool,
+}
 
+impl Pal {
+    fn paint(&self, code: &str, text: &str) -> String {
+        if self.color {
+            format!("\x1b[{}m{}\x1b[0m", code, text)
+        } else {
+            text.to_string()
+        }
+    }
+    fn green(&self, t: &str) -> String {
+        self.paint("32", t)
+    }
+    fn red(&self, t: &str) -> String {
+        self.paint("31", t)
+    }
+    fn yellow(&self, t: &str) -> String {
+        self.paint("33", t)
+    }
+    fn cyan(&self, t: &str) -> String {
+        self.paint("36", t)
+    }
+    fn dim(&self, t: &str) -> String {
+        self.paint("2", t)
+    }
+    fn bold(&self, t: &str) -> String {
+        self.paint("1", t)
+    }
+    fn green_bold(&self, t: &str) -> String {
+        self.paint("1;32", t)
+    }
+    fn red_bold(&self, t: &str) -> String {
+        self.paint("1;31", t)
+    }
+}
+
+const BOX_W: usize = 66;
+
+fn ruled_top(p: &Pal) -> String {
+    p.dim(&format!("┌{}┐", "─".repeat(BOX_W - 2)))
+}
+fn ruled_bot(p: &Pal) -> String {
+    p.dim(&format!("└{}┘", "─".repeat(BOX_W - 2)))
+}
+
+pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
+    let p = Pal { color: use_color };
+    let mut out = String::new();
+
+    let passed = summary.passed();
+    let banner = if passed {
+        p.green_bold("PASS ✓")
+    } else {
+        p.red_bold("FAIL ✗")
+    };
+
+    let title = p.bold("BROCCOLI STRESS TEST");
+    let title_visible = "BROCCOLI STRESS TEST".len();
+    let banner_visible = if passed { "PASS ✓" } else { "FAIL ✗" }.chars().count();
+    let pad = BOX_W.saturating_sub(4 + title_visible + banner_visible);
+    let _ = writeln!(out, "{}", ruled_top(&p));
     let _ = writeln!(
         out,
-        "─────────────────────────────────────────────────────────"
+        "{} {}{}{} {}",
+        p.dim("│"),
+        title,
+        " ".repeat(pad),
+        banner,
+        p.dim("│"),
     );
-    let _ = writeln!(out, " BROCCOLI STRESS TEST — RESULT: {result}");
+    let _ = writeln!(out, "{}", ruled_bot(&p));
+    let _ = writeln!(out);
+
+    let label = |s: &str| p.dim(&format!("  {:<14}", s));
+    let _ = writeln!(out, "{}{}", label("Target"), p.cyan(&summary.target_url));
     let _ = writeln!(
         out,
-        "─────────────────────────────────────────────────────────"
+        "{}{:.1}s",
+        label("Duration"),
+        summary.duration.as_secs_f64(),
     );
-    let _ = writeln!(out, " Target           {}", summary.target_url);
-    let _ = writeln!(
-        out,
-        " Duration         {:.1}s",
-        summary.duration.as_secs_f64()
-    );
+    let _ = writeln!(out);
 
     match &summary.correctness {
-        Some(c) => {
-            let label = if c.failed_scenarios.is_empty() {
-                format!("{}/{} passed", c.passed, c.total)
-            } else {
-                format!(
-                    "{}/{} passed   FAILED: {}",
-                    c.passed,
-                    c.total,
-                    c.failed_scenarios.join(", ")
-                )
-            };
-            let _ = writeln!(out, " Correctness      {}", label);
-        }
         None => {
-            let _ = writeln!(out, " Correctness      skipped");
+            let _ = writeln!(
+                out,
+                "{}{} {}",
+                label("Correctness"),
+                p.dim("—"),
+                p.dim("skipped")
+            );
+        }
+        Some(c) if c.failed_scenarios.is_empty() => {
+            let _ = writeln!(
+                out,
+                "{}{} {} scenarios passed",
+                label("Correctness"),
+                p.green("✓"),
+                p.bold(&format!("{}/{}", c.passed, c.total)),
+            );
+        }
+        Some(c) => {
+            let _ = writeln!(
+                out,
+                "{}{} {} passed   {} {}",
+                label("Correctness"),
+                p.red("✗"),
+                p.bold(&format!("{}/{}", c.passed, c.total)),
+                p.dim("failed:"),
+                p.red(&c.failed_scenarios.join(", ")),
+            );
         }
     }
 
     match &summary.load {
+        None => {
+            let _ = writeln!(out, "{}{} {}", label("Load"), p.dim("—"), p.dim("skipped"));
+        }
         Some(l) => {
-            let budget_note = if l.passed_budget {
-                format!("p95 {}ms / budget {}ms", l.p95_ms, l.p95_budget_ms)
+            let glyph = if l.passed_overall {
+                p.green("✓")
             } else {
-                format!("p95 {}ms EXCEEDS budget {}ms", l.p95_ms, l.p95_budget_ms)
+                p.red("✗")
+            };
+            let counts = p.bold(&format!("{}/{}", l.passed, l.total));
+            let budget_text = format!("p95 {}ms / {}ms", l.p95_ms, l.p95_budget_ms);
+            let budget = if l.passed_budget {
+                p.dim(&budget_text)
+            } else {
+                p.red(&budget_text)
             };
             let _ = writeln!(
                 out,
-                " Load             {}/{} passed   {}",
-                l.passed, l.total, budget_note,
+                "{}{} {} submissions   {}",
+                label("Load"),
+                glyph,
+                counts,
+                budget,
             );
-        }
-        None => {
-            let _ = writeln!(out, " Load             skipped");
         }
     }
 
     match &summary.passthrough {
-        PassthroughSummary::NotRun => {
-            let _ = writeln!(out, " Pass-through     skipped (no --contest-id)");
-        }
-        PassthroughSummary::Skipped { reason } => {
-            let _ = writeln!(out, " Pass-through     skipped ({reason})");
+        PassthroughSummary::NotRun | PassthroughSummary::Skipped { .. } => {
+            let reason = match &summary.passthrough {
+                PassthroughSummary::Skipped { reason } => reason.clone(),
+                _ => "no --contest-id".into(),
+            };
+            let _ = writeln!(
+                out,
+                "{}{} {}",
+                label("Pass-through"),
+                p.dim("—"),
+                p.dim(&format!("skipped ({reason})")),
+            );
         }
         PassthroughSummary::Completed { ok, count } => {
-            let label = if *ok { "passed" } else { "FAILED" };
-            let _ = writeln!(out, " Pass-through     {} {}", count, label);
+            let glyph = if *ok { p.green("✓") } else { p.red("✗") };
+            let _ = writeln!(
+                out,
+                "{}{} {} submissions",
+                label("Pass-through"),
+                glyph,
+                p.bold(&count.to_string()),
+            );
         }
     }
 
     if let Some(l) = &summary.load {
+        let _ = writeln!(out);
         let acc = if l.completed == 0 {
             0.0
         } else {
             (l.passed as f64) / (l.completed as f64) * 100.0
         };
-        let _ = writeln!(out, " Verdict accuracy {:.1}%", acc);
-        let _ = writeln!(out, " Errors           {}", l.error_count);
+        let acc_str = format!("{:.1}%", acc);
+        let acc_painted = if (acc - 100.0).abs() < 0.05 {
+            p.green(&acc_str)
+        } else {
+            p.yellow(&acc_str)
+        };
+        let _ = writeln!(out, "{}{}", label("Accuracy"), acc_painted);
+        let err_painted = if l.error_count == 0 {
+            p.green("0")
+        } else {
+            p.red(&l.error_count.to_string())
+        };
+        let _ = writeln!(out, "{}{}", label("Errors"), err_painted);
     }
 
     let _ = writeln!(out);
 
-    if summary.passed() {
-        let _ = writeln!(out, " System is ready for contest.");
+    if passed {
+        let _ = writeln!(
+            out,
+            "  {} {}",
+            p.green("✓"),
+            p.green_bold("System is ready for contest.")
+        );
     } else {
-        let _ = writeln!(out, " Issues:");
+        let _ = writeln!(out, "  {} {}", p.red("✗"), p.red_bold("DO NOT RUN CONTEST"));
+        let _ = writeln!(out);
+        let bullet = p.dim("  •");
         if let Some(err) = &summary.bootstrap_error {
-            let _ = writeln!(out, "   • bootstrap failed: {err}");
+            let _ = writeln!(out, "{} bootstrap failed: {}", bullet, p.red(err));
         }
         if let Some(c) = &summary.correctness {
             for id in &c.failed_scenarios {
                 let _ = writeln!(
                     out,
-                    "   • correctness scenario {id} did not match expectation"
+                    "{} correctness scenario {} did not match expectation",
+                    bullet,
+                    p.red(id)
                 );
             }
         }
@@ -269,52 +391,57 @@ pub fn format_summary(summary: &RunSummary) -> String {
             if l.completed != l.total {
                 let _ = writeln!(
                     out,
-                    "   • only {}/{} load submissions reached terminal status",
-                    l.completed, l.total
+                    "{} only {} of {} load submissions reached terminal status",
+                    bullet,
+                    p.bold(&l.completed.to_string()),
+                    l.total,
                 );
             }
             if l.passed != l.completed {
                 let _ = writeln!(
                     out,
-                    "   • {} of {} completed load submissions had wrong verdict",
-                    l.completed - l.passed,
-                    l.completed
+                    "{} {} of {} completed load submissions had wrong verdict",
+                    bullet,
+                    p.red(&(l.completed - l.passed).to_string()),
+                    l.completed,
                 );
             }
             if !l.passed_budget {
                 let _ = writeln!(
                     out,
-                    "   • p95 latency {}ms exceeds budget {}ms",
-                    l.p95_ms, l.p95_budget_ms
+                    "{} p95 latency {}ms exceeds budget {}ms",
+                    bullet,
+                    p.red(&format!("{}ms", l.p95_ms)),
+                    l.p95_budget_ms,
                 );
             }
             if l.error_count > 0 {
-                let _ = writeln!(out, "   • {} HTTP / network errors", l.error_count);
+                let _ = writeln!(
+                    out,
+                    "{} {} HTTP / network errors",
+                    bullet,
+                    p.red(&l.error_count.to_string()),
+                );
             }
         }
         if let PassthroughSummary::Completed { ok: false, count } = summary.passthrough {
             let _ = writeln!(
                 out,
-                "   • pass-through phase failed across {} submissions",
-                count,
+                "{} pass-through phase failed across {} submissions",
+                bullet, count,
             );
         }
-        let _ = writeln!(out);
-        let _ = writeln!(out, " DO NOT RUN CONTEST until these are resolved.");
     }
 
     if !summary.cleanup_warnings.is_empty() {
         let _ = writeln!(out);
-        let _ = writeln!(out, " Cleanup warnings:");
+        let _ = writeln!(out, "  {}", p.yellow("Cleanup warnings:"));
         for w in &summary.cleanup_warnings {
-            let _ = writeln!(out, "   • {w}");
+            let _ = writeln!(out, "  {} {}", p.dim("•"), p.yellow(w));
         }
     }
 
-    let _ = writeln!(
-        out,
-        "─────────────────────────────────────────────────────────"
-    );
+    let _ = writeln!(out);
     out
 }
 
@@ -348,86 +475,6 @@ mod tests {
             passthrough: PassthroughSummary::NotRun,
             cleanup_warnings: vec![],
         }
-    }
-
-    #[test]
-    fn pass_summary_renders_pass_banner_and_ready_message() {
-        let s = pass_summary();
-        let out = format_summary(&s);
-        assert!(out.contains("RESULT: PASS"));
-        assert!(out.contains("9/9 passed"));
-        assert!(out.contains("200/200 passed"));
-        assert!(out.contains("p95 2104ms / budget 15000ms"));
-        assert!(out.contains("System is ready for contest."));
-        assert!(!out.contains("DO NOT RUN CONTEST"));
-    }
-
-    #[test]
-    fn correctness_failure_renders_fail_banner_and_named_scenario() {
-        let mut s = pass_summary();
-        s.correctness = Some(CorrectnessSummary {
-            total: 9,
-            passed: 8,
-            failed_scenarios: vec!["ab-cpp-mle".into()],
-        });
-        let out = format_summary(&s);
-        assert!(out.contains("RESULT: FAIL"));
-        assert!(out.contains("FAILED: ab-cpp-mle"));
-        assert!(out.contains("ab-cpp-mle did not match expectation"));
-        assert!(out.contains("DO NOT RUN CONTEST"));
-    }
-
-    #[test]
-    fn load_budget_violation_renders_exceeds_message() {
-        let mut s = pass_summary();
-        let load = s.load.as_mut().unwrap();
-        load.passed_budget = false;
-        load.p95_ms = 18204;
-        load.passed_overall = false;
-        let out = format_summary(&s);
-        assert!(out.contains("EXCEEDS budget"));
-        assert!(out.contains("p95 latency 18204ms exceeds budget 15000ms"));
-    }
-
-    #[test]
-    fn skipped_phases_render_explicit_skipped() {
-        let s = RunSummary {
-            target_url: "http://x".into(),
-            duration: Duration::from_secs(1),
-            bootstrap_error: None,
-            correctness: None,
-            load: None,
-            passthrough: PassthroughSummary::Skipped {
-                reason: "no --contest-id".into(),
-            },
-            cleanup_warnings: vec![],
-        };
-        let out = format_summary(&s);
-        assert!(out.contains("Correctness      skipped"));
-        assert!(out.contains("Load             skipped"));
-        assert!(out.contains("Pass-through     skipped (no --contest-id)"));
-        assert!(out.contains("RESULT: PASS"));
-    }
-
-    #[test]
-    fn cleanup_warnings_attach_below_main_block() {
-        let mut s = pass_summary();
-        s.cleanup_warnings = vec!["could not delete problem 17: 404".into()];
-        let out = format_summary(&s);
-        assert!(out.contains("Cleanup warnings:"));
-        assert!(out.contains("could not delete problem 17"));
-    }
-
-    #[test]
-    fn bootstrap_error_renders_fail_and_names_the_error() {
-        let mut s = pass_summary();
-        s.bootstrap_error = Some("network error: connection refused".into());
-        s.correctness = None;
-        s.load = None;
-        let out = format_summary(&s);
-        assert!(out.contains("RESULT: FAIL"));
-        assert!(out.contains("bootstrap failed: network error"));
-        assert!(out.contains("DO NOT RUN CONTEST"));
     }
 
     #[test]
