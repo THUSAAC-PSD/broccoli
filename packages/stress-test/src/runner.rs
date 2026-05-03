@@ -10,7 +10,7 @@ use crate::cli::Cli;
 use crate::client::{AuthCreds, Client};
 use crate::events::{Event, Phase};
 use crate::report::{
-    CorrectnessSummary, LoadSummary, PassthroughSummary, RunSummary, format_summary,
+    CorrectnessSummary, DlqDelta, LoadSummary, PassthroughSummary, RunSummary, format_summary,
 };
 use crate::scenarios::SCENARIOS;
 
@@ -117,6 +117,8 @@ pub async fn run(cli: Cli) -> u8 {
     let state_holder: SharedState = Arc::new(AsyncMutex::new(None));
     spawn_sigint_watchdog(client.clone(), state_holder.clone());
 
+    let dlq_baseline = client.get_dlq_stats().await.ok();
+
     let (tx, rx) = mpsc::unbounded_channel::<Event>();
     let renderer = match choice {
         RendererChoice::None => None,
@@ -159,6 +161,7 @@ pub async fn run(cli: Cli) -> u8 {
                     passthrough: PassthroughSummary::NotRun,
                     cleanup_warnings: vec![],
                     log_file: log_file_path(&log_target),
+                    dlq_delta: None,
                 }),
                 exit_code::SETUP_FAIL,
                 cli.json,
@@ -183,6 +186,7 @@ pub async fn run(cli: Cli) -> u8 {
         passthrough: PassthroughSummary::NotRun,
         cleanup_warnings: vec![],
         log_file: log_file_path(&log_target),
+        dlq_delta: None,
     };
     let mut overall_exit = exit_code::PASS;
 
@@ -278,6 +282,31 @@ pub async fn run(cli: Cli) -> u8 {
         if overall_exit == exit_code::PASS && !summary.cleanup_warnings.is_empty() {
             overall_exit = exit_code::CLEANUP_DEGRADED;
         }
+    }
+
+    if let Some(baseline) = dlq_baseline
+        && let Ok(final_stats) = client.get_dlq_stats().await
+        && final_stats.total_unresolved > baseline.total_unresolved
+    {
+        let mut new_by_error_code: Vec<(String, u64)> = final_stats
+            .unresolved_by_error_code
+            .iter()
+            .map(|(code, count)| {
+                let baseline_count = baseline
+                    .unresolved_by_error_code
+                    .get(code)
+                    .copied()
+                    .unwrap_or(0);
+                (code.clone(), count.saturating_sub(baseline_count))
+            })
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        new_by_error_code.sort_by_key(|b| std::cmp::Reverse(b.1));
+        summary.dlq_delta = Some(DlqDelta {
+            baseline_unresolved: baseline.total_unresolved,
+            final_unresolved: final_stats.total_unresolved,
+            new_by_error_code,
+        });
     }
 
     summary.duration = started.elapsed();

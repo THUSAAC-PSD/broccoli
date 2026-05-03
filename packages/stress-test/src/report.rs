@@ -18,6 +18,14 @@ pub struct RunSummary {
     pub passthrough: PassthroughSummary,
     pub cleanup_warnings: Vec<String>,
     pub log_file: Option<PathBuf>,
+    pub dlq_delta: Option<DlqDelta>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DlqDelta {
+    pub baseline_unresolved: u64,
+    pub final_unresolved: u64,
+    pub new_by_error_code: Vec<(String, u64)>,
 }
 
 #[derive(Debug)]
@@ -472,6 +480,28 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
         }
     }
 
+    if let Some(d) = &summary.dlq_delta
+        && d.final_unresolved > d.baseline_unresolved
+    {
+        let new_total = d.final_unresolved - d.baseline_unresolved;
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "  {} {} new dead-letter entries during this run",
+            p.yellow("⚠"),
+            p.red(&new_total.to_string()),
+        );
+        for (code, count) in &d.new_by_error_code {
+            let _ = writeln!(
+                out,
+                "  {} {}: {}",
+                p.dim("•"),
+                p.dim(code),
+                p.bold(&count.to_string()),
+            );
+        }
+    }
+
     if !summary.cleanup_warnings.is_empty() {
         let _ = writeln!(out);
         let _ = writeln!(out, "  {}", p.yellow("Cleanup warnings:"));
@@ -515,6 +545,7 @@ mod tests {
             passthrough: PassthroughSummary::NotRun,
             cleanup_warnings: vec![],
             log_file: None,
+            dlq_delta: None,
         }
     }
 
@@ -573,6 +604,7 @@ mod tests {
             },
             cleanup_warnings: vec![],
             log_file: None,
+            dlq_delta: None,
         };
         let v = s.to_json(0);
         assert!(v["correctness"].is_null());

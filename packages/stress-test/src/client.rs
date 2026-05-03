@@ -215,6 +215,11 @@ impl Client {
         .await
     }
 
+    pub async fn get_dlq_stats(&self) -> StressResult<crate::dto::DlqStats> {
+        self.send_json_with_retry::<(), _>(reqwest::Method::GET, "/api/v1/dlq/stats", None)
+            .await
+    }
+
     pub async fn list_contest_problems(
         &self,
         contest_id: i32,
