@@ -74,12 +74,12 @@ async fn drive_loop<B: ratatui::backend::Backend>(
             }
             _ = tick.tick() => {
                 state.tick(std::time::Instant::now());
-                terminal.draw(|f| render_dashboard(f, f.area(), &state, theme))?;
+                terminal.draw(|f| render_dashboard(f, f.area(), &mut state, theme))?;
             }
         }
 
         if quit || (closed && rx.is_empty()) {
-            terminal.draw(|f| render_dashboard(f, f.area(), &state, theme))?;
+            terminal.draw(|f| render_dashboard(f, f.area(), &mut state, theme))?;
             break;
         }
     }
@@ -87,19 +87,36 @@ async fn drive_loop<B: ratatui::backend::Backend>(
 }
 
 fn handle_key(state: &mut AppState, key: KeyEvent) -> bool {
+    let page = state.last_log_visible.saturating_sub(1).max(1);
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => true,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => true,
         KeyCode::Char('p') => {
-            state.log_paused = !state.log_paused;
+            state.toggle_log_pause();
             false
         }
-        KeyCode::Up => {
-            state.log_scroll_offset = state.log_scroll_offset.saturating_add(1);
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.scroll_log_up(1);
             false
         }
-        KeyCode::Down => {
-            state.log_scroll_offset = state.log_scroll_offset.saturating_sub(1);
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.scroll_log_down(1);
+            false
+        }
+        KeyCode::PageUp => {
+            state.scroll_log_up(page);
+            false
+        }
+        KeyCode::PageDown => {
+            state.scroll_log_down(page);
+            false
+        }
+        KeyCode::Home | KeyCode::Char('g') => {
+            state.scroll_log_oldest();
+            false
+        }
+        KeyCode::End | KeyCode::Char('G') => {
+            state.resume_log_tail();
             false
         }
         _ => false,
@@ -228,25 +245,98 @@ mod tests {
         let mut s = AppState::new("http://x".into(), 15_000, 50);
         let key = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE);
         assert!(!handle_key(&mut s, key));
-        assert!(s.log_paused);
+        assert!(s.is_log_paused());
         assert!(!handle_key(&mut s, key));
-        assert!(!s.log_paused);
+        assert!(!s.is_log_paused());
+    }
+
+    fn fill_log(s: &mut AppState, n: usize) {
+        use crate::ui::app::{LogEntry, LogSeverity};
+        for i in 0..n {
+            s.push_log(LogEntry {
+                timestamp: chrono::Utc::now(),
+                severity: LogSeverity::Ok,
+                phase: "load".into(),
+                message: format!("entry {i}"),
+            });
+        }
     }
 
     #[test]
-    fn handle_key_arrows_change_scroll_offset() {
+    fn handle_key_up_auto_pauses_and_clamps_to_scrollable_range() {
         let mut s = AppState::new("http://x".into(), 15_000, 50);
+        s.last_log_visible = 5;
+        fill_log(&mut s, 8); // max scroll = 8 - 5 = 3
+
         let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        handle_key(&mut s, up);
+        assert!(s.is_log_paused(), "scrolling auto-pauses");
+        assert_eq!(s.log_scroll_offset, 1);
+        handle_key(&mut s, up);
+        handle_key(&mut s, up);
+        handle_key(&mut s, up);
+        handle_key(&mut s, up); // try to overshoot
+        assert_eq!(s.log_scroll_offset, 3, "clamped to max scroll");
+
         let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-        handle_key(&mut s, up);
-        handle_key(&mut s, up);
-        handle_key(&mut s, up);
-        assert_eq!(s.log_scroll_offset, 3);
         handle_key(&mut s, down);
         assert_eq!(s.log_scroll_offset, 2);
         for _ in 0..10 {
             handle_key(&mut s, down);
         }
         assert_eq!(s.log_scroll_offset, 0);
+    }
+
+    #[test]
+    fn handle_key_pageup_pagedown_use_visible_height() {
+        let mut s = AppState::new("http://x".into(), 15_000, 50);
+        s.last_log_visible = 10;
+        fill_log(&mut s, 100);
+
+        let pgup = KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE);
+        handle_key(&mut s, pgup);
+        assert_eq!(s.log_scroll_offset, 9, "page = visible-1");
+
+        let pgdn = KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE);
+        handle_key(&mut s, pgdn);
+        assert_eq!(s.log_scroll_offset, 0);
+    }
+
+    #[test]
+    fn handle_key_home_jumps_to_oldest_end_resumes_tail() {
+        let mut s = AppState::new("http://x".into(), 15_000, 50);
+        s.last_log_visible = 5;
+        fill_log(&mut s, 50); // max scroll = 45
+
+        let home = KeyEvent::new(KeyCode::Home, KeyModifiers::NONE);
+        handle_key(&mut s, home);
+        assert!(s.is_log_paused());
+        assert_eq!(s.log_scroll_offset, 45);
+
+        let end = KeyEvent::new(KeyCode::End, KeyModifiers::NONE);
+        handle_key(&mut s, end);
+        assert!(!s.is_log_paused(), "End resumes follow-tail");
+        assert_eq!(s.log_scroll_offset, 0);
+    }
+
+    #[test]
+    fn paused_view_does_not_shift_when_new_events_arrive() {
+        let mut s = AppState::new("http://x".into(), 15_000, 50);
+        fill_log(&mut s, 20);
+        s.toggle_log_pause();
+        let snapshot_len = s.view_log().len();
+        fill_log(&mut s, 30); // 30 more arrive while paused
+        assert_eq!(
+            s.view_log().len(),
+            snapshot_len,
+            "view stays frozen at pause-time snapshot"
+        );
+        assert_eq!(
+            s.event_log.len(),
+            50,
+            "live log keeps growing in background"
+        );
+        s.resume_log_tail();
+        assert_eq!(s.view_log().len(), 50, "resume reveals buffered events");
     }
 }

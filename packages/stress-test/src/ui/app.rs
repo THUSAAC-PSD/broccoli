@@ -61,7 +61,8 @@ pub struct AppState {
 
     pub event_log: VecDeque<LogEntry>,
     pub log_scroll_offset: usize,
-    pub log_paused: bool,
+    pub paused_log_snapshot: Option<VecDeque<LogEntry>>,
+    pub last_log_visible: usize,
 }
 
 impl AppState {
@@ -95,8 +96,63 @@ impl AppState {
             concurrency,
             event_log: VecDeque::with_capacity(Self::LOG_CAPACITY),
             log_scroll_offset: 0,
-            log_paused: false,
+            paused_log_snapshot: None,
+            last_log_visible: 0,
         }
+    }
+
+    pub fn is_log_paused(&self) -> bool {
+        self.paused_log_snapshot.is_some()
+    }
+
+    pub fn view_log(&self) -> &VecDeque<LogEntry> {
+        self.paused_log_snapshot.as_ref().unwrap_or(&self.event_log)
+    }
+
+    pub fn toggle_log_pause(&mut self) {
+        if self.paused_log_snapshot.is_some() {
+            self.resume_log_tail();
+        } else {
+            self.paused_log_snapshot = Some(self.event_log.clone());
+        }
+    }
+
+    fn ensure_log_paused(&mut self) {
+        if self.paused_log_snapshot.is_none() {
+            self.paused_log_snapshot = Some(self.event_log.clone());
+        }
+    }
+
+    fn max_log_scroll(&self) -> usize {
+        let view_len = self.view_log().len();
+        let visible = self.last_log_visible.max(1);
+        view_len.saturating_sub(visible)
+    }
+
+    pub fn scroll_log_up(&mut self, by: usize) {
+        if by == 0 {
+            return;
+        }
+        self.ensure_log_paused();
+        let max = self.max_log_scroll();
+        self.log_scroll_offset = self.log_scroll_offset.saturating_add(by).min(max);
+    }
+
+    pub fn scroll_log_down(&mut self, by: usize) {
+        if by == 0 {
+            return;
+        }
+        self.log_scroll_offset = self.log_scroll_offset.saturating_sub(by);
+    }
+
+    pub fn scroll_log_oldest(&mut self) {
+        self.ensure_log_paused();
+        self.log_scroll_offset = self.max_log_scroll();
+    }
+
+    pub fn resume_log_tail(&mut self) {
+        self.paused_log_snapshot = None;
+        self.log_scroll_offset = 0;
     }
 
     pub fn elapsed_seconds(&self) -> u64 {
