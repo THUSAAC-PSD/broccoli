@@ -13,6 +13,14 @@ x-worker-common: &worker-common
   build:
     context: .
     dockerfile: Dockerfile.worker
+    # Pin to host architecture so libseccomp inside isolate matches the kernel.
+    # Apple Silicon hosts with DOCKER_DEFAULT_PLATFORM=linux/amd64 in their
+    # shell would otherwise produce x86_64 images that run under Rosetta and
+    # break isolate's seccomp_load. Override with WORKER_PLATFORM=linux/amd64
+    # on native amd64 hosts.
+    platforms:
+      - ${WORKER_PLATFORM:-linux/arm64}
+  platform: ${WORKER_PLATFORM:-linux/arm64}
   privileged: true
   security_opt:
     - seccomp=unconfined
