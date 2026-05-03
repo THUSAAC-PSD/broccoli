@@ -42,9 +42,22 @@ export function ApiClientProvider({
     }
   }, []);
 
+  // Resolve a path-relative `baseUrl` (e.g. "/api/v1" when proxied through a
+  // dev server) against the current origin. The URL constructor rejects
+  // relative bases, so without this the first plugin fetch throws
+  // "Failed to construct 'URL': Invalid base URL".
+  const resolvedBaseUrl = useMemo(() => {
+    if (typeof window === 'undefined') return baseUrl;
+    try {
+      return new URL(baseUrl).toString();
+    } catch {
+      return new URL(baseUrl, window.location.origin).toString();
+    }
+  }, [baseUrl]);
+
   const apiClient = useMemo(() => {
     const client = createClient<paths>({
-      baseUrl,
+      baseUrl: resolvedBaseUrl,
       credentials: 'include',
     });
 
@@ -65,7 +78,7 @@ export function ApiClientProvider({
     });
 
     return client;
-  }, [baseUrl, clearAuth]);
+  }, [resolvedBaseUrl, clearAuth]);
 
   const apiFetch = useMemo(
     () => async (input: string | URL, init?: RequestInit) => {
@@ -75,7 +88,7 @@ export function ApiClientProvider({
         headers.set('Authorization', `Bearer ${currentToken}`);
       }
 
-      const response = await fetch(new URL(input, baseUrl), {
+      const response = await fetch(new URL(input, resolvedBaseUrl), {
         ...init,
         headers,
       });
@@ -86,7 +99,7 @@ export function ApiClientProvider({
 
       return response;
     },
-    [baseUrl, clearAuth],
+    [resolvedBaseUrl, clearAuth],
   );
 
   return (
