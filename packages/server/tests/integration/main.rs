@@ -1,11 +1,9 @@
 mod attachment;
 mod auth;
-mod authoring_qa;
 mod clarification;
 mod code_run;
 mod common;
 mod contest;
-mod db_transactions_qa;
 mod dlq;
 mod plugin;
 mod plugin_config;
