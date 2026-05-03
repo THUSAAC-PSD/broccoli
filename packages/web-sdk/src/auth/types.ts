@@ -17,4 +17,5 @@ export const USER_PERMISSIONS = [
   'plugin:manage',
   'user:manage',
   'dlq:manage',
+  'system:view',
 ];

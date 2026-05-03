@@ -1,0 +1,78 @@
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { Badge } from '@broccoli/web-sdk/ui';
+
+import type { DlqMessage } from '@/features/dlq/types';
+
+interface Props {
+  message: DlqMessage;
+  onClick: (id: number) => void;
+}
+
+function timeAgo(iso: string, t: (k: string, p?: object) => string) {
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(iso).getTime()) / 1000),
+  );
+  if (seconds < 60) return t('dlq.row.secondsAgo', { count: seconds });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t('dlq.row.minutesAgo', { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t('dlq.row.hoursAgo', { count: hours });
+  const days = Math.floor(hours / 24);
+  return t('dlq.row.daysAgo', { count: days });
+}
+
+export function DlqMessageRow({ message, onClick }: Props) {
+  const { t } = useTranslation();
+
+  return (
+    <tr
+      onClick={() => onClick(message.id)}
+      className="cursor-pointer border-b transition-colors hover:bg-muted/40"
+    >
+      <td className="p-3 align-top">
+        <div className="flex flex-col gap-1">
+          <span className="font-mono text-xs truncate max-w-[16ch]">
+            {message.message_id}
+          </span>
+          {message.submission_id !== null && (
+            <span className="text-[10px] text-muted-foreground">
+              {t('dlq.row.submission', { id: message.submission_id })}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="p-3 align-top">
+        <Badge variant="outline" className="font-mono text-[10px]">
+          {message.message_type}
+        </Badge>
+      </td>
+      <td className="p-3 align-top">
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium text-xs">{message.error_code}</span>
+          <span className="text-xs text-muted-foreground line-clamp-2">
+            {message.error_message}
+          </span>
+        </div>
+      </td>
+      <td className="p-3 align-top text-center text-sm tabular-nums">
+        {message.retry_count}
+      </td>
+      <td className="p-3 align-top text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+        {timeAgo(message.created_at, t)}
+      </td>
+      <td className="p-3 align-top">
+        {message.resolved ? (
+          <Badge variant="secondary">{t('dlq.row.resolved')}</Badge>
+        ) : (
+          <Badge
+            variant="outline"
+            className="border-destructive/50 text-destructive"
+          >
+            {t('dlq.row.unresolved')}
+          </Badge>
+        )}
+      </td>
+    </tr>
+  );
+}
