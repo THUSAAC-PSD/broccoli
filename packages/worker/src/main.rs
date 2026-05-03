@@ -15,6 +15,7 @@ use common::{DlqConfig, DlqEnvelope, DlqErrorCode, DlqMessageType};
 use mq::{BroccoliError, BrokerMessage, MqConfig, init_mq};
 use opentelemetry::KeyValue;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
@@ -53,7 +54,11 @@ async fn main() -> anyhow::Result<()> {
         "MQ connected"
     );
 
-    let dedup = match RedisTaskDedup::new(&config.mq.url, config.mq.dlq.stuck_job_timeout_secs) {
+    let dedup = match RedisTaskDedup::new(
+        &config.mq.url,
+        config.mq.dlq.stuck_job_timeout_secs,
+        config.worker.id.clone(),
+    ) {
         Ok(d) => {
             info!(
                 "Task dedup initialized (TTL={}s)",
@@ -102,15 +107,31 @@ async fn main() -> anyhow::Result<()> {
         Duration::from_secs(dlq_config.retry_max_age_secs),
     );
 
-    loop {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_for_signal = shutdown.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            info!("Shutdown signal received; refusing new tasks and beginning drain");
+            shutdown_for_signal.store(true, Ordering::SeqCst);
+        }
+    });
+
+    let drain_timeout = Duration::from_secs(30);
+
+    'outer: loop {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+
         let mq_for_handler = Arc::clone(&mq_for_handler);
         let worker = Arc::clone(&worker);
         let op_dlq_queue = op_dlq_queue.clone();
-        let dlq_config = dlq_config.clone();
+        let dlq_config_handler = dlq_config.clone();
         let retry_tracker = Arc::clone(&retry_tracker);
         let dedup = dedup.clone();
         let metrics = metrics.clone();
-        let in_flight = in_flight.clone();
+        let in_flight_for_handler = in_flight.clone();
+        let shutdown_for_handler = shutdown.clone();
 
         let op_fut = mq.process_messages(
             &config.mq.operation_queue_name,
@@ -120,12 +141,20 @@ async fn main() -> anyhow::Result<()> {
                 let mq = Arc::clone(&mq_for_handler);
                 let worker = Arc::clone(&worker);
                 let dlq_queue = op_dlq_queue.clone();
-                let dlq_config = dlq_config.clone();
+                let dlq_config = dlq_config_handler.clone();
                 let retry_tracker = Arc::clone(&retry_tracker);
                 let dedup = dedup.clone();
                 let metrics = metrics.clone();
-                let in_flight = in_flight.clone();
+                let in_flight = in_flight_for_handler.clone();
+                let shutdown = shutdown_for_handler.clone();
                 async move {
+                    if shutdown.load(Ordering::Relaxed) {
+                        // Refuse the message so broccoli_queue rejects (requeues) it
+                        // for another live worker rather than acking and losing it.
+                        return Err(BroccoliError::Consume(
+                            "worker is shutting down; requeuing".into(),
+                        ));
+                    }
                     let _guard = in_flight.guard();
                     process_message(
                         message,
@@ -142,44 +171,71 @@ async fn main() -> anyhow::Result<()> {
             },
         );
 
-        let should_break = tokio::select! {
-            result = op_fut => {
-                match result {
-                    Ok(()) => {
-                        info!("Operation consumer exited normally");
-                        true
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Operation MQ error, reconnecting in 5s...");
-                        let interrupted = tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(5)) => false,
-                            _ = tokio::signal::ctrl_c() => {
-                                info!("Shutdown signal received during reconnect wait");
-                                true
-                            }
-                        };
-                        if interrupted {
-                            heartbeat.shutdown().await;
-                            return Ok(());
+        tokio::pin!(op_fut);
+
+        loop {
+            tokio::select! {
+                biased;
+                _ = wait_for_shutdown(&shutdown) => {
+                    drain_in_flight(&in_flight, drain_timeout).await;
+                    break 'outer;
+                }
+                result = &mut op_fut => {
+                    match result {
+                        Ok(()) => {
+                            info!("Operation consumer exited normally");
+                            break 'outer;
                         }
-                        false
+                        Err(e) => {
+                            error!(error = %e, "Operation MQ error, reconnecting in 5s...");
+                            tokio::select! {
+                                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                                _ = wait_for_shutdown(&shutdown) => {
+                                    drain_in_flight(&in_flight, drain_timeout).await;
+                                    break 'outer;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
             }
-            _ = tokio::signal::ctrl_c() => {
-                info!("Shutdown signal received, exiting gracefully...");
-                true
-            }
-        };
-
-        if should_break {
-            break;
         }
     }
 
     heartbeat.shutdown().await;
     info!("Worker stopped");
     Ok(())
+}
+
+async fn wait_for_shutdown(flag: &Arc<AtomicBool>) {
+    while !flag.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn drain_in_flight(in_flight: &InFlightCounter, timeout: Duration) {
+    if in_flight.current() == 0 {
+        info!("No in-flight tasks; shutting down immediately");
+        return;
+    }
+    info!(
+        in_flight = in_flight.current(),
+        timeout_secs = timeout.as_secs(),
+        "Waiting for in-flight tasks to drain"
+    );
+    let drain = async {
+        while in_flight.current() > 0 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+    match tokio::time::timeout(timeout, drain).await {
+        Ok(()) => info!("All in-flight tasks drained cleanly"),
+        Err(_) => warn!(
+            remaining = in_flight.current(),
+            "Drain timeout exceeded; exiting with in-flight tasks still active"
+        ),
+    }
 }
 
 async fn process_message(
@@ -196,9 +252,18 @@ async fn process_message(
     let task_id = task.id.clone();
 
     if let Some(dedup) = dedup {
-        if !dedup.try_claim(&task_id).await {
-            info!(job_id = %task_id, "Task already claimed by another worker, skipping");
-            return Ok(());
+        match dedup.try_claim(&task_id).await {
+            crate::dedup::ClaimOutcome::Claimed => {}
+            crate::dedup::ClaimOutcome::Stolen => {
+                warn!(
+                    job_id = %task_id,
+                    "Stole claim from a worker with no live heartbeat — re-judging"
+                );
+            }
+            crate::dedup::ClaimOutcome::HeldByOther => {
+                info!(job_id = %task_id, "Task already claimed by a live worker, skipping");
+                return Ok(());
+            }
         }
     }
 
