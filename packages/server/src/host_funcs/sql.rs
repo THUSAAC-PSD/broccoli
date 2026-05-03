@@ -40,7 +40,25 @@ impl HostDbResponse {
     }
 }
 
-fn json_to_sea_value(v: JsonValue) -> sea_orm::Value {
+fn sanitize_nul_bytes(s: String, plugin_id: &str, sql: &str) -> String {
+    if s.contains('\0') {
+        let nul_count = s.matches('\0').count();
+        let preview: String = s.chars().take(120).collect();
+        let sql_preview: String = sql.chars().take(160).collect();
+        tracing::warn!(
+            plugin_id,
+            nul_count,
+            sql = %sql_preview,
+            value_preview = %preview,
+            "Sanitized NUL bytes from plugin SQL bind value",
+        );
+        s.replace('\0', "\u{FFFD}")
+    } else {
+        s
+    }
+}
+
+fn json_to_sea_value(v: JsonValue, plugin_id: &str, sql: &str) -> sea_orm::Value {
     match v {
         JsonValue::Null => sea_orm::Value::String(None),
         JsonValue::Bool(b) => sea_orm::Value::Bool(Some(b)),
@@ -53,28 +71,35 @@ fn json_to_sea_value(v: JsonValue) -> sea_orm::Value {
                 sea_orm::Value::String(Some(n.to_string()))
             }
         }
-        JsonValue::String(s) => sea_orm::Value::String(Some(s)),
+        JsonValue::String(s) => sea_orm::Value::String(Some(sanitize_nul_bytes(s, plugin_id, sql))),
         v => sea_orm::Value::Json(Some(Box::new(v))),
     }
 }
 
-fn parse_args(args_json: &str) -> Result<Vec<sea_orm::Value>, extism::Error> {
+fn parse_args(
+    args_json: &str,
+    plugin_id: &str,
+    sql: &str,
+) -> Result<Vec<sea_orm::Value>, extism::Error> {
     if args_json.trim().is_empty() {
         return Ok(vec![]);
     }
     let json_arr: Vec<JsonValue> = serde_json::from_str(args_json)
         .map_err(|e| extism::Error::msg(format!("Invalid args JSON: {}", e)))?;
 
-    Ok(json_arr.into_iter().map(json_to_sea_value).collect())
+    Ok(json_arr
+        .into_iter()
+        .map(|v| json_to_sea_value(v, plugin_id, sql))
+        .collect())
 }
 
 host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, args: String) -> String {
     let user_data_guard = user_data.get()?;
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-    let (_, db) = &*ctx;
+    let (plugin_id, db) = &*ctx;
 
-    let values = parse_args(&args)?;
-    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, sql, values);
+    let values = parse_args(&args, plugin_id, &sql)?;
+    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, &sql, values);
 
     let exec_result = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
@@ -85,7 +110,9 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     match exec_result {
         Ok(res) => HostDbResponse::ok(JsonValue::from(res.rows_affected())).to_json_string(),
         Err(e) => {
-            error!("DB execution error: {}", e);
+            let sql_preview: String = sql.chars().take(200).collect();
+            let args_preview: String = args.chars().take(500).collect();
+            error!(plugin_id = %plugin_id, sql = %sql_preview, args = %args_preview, "DB execution error: {}", e);
             HostDbResponse::err(e.to_string()).to_json_string()
         }
     }
@@ -94,9 +121,9 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
 host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args: String) -> String {
     let user_data_guard = user_data.get()?;
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-    let (_, db) = &*ctx;
+    let (plugin_id, db) = &*ctx;
 
-    let values = parse_args(&args)?;
+    let values = parse_args(&args, plugin_id, &sql)?;
     let wrapped_sql = format!(
         "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM ({}) AS t",
         sql
@@ -146,13 +173,13 @@ host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _
 });
 
 host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
-    let txn_map = {
+    let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        ctx.2.clone()
+        (ctx.0.clone(), ctx.2.clone())
     };
 
-    let values = parse_args(&args)?;
+    let values = parse_args(&args, &plugin_id, &sql)?;
     let wrapped_sql = format!(
         "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM ({}) AS t",
         sql
@@ -183,13 +210,13 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
 });
 
 host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
-    let txn_map = {
+    let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        ctx.2.clone()
+        (ctx.0.clone(), ctx.2.clone())
     };
 
-    let values = parse_args(&args)?;
+    let values = parse_args(&args, &plugin_id, &sql)?;
     let stmt = Statement::from_sql_and_values(DbBackend::Postgres, sql, values);
 
     let mut map_guard = txn_map.lock()
