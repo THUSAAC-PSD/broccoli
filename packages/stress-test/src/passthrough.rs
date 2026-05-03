@@ -168,6 +168,7 @@ async fn run_inner(
 
     let results = fan_out(
         client.clone(),
+        config.contest_id,
         chosen.problem_id,
         request,
         config.concurrency,
@@ -233,6 +234,7 @@ pub(crate) fn build_python_echo_source(expected_output: &str) -> String {
 
 async fn fan_out(
     client: Client,
+    contest_id: i32,
     problem_id: i32,
     request: CreateSubmissionRequest,
     concurrency: u32,
@@ -253,7 +255,16 @@ async fn fan_out(
         let tx = tx.clone();
         joinset.spawn(async move {
             let _permit = permit;
-            run_one(&client, problem_id, &request, per_job_timeout, index, &tx).await
+            run_one(
+                &client,
+                contest_id,
+                problem_id,
+                &request,
+                per_job_timeout,
+                index,
+                &tx,
+            )
+            .await
         });
     }
 
@@ -274,13 +285,17 @@ async fn fan_out(
 
 async fn run_one(
     client: &Client,
+    contest_id: i32,
     problem_id: i32,
     request: &CreateSubmissionRequest,
     timeout: Duration,
     index: u32,
     tx: &mpsc::UnboundedSender<Event>,
 ) -> SubResult {
-    let submitted = match client.create_submission(problem_id, request).await {
+    let submitted = match client
+        .create_contest_submission(contest_id, problem_id, request)
+        .await
+    {
         Ok(s) => s,
         Err(e) => {
             let _ = tx.send(Event::Error {
@@ -946,7 +961,7 @@ mod tests {
             .await;
 
         Mock::given(method("POST"))
-            .and(path("/api/v1/problems/5/submissions"))
+            .and(path("/api/v1/contests/42/problems/5/submissions"))
             .respond_with(
                 ResponseTemplate::new(201).set_body_json(submission_json(700, "Pending", None)),
             )
@@ -1054,7 +1069,7 @@ mod tests {
             .await;
 
         Mock::given(method("POST"))
-            .and(path("/api/v1/problems/5/submissions"))
+            .and(path("/api/v1/contests/42/problems/5/submissions"))
             .respond_with(
                 ResponseTemplate::new(201).set_body_json(submission_json(900, "Pending", None)),
             )
@@ -1062,7 +1077,7 @@ mod tests {
             .mount(&server)
             .await;
         Mock::given(method("POST"))
-            .and(path("/api/v1/problems/5/submissions"))
+            .and(path("/api/v1/contests/42/problems/5/submissions"))
             .respond_with(
                 ResponseTemplate::new(201).set_body_json(submission_json(901, "Pending", None)),
             )
