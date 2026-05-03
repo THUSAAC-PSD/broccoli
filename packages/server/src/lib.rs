@@ -56,6 +56,7 @@ use crate::state::AppState;
         (name = "Code Runs", description = "Custom test runs (test-your-code feature)"),
         (name = "Config", description = "Server-side configuration"),
         (name = "I18n", description = "Localization resource bundles"),
+        (name = "Meta", description = "Server metadata (version, build info)"),
         (name = "Plugin Config", description = "Per-plugin configuration values keyed by scope"),
         (name = "Problem Attachments", description = "Contestant-visible files attached to a problem"),
         (name = "Roles", description = "Role and permission management"),

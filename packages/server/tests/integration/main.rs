@@ -5,6 +5,7 @@ mod code_run;
 mod common;
 mod contest;
 mod dlq;
+mod meta;
 mod plugin;
 mod plugin_config;
 mod problem;

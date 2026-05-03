@@ -8,6 +8,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
     let submission_max_size = config.submission.max_size;
 
     OpenApiRouter::new()
+        .routes(routes!(handlers::meta::get_version))
         .nest("/auth", auth_routes())
         .nest("/users", user_routes())
         .nest("/roles", role_routes())
