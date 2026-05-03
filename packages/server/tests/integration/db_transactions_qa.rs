@@ -393,3 +393,69 @@ async fn f1208_position_zero_not_one() {
         "First test case must have position 0"
     );
 }
+
+#[tokio::test]
+async fn f2731_system_error_persistence_sanitizes_null_bytes() {
+    use server::consumers::mark_submission_system_error_with_epoch;
+    use server::entity::submission;
+
+    let app = TestApp::spawn().await;
+    let admin = app
+        .create_user_with_role("admin_f2731", "password123", "admin")
+        .await;
+    let pid = app.create_problem(&admin, "F2731 Null Byte Problem").await;
+    let sub_id = app
+        .create_submission(pid, &admin, "cpp", "int main(){}")
+        .await;
+
+    let code_with_nulls = "ERR\0CODE\0HERE";
+    let msg_with_nulls = "stderr leaked \0 bytes from sandbox\0";
+
+    mark_submission_system_error_with_epoch(
+        &app.db,
+        sub_id,
+        code_with_nulls,
+        msg_with_nulls,
+        None,
+    )
+    .await
+    .expect(
+        "writing system error with embedded NULs must succeed (sanitize_text_field must replace 0x00)",
+    );
+
+    let row = submission::Entity::find_by_id(sub_id)
+        .one(&app.db)
+        .await
+        .expect("submission lookup")
+        .expect("submission exists");
+
+    let stored_code = row.error_code.expect("error_code persisted");
+    let stored_msg = row.error_message.expect("error_message persisted");
+
+    assert!(
+        !stored_code.contains('\0'),
+        "error_code must be free of 0x00 bytes after sanitize, got {stored_code:?}"
+    );
+    assert!(
+        !stored_msg.contains('\0'),
+        "error_message must be free of 0x00 bytes after sanitize, got {stored_msg:?}"
+    );
+    assert!(
+        stored_code.contains('\u{FFFD}'),
+        "0x00 bytes must be replaced with U+FFFD, got {stored_code:?}"
+    );
+    assert!(
+        stored_msg.contains('\u{FFFD}'),
+        "0x00 bytes must be replaced with U+FFFD, got {stored_msg:?}"
+    );
+    assert_eq!(
+        stored_code,
+        code_with_nulls.replace('\0', "\u{FFFD}"),
+        "every 0x00 in code must be replaced exactly with U+FFFD"
+    );
+    assert_eq!(
+        stored_msg,
+        msg_with_nulls.replace('\0', "\u{FFFD}"),
+        "every 0x00 in message must be replaced exactly with U+FFFD"
+    );
+}
