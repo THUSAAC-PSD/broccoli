@@ -118,7 +118,13 @@ async fn main() -> anyhow::Result<()> {
 
     let drain_timeout = Duration::from_secs(30);
 
-    'outer: loop {
+    enum OpOutcome {
+        Shutdown,
+        Done,
+        Reconnect(BroccoliError),
+    }
+
+    loop {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
@@ -173,30 +179,31 @@ async fn main() -> anyhow::Result<()> {
 
         tokio::pin!(op_fut);
 
-        loop {
-            tokio::select! {
-                biased;
-                _ = wait_for_shutdown(&shutdown) => {
-                    drain_in_flight(&in_flight, drain_timeout).await;
-                    break 'outer;
-                }
-                result = &mut op_fut => {
-                    match result {
-                        Ok(()) => {
-                            info!("Operation consumer exited normally");
-                            break 'outer;
-                        }
-                        Err(e) => {
-                            error!(error = %e, "Operation MQ error, reconnecting in 5s...");
-                            tokio::select! {
-                                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                                _ = wait_for_shutdown(&shutdown) => {
-                                    drain_in_flight(&in_flight, drain_timeout).await;
-                                    break 'outer;
-                                }
-                            }
-                            break;
-                        }
+        let outcome = tokio::select! {
+            biased;
+            _ = wait_for_shutdown(&shutdown) => OpOutcome::Shutdown,
+            result = &mut op_fut => match result {
+                Ok(()) => OpOutcome::Done,
+                Err(e) => OpOutcome::Reconnect(e),
+            },
+        };
+
+        match outcome {
+            OpOutcome::Shutdown => {
+                drain_in_flight(&in_flight, drain_timeout).await;
+                break;
+            }
+            OpOutcome::Done => {
+                info!("Operation consumer exited normally");
+                break;
+            }
+            OpOutcome::Reconnect(e) => {
+                error!(error = %e, "Operation MQ error, reconnecting in 5s...");
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                    _ = wait_for_shutdown(&shutdown) => {
+                        drain_in_flight(&in_flight, drain_timeout).await;
+                        break;
                     }
                 }
             }
@@ -238,6 +245,7 @@ async fn drain_in_flight(in_flight: &InFlightCounter, timeout: Duration) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn process_message(
     message: BrokerMessage<Task>,
     worker: &Arc<Worker>,
@@ -274,12 +282,12 @@ async fn process_message(
         "Received task"
     );
 
-    if let Some(ref tc) = task.trace_context {
-        if let Some(remote_cx) = common::observability::extract_trace_context(tc) {
-            use opentelemetry::trace::TraceContextExt;
-            use tracing_opentelemetry::OpenTelemetrySpanExt;
-            tracing::Span::current().add_link(remote_cx.span().span_context().clone());
-        }
+    if let Some(ref tc) = task.trace_context
+        && let Some(remote_cx) = common::observability::extract_trace_context(tc)
+    {
+        use opentelemetry::trace::TraceContextExt;
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        tracing::Span::current().add_link(remote_cx.span().span_context().clone());
     }
 
     let task_attrs = [KeyValue::new("task_type", task.task_type.clone())];
