@@ -1,4 +1,3 @@
-
 pub mod bootstrap;
 pub mod cleanup;
 pub mod cli;
@@ -14,3 +13,4 @@ pub mod report;
 pub mod runner;
 pub mod scenarios;
 pub mod ui;
+pub mod version_check;
