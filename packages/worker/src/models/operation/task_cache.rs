@@ -28,9 +28,13 @@ impl DatabaseTaskCacheStore {
         let mut create_stmt = schema.create_table_from_entity(task_cache::Entity);
         create_stmt.if_not_exists();
 
-        db.execute(&create_stmt)
-            .await
-            .map_err(|e| format!("Failed to ensure task_cache table: {e}"))?;
+        if let Err(e) = db.execute(&create_stmt).await {
+            if common::storage::database::is_concurrent_create_race(&e) {
+                tracing::debug!(error = %e, "concurrent task_cache create race; treating as success");
+                return Ok(());
+            }
+            return Err(format!("Failed to ensure task_cache table: {e}"));
+        }
         Ok(())
     }
 }
