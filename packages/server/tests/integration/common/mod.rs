@@ -37,6 +37,65 @@ static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 static CREATE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+/// Dedicated multi-thread runtime that owns the shared admin DB connection.
+///
+/// `#[tokio::test]` spins up a fresh current-thread runtime per test and tears
+/// it down at exit; a sqlx pool stored in a `OnceCell` would be tied to the
+/// first test's runtime and become invalid for the rest. By housing the pool
+/// inside a long-lived dedicated runtime and dispatching `CREATE DATABASE`
+/// onto it via `Handle::spawn`, the pool outlives every individual test.
+static ADMIN_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+static SHARED_ADMIN_CONN: OnceLock<DatabaseConnection> = OnceLock::new();
+
+fn admin_runtime() -> &'static tokio::runtime::Handle {
+    ADMIN_RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("integration-admin")
+                .build()
+                .expect("Failed to build admin runtime")
+        })
+        .handle()
+}
+
+async fn create_test_database(db_name: &str) {
+    let port = shared_pg_port().await;
+    let handle = admin_runtime().clone();
+    let db_name = db_name.to_string();
+
+    handle
+        .spawn(async move {
+            if SHARED_ADMIN_CONN.get().is_none() {
+                let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+                let mut admin_opts = ConnectOptions::new(&admin_url);
+                admin_opts
+                    .max_connections(1)
+                    .min_connections(1)
+                    .acquire_timeout(std::time::Duration::from_secs(60))
+                    .idle_timeout(std::time::Duration::from_secs(600));
+                let conn = Database::connect(admin_opts)
+                    .await
+                    .expect("Failed to initialize shared admin database pool");
+                let _ = SHARED_ADMIN_CONN.set(conn);
+            }
+
+            let admin = SHARED_ADMIN_CONN
+                .get()
+                .expect("shared admin connection must be initialized");
+            admin
+                .execute_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    format!("CREATE DATABASE \"{db_name}\" TEMPLATE template_test"),
+                ))
+                .await
+                .expect("Failed to create test database from template");
+        })
+        .await
+        .expect("admin runtime task panicked");
+}
+
 static CONTAINER_ID: OnceLock<String> = OnceLock::new();
 
 extern "C" fn cleanup_container() {
@@ -397,22 +456,7 @@ impl TestApp {
 
         let _lock = CREATE_DB_LOCK.get_or_init(|| Mutex::new(())).lock().await;
 
-        let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
-        let mut admin_opts = ConnectOptions::new(&admin_url);
-        admin_opts.max_connections(1).min_connections(0);
-        let admin_conn = Database::connect(admin_opts)
-            .await
-            .expect("Failed to connect to admin database");
-
-        admin_conn
-            .execute_raw(Statement::from_string(
-                DbBackend::Postgres,
-                format!("CREATE DATABASE \"{db_name}\" TEMPLATE template_test"),
-            ))
-            .await
-            .expect("Failed to create test database from template");
-
-        admin_conn.close().await.ok();
+        create_test_database(&db_name).await;
 
         drop(_lock);
 
