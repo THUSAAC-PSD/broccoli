@@ -244,9 +244,12 @@ fn render_verdict_strip(frame: &mut Frame, area: Rect, state: &AppState, theme: 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-pub fn render_event_log(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
-    let title = if state.log_paused {
-        "EVENT LOG paused"
+pub fn render_event_log(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) {
+    let paused = state.is_log_paused();
+    let title_owned;
+    let title: &str = if paused {
+        title_owned = format!("EVENT LOG paused  scroll {}", state.log_scroll_offset);
+        &title_owned
     } else {
         "EVENT LOG"
     };
@@ -259,13 +262,17 @@ pub fn render_event_log(frame: &mut Frame, area: Rect, state: &AppState, theme: 
     }
 
     let visible = inner.height as usize;
-    let total = state.event_log.len();
-    let scroll = state.log_scroll_offset.min(total.saturating_sub(visible));
+    state.last_log_visible = visible;
+
+    let total = state.view_log().len();
+    let max_scroll = total.saturating_sub(visible);
+    let scroll = state.log_scroll_offset.min(max_scroll);
+    state.log_scroll_offset = scroll;
     let start = total.saturating_sub(visible + scroll);
     let end = total.saturating_sub(scroll);
 
     let rows: Vec<Row> = state
-        .event_log
+        .view_log()
         .iter()
         .skip(start)
         .take(end - start)
@@ -296,7 +303,7 @@ pub fn render_event_log(frame: &mut Frame, area: Rect, state: &AppState, theme: 
     frame.render_widget(table, inner);
 }
 
-pub fn render_dashboard(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+pub fn render_dashboard(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) {
     let header = format!(
         " BROCCOLI STRESS TEST  {}  {} ",
         state.target_url,
@@ -322,7 +329,12 @@ pub fn render_dashboard(frame: &mut Frame, area: Rect, state: &AppState, theme: 
     render_verdict_strip(frame, r_verdicts, state, theme);
     render_event_log(frame, r_log, state, theme);
 
-    let footer = Paragraph::new(" [q] quit  [p] pause  [up/down] scroll log")
-        .style(Style::default().fg(theme.color(ColorToken::Dim)));
+    let footer_text = if state.is_log_paused() {
+        " [q] quit  [p/End] resume  [↑/↓] line  [PgUp/PgDn] page  [Home] oldest"
+    } else {
+        " [q] quit  [p] pause  [↑/↓ or PgUp/PgDn] scroll (auto-pauses)  [Home] oldest  [End] follow"
+    };
+    let footer =
+        Paragraph::new(footer_text).style(Style::default().fg(theme.color(ColorToken::Dim)));
     frame.render_widget(footer, r_footer);
 }
