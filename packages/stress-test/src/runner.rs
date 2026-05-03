@@ -13,6 +13,41 @@ use crate::report::{
     CorrectnessSummary, DlqDelta, LoadSummary, PassthroughSummary, RunSummary, format_summary,
 };
 use crate::scenarios::SCENARIOS;
+use crate::version_check::{ServerVersion, VersionCheck, compare, warning_message};
+
+async fn perform_version_check(base_url: &str) {
+    let url = format!("{}/api/v1/version", base_url.trim_end_matches('/'));
+    let resp = match reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "warning: could not reach {url} for version handshake: {e} \
+                 (continuing without check)"
+            );
+            return;
+        }
+    };
+
+    let server_version = match resp.json::<ServerVersion>().await {
+        Ok(v) => v.version,
+        Err(e) => {
+            eprintln!("warning: could not parse /api/v1/version response: {e}");
+            return;
+        }
+    };
+
+    let cli_version = env!("CARGO_PKG_VERSION");
+    if let VersionCheck::Mismatch { server, cli } = compare(cli_version, &server_version) {
+        eprintln!("{}", warning_message(base_url, &server, &cli));
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+}
 
 type SharedState = Arc<AsyncMutex<Option<BootstrapState>>>;
 
@@ -104,6 +139,10 @@ pub async fn run(cli: Cli) -> u8 {
         let _ = writeln!(io::stderr(), "stress-test: tracing log -> {}", p.display());
     }
     install_tracing(&log_target);
+
+    if !cli.no_version_check {
+        perform_version_check(&cli.url).await;
+    }
 
     let creds = build_creds(&cli);
     let client = match Client::new(cli.url.clone(), creds).await {
