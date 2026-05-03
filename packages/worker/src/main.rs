@@ -1,6 +1,7 @@
 mod config;
 mod dedup;
 mod error;
+mod heartbeat;
 mod models;
 
 use anyhow::Context;
@@ -19,6 +20,7 @@ use tracing::{error, info, warn};
 
 use crate::dedup::RedisTaskDedup;
 use crate::error::WorkerError;
+use crate::heartbeat::{HeartbeatConfig, InFlightCounter};
 use crate::models::worker::Worker;
 
 #[tokio::main]
@@ -68,6 +70,17 @@ async fn main() -> anyhow::Result<()> {
     let mq_for_handler = Arc::clone(&mq);
     let worker = Arc::new(Worker::new(metrics.clone()).await);
 
+    let in_flight = InFlightCounter::new();
+    let mut heartbeat = heartbeat::spawn(
+        HeartbeatConfig {
+            redis_url: config.mq.url.clone(),
+            worker_id: config.worker.id.clone(),
+            sandbox_backend: config.worker.sandbox_backend.clone(),
+            max_concurrency: None,
+        },
+        in_flight.clone(),
+    );
+
     let retry_tracker = Arc::new(Mutex::new(RetryTracker::new(dlq_config.max_retries)));
 
     let _cleanup_handle = spawn_cleanup_task(
@@ -84,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         let retry_tracker = Arc::clone(&retry_tracker);
         let dedup = dedup.clone();
         let metrics = metrics.clone();
+        let in_flight = in_flight.clone();
 
         let op_fut = mq.process_messages(
             &config.mq.operation_queue_name,
@@ -97,7 +111,9 @@ async fn main() -> anyhow::Result<()> {
                 let retry_tracker = Arc::clone(&retry_tracker);
                 let dedup = dedup.clone();
                 let metrics = metrics.clone();
+                let in_flight = in_flight.clone();
                 async move {
+                    let _guard = in_flight.guard();
                     process_message(
                         message,
                         &worker,
@@ -122,12 +138,16 @@ async fn main() -> anyhow::Result<()> {
                     }
                     Err(e) => {
                         error!(error = %e, "Operation MQ error, reconnecting in 5s...");
-                        tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                        let interrupted = tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(5)) => false,
                             _ = tokio::signal::ctrl_c() => {
                                 info!("Shutdown signal received during reconnect wait");
-                                return Ok(());
+                                true
                             }
+                        };
+                        if interrupted {
+                            heartbeat.shutdown().await;
+                            return Ok(());
                         }
                         false
                     }
@@ -144,6 +164,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    heartbeat.shutdown().await;
     info!("Worker stopped");
     Ok(())
 }
