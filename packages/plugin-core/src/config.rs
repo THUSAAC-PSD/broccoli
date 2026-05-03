@@ -7,10 +7,16 @@ pub struct PluginConfig {
     pub enable_wasi: bool,
     #[serde(default = "default_call_timeout")]
     pub call_timeout_secs: u64,
+    #[serde(default = "default_pool_max_instances")]
+    pub pool_max_instances: usize,
 }
 
 fn default_call_timeout() -> u64 {
     300
+}
+
+fn default_pool_max_instances() -> usize {
+    32
 }
 
 impl Default for PluginConfig {
@@ -19,6 +25,7 @@ impl Default for PluginConfig {
             plugins_dir: PathBuf::from("./plugins"),
             enable_wasi: true,
             call_timeout_secs: default_call_timeout(),
+            pool_max_instances: default_pool_max_instances(),
         }
     }
 }

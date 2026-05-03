@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use extism::{Manifest, PluginBuilder, Pool, Wasm};
+use extism::{Manifest, PluginBuilder, PoolBuilder, Wasm};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -102,12 +102,15 @@ pub trait PluginManager: Send + Sync {
             let manifest = Manifest::new([Wasm::file(&wasm_path)]);
             let host_functions = self.get_host_functions().resolve(plugin_id, &permissions);
             let wasi = self.get_config().enable_wasi;
-            let pool = Pool::new(move || {
-                PluginBuilder::new(&manifest)
-                    .with_wasi(wasi)
-                    .with_functions(host_functions.clone())
-                    .build()
-            });
+            let max_instances = self.get_config().pool_max_instances;
+            let pool = PoolBuilder::new()
+                .with_max_instances(max_instances)
+                .build(move || {
+                    PluginBuilder::new(&manifest)
+                        .with_wasi(wasi)
+                        .with_functions(host_functions.clone())
+                        .build()
+                });
 
             runtime = Some(pool);
         }
