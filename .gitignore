@@ -25,3 +25,7 @@ config/config.toml
 
 .github/
 !.github/workflows/
+
+# Embedded stress-test binaries (fetched at build time, not committed)
+packages/server/embedded/stress-test/*
+!packages/server/embedded/stress-test/.gitkeep

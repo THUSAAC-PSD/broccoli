@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
@@ -27,5 +28,37 @@ fn main() {
         println!("cargo:rerun-if-changed={git_dir}/HEAD");
         println!("cargo:rerun-if-changed={git_dir}/packed-refs");
         println!("cargo:rerun-if-changed={git_dir}/refs");
+    }
+
+    if std::env::var("CARGO_FEATURE_BUNDLED_STRESS_TEST").is_ok() {
+        check_embedded_binaries();
+    }
+}
+
+fn check_embedded_binaries() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("embedded")
+        .join("stress-test");
+
+    let required = [
+        "linux-x86_64",
+        "linux-aarch64",
+        "windows-x86_64.exe",
+        "macos-universal",
+        "manifest.json",
+    ];
+
+    for name in required {
+        let path = dir.join(name);
+        if !path.exists() {
+            eprintln!(
+                "\nerror: feature `bundled-stress-test` requires {} to exist.\n\
+                 Run scripts/fetch-stress-test-binaries.sh <version> to fetch them \
+                 from GitHub Releases, or unset the feature.\n",
+                path.display()
+            );
+            std::process::exit(1);
+        }
+        println!("cargo:rerun-if-changed={}", path.display());
     }
 }
