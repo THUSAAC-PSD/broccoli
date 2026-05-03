@@ -1,4 +1,3 @@
-
 pub const SOLUTION_AB_CPP_AC: &str = include_str!("../fixtures/solutions/ab_cpp_ac.cpp");
 pub const SOLUTION_AB_CPP_WA: &str = include_str!("../fixtures/solutions/ab_cpp_wa.cpp");
 pub const SOLUTION_AB_CPP_TLE: &str = include_str!("../fixtures/solutions/ab_cpp_tle.cpp");
