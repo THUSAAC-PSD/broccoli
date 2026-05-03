@@ -450,7 +450,7 @@ mod contest_participants {
 
         assert_eq!(res.status, 200);
         let items = res.body.as_array().unwrap();
-        assert!(items.len() >= 1);
+        assert!(!items.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]

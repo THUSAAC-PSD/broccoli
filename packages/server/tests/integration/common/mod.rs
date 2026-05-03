@@ -928,27 +928,6 @@ impl TestApp {
             .expect("Login response should contain a token")
             .to_string()
     }
-
-    /// Upload test cases via ZIP file.
-    pub async fn upload_test_cases(
-        &self,
-        path: &str,
-        token: &str,
-        zip_data: Vec<u8>,
-        input_format: &str,
-        output_format: &str,
-    ) -> TestResponse {
-        self.upload_with_token(
-            path,
-            "test_cases.zip",
-            zip_data,
-            Some(input_format),
-            Some(output_format),
-            Some("abort"),
-            token,
-        )
-        .await
-    }
 }
 
 impl TestResponse {

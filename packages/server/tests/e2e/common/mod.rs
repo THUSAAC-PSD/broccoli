@@ -263,10 +263,10 @@ impl E2eTestApp {
         let health_url = format!("{base_url}/api-docs/openapi.json");
         let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
         loop {
-            if let Ok(res) = client.get(&health_url).send().await {
-                if res.status().is_success() {
-                    break;
-                }
+            if let Ok(res) = client.get(&health_url).send().await
+                && res.status().is_success()
+            {
+                break;
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
