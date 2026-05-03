@@ -55,6 +55,21 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let redis_client = if app_config.mq.enabled {
+        match redis::Client::open(app_config.mq.url.as_str()) {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) => {
+                warn!(
+                    "Redis admin client init failed, /admin/system endpoints will degrade: {}",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     if let Some(ref mq_arc) = mq {
         let op_dlq_consumer_db = db.clone();
         let op_dlq_consumer_mq = Arc::clone(mq_arc);
@@ -186,6 +201,7 @@ async fn main() -> anyhow::Result<()> {
         db: db.clone(),
         config: app_config.clone(),
         mq: mq.clone(),
+        redis_client,
         blob_store,
         registries: server::state::RegistryState {
             contest_type_registry: contest_type_registry.clone(),

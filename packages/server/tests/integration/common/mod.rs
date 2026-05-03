@@ -516,6 +516,7 @@ impl TestApp {
             db: db.clone(),
             config: app_config,
             mq: None,
+            redis_client: None,
             blob_store,
             registries: server::state::RegistryState {
                 contest_type_registry,

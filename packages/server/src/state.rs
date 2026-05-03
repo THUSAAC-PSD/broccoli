@@ -42,6 +42,7 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub config: AppConfig,
     pub mq: Option<Arc<MqQueue>>,
+    pub redis_client: Option<Arc<redis::Client>>,
     pub blob_store: Arc<dyn BlobStore>,
     pub registries: RegistryState,
     pub device_codes: DeviceCodeStore,
