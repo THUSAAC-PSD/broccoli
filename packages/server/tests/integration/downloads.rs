@@ -101,3 +101,26 @@ async fn manifest_rewrites_urls_to_relative_server_paths() {
         "manifest leaked github URL: {url}"
     );
 }
+
+#[tokio::test]
+async fn discovery_page_renders_with_all_platforms() {
+    let app = TestApp::spawn().await;
+    let resp = app.get_without_token("/downloads").await;
+    assert_eq!(resp.status, 200);
+    assert_eq!(
+        resp.headers.get("content-type").unwrap(),
+        "text/html; charset=utf-8"
+    );
+    for platform in [
+        "linux-x86_64",
+        "linux-aarch64",
+        "windows-x86_64",
+        "macos-universal",
+    ] {
+        assert!(
+            resp.text.contains(platform),
+            "discovery page missing {platform}"
+        );
+    }
+    assert!(resp.text.to_lowercase().contains("stress"));
+}
