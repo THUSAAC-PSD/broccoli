@@ -146,20 +146,18 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
             .call::<_, serde_json::Value>(&self.plugin_id, &self.function_name, &event.payload)
             .await
         {
-            Ok(response_value) => {
-                match serde_json::from_value::<HookResponse>(response_value) {
-                    Ok(hook_response) => Ok(hook_response.into_hook_action(&event.topic)),
-                    Err(e) => {
-                        tracing::warn!(
-                            plugin_id = %self.plugin_id,
-                            function = %self.function_name,
-                            "Hook returned unparseable response, treating as pass: {e}",
-                        );
+            Ok(response_value) => match serde_json::from_value::<HookResponse>(response_value) {
+                Ok(hook_response) => Ok(hook_response.into_hook_action(&event.topic)),
+                Err(e) => {
+                    tracing::warn!(
+                        plugin_id = %self.plugin_id,
+                        function = %self.function_name,
+                        "Hook returned unparseable response, treating as pass: {e}",
+                    );
 
-                        Ok(GenericHookAction::Pass)
-                    }
+                    Ok(GenericHookAction::Pass)
                 }
-            }
+            },
             Err(e) => {
                 tracing::error!(
                     plugin_id = %self.plugin_id,

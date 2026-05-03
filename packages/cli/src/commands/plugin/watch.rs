@@ -208,11 +208,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                 for path in event.paths {
                     let relative = path.strip_prefix(&plugin_dir).unwrap_or(&path);
 
-                    if dev_config::should_ignore(
-                        relative,
-                        &dev.extra_ignores,
-                        None,
-                    ) {
+                    if dev_config::should_ignore(relative, &dev.extra_ignores, None) {
                         continue;
                     }
 

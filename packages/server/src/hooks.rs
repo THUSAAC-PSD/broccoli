@@ -147,26 +147,23 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
         let pri = scope_priority(&r.scope);
 
         best.entry(pid)
-            .and_modify(|(cur_pri, enabled, pos)| {
-                match pri.cmp(cur_pri) {
-                    std::cmp::Ordering::Greater => {
-                        *cur_pri = pri;
-                        if r.enabled.is_some() {
-                            *enabled = r.enabled;
-                        }
-                        *pos = r.position;
+            .and_modify(|(cur_pri, enabled, pos)| match pri.cmp(cur_pri) {
+                std::cmp::Ordering::Greater => {
+                    *cur_pri = pri;
+                    if r.enabled.is_some() {
+                        *enabled = r.enabled;
                     }
-                    std::cmp::Ordering::Equal => {
-                        *enabled = match (*enabled, r.enabled) {
-                            (Some(true), _) | (_, Some(true)) => Some(true),
-                            (Some(false), _) | (_, Some(false)) => Some(false),
-                            _ => *enabled,
-                        };
-                        *pos = (*pos).min(r.position);
-                    }
-                    std::cmp::Ordering::Less => {
-                    }
+                    *pos = r.position;
                 }
+                std::cmp::Ordering::Equal => {
+                    *enabled = match (*enabled, r.enabled) {
+                        (Some(true), _) | (_, Some(true)) => Some(true),
+                        (Some(false), _) | (_, Some(false)) => Some(false),
+                        _ => *enabled,
+                    };
+                    *pos = (*pos).min(r.position);
+                }
+                std::cmp::Ordering::Less => {}
             })
             .or_insert((pri, r.enabled, r.position));
     }
