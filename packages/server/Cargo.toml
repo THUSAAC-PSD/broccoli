@@ -56,6 +56,7 @@ hex.workspace = true
 axum_typed_multipart.workspace = true
 axum-extra = { workspace = true, features = ["cookie"] }
 lru = "0.16.3"
+redis = { version = "1.0", features = ["tokio-comp"] }
 
 [dev-dependencies]
 async-trait.workspace = true

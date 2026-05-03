@@ -75,6 +75,14 @@ fn admin_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::admin::reload_all_plugins))
         .merge(upload)
         .nest("/plugins/{id}/config", plugin_global_config_routes())
+        .nest("/system", system_routes())
+}
+
+fn system_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(handlers::system::list_workers))
+        .routes(routes!(handlers::system::list_queues))
+        .routes(routes!(handlers::system::system_overview))
 }
 
 fn plugin_global_config_routes() -> OpenApiRouter<AppState> {
