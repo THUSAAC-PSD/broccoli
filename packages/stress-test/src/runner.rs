@@ -105,8 +105,13 @@ pub async fn run(cli: Cli) -> u8 {
 
     if !cli.skip_correctness {
         let timeout = Duration::from_secs(cli.per_job_timeout);
-        let ok = crate::correctness::run(&client, &state, SCENARIOS, timeout, &tx).await;
-        summary.correctness = Some(build_correctness_summary(SCENARIOS.len(), ok));
+        let outcome = crate::correctness::run(&client, &state, SCENARIOS, timeout, &tx).await;
+        let ok = outcome.is_ok();
+        summary.correctness = Some(CorrectnessSummary {
+            total: outcome.total,
+            passed: outcome.passed,
+            failed_scenarios: outcome.failed_scenarios,
+        });
         if !ok {
             overall_exit = exit_code::CORRECTNESS_FAIL;
         }
@@ -218,18 +223,6 @@ fn passthrough_summary_from_outcome(
                 count: *count,
             }
         }
-    }
-}
-
-fn build_correctness_summary(total: usize, all_ok: bool) -> CorrectnessSummary {
-    CorrectnessSummary {
-        total,
-        passed: if all_ok { total } else { total - 1 },
-        failed_scenarios: if all_ok {
-            vec![]
-        } else {
-            vec!["(see event log)".into()]
-        },
     }
 }
 

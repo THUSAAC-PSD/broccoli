@@ -16,18 +16,32 @@ use crate::scenarios::Scenario;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorrectnessOutcome {
+    pub total: usize,
+    pub passed: usize,
+    pub failed_scenarios: Vec<String>,
+}
+
+impl CorrectnessOutcome {
+    pub fn is_ok(&self) -> bool {
+        self.failed_scenarios.is_empty()
+    }
+}
+
 pub async fn run(
     client: &Client,
     state: &BootstrapState,
     scenarios: &[Scenario],
     per_job_timeout: Duration,
     tx: &mpsc::UnboundedSender<Event>,
-) -> bool {
+) -> CorrectnessOutcome {
     let _ = tx.send(Event::PhaseStarted {
         phase: Phase::Correctness,
     });
 
-    let mut overall_ok = true;
+    let mut passed: usize = 0;
+    let mut failed_scenarios: Vec<String> = Vec::new();
 
     for scenario in scenarios {
         let _ = tx.send(Event::ScenarioStarted {
@@ -37,17 +51,25 @@ pub async fn run(
 
         let scenario_ok = run_scenario(client, state, scenario, per_job_timeout, started, tx).await;
 
-        if !scenario_ok {
-            overall_ok = false;
+        if scenario_ok {
+            passed += 1;
+        } else {
+            failed_scenarios.push(scenario.id.to_string());
             break;
         }
     }
 
+    let outcome = CorrectnessOutcome {
+        total: scenarios.len(),
+        passed,
+        failed_scenarios,
+    };
+
     let _ = tx.send(Event::PhaseFinished {
         phase: Phase::Correctness,
-        ok: overall_ok,
+        ok: outcome.is_ok(),
     });
-    overall_ok
+    outcome
 }
 
 async fn run_scenario(
@@ -380,10 +402,13 @@ mod tests {
         mount_per_scenario_mocks(&server, &state, &outcomes).await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let ok = run(&client, &state, SCENARIOS, Duration::from_secs(5), &tx).await;
+        let outcome = run(&client, &state, SCENARIOS, Duration::from_secs(5), &tx).await;
         drop(tx);
 
-        assert!(ok, "all 9 scenarios should pass");
+        assert!(outcome.is_ok(), "all 9 scenarios should pass");
+        assert_eq!(outcome.total, SCENARIOS.len());
+        assert_eq!(outcome.passed, SCENARIOS.len());
+        assert!(outcome.failed_scenarios.is_empty());
 
         let events = drain(&mut rx);
         assert_eq!(events.len(), 1 + 9 * 2 + 1, "events: {:#?}", events);
@@ -435,10 +460,16 @@ mod tests {
         mount_per_scenario_mocks(&server, &state, &outcomes).await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let ok = run(&client, &state, SCENARIOS, Duration::from_secs(5), &tx).await;
+        let outcome = run(&client, &state, SCENARIOS, Duration::from_secs(5), &tx).await;
         drop(tx);
 
-        assert!(!ok, "phase must fail");
+        assert!(!outcome.is_ok(), "phase must fail");
+        assert_eq!(outcome.total, SCENARIOS.len());
+        assert_eq!(outcome.passed, 2, "first two scenarios passed before break");
+        assert_eq!(
+            outcome.failed_scenarios,
+            vec![target_scenario.id.to_string()],
+        );
 
         let events = drain(&mut rx);
 
@@ -507,7 +538,7 @@ mod tests {
             .await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let ok = run(
+        let outcome = run(
             &client,
             &state,
             std::slice::from_ref(scenario),
@@ -517,7 +548,9 @@ mod tests {
         .await;
         drop(tx);
 
-        assert!(!ok, "SystemError must always fail");
+        assert!(!outcome.is_ok(), "SystemError must always fail");
+        assert_eq!(outcome.passed, 0);
+        assert_eq!(outcome.failed_scenarios, vec![scenario.id.to_string()]);
 
         let events = drain(&mut rx);
         let finished = events
@@ -563,7 +596,7 @@ mod tests {
             .await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let ok = run(
+        let outcome = run(
             &client,
             &state,
             std::slice::from_ref(scenario),
@@ -573,7 +606,9 @@ mod tests {
         .await;
         drop(tx);
 
-        assert!(!ok, "timeout must fail the phase");
+        assert!(!outcome.is_ok(), "timeout must fail the phase");
+        assert_eq!(outcome.passed, 0);
+        assert_eq!(outcome.failed_scenarios, vec![scenario.id.to_string()]);
 
         let events = drain(&mut rx);
 
@@ -597,5 +632,31 @@ mod tests {
             )
         });
         assert!(error_seen, "must emit Error event on timeout");
+    }
+
+    #[tokio::test]
+    async fn outcome_reports_actual_failed_scenario_id() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "tok").await;
+        let state = make_state();
+
+        let target = &SCENARIOS[5];
+        let bad_verdict = if target.expected_verdict == Some(Verdict::Accepted) {
+            Verdict::WrongAnswer
+        } else {
+            Verdict::Accepted
+        };
+
+        let mut outcomes = HashMap::new();
+        outcomes.insert(target.id, (SubmissionStatus::Judged, Some(bad_verdict)));
+        mount_per_scenario_mocks(&server, &state, &outcomes).await;
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = run(&client, &state, SCENARIOS, Duration::from_secs(5), &tx).await;
+
+        assert_eq!(outcome.total, SCENARIOS.len());
+        assert_eq!(outcome.passed, 5);
+        assert_eq!(outcome.failed_scenarios, vec![target.id.to_string()]);
+        assert!(!outcome.is_ok());
     }
 }
