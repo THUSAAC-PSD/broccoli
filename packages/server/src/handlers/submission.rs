@@ -20,7 +20,7 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::hooks::{self, HookOutcome};
-use crate::models::shared::Pagination;
+use crate::models::shared::{Pagination, escape_like};
 use crate::models::submission::*;
 use crate::state::AppState;
 use crate::utils::contest::{
@@ -942,6 +942,46 @@ pub async fn list_submissions(
     }
     if let Some(status) = query.status {
         base_select = base_select.filter(submission::Column::Status.eq(status));
+    }
+    if let Some(ref raw) = query.q {
+        let escaped = escape_like(raw.trim());
+        if !escaped.is_empty() {
+            use sea_orm::prelude::Expr;
+            use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
+
+            let pattern = format!("%{}%", escaped.to_lowercase());
+            let user_subq = SeaQuery::select()
+                .column(user::Column::Id)
+                .from(user::Entity)
+                .and_where(
+                    Expr::expr(Func::lower(Expr::col(user::Column::Username)))
+                        .like(LikeExpr::new(&pattern).escape('\\')),
+                )
+                .to_owned();
+            let problem_subq = SeaQuery::select()
+                .column(problem::Column::Id)
+                .from(problem::Entity)
+                .and_where(
+                    Expr::expr(Func::lower(Expr::col(problem::Column::Title)))
+                        .like(LikeExpr::new(&pattern).escape('\\')),
+                )
+                .to_owned();
+            let contest_subq = SeaQuery::select()
+                .column(contest::Column::Id)
+                .from(contest::Entity)
+                .and_where(
+                    Expr::expr(Func::lower(Expr::col(contest::Column::Title)))
+                        .like(LikeExpr::new(&pattern).escape('\\')),
+                )
+                .to_owned();
+
+            base_select = base_select.filter(
+                Condition::any()
+                    .add(submission::Column::UserId.in_subquery(user_subq))
+                    .add(submission::Column::ProblemId.in_subquery(problem_subq))
+                    .add(submission::Column::ContestId.in_subquery(contest_subq)),
+            );
+        }
     }
 
     let total = base_select.clone().count(&state.db).await?;

@@ -61,6 +61,9 @@ pub struct SubmissionListQuery {
     #[param(example = "cpp")]
     pub language: Option<String>,
     pub status: Option<SubmissionStatus>,
+    /// Free-text search across username, problem title, and contest title (case-insensitive).
+    #[param(example = "alice")]
+    pub q: Option<String>,
     #[param(example = "created_at")]
     pub sort_by: Option<String>,
     #[param(example = "desc")]

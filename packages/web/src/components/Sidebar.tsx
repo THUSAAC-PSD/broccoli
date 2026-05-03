@@ -21,6 +21,7 @@ import {
 } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import {
+  Activity,
   BarChart3,
   ChevronUp,
   Code2,
@@ -50,9 +51,9 @@ interface MenuItem {
   requiredPermissions?: string[];
 }
 
-const allMenuItems: MenuItem[] = [
+const adminMenuItems: MenuItem[] = [
   {
-    titleKey: 'sidebar.admin',
+    titleKey: 'sidebar.dashboard',
     icon: Home,
     url: '/admin',
     requiredPermissions: [
@@ -65,7 +66,7 @@ const allMenuItems: MenuItem[] = [
   {
     titleKey: 'sidebar.users',
     icon: Users,
-    url: '/users',
+    url: '/admin/users',
     requiredPermissions: ['user:manage', 'role:manage'],
   },
   {
@@ -83,8 +84,14 @@ const allMenuItems: MenuItem[] = [
   {
     titleKey: 'sidebar.plugins',
     icon: Puzzle,
-    url: '/plugins',
+    url: '/admin/plugins',
     requiredPermissions: ['plugin:manage'],
+  },
+  {
+    titleKey: 'sidebar.allSubmissions',
+    icon: Activity,
+    url: '/admin/submissions',
+    requiredPermissions: ['submission:view_all'],
   },
   {
     titleKey: 'sidebar.system',
@@ -100,8 +107,11 @@ const allMenuItems: MenuItem[] = [
   },
 ];
 
-const getMenuItems = (permissions: string[]): MenuItem[] => {
-  return allMenuItems.filter((item) => {
+const filterByPermissions = (
+  items: MenuItem[],
+  permissions: string[],
+): MenuItem[] => {
+  return items.filter((item) => {
     if (!item.requiredPermissions) return true;
     return item.requiredPermissions.some((perm) => permissions.includes(perm));
   });
@@ -229,12 +239,44 @@ function ContestProblemsGroup() {
   );
 }
 
+function MenuGroupItems({
+  items,
+  pathname,
+  t,
+}: {
+  items: MenuItem[];
+  pathname: string;
+  t: (k: string) => string;
+}) {
+  return (
+    <>
+      {items.map((item) => {
+        const title = t(item.titleKey);
+        const active = isActivePath(pathname, item.url);
+        return (
+          <SidebarMenuItem key={item.titleKey}>
+            <SidebarMenuButton asChild isActive={active} tooltip={title}>
+              <Link to={item.url}>
+                <item.icon
+                  className={active ? 'text-sidebar-primary' : undefined}
+                />
+                <span>{title}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
+    </>
+  );
+}
+
 function PlatformGroup() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { pathname } = useLocation();
   const apiClient = useApiClient();
-  const menuItems = getMenuItems(user?.permissions || []);
+  const permissions = user?.permissions || [];
+  const adminItems = filterByPermissions(adminMenuItems, permissions);
 
   const { data: contests } = useQuery({
     queryKey: ['dashboard-contests'],
@@ -264,7 +306,9 @@ function PlatformGroup() {
   return (
     <SidebarGroup>
       {(multipleContests || havePermissions) && (
-        <SidebarGroupLabel>{t('sidebar.platform')}</SidebarGroupLabel>
+        <SidebarGroupLabel>
+          {havePermissions ? t('sidebar.admin') : t('sidebar.platform')}
+        </SidebarGroupLabel>
       )}
       <SidebarGroupContent>
         <SidebarMenu>
@@ -282,22 +326,7 @@ function PlatformGroup() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
-          {menuItems.map((item) => {
-            const title = t(item.titleKey);
-            const active = isActivePath(pathname, item.url);
-            return (
-              <SidebarMenuItem key={item.titleKey}>
-                <SidebarMenuButton asChild isActive={active} tooltip={title}>
-                  <Link to={item.url}>
-                    <item.icon
-                      className={active ? 'text-sidebar-primary' : undefined}
-                    />
-                    <span>{title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
+          <MenuGroupItems items={adminItems} pathname={pathname} t={t} />
           <Slot name="sidebar.platform.menu" as="div" />
         </SidebarMenu>
       </SidebarGroupContent>

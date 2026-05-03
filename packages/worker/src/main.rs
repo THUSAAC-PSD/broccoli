@@ -3,6 +3,7 @@ mod dedup;
 mod error;
 mod heartbeat;
 mod models;
+mod system_info;
 
 use anyhow::Context;
 use common::metrics::Metrics;
@@ -22,6 +23,7 @@ use crate::dedup::RedisTaskDedup;
 use crate::error::WorkerError;
 use crate::heartbeat::{HeartbeatConfig, InFlightCounter};
 use crate::models::worker::Worker;
+use crate::system_info::SystemInfo;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -71,12 +73,23 @@ async fn main() -> anyhow::Result<()> {
     let worker = Arc::new(Worker::new(metrics.clone()).await);
 
     let in_flight = InFlightCounter::new();
+    let system_info = SystemInfo::detect();
+    info!(
+        hostname = ?system_info.hostname,
+        ip_addresses = ?system_info.ip_addresses,
+        os = %system_info.os,
+        arch = %system_info.arch,
+        cpu_count = system_info.cpu_count,
+        pid = system_info.pid,
+        "Detected system info for heartbeat"
+    );
     let mut heartbeat = heartbeat::spawn(
         HeartbeatConfig {
             redis_url: config.mq.url.clone(),
             worker_id: config.worker.id.clone(),
             sandbox_backend: config.worker.sandbox_backend.clone(),
             max_concurrency: None,
+            system_info,
         },
         in_flight.clone(),
     );
