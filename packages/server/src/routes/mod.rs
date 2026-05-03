@@ -1,5 +1,8 @@
 mod v1;
 
+#[cfg(feature = "bundled-stress-test")]
+pub mod downloads;
+
 use utoipa::openapi::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 

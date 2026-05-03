@@ -114,7 +114,10 @@ pub fn build_router(state: AppState) -> axum::Router {
     let metrics_on_request = metrics.clone();
     let metrics_on_response = metrics;
 
-    axum::Router::new()
+    #[cfg(feature = "bundled-stress-test")]
+    let state_for_downloads = state.clone();
+
+    let app = axum::Router::new()
         .nest("/api", router)
         .route("/metrics", axum::routing::get(metrics_handler))
         .route(
@@ -123,68 +126,72 @@ pub fn build_router(state: AppState) -> axum::Router {
         )
         .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api.clone()))
-        .merge(Scalar::with_url("/scalar", api))
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(|request: &axum::http::Request<_>| {
-                    let path = request
-                        .extensions()
-                        .get::<MatchedPath>()
-                        .map(|mp| mp.as_str().to_owned())
-                        .unwrap_or_else(|| request.uri().path().to_owned());
+        .merge(Scalar::with_url("/scalar", api));
 
-                    let request_id = request
-                        .headers()
-                        .get("x-request-id")
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_owned())
-                        .unwrap_or_else(|| Uuid::now_v7().to_string());
+    #[cfg(feature = "bundled-stress-test")]
+    let app = app.merge(routes::downloads::router().with_state(state_for_downloads));
 
-                    let span = info_span!(
-                        "http_request",
-                        method = %request.method(),
-                        path,
-                        request_id,
+    app.layer(
+        TraceLayer::new_for_http()
+            .make_span_with(|request: &axum::http::Request<_>| {
+                let path = request
+                    .extensions()
+                    .get::<MatchedPath>()
+                    .map(|mp| mp.as_str().to_owned())
+                    .unwrap_or_else(|| request.uri().path().to_owned());
+
+                let request_id = request
+                    .headers()
+                    .get("x-request-id")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_owned())
+                    .unwrap_or_else(|| Uuid::now_v7().to_string());
+
+                let span = info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    path,
+                    request_id,
+                );
+
+                if request.headers().contains_key("traceparent") {
+                    use opentelemetry_http::HeaderExtractor;
+                    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+                    let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
+                        prop.extract(&HeaderExtractor(request.headers()))
+                    });
+                    let _ = span.set_parent(parent_cx);
+                }
+
+                span
+            })
+            .on_request(
+                move |_request: &axum::http::Request<_>, _span: &tracing::Span| {
+                    metrics_on_request.http_requests_in_flight.add(1, &[]);
+                },
+            )
+            .on_response(
+                move |response: &axum::http::Response<_>,
+                      latency: std::time::Duration,
+                      _span: &tracing::Span| {
+                    let attrs = [KeyValue::new(
+                        "http.response.status_code",
+                        response.status().as_u16() as i64,
+                    )];
+
+                    metrics_on_response.http_requests_in_flight.add(-1, &[]);
+                    metrics_on_response.http_requests_total.add(1, &attrs);
+                    metrics_on_response
+                        .http_request_duration
+                        .record(latency.as_secs_f64(), &attrs);
+
+                    info!(
+                        status = response.status().as_u16(),
+                        latency_ms = latency.as_millis() as u64,
+                        "response",
                     );
-
-                    if request.headers().contains_key("traceparent") {
-                        use opentelemetry_http::HeaderExtractor;
-                        use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-                        let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
-                            prop.extract(&HeaderExtractor(request.headers()))
-                        });
-                        let _ = span.set_parent(parent_cx);
-                    }
-
-                    span
-                })
-                .on_request(
-                    move |_request: &axum::http::Request<_>, _span: &tracing::Span| {
-                        metrics_on_request.http_requests_in_flight.add(1, &[]);
-                    },
-                )
-                .on_response(
-                    move |response: &axum::http::Response<_>,
-                          latency: std::time::Duration,
-                          _span: &tracing::Span| {
-                        let attrs = [KeyValue::new(
-                            "http.response.status_code",
-                            response.status().as_u16() as i64,
-                        )];
-
-                        metrics_on_response.http_requests_in_flight.add(-1, &[]);
-                        metrics_on_response.http_requests_total.add(1, &attrs);
-                        metrics_on_response
-                            .http_request_duration
-                            .record(latency.as_secs_f64(), &attrs);
-
-                        info!(
-                            status = response.status().as_u16(),
-                            latency_ms = latency.as_millis() as u64,
-                            "response",
-                        );
-                    },
-                ),
-        )
+                },
+            ),
+    )
 }
