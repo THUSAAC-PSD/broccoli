@@ -25,11 +25,13 @@ import {
   ChevronUp,
   Code2,
   Home,
+  Inbox,
   LayoutGrid,
   LogOut,
   MessageCircle,
   Presentation,
   Puzzle,
+  Server,
   Trophy,
   User,
   Users,
@@ -83,6 +85,18 @@ const allMenuItems: MenuItem[] = [
     icon: Puzzle,
     url: '/plugins',
     requiredPermissions: ['plugin:manage'],
+  },
+  {
+    titleKey: 'sidebar.system',
+    icon: Server,
+    url: '/admin/system',
+    requiredPermissions: ['system:view'],
+  },
+  {
+    titleKey: 'sidebar.dlq',
+    icon: Inbox,
+    url: '/admin/dlq',
+    requiredPermissions: ['dlq:manage'],
   },
 ];
 

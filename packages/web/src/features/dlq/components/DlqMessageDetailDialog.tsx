@@ -1,0 +1,210 @@
+import { useApiFetch } from '@broccoli/web-sdk/api';
+import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@broccoli/web-sdk/ui';
+import { useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Loader2, RotateCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+
+import { useDlqMessage } from '@/features/dlq/hooks/useDlqMessage';
+
+interface Props {
+  messageId: number | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
+  const { t } = useTranslation();
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  const open = messageId !== null;
+
+  const { data, isLoading, error } = useDlqMessage(messageId);
+
+  const [busy, setBusy] = useState<'retry' | 'delete' | null>(null);
+
+  async function handleRetry() {
+    if (!messageId) return;
+    setBusy('retry');
+    try {
+      const res = await apiFetch(`/dlq/${messageId}/retry`, { method: 'POST' });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string;
+        } | null;
+        toast.error(body?.message ?? t('dlq.detail.retryError'));
+        return;
+      }
+      toast.success(t('dlq.detail.retrySuccess'));
+      await queryClient.invalidateQueries({ queryKey: ['dlq'] });
+      onOpenChange(false);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!messageId) return;
+    if (!window.confirm(t('dlq.detail.deleteConfirm'))) return;
+    setBusy('delete');
+    try {
+      const res = await apiFetch(`/dlq/${messageId}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string;
+        } | null;
+        toast.error(body?.message ?? t('dlq.detail.deleteError'));
+        return;
+      }
+      toast.success(t('dlq.detail.deleteSuccess'));
+      await queryClient.invalidateQueries({ queryKey: ['dlq'] });
+      onOpenChange(false);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t('dlq.detail.title')}</DialogTitle>
+          <DialogDescription>{t('dlq.detail.description')}</DialogDescription>
+        </DialogHeader>
+
+        {isLoading && (
+          <div className="flex items-center justify-center py-10 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+            <p>{t('dlq.detail.loadError')}</p>
+          </div>
+        )}
+
+        {data && (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t('dlq.detail.messageId')}>
+                <span className="font-mono text-xs">{data.message_id}</span>
+              </Field>
+              <Field label={t('dlq.detail.type')}>
+                <Badge variant="outline" className="font-mono">
+                  {data.message_type}
+                </Badge>
+              </Field>
+              <Field label={t('dlq.detail.errorCode')}>
+                <span className="font-medium">{data.error_code}</span>
+              </Field>
+              <Field label={t('dlq.detail.retries')}>
+                <span className="tabular-nums">{data.retry_count}</span>
+              </Field>
+              <Field label={t('dlq.detail.firstFailedAt')}>
+                <span className="font-mono text-xs">
+                  {new Date(data.first_failed_at).toLocaleString()}
+                </span>
+              </Field>
+              <Field label={t('dlq.detail.createdAt')}>
+                <span className="font-mono text-xs">
+                  {new Date(data.created_at).toLocaleString()}
+                </span>
+              </Field>
+              {data.submission_id !== null && (
+                <Field label={t('dlq.detail.submissionId')}>
+                  <span className="font-mono text-xs">
+                    {data.submission_id}
+                  </span>
+                </Field>
+              )}
+              <Field label={t('dlq.detail.status')}>
+                {data.resolved ? (
+                  <Badge variant="secondary">{t('dlq.row.resolved')}</Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="border-destructive/50 text-destructive"
+                  >
+                    {t('dlq.row.unresolved')}
+                  </Badge>
+                )}
+              </Field>
+            </div>
+
+            <Field label={t('dlq.detail.errorMessage')}>
+              <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-2 text-xs">
+                {data.error_message}
+              </pre>
+            </Field>
+
+            <Field label={t('dlq.detail.payload')}>
+              <pre className="max-h-64 overflow-auto rounded-md border bg-muted/40 p-2 text-[11px] font-mono">
+                {JSON.stringify(data.payload, null, 2)}
+              </pre>
+            </Field>
+
+            <Field label={t('dlq.detail.retryHistory')}>
+              <pre className="max-h-48 overflow-auto rounded-md border bg-muted/40 p-2 text-[11px] font-mono">
+                {JSON.stringify(data.retry_history, null, 2)}
+              </pre>
+            </Field>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button
+            variant="outline"
+            onClick={handleDelete}
+            disabled={busy !== null || !data || data.resolved}
+          >
+            {busy === 'delete' ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-2" />
+            )}
+            {t('dlq.detail.deleteAction')}
+          </Button>
+          <Button
+            onClick={handleRetry}
+            disabled={busy !== null || !data || data.resolved}
+          >
+            {busy === 'retry' ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RotateCw className="h-4 w-4 mr-2" />
+            )}
+            {t('dlq.detail.retryAction')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="mt-1 min-w-0">{children}</div>
+    </div>
+  );
+}
