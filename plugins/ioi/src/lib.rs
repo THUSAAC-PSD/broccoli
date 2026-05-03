@@ -253,8 +253,10 @@ fn apply_feedback_filter(
 fn redact_submission_for_level(submission: &mut serde_json::Value, level: FeedbackLevel) {
     use serde_json::Value;
 
-    // List items omit the `result` field entirely; detail responses include it
-    // (possibly null). Use that to decide which shape to redact.
+    // List items omit `result`; detail responses include it (possibly null).
+    // Adding `result` to the list DTO would silently flip list rows to the
+    // detail-shape redaction path — replace this heuristic with an explicit
+    // flag if that ever happens.
     let in_list = submission.get("result").is_none();
 
     match level {
