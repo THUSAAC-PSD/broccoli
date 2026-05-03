@@ -35,7 +35,7 @@ export function useDlqList({
         );
       }
       if (messageType) search.set('message_type', messageType);
-      const res = await apiFetch(`/dlq?${search.toString()}`);
+      const res = await apiFetch(`/api/v1/dlq?${search.toString()}`);
       if (!res.ok) throw new Error(`Failed to load DLQ list (${res.status})`);
       return (await res.json()) as DlqListResponse;
     },

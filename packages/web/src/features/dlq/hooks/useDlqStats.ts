@@ -13,7 +13,7 @@ export function useDlqStats() {
     refetchInterval: REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
     queryFn: async (): Promise<DlqStats> => {
-      const res = await apiFetch('/dlq/stats');
+      const res = await apiFetch('/api/v1/dlq/stats');
       if (!res.ok) throw new Error(`Failed to load DLQ stats (${res.status})`);
       return (await res.json()) as DlqStats;
     },

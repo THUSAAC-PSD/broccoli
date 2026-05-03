@@ -36,7 +36,9 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
     if (!messageId) return;
     setBusy('retry');
     try {
-      const res = await apiFetch(`/dlq/${messageId}/retry`, { method: 'POST' });
+      const res = await apiFetch(`/api/v1/dlq/${messageId}/retry`, {
+        method: 'POST',
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string;
@@ -57,7 +59,9 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
     if (!window.confirm(t('dlq.detail.deleteConfirm'))) return;
     setBusy('delete');
     try {
-      const res = await apiFetch(`/dlq/${messageId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/dlq/${messageId}`, {
+        method: 'DELETE',
+      });
       if (!res.ok && res.status !== 204) {
         const body = (await res.json().catch(() => null)) as {
           message?: string;
