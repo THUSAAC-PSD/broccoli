@@ -32,6 +32,18 @@ export function Slot({
 
   const allSlots = getSlots(name);
 
+  // Bridge ContestSlotContext into slot props so contest-scoped plugin
+  // components (e.g. IcpcScoreboard, IoiScoreboard) can read contestId and
+  // contestType without each plugin reaching for the context themselves.
+  // Caller-supplied slotProps win on conflict.
+  const contextProps: Record<string, unknown> = contestSlotContext
+    ? {
+        contestId: contestSlotContext.contestId,
+        contestType: contestSlotContext.contestType,
+      }
+    : {};
+  const mergedSlotProps = { ...contextProps, ...slotProps };
+
   // Filter out slots that require a permission the user doesn't have.
   // Slots without a `permission` field are visible to everyone.
   // Filter out slots that target a contest_type which doesn't match the
@@ -66,7 +78,7 @@ export function Slot({
         pluginName={slot._pluginName ?? 'unknown'}
         componentName={slot.component}
       >
-        <SlotComponent {...slotProps} />
+        <SlotComponent {...mergedSlotProps} />
       </PluginErrorBoundary>
     );
   };
@@ -101,7 +113,7 @@ export function Slot({
     const WrapperComponent = components[slot.component];
     if (WrapperComponent) {
       const wrapperProps = {
-        ...slotProps,
+        ...mergedSlotProps,
         children: content,
       };
       content = (
