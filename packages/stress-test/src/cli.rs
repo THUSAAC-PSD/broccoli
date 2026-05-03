@@ -1,4 +1,3 @@
-
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -65,6 +64,10 @@ pub struct Cli {
 
     #[arg(long, default_value_t = false)]
     pub json: bool,
+
+    /// Skip the startup version handshake against the server.
+    #[arg(long, default_value_t = false)]
+    pub no_version_check: bool,
 }
 
 impl Cli {
