@@ -54,6 +54,7 @@ matchit.workspace = true
 flate2.workspace = true
 tar.workspace = true
 hex.workspace = true
+sha2 = { workspace = true }
 axum_typed_multipart.workspace = true
 axum-extra = { workspace = true, features = ["cookie"] }
 lru = "0.16.3"
