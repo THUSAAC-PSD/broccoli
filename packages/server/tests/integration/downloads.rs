@@ -61,3 +61,43 @@ async fn downloads_serves_sha256_file() {
     assert!(resp.text.contains("broccoli-stress-test-linux-x86_64"));
     assert_eq!(resp.text.split_whitespace().next().unwrap().len(), 64);
 }
+
+#[tokio::test]
+async fn manifest_endpoint_returns_json_with_all_platforms() {
+    let app = TestApp::spawn().await;
+    let resp = app.get_without_token("/downloads/manifest.json").await;
+    assert_eq!(resp.status, 200);
+    let platforms = resp
+        .body
+        .get("platforms")
+        .and_then(|p| p.as_object())
+        .unwrap();
+    for key in [
+        "linux-x86_64",
+        "linux-aarch64",
+        "windows-x86_64",
+        "macos-universal",
+    ] {
+        assert!(
+            platforms.get(key).is_some(),
+            "manifest missing platform {key}"
+        );
+    }
+    assert!(resp.body.get("version").is_some());
+}
+
+#[tokio::test]
+async fn manifest_rewrites_urls_to_relative_server_paths() {
+    let app = TestApp::spawn().await;
+    let resp = app.get_without_token("/downloads/manifest.json").await;
+    let url = resp
+        .body
+        .pointer("/platforms/linux-x86_64/url")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    assert_eq!(url, "/downloads/stress-test/linux-x86_64", "got {url}");
+    assert!(
+        !url.contains("github.com"),
+        "manifest leaked github URL: {url}"
+    );
+}
