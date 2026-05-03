@@ -175,17 +175,9 @@ payload goes to stdout. Pipe-safe.
 
 ### Caveats
 
-- **Pre-existing admin required.** Registration cannot create one.
-- **macOS dev servers may flake the MLE scenario.** The mock sandbox doesn't
-  enforce memory limits as reliably as Linux's isolate. If you're running
-  against `cargo run -p server` on a Mac, expect the `ab-cpp-mle` scenario to
-  occasionally fail. Run against a Linux server for trustworthy results.
-- **Marathon `--total` runs.** The server's bearer JWT is short-lived (5
-  minutes; refresh tokens are 7 days). The HTTP client transparently re-logs in
-  on 401 when given username/password, so multi-minute load phases still work —
-  but this only kicks in for `--admin-username` / `--admin-password`. If you
-  supplied `--admin-token`, a 401 mid-run is fatal. Don't use `--admin-token`
-  for anything longer than a couple of minutes.
+Don't use `--admin-token` for anything longer than a couple of minutes (might
+expire before the run completes). Use `--admin-username` and `--admin-password`
+for these runs.
 
 ## For developers
 
@@ -232,23 +224,6 @@ src/
     ├── widgets.rs    # phase ladder, sparkline, latency bars, verdict chart, log table, in-flight gauge, full dashboard layout
     └── tui.rs        # alternate-screen lifecycle + tokio::select! loop on events / keys / 4 Hz tick
 ```
-
-### Tests
-
-```sh
-cargo test -p stress-test
-```
-
-154 tests cover the DTO contract, HTTP client behaviour (auth, 401 retry,
-multipart, error decoding), bootstrap sequencing, scenario validity, plain-text
-rendering, every phase runner's pass/fail/timeout/error paths (correctness +
-load + pass-through), the sample-echo Python encoder's byte-safety properties,
-the determinism / liveness aggregator, cleanup outcomes, summary formatting, TUI
-theme detection and capability fallbacks, every widget's TestBackend snapshot,
-the AppState event handler for every event variant, the TUI render loop driving
-a canned event stream to completion, and the renderer-selection matrix (json /
-non-tty / small / TTY). Wiremock drives most tests; `tokio::time::pause` keeps
-the timeout/load tests deterministic.
 
 ### Local dev workflow
 
@@ -308,17 +283,3 @@ just stress-test-portability
 ```
 
 The harness is a no-op on non-Linux build hosts (cfg-gated to compile away).
-
-## Status
-
-**Phase A (MVP):** complete. Bootstrap → correctness → load → cleanup work
-end-to-end with a plain-text event stream and PASS/FAIL summary.
-
-**Phase B (TUI):** complete. The htop-style dashboard from the design doc
-auto-activates on a TTY ≥ 80×24, with truecolor / 256 / 16 / no-color and
-Unicode / ASCII fallbacks driven by env-var detection. Plain renderer remains
-the fallback for piped output and small terminals; `--json` short-circuits both.
-
-**Phase C (polish):** complete. Cleanup, pass-through, the versioned `--json`
-schema, the TUI, the musl cross-build recipes (`just stress-test-all`), the
-Linux-only portability harness, and the real-server e2e test are all in.
