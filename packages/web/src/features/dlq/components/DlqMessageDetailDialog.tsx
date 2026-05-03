@@ -166,6 +166,12 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
           </div>
         )}
 
+        {data && !data.resolved && data.message_type !== 'stuck_submission' && (
+          <p className="text-xs text-muted-foreground">
+            {t('dlq.detail.retryUnsupported')}
+          </p>
+        )}
+
         <DialogFooter className="gap-2 sm:gap-2">
           <Button
             variant="outline"
@@ -181,7 +187,12 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
           </Button>
           <Button
             onClick={handleRetry}
-            disabled={busy !== null || !data || data.resolved}
+            disabled={
+              busy !== null ||
+              !data ||
+              data.resolved ||
+              data.message_type !== 'stuck_submission'
+            }
           >
             {busy === 'retry' ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
