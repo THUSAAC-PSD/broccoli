@@ -69,3 +69,29 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  bundled-server:
+    name: Server (bundled-stress-test feature)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bundled-server
+
+      - name: Stage fixture binaries as embedded
+        run: |
+          mkdir -p packages/server/embedded/stress-test
+          cp packages/server/tests/fixtures/embedded-stress-test/* \
+             packages/server/embedded/stress-test/
+
+      - name: Build (bundled feature)
+        run: cargo build -p server --features bundled-stress-test --locked
+
+      - name: Test (bundled feature)
+        run: cargo test -p server --features bundled-stress-test --locked
