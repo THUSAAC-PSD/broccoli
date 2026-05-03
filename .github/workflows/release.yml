@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            ext: ""
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            ext: ""
+          - platform: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          - platform: macos-universal
+            runner: macos-latest
+            target: universal2-apple-darwin
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (mac universal)
+        if: matrix.platform == 'macos-universal'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install Rust toolchain (single target)
+        if: matrix.platform != 'macos-universal'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools (linux)
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.platform }}
+
+      - name: Build (non-mac)
+        if: matrix.platform != 'macos-universal'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build -p stress-test --release --locked --target "$TARGET"
+
+      - name: Build (mac, both arches + lipo)
+        if: matrix.platform == 'macos-universal'
+        run: |
+          cargo build -p stress-test --release --locked --target x86_64-apple-darwin
+          cargo build -p stress-test --release --locked --target aarch64-apple-darwin
+          mkdir -p target/universal2-apple-darwin/release
+          lipo -create \
+            target/x86_64-apple-darwin/release/broccoli-stress-test \
+            target/aarch64-apple-darwin/release/broccoli-stress-test \
+            -output target/universal2-apple-darwin/release/broccoli-stress-test
+
+      - name: Stage artifact
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+          EXT: ${{ matrix.ext }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          mkdir -p staging
+          src="target/${TARGET}/release/broccoli-stress-test${EXT}"
+          dest="staging/broccoli-stress-test-${PLATFORM}${EXT}"
+          cp "$src" "$dest"
+          if [[ "$RUNNER_OS_NAME" == "macOS" ]]; then
+            shasum -a 256 "$dest" > "$dest.sha256"
+          else
+            sha256sum "$dest" > "$dest.sha256"
+          fi
+
+      - name: Smoke test (--version)
+        if: matrix.platform == 'linux-x86_64' || matrix.platform == 'macos-universal'
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          EXT: ${{ matrix.ext }}
+        run: |
+          chmod +x "staging/broccoli-stress-test-${PLATFORM}${EXT}"
+          "./staging/broccoli-stress-test-${PLATFORM}${EXT}" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-${{ matrix.platform }}
+          path: staging/*
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Build manifest.json
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="${TAG#v}"
+          released_at="$(date -u +%FT%TZ)"
+          base_url="https://github.com/${REPO}/releases/download/${TAG}"
+          export BROCCOLI_VERSION="$version"
+          export BROCCOLI_RELEASED_AT="$released_at"
+          export BROCCOLI_BASE_URL="$base_url"
+          python3 - <<'PY' > dist/manifest.json
+          import hashlib, json, os, sys
+          version = os.environ["BROCCOLI_VERSION"]
+          released_at = os.environ["BROCCOLI_RELEASED_AT"]
+          base_url = os.environ["BROCCOLI_BASE_URL"]
+          platforms = {
+              "linux-x86_64":   "broccoli-stress-test-linux-x86_64",
+              "linux-aarch64":  "broccoli-stress-test-linux-aarch64",
+              "windows-x86_64": "broccoli-stress-test-windows-x86_64.exe",
+              "macos-universal":"broccoli-stress-test-macos-universal",
+          }
+          out = {"version": version, "released_at": released_at, "platforms": {}}
+          for key, fname in platforms.items():
+              path = os.path.join("dist", fname)
+              with open(path, "rb") as f:
+                  data = f.read()
+              out["platforms"][key] = {
+                  "url": f"{base_url}/{fname}",
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "size_bytes": len(data),
+              }
+          json.dump(out, sys.stdout, indent=2)
+          PY
+          cat dist/manifest.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/broccoli-stress-test-*
+            dist/manifest.json

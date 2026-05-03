@@ -23,8 +23,9 @@ config/config.toml
 /data
 /vendor
 
-.github/
+.github/*
 !.github/workflows/
+!.github/workflows/**
 
 # Embedded stress-test binaries (fetched at build time, not committed)
 packages/server/embedded/stress-test/*
