@@ -24,7 +24,14 @@ import { SubmissionResult } from './SubmissionResult';
 import { formatMemory } from './TestCaseRow';
 
 export interface SubmissionsTableColumn {
-  key: 'problem' | 'verdict' | 'language' | 'time' | 'memory' | 'submitted';
+  key:
+    | 'problem'
+    | 'user'
+    | 'verdict'
+    | 'language'
+    | 'time'
+    | 'memory'
+    | 'submitted';
   align?: 'left' | 'right';
 }
 
@@ -45,8 +52,19 @@ const FULL_COLUMNS: SubmissionsTableColumn[] = [
   { key: 'submitted', align: 'right' },
 ];
 
+const ADMIN_COLUMNS: SubmissionsTableColumn[] = [
+  { key: 'problem', align: 'left' },
+  { key: 'user', align: 'left' },
+  { key: 'verdict', align: 'left' },
+  { key: 'language', align: 'left' },
+  { key: 'time', align: 'right' },
+  { key: 'memory', align: 'right' },
+  { key: 'submitted', align: 'right' },
+];
+
 const COLUMN_HEADERS: Record<SubmissionsTableColumn['key'], string> = {
   problem: 'overview.problem',
+  user: 'overview.user',
   verdict: 'overview.verdict',
   language: 'overview.language',
   time: 'result.timeHeader',
@@ -226,6 +244,9 @@ SubmissionsTable.fullColumns = FULL_COLUMNS;
 /** Columns for compact/panel view (no problem title). */
 SubmissionsTable.compactColumns = DEFAULT_COLUMNS;
 
+/** Columns for admin views (adds username next to problem). */
+SubmissionsTable.adminColumns = ADMIN_COLUMNS;
+
 function SubmissionRow({
   submission,
   columns,
@@ -293,6 +314,21 @@ function SubmissionRow({
               #{submission.id}
             </span>
           )}
+        </div>
+      </td>
+    ),
+    user: () => (
+      <td key="user" className={`${px} ${py}`}>
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="font-medium truncate">{submission.username}</span>
+          <span className="text-[10px] font-mono text-muted-foreground/60">
+            #{submission.user_id}
+            {submission.contest_id != null && (
+              <span className="ml-1.5 text-muted-foreground/50">
+                · contest #{submission.contest_id}
+              </span>
+            )}
+          </span>
         </div>
       </td>
     ),

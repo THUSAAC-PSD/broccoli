@@ -5,6 +5,7 @@ export const en: Record<string, string> = {
 
   // Sidebar
   'sidebar.platform': 'Platform',
+  'sidebar.dashboard': 'Dashboard',
   'sidebar.account': 'Account',
   'sidebar.problems': 'Problems',
   'sidebar.contests': 'Contests',
@@ -63,6 +64,7 @@ export const en: Record<string, string> = {
     'Latest submissions across all contests and problems.',
   'overview.noSubmissions': 'No submissions yet.',
   'overview.problem': 'Problem',
+  'overview.user': 'User',
   'overview.language': 'Language',
   'overview.verdict': 'Verdict',
   'overview.submitted': 'Submitted',
@@ -74,6 +76,8 @@ export const en: Record<string, string> = {
   'submissions.filters.allLanguages': 'All Languages',
   'submissions.filters.allStatuses': 'All Statuses',
   'submissions.filters.search': 'Search',
+  'submissions.filters.searchPlaceholder':
+    'Search by user, problem, or contest…',
   'submissions.viewDetails': 'View Details',
   'submissions.details': 'Details',
   'submissions.selection.toggleVisible': 'Toggle selection for visible rows',
@@ -797,6 +801,10 @@ export const en: Record<string, string> = {
   'common.cancel': 'Cancel',
 
   // System / admin monitoring
+  'sidebar.allSubmissions': 'All Submissions',
+  'adminSubmissions.title': 'All Submissions',
+  'adminSubmissions.subtitle':
+    'Every submission across the platform — filter by problem, user, language, or status.',
   'sidebar.system': 'System',
   'system.title': 'System Health',
   'system.subtitle':
@@ -829,6 +837,10 @@ export const en: Record<string, string> = {
   'system.worker.minutesUptime': '{count}m',
   'system.worker.hoursUptime': '{count}h',
   'system.worker.daysUptime': '{count}d',
+  'system.worker.hostname': 'Host',
+  'system.worker.ip': 'IP',
+  'system.worker.system': 'System',
+  'system.worker.cpus': '{count} CPUs',
 
   // Dead Letter Queue
   'sidebar.dlq': 'Dead Letter Queue',

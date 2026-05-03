@@ -8,6 +8,12 @@ export interface WorkerInfo {
   max_concurrency: number | null;
   sandbox_backend: string;
   version: string;
+  hostname?: string | null;
+  ip_addresses?: string[];
+  os?: string | null;
+  arch?: string | null;
+  cpu_count?: number | null;
+  pid?: number | null;
 }
 
 export interface QueueInfo {

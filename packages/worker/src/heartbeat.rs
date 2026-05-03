@@ -11,6 +11,8 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
+use crate::system_info::SystemInfo;
+
 const KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const KEY_TTL_SECS: u64 = 15;
@@ -24,6 +26,18 @@ pub struct HeartbeatPayload {
     pub max_concurrency: Option<u32>,
     pub sandbox_backend: String,
     pub version: String,
+    #[serde(default)]
+    pub hostname: Option<String>,
+    #[serde(default)]
+    pub ip_addresses: Vec<String>,
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+    #[serde(default)]
+    pub cpu_count: Option<u32>,
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -63,6 +77,7 @@ pub struct HeartbeatConfig {
     pub worker_id: String,
     pub sandbox_backend: String,
     pub max_concurrency: Option<u32>,
+    pub system_info: SystemInfo,
 }
 
 pub struct HeartbeatHandle {
@@ -110,6 +125,12 @@ pub fn spawn(config: HeartbeatConfig, in_flight: InFlightCounter) -> HeartbeatHa
                         max_concurrency: config.max_concurrency,
                         sandbox_backend: config.sandbox_backend.clone(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
+                        hostname: config.system_info.hostname.clone(),
+                        ip_addresses: config.system_info.ip_addresses.clone(),
+                        os: Some(config.system_info.os.clone()),
+                        arch: Some(config.system_info.arch.clone()),
+                        cpu_count: Some(config.system_info.cpu_count),
+                        pid: Some(config.system_info.pid),
                     };
                     if let Err(e) = write_heartbeat(&client, &conn, &key, &payload).await {
                         warn!(error = %e, "Heartbeat write failed");
@@ -217,10 +238,38 @@ mod tests {
             max_concurrency: Some(8),
             sandbox_backend: "isolate".into(),
             version: "0.1.0".into(),
+            hostname: Some("lab-pc-01".into()),
+            ip_addresses: vec!["192.168.1.10".into()],
+            os: Some("linux".into()),
+            arch: Some("x86_64".into()),
+            cpu_count: Some(8),
+            pid: Some(4242),
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"id\":\"worker-test\""));
         assert!(json.contains("\"in_flight\":3"));
         assert!(json.contains("\"sandbox_backend\":\"isolate\""));
+        assert!(json.contains("\"hostname\":\"lab-pc-01\""));
+        assert!(json.contains("\"ip_addresses\":[\"192.168.1.10\"]"));
+        assert!(json.contains("\"os\":\"linux\""));
+    }
+
+    #[test]
+    fn payload_deserializes_legacy_without_system_fields() {
+        let legacy = r#"{
+            "id":"old-worker",
+            "started_at":"2026-05-01T00:00:00Z",
+            "last_seen":"2026-05-01T00:00:05Z",
+            "in_flight":0,
+            "max_concurrency":null,
+            "sandbox_backend":"isolate",
+            "version":"0.1.0"
+        }"#;
+        let p: HeartbeatPayload = serde_json::from_str(legacy).expect("legacy payload");
+        assert_eq!(p.id, "old-worker");
+        assert!(p.hostname.is_none());
+        assert!(p.ip_addresses.is_empty());
+        assert!(p.os.is_none());
+        assert!(p.cpu_count.is_none());
     }
 }

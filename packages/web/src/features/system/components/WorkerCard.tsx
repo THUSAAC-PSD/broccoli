@@ -1,6 +1,13 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge } from '@broccoli/web-sdk/ui';
-import { AlertTriangle, CircleDot, Cpu } from 'lucide-react';
+import {
+  AlertTriangle,
+  CircleDot,
+  Cpu,
+  MonitorSmartphone,
+  Network,
+  Server,
+} from 'lucide-react';
 
 import type { WorkerInfo } from '@/features/system/types';
 
@@ -39,6 +46,15 @@ export function WorkerCard({ worker }: Props) {
     : worker.in_flight > 0
       ? 100
       : 0;
+
+  const hasSystemInfo =
+    !!worker.hostname ||
+    !!worker.os ||
+    !!worker.arch ||
+    !!worker.cpu_count ||
+    (worker.ip_addresses && worker.ip_addresses.length > 0);
+
+  const osLabel = [worker.os, worker.arch].filter(Boolean).join(' · ');
 
   return (
     <div className="rounded-lg border bg-card p-4 transition-colors hover:bg-accent/30">
@@ -102,6 +118,63 @@ export function WorkerCard({ worker }: Props) {
           />
         </div>
       </div>
+
+      {hasSystemInfo && (
+        <div className="mt-4 grid gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+          {worker.hostname && (
+            <div className="flex items-center gap-2">
+              <Server className="h-3 w-3 shrink-0" />
+              <span className="text-muted-foreground/70 shrink-0">
+                {t('system.worker.hostname')}
+              </span>
+              <span
+                className="font-mono text-foreground truncate"
+                title={worker.hostname}
+              >
+                {worker.hostname}
+              </span>
+            </div>
+          )}
+          {worker.ip_addresses && worker.ip_addresses.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Network className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="text-muted-foreground/70 shrink-0">
+                {t('system.worker.ip')}
+              </span>
+              <div className="flex flex-wrap gap-1 min-w-0">
+                {worker.ip_addresses.map((ip) => (
+                  <span
+                    key={ip}
+                    className="font-mono text-foreground rounded bg-muted/60 px-1.5 py-0.5 text-[11px]"
+                  >
+                    {ip}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(osLabel || worker.cpu_count) && (
+            <div className="flex items-center gap-2">
+              <MonitorSmartphone className="h-3 w-3 shrink-0" />
+              <span className="text-muted-foreground/70 shrink-0">
+                {t('system.worker.system')}
+              </span>
+              <span className="text-foreground truncate">
+                {osLabel}
+                {osLabel && worker.cpu_count ? ' · ' : ''}
+                {worker.cpu_count
+                  ? t('system.worker.cpus', { count: worker.cpu_count })
+                  : ''}
+              </span>
+            </div>
+          )}
+          {worker.pid != null && (
+            <div className="text-[10px] text-muted-foreground/60 font-mono">
+              pid {worker.pid}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -195,13 +195,25 @@ export default function OverviewPage() {
           <div className="col-span-2">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-4 w-4" />
-                  {t('overview.recentSubmissions')}
-                </CardTitle>
-                <CardDescription>
-                  {t('overview.recentSubmissionsDescription')}
-                </CardDescription>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-4 w-4" />
+                      {t('overview.recentSubmissions')}
+                    </CardTitle>
+                    <CardDescription className="mt-1.5">
+                      {t('overview.recentSubmissionsDescription')}
+                    </CardDescription>
+                  </div>
+                  {user.permissions.includes('submission:view_all') && (
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link to="/admin/submissions">
+                        {t('overview.viewAll')}
+                        <ArrowRight className="ml-1 h-3 w-3" />
+                      </Link>
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {isSubmissionsLoading ? (

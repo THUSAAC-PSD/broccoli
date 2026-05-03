@@ -180,6 +180,66 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/system/overview': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Aggregated system health
+     * @description Returns workers, queue depths, in-progress submissions, and unresolved DLQ count in a single response. Requires `system:view` permission.
+     */
+    get: operations['getSystemOverview'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/system/queues': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List MQ queue depths
+     * @description Returns the current depth of each Broccoli MQ queue (operation tasks, results, DLQ). Requires `system:view` permission.
+     */
+    get: operations['listSystemQueues'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/system/workers': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List active workers
+     * @description Returns workers that have written a heartbeat to Redis within the past ~15 seconds. Requires `system:view` permission.
+     */
+    get: operations['listSystemWorkers'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/device-authorize': {
     parameters: {
       query?: never;
@@ -1604,6 +1664,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/telemetry/errors': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Report a client-side error
+     * @description Public endpoint for the web frontend to report uncaught client errors. No authentication required. Bodies are capped at 16 KiB; rate limiting is intentionally deferred (see handler docs). Always returns 204 on success.
+     */
+    post: operations['reportError'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/telemetry/vitals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Report web-vitals measurements
+     * @description Public endpoint for the web frontend to report web-vitals (LCP, CLS, INP, etc.). No authentication required. Bodies are capped at 16 KiB and at most 50 vitals are processed per request; rate limiting is intentionally deferred (see handler docs). Always returns 204 on success.
+     */
+    post: operations['reportVitals'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/users': {
     parameters: {
       query?: never;
@@ -1698,37 +1798,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /** @description Response model for listing active web plugins. */
     ActivePluginResponse: {
-      /**
-       * @description Components exposed by the plugin, where the key is the component name
-       *     and the value is the name as exported by the JS entry file.
-       */
       components: components['schemas']['ComponentMap'];
       /**
-       * @description CSS files to load alongside the JS entry point.
        * @example [
        *       "style.css"
        *     ]
        */
       css: string[];
-      /**
-       * @description Public URL to the plugin's frontend ESM entry point.
-       * @example /assets/plugin-123/index.js
-       */
+      /** @example /assets/plugin-123/index.js */
       entry: string;
-      /**
-       * @description Unique identifier for the plugin.
-       * @example plugin-123
-       */
+      /** @example plugin-123 */
       id: string;
-      /**
-       * @description Plugin name.
-       * @example An Awesome Plugin
-       */
+      /** @example An Awesome Plugin */
       name: string;
       /**
-       * @description Routes for client-side navigation.
        * @example [
        *       {
        *         "component": "MyPage",
@@ -1738,7 +1822,6 @@ export interface components {
        */
       routes: components['schemas']['WebRouteConfig'][];
       /**
-       * @description Slots for UI extension.
        * @example [
        *       {
        *         "component": "MyComponent",
@@ -1750,146 +1833,89 @@ export interface components {
        */
       slots: components['schemas']['WebSlotConfig'][];
     };
-    /** @description Request body for adding a problem to a contest. */
     AddContestProblemRequest: {
-      /**
-       * @description Short label for the problem within the contest (1-10 chars, must be unique).
-       * @example A
-       */
+      /** @example A */
       label: string;
       /**
        * Format: int32
-       * @description Display position (0-based). Auto-assigned if omitted.
        * @example 0
        */
       position?: number | null;
       /**
        * Format: int32
-       * @description ID of the problem to associate.
        * @example 1
        */
       problem_id: number;
     };
-    /** @description Request body for adding a participant to a contest (admin action). */
     AddParticipantRequest: {
       /**
        * Format: int32
-       * @description ID of the user to add.
        * @example 7
        */
       user_id: number;
     };
-    /** @description Response DTO for listing additional files. */
     AdditionalFileListResponse: {
       files: components['schemas']['AdditionalFileResponse'][];
       /** Format: int64 */
       total: number;
     };
-    /** @description Response DTO for a single additional file. */
     AdditionalFileResponse: {
-      /**
-       * @description SHA-256 content hash.
-       * @example a1b2c3d4e5f6...
-       */
+      /** @example a1b2c3d4e5f6... */
       content_hash: string;
-      /**
-       * @description MIME content type.
-       * @example text/x-c
-       */
+      /** @example text/x-c */
       content_type?: string | null;
       /** Format: date-time */
       created_at: string;
-      /**
-       * @description Original upload filename.
-       * @example grader.h
-       */
+      /** @example grader.h */
       filename: string;
-      /**
-       * @description Additional file reference ID (UUIDv7).
-       * @example 01936f0e-1234-7abc-8000-000000000002
-       */
+      /** @example 01936f0e-1234-7abc-8000-000000000002 */
       id: string;
-      /**
-       * @description Language code (e.g. "cpp", "python3").
-       * @example cpp
-       */
+      /** @example cpp */
       language: string;
-      /**
-       * @description Virtual subpath (e.g. "include/grader.h").
-       * @example include/grader.h
-       */
+      /** @example include/grader.h */
       path: string;
       /**
        * Format: int64
-       * @description Blob size in bytes.
        * @example 2048
        */
       size: number;
     };
-    /** @description Response DTO for listing attachments. */
     AttachmentListResponse: {
       attachments: components['schemas']['AttachmentResponse'][];
       /** Format: int64 */
       total: number;
     };
-    /** @description Response DTO for a single attachment. */
     AttachmentResponse: {
-      /**
-       * @description SHA-256 content hash.
-       * @example a1b2c3d4e5f6...
-       */
+      /** @example a1b2c3d4e5f6... */
       content_hash: string;
-      /**
-       * @description MIME content type.
-       * @example image/png
-       */
+      /** @example image/png */
       content_type?: string | null;
       /** Format: date-time */
       created_at: string;
-      /**
-       * @description Original upload filename.
-       * @example figure1.png
-       */
+      /** @example figure1.png */
       filename: string;
-      /**
-       * @description Attachment reference ID (UUIDv7).
-       * @example 01936f0e-1234-7abc-8000-000000000001
-       */
+      /** @example 01936f0e-1234-7abc-8000-000000000001 */
       id: string;
-      /**
-       * @description Virtual path within the problem's namespace.
-       * @example images/figure1.png
-       */
+      /** @example images/figure1.png */
       path: string;
       /**
        * Format: int64
-       * @description Blob size in bytes.
        * @example 142857
        */
       size: number;
     };
-    /** @description Request body for bulk-adding participants to a contest. */
     BulkAddParticipantsRequest: {
-      /** @description Users to create (with optional passwords) and then enroll. */
       create_users?: components['schemas']['CreateUserEntry'][];
-      /** @description Existing usernames to enroll. Missing usernames reported in `not_found`. */
       usernames?: string[];
     };
-    /** @description Response from bulk-adding participants. */
     BulkAddParticipantsResponse: {
-      /** @description Existing users successfully enrolled. */
       added: components['schemas']['BulkParticipantAdded'][];
-      /** @description Users already enrolled in the contest (skipped). */
       already_enrolled: components['schemas']['BulkParticipantAdded'][];
-      /** @description Newly created users enrolled (includes plaintext passwords). */
       created: components['schemas']['BulkParticipantCreated'][];
-      /** @description Usernames from `usernames` that were not found. */
       not_found: string[];
     };
-    /** @description Request body for bulk-deleting problems from a contest. */
     BulkDeleteContestProblemsRequest: {
       /**
-       * @description IDs of problems to remove from the contest. Max 1,000, no duplicates.
        * @example [
        *       5,
        *       7,
@@ -1898,18 +1924,12 @@ export interface components {
        */
       problem_ids: number[];
     };
-    /** @description Response from bulk-deleting contest problems. */
     BulkDeleteContestProblemsResponse: {
-      /**
-       * @description Number of problems removed from the contest.
-       * @example 3
-       */
+      /** @example 3 */
       removed: number;
     };
-    /** @description Request body for bulk delete (resolve) of DLQ messages. */
     BulkDeleteDlqRequest: {
       /**
-       * @description IDs of DLQ messages to resolve. Max 1,000.
        * @example [
        *       5,
        *       7,
@@ -1918,18 +1938,12 @@ export interface components {
        */
       message_ids: number[];
     };
-    /** @description Response from bulk delete (resolve) of DLQ messages. */
     BulkDeleteDlqResponse: {
-      /**
-       * @description Number of messages resolved.
-       * @example 3
-       */
+      /** @example 3 */
       deleted: number;
     };
-    /** @description Request body for bulk-deleting test cases. */
     BulkDeleteTestCasesRequest: {
       /**
-       * @description IDs of test cases to delete. Max 1,000, no duplicates, all must belong to the problem.
        * @example [
        *       5,
        *       7,
@@ -1938,15 +1952,10 @@ export interface components {
        */
       test_case_ids: number[];
     };
-    /** @description Response from bulk-deleting test cases. */
     BulkDeleteTestCasesResponse: {
-      /**
-       * @description Number of test cases deleted.
-       * @example 3
-       */
+      /** @example 3 */
       deleted: number;
     };
-    /** @description A participant that was enrolled from an existing user. */
     BulkParticipantAdded: {
       /**
        * Format: int32
@@ -1956,12 +1965,8 @@ export interface components {
       /** @example alice */
       username: string;
     };
-    /** @description A participant whose account was created and then enrolled. */
     BulkParticipantCreated: {
-      /**
-       * @description The plaintext password (only returned once).
-       * @example aB3$kLm9xQ2z
-       */
+      /** @example aB3$kLm9xQ2z */
       password: string;
       /**
        * Format: int32
@@ -1971,85 +1976,67 @@ export interface components {
       /** @example charlie */
       username: string;
     };
-    /** @description Request body for bulk-rejudging submissions by explicit IDs. */
     BulkRejudgeRequest: {
-      /** @description Submission IDs to rejudge. Duplicate IDs are ignored. */
       submission_ids: number[];
     };
-    /** @description Response from bulk rejudge. */
     BulkRejudgeResponse: {
-      /**
-       * @description Number of submissions queued for rejudging.
-       * @example 1234
-       */
+      /** @example 1234 */
       queued: number;
     };
-    /**
-     * @description Request body for bulk retry of DLQ messages.
-     *
-     *     Exactly one of `message_ids` or the filter fields (`message_type`/`error_code`) must be provided.
-     */
     BulkRetryDlqRequest: {
-      /** @description Filter: retry all unresolved messages with this error code. */
       error_code?: string | null;
-      /** @description Specific message IDs to retry. Max 1,000. */
       message_ids?: number[] | null;
-      /** @description Filter: retry all unresolved messages of this type. */
       message_type?: string | null;
     };
-    /** @description Response from bulk retry of DLQ messages. */
     BulkRetryDlqResponse: {
-      /** @description Errors encountered for specific messages. */
       errors: components['schemas']['BulkRetryError'][];
-      /**
-       * @description Number of messages successfully retried.
-       * @example 2
-       */
+      /** @example 2 */
       retried: number;
-      /**
-       * @description Number of messages skipped (already resolved, non-retryable, etc.).
-       * @example 1
-       */
+      /** @example 1 */
       skipped: number;
     };
-    /** @description Error encountered retrying a single DLQ message. */
     BulkRetryError: {
-      /**
-       * @description Why this message could not be retried.
-       * @example Message not found
-       */
+      /** @example Message not found */
       error: string;
       /**
        * Format: int32
-       * @description The DLQ message ID.
        * @example 7
        */
       id: number;
     };
-    /** @description A single file in the checker source. */
+    /** @description A single checker format registration entry. */
+    CheckerFormatEntry: {
+      /**
+       * @description Checker format identifier (e.g. "exact", "tokens", "testlib").
+       * @example exact
+       */
+      checker_format: string;
+      /**
+       * @description Plugin function invoked to run the checker.
+       * @example check_exact
+       */
+      function_name: string;
+      /**
+       * @description Plugin that registered this checker format.
+       * @example standard-checkers
+       */
+      plugin_id: string;
+    };
     CheckerSourceFile: {
       /**
-       * @description File content as a string.
        * @example #include "testlib.h"
        *     int main() { ... }
        */
       content: string;
-      /**
-       * @description Filename (e.g. "checker.cpp", "testlib.h").
-       * @example checker.cpp
-       */
+      /** @example checker.cpp */
       filename: string;
     };
-    /** @description Response for checker source operations. */
     CheckerSourceResponse: {
-      /** @description The checker source files, or null if none set. */
       files?: components['schemas']['CheckerSourceFile'][] | null;
     };
-    /** @description Response for listing clarifications. */
     ClarificationListResponse: {
       data: components['schemas']['ClarificationResponse'][];
     };
-    /** @description A single reply within a clarification thread. */
     ClarificationReplyResponse: {
       /**
        * Format: int32
@@ -2069,7 +2056,6 @@ export interface components {
       /** @example true */
       is_public: boolean;
     };
-    /** @description A single clarification with author names resolved. */
     ClarificationResponse: {
       /**
        * Format: int32
@@ -2100,7 +2086,6 @@ export interface components {
       recipient_name?: string | null;
       /** Format: date-time */
       replied_at?: string | null;
-      /** @description All replies in chronological order. */
       replies: components['schemas']['ClarificationReplyResponse'][];
       /** Format: int32 */
       reply_author_id?: number | null;
@@ -2108,7 +2093,6 @@ export interface components {
       reply_content?: string | null;
       /** @example false */
       reply_is_public: boolean;
-      /** @description Whether this thread is resolved. */
       resolved: boolean;
       /** Format: date-time */
       resolved_at?: string | null;
@@ -2118,62 +2102,53 @@ export interface components {
       /** Format: date-time */
       updated_at: string;
     };
-    /** @description Judge result for a code run. */
+    ClientError: {
+      /** @example TypeError: Cannot read properties of undefined */
+      message: string;
+      /** @example req-7f3c9a */
+      request_id?: string | null;
+      /** @example at fn (https://app.example.com/assets/main.js:1:42) */
+      stack?: string | null;
+      /** @example https://app.example.com/problems/1 */
+      url?: string | null;
+    };
     CodeRunJudgeResult: {
-      /** @description Compiler output (stdout/stderr). */
       compile_output?: string | null;
-      /** @description System error message (only for SystemError status). */
       error_message?: string | null;
-      /**
-       * Format: date-time
-       * @description When judging completed.
-       */
+      /** Format: date-time */
       judged_at?: string | null;
       /**
        * Format: int32
-       * @description Maximum memory used in kilobytes.
        * @example 1024
        */
       memory_used?: number | null;
       /**
        * Format: double
-       * @description Total score across all test cases (raw evaluator scores).
        * @example 2
        */
       score?: number | null;
-      /** @description Individual test case results. */
       test_case_results: components['schemas']['CodeRunResultResponse'][];
       /**
        * Format: int32
-       * @description Maximum time used in milliseconds.
        * @example 50
        */
       time_used?: number | null;
-      /**
-       * @description Execution verdict (null if compilation failed or system error).
-       * @example Accepted
-       */
+      /** @example Accepted */
       verdict?: string | null;
     };
-    /** @description Full code run details. */
     CodeRunResponse: {
       /**
        * Format: int32
-       * @description Contest ID if this is a contest code run, null otherwise.
        * @example 1
        */
       contest_id?: number | null;
-      /**
-       * @description Contest type used for dispatching.
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type: string;
       /**
        * Format: date-time
        * @example 2025-10-01T14:30:00Z
        */
       created_at: string;
-      /** @description Custom test cases provided for this run. */
       custom_test_cases: components['schemas']['CustomTestCaseInput'][];
       files: components['schemas']['SubmissionFileDto'][];
       /**
@@ -2200,42 +2175,31 @@ export interface components {
       /** @example alice */
       username: string;
     };
-    /** @description Result for a single code run test case. */
     CodeRunResultResponse: {
-      /** @description Custom checker feedback. */
       checker_output?: string | null;
-      /** @description Expected output (if provided). */
       expected_output?: string | null;
       /**
        * Format: int32
        * @example 1
        */
       id: number;
-      /** @description Test case input. */
       input?: string | null;
       /**
        * Format: int32
-       * @description Memory used in kilobytes.
        * @example 256
        */
       memory_used?: number | null;
-      /**
-       * Format: int32
-       * @description 0-based index into the code run's custom_test_cases array.
-       */
+      /** Format: int32 */
       run_index: number;
       /**
        * Format: double
        * @example 1
        */
       score: number;
-      /** @description Program stderr. */
       stderr?: string | null;
-      /** @description Program stdout. */
       stdout?: string | null;
       /**
        * Format: int32
-       * @description Time used in milliseconds.
        * @example 5
        */
       time_used?: number | null;
@@ -2251,53 +2215,32 @@ export interface components {
     ComponentMap: {
       [key: string]: string;
     };
-    /** @description Response from uploading a config blob. */
     ConfigBlobUploadResponse: {
-      /**
-       * @description SHA-256 content hash (hex).
-       * @example a1b2c3d4e5f6...
-       */
+      /** @example a1b2c3d4e5f6... */
       content_hash: string;
-      /**
-       * @description Original filename.
-       * @example manager.cpp
-       */
+      /** @example manager.cpp */
       filename: string;
       /**
        * Format: int64
-       * @description File size in bytes.
        * @example 4096
        */
       size: number;
     };
-    /** @description Config schema for a single namespace declared by a plugin. */
     ConfigSchemaResponse: {
-      /**
-       * @description Human-readable description of what this config controls.
-       * @example Testlib checker compiler settings
-       */
+      /** @example Testlib checker compiler settings */
       description?: string | null;
-      /** @description JSON Schema generated from the plugin's TOML schema definition. */
       json_schema: unknown;
-      /**
-       * @description Namespace name, e.g. "testlib".
-       * @example testlib
-       */
+      /** @example testlib */
       namespace: string;
-      /** @description Scopes where this config applies. */
       scopes: string[];
     };
-    /** @description Contest summary for list views (description omitted). */
     ContestListItem: {
       /**
        * Format: date-time
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
-      /**
-       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type?: string | null;
       /**
        * Format: date-time
@@ -2321,25 +2264,16 @@ export interface components {
       id: number;
       /** @example true */
       is_public: boolean;
-      /**
-       * @description Whether participants can see compile output during contest.
-       * @example true
-       */
+      /** @example true */
       show_compile_output: boolean;
-      /**
-       * @description Whether participants list is visible.
-       * @example true
-       */
+      /** @example true */
       show_participants_list: boolean;
       /**
        * Format: date-time
        * @example 2025-10-01T14:00:00Z
        */
       start_time: string;
-      /**
-       * @description Whether participants can see each other's submissions.
-       * @example false
-       */
+      /** @example false */
       submissions_visible: boolean;
       /** @example Weekly Contest #42 */
       title: string;
@@ -2349,22 +2283,16 @@ export interface components {
        */
       updated_at: string;
     };
-    /** @description Paginated list of contests. */
     ContestListResponse: {
       data: components['schemas']['ContestListItem'][];
       pagination: components['schemas']['Pagination'];
     };
-    /** @description A participant in a contest. */
     ContestParticipantResponse: {
       /**
        * Format: int32
        * @example 1
        */
       contest_id: number;
-      /**
-       * @description True when the user account has been soft-deleted. Front-ends should
-       *     display such users as "[Deleted User]" or similar in historical views.
-       */
       is_deleted: boolean;
       /**
        * Format: date-time
@@ -2379,7 +2307,6 @@ export interface components {
       /** @example alice_wonder */
       username: string;
     };
-    /** @description A problem associated with a contest. */
     ContestProblemResponse: {
       /**
        * Format: int32
@@ -2401,17 +2328,13 @@ export interface components {
       /** @example Two Sum */
       problem_title: string;
     };
-    /** @description Full contest details. */
     ContestResponse: {
       /**
        * Format: date-time
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
-      /**
-       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type?: string | null;
       /**
        * Format: date-time
@@ -2437,25 +2360,16 @@ export interface components {
       id: number;
       /** @example true */
       is_public: boolean;
-      /**
-       * @description Whether participants can see compile output during contest.
-       * @example true
-       */
+      /** @example true */
       show_compile_output: boolean;
-      /**
-       * @description Whether participants list is visible.
-       * @example true
-       */
+      /** @example true */
       show_participants_list: boolean;
       /**
        * Format: date-time
        * @example 2025-10-01T14:00:00Z
        */
       start_time: string;
-      /**
-       * @description Whether participants can see each other's submissions.
-       * @example false
-       */
+      /** @example false */
       submissions_visible: boolean;
       /** @example Weekly Contest #42 */
       title: string;
@@ -2465,7 +2379,34 @@ export interface components {
        */
       updated_at: string;
     };
-    /** @description Current authenticated user's context in a contest. */
+    /** @description A single contest type registration entry. */
+    ContestTypeEntry: {
+      /**
+       * @description Function name invoked for code-run / sample-run dispatch.
+       * @example on_code_run
+       */
+      code_run_fn: string;
+      /**
+       * @description Contest type identifier (e.g. "icpc", "ioi").
+       * @example icpc
+       */
+      contest_type: string;
+      /**
+       * @description Optional function invoked to filter outgoing submission DTOs for a viewer.
+       * @example filter_submission_for_viewer
+       */
+      filter_submission_fn?: string | null;
+      /**
+       * @description Plugin that registered this contest type.
+       * @example icpc
+       */
+      plugin_id: string;
+      /**
+       * @description Function name invoked on submission.
+       * @example on_submission
+       */
+      submission_fn: string;
+    };
     ContestUserContextResponse: {
       /**
        * Format: int32
@@ -2485,134 +2426,72 @@ export interface components {
        */
       user_id: number;
     };
-    /** @description Request body for creating a clarification. */
     CreateClarificationRequest: {
-      /**
-       * @description Type of clarification: `announcement`, `question`, or `direct_message`.
-       * @example question
-       */
+      /** @example question */
       clarification_type: string;
-      /**
-       * @description The clarification body (1 – 10 000 chars).
-       * @example Is the input guaranteed to be sorted?
-       */
+      /** @example Is the input guaranteed to be sorted? */
       content: string;
-      /**
-       * @description Override default visibility. Announcements are always public.
-       * @example false
-       */
+      /** @example false */
       is_public?: boolean | null;
       /**
        * Format: int32
-       * @description Target user ID (required when `clarification_type` is `direct_message`).
        * @example 7
        */
       recipient_id?: number | null;
     };
-    /** @description Request body for creating a contest. */
     CreateContestRequest: {
       /**
        * Format: date-time
-       * @description Time when the contest becomes visible and registration opens (must be before start_time,
-       *     default: never).
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
-      /**
-       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type?: string | null;
       /**
        * Format: date-time
-       * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
-       *     never).
        * @example 2025-10-02T12:00:00Z
        */
       deactivate_time?: string | null;
-      /**
-       * @description Contest description (non-empty, max 1 MB).
-       * @example Welcome to this week's programming contest.
-       */
+      /** @example Welcome to this week's programming contest. */
       description: string;
       /**
        * Format: date-time
-       * @description Contest end time (must be after start_time).
        * @example 2025-10-01T17:00:00Z
        */
       end_time: string;
-      /**
-       * @description Whether the contest is visible to all users.
-       * @example true
-       */
+      /** @example true */
       is_public: boolean;
-      /**
-       * @description Whether participants can see compile output during contest (default: true).
-       * @example true
-       */
+      /** @example true */
       show_compile_output?: boolean | null;
-      /**
-       * @description Whether participants list is visible (default: true).
-       * @example true
-       */
+      /** @example true */
       show_participants_list?: boolean | null;
       /**
        * Format: date-time
-       * @description Contest start time (must be before end_time).
        * @example 2025-10-01T14:00:00Z
        */
       start_time: string;
-      /**
-       * @description Whether participants can see each other's submissions.
-       * @example false
-       */
+      /** @example false */
       submissions_visible?: boolean | null;
-      /**
-       * @description Contest title (trimmed, 1-256 chars).
-       * @example Weekly Contest #42
-       */
+      /** @example Weekly Contest #42 */
       title: string;
     };
-    /** @description Request body for creating a problem. */
     CreateProblemRequest: {
-      /**
-       * @description Checker format for output comparison, e.g. "exact", "ignore_case", "testlib".
-       * @example exact
-       */
+      /** @example exact */
       checker_format?: string;
-      /**
-       * @description Problem statement in Markdown (non-empty, max 1 MB).
-       * @example Given an array of integers `nums` and an integer `target`...
-       */
+      /** @example Given an array of integers `nums` and an integer `target`... */
       content: string;
-      /**
-       * @description Default contest type for standalone submissions, e.g. "ioi", "icpc".
-       *     If omitted, defaults to the first registered contest type.
-       * @example ioi
-       */
+      /** @example ioi */
       default_contest_type?: string;
       /**
        * Format: int32
-       * @description Memory limit in kilobytes (1-1048576).
        * @example 262144
        */
       memory_limit: number;
-      /**
-       * @description Problem type for evaluator dispatch, e.g. "batch" or "interactive".
-       *     If omitted, defaults to the first registered evaluator type.
-       * @example batch
-       */
+      /** @example batch */
       problem_type?: string;
-      /**
-       * @description Whether contestants see full input/output for all test cases.
-       *     If omitted, defaults to false.
-       * @example false
-       */
+      /** @example false */
       show_test_details?: boolean | null;
       /**
-       * @description Expected submission file names per language.
-       *     Keys are language ids (e.g. "cpp", "java", "python3"), values are arrays of filenames.
-       *     Null or omitted means use client-side defaults.
        * @example {
        *       "cpp": [
        *         "solution.cpp"
@@ -2627,143 +2506,84 @@ export interface components {
       } | null;
       /**
        * Format: int32
-       * @description Execution time limit in milliseconds (1-30000).
        * @example 1000
        */
       time_limit: number;
-      /**
-       * @description Problem title (trimmed, 1-256 chars).
-       * @example Two Sum
-       */
+      /** @example Two Sum */
       title: string;
     };
-    /** @description Request body for creating a submission. */
     CreateSubmissionRequest: {
-      /**
-       * @description Optional contest type override for standalone submissions (e.g., "ioi", "icpc").
-       *     If omitted, uses the problem's default_contest_type.
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type?: string | null;
-      /** @description Source files. At least one file required. */
       files: components['schemas']['SubmissionFileDto'][];
-      /**
-       * @description Programming language (e.g., "cpp", "java", "python3").
-       * @example cpp
-       */
+      /** @example cpp */
       language: string;
     };
-    /** @description Request body for creating a test case. */
     CreateTestCaseRequest: {
-      /**
-       * @description Optional human-readable description (max 256 chars).
-       * @example Basic case
-       */
+      /** @example Basic case */
       description?: string | null;
-      /**
-       * @description Expected output. May be empty for custom-checker problems.
-       * @example 0 1
-       */
+      /** @example 0 1 */
       expected_output: string;
       /**
-       * @description Input data. May be empty for output-only or custom-checker problems.
        * @example 4
        *     2 7 11 15
        *     9
        */
       input: string;
-      /**
-       * @description Whether this test case is visible to contestants.
-       * @example true
-       */
+      /** @example true */
       is_sample: boolean;
-      /**
-       * @description Optional short identifier (unique within problem, max 64 chars).
-       *     Defaults to the test-case position when omitted.
-       * @example sample_01
-       */
+      /** @example sample_01 */
       label?: string | null;
       /**
        * Format: int32
-       * @description Display position (0-based). Auto-assigned if omitted.
        * @example 0
        */
       position?: number | null;
       /**
        * Format: int32
-       * @description Point value for this test case (0-10000).
        * @example 10
        */
       score: number;
     };
-    /** @description A single user to create and enroll. */
     CreateUserEntry: {
-      /**
-       * @description Password for the new user (8-128 chars). Auto-generated if omitted.
-       * @example custom_pass123
-       */
+      /** @example custom_pass123 */
       password?: string | null;
-      /**
-       * @description Username for the new user (1-32 chars, alphanumeric + underscores).
-       * @example charlie
-       */
+      /** @example charlie */
       username: string;
     };
-    /** @description A custom test case for run code requests. */
     CustomTestCaseInput: {
-      /** @description Expected output. If omitted, output is shown but not checked. */
       expected_output?: string | null;
-      /** @description Input data to feed to stdin. */
       input: string;
     };
-    /** @description Request body for authorizing a device code. */
     DeviceAuthorizeRequest: {
-      /**
-       * @description The user code displayed in the CLI (case-insensitive, hyphens optional).
-       * @example BCDF-GHJK
-       */
+      /** @example BCDF-GHJK */
       user_code: string;
     };
-    /** @description Request body for device code generation (can be empty). */
     DeviceCodeRequest: Record<string, never>;
-    /** @description Response for device code generation. */
     DeviceCodeResponse: {
-      /** @description Secret device code for polling (never shown to user). */
       device_code: string;
       /**
        * Format: int64
-       * @description Seconds until the codes expire.
        * @example 900
        */
       expires_in: number;
       /**
        * Format: int64
-       * @description Minimum polling interval in seconds.
        * @example 5
        */
       interval: number;
-      /**
-       * @description User-visible code to enter in the browser, formatted as XXXX-XXXX.
-       * @example BCDF-GHJK
-       */
+      /** @example BCDF-GHJK */
       user_code: string;
-      /**
-       * @description URL where the user should go to enter the user code.
-       * @example http://localhost:5173/auth/device
-       */
+      /** @example http://localhost:5173/auth/device */
       verification_url: string;
     };
-    /** @description Request body for polling the device token endpoint. */
     DeviceTokenRequest: {
-      /** @description The device code received from the device-code endpoint. */
       device_code: string;
     };
-    /** @description Paginated list of DLQ messages. */
     DlqListResponse: {
       data: components['schemas']['DlqMessageResponse'][];
       pagination: components['schemas']['Pagination'];
     };
-    /** @description Full DLQ message details. */
     DlqMessageDetailResponse: {
       /**
        * Format: date-time
@@ -2788,32 +2608,25 @@ export interface components {
       message_id: string;
       /** @example stuck_submission */
       message_type: string;
-      /** @description Full message payload for replay. */
       payload: unknown;
       /** @example false */
       resolved: boolean;
       /** Format: date-time */
       resolved_at?: string | null;
-      /**
-       * Format: int32
-       * @description User ID who resolved this message (null for automatic resolution).
-       */
+      /** Format: int32 */
       resolved_by?: number | null;
       /**
        * Format: int32
        * @example 3
        */
       retry_count: number;
-      /** @description Retry history: array of {attempt, error, timestamp}. */
       retry_history: unknown;
       /**
        * Format: int32
-       * @description Submission ID (null if unknown, e.g., deserialization failure).
        * @example 42
        */
       submission_id?: number | null;
     };
-    /** @description DLQ message summary for list views. */
     DlqMessageResponse: {
       /**
        * Format: date-time
@@ -2842,10 +2655,7 @@ export interface components {
       resolved: boolean;
       /** Format: date-time */
       resolved_at?: string | null;
-      /**
-       * Format: int32
-       * @description User ID who resolved this message (null for automatic resolution).
-       */
+      /** Format: int32 */
       resolved_by?: number | null;
       /**
        * Format: int32
@@ -2854,106 +2664,106 @@ export interface components {
       retry_count: number;
       /**
        * Format: int32
-       * @description Submission ID (null if unknown, e.g., deserialization failure).
        * @example 42
        */
       submission_id?: number | null;
     };
-    /** @description Response for retry action. */
     DlqRetryResponse: {
-      /**
-       * @description Status message.
-       * @example Message requeued for processing
-       */
+      /** @example Message requeued for processing */
       message: string;
     };
-    /** @description DLQ statistics. */
     DlqStatsResponse: {
       /**
        * Format: int64
-       * @description Total resolved messages.
        * @example 42
        */
       total_resolved: number;
       /**
        * Format: int64
-       * @description Total unresolved (active) messages.
        * @example 5
        */
       total_unresolved: number;
-      /** @description Unresolved count by error code. */
       unresolved_by_error_code: {
         [key: string]: number;
       };
-      /** @description Unresolved count by message type. */
       unresolved_by_message_type: components['schemas']['MessageTypeCounts'];
     };
-    /** @description Structured error response returned by all endpoints on failure. */
     ErrorBody: {
-      /**
-       * @description Machine-readable error code. One of: `VALIDATION_ERROR`, `TOKEN_MISSING`,
-       *     `TOKEN_INVALID`, `INVALID_CREDENTIALS`, `PERMISSION_DENIED`, `NOT_FOUND`,
-       *     `CONFLICT`, `USERNAME_TAKEN`, `RATE_LIMITED`, `PLUGIN_NOT_READY`,
-       *     `PLUGIN_REJECTED`, `INTERNAL_ERROR`, or a custom plugin-defined code.
-       * @example VALIDATION_ERROR
-       */
+      /** @example VALIDATION_ERROR */
       code: string;
-      /**
-       * @description Optional structured data from a plugin rejection (e.g. remaining seconds, counts).
-       *     Only present for `PluginRejection` errors.
-       */
       details?: unknown;
-      /**
-       * @description Human-readable error description.
-       * @example Title must be 1-256 characters
-       */
+      /** @example Title must be 1-256 characters */
       message: string;
     };
-    /** @description Judge result for a submission. */
-    JudgeResultResponse: {
-      /** @description Compiler output (stdout/stderr). */
-      compile_output?: string | null;
-      /** @description System error message (only for SystemError status). */
-      error_message?: string | null;
+    /** @description A single evaluator registration entry. */
+    EvaluatorEntry: {
       /**
-       * Format: date-time
-       * @description When judging completed.
+       * @description Plugin function invoked to evaluate test cases for this problem type.
+       * @example evaluate_communication
        */
+      function_name: string;
+      /**
+       * @description Plugin that registered this evaluator.
+       * @example communication-evaluator
+       */
+      plugin_id: string;
+      /**
+       * @description Problem type this evaluator handles (e.g. "batch", "communication").
+       * @example communication
+       */
+      problem_type: string;
+    };
+    /** @description A single hook registration entry. */
+    HookEntryInfo: {
+      /**
+       * @description Hook execution mode ("async", "sync", ...).
+       * @example async
+       */
+      mode: string;
+      /**
+       * @description Plugin that registered the hook.
+       * @example submission-limit
+       */
+      plugin_id: string;
+      /**
+       * @description Hook scope ("global", "contest", "problem", "user", ...).
+       * @example global
+       */
+      scope: string;
+      /**
+       * @description Event topic the hook is bound to (e.g. "submission.created").
+       * @example submission.created
+       */
+      topic: string;
+    };
+    JudgeResultResponse: {
+      compile_output?: string | null;
+      error_message?: string | null;
+      /** Format: date-time */
       judged_at?: string | null;
       /**
        * Format: int32
-       * @description Maximum memory used in kilobytes.
        * @example 1024
        */
       memory_used?: number | null;
       /**
        * Format: double
-       * @description Total score across all test cases.
        * @example 100
        */
       score?: number | null;
-      /** @description Individual test case results. */
       test_case_results: components['schemas']['TestCaseResultResponse'][];
       /**
        * Format: int32
-       * @description Maximum time used in milliseconds.
        * @example 50
        */
       time_used?: number | null;
-      /**
-       * @description Execution verdict (null if compilation failed or system error).
-       * @example Accepted
-       */
+      /** @example Accepted */
       verdict?: string | null;
     };
     LanguageRegistryItem: {
-      /**
-       * @description Default source filename derived from the language config.
-       * @example solution.cpp
-       */
+      /** @example solution.cpp */
       default_filename: string;
       /**
-       * @description File extensions this language handles (lowercase, no dot prefix).
        * @example [
        *       "cpp",
        *       "cc",
@@ -2961,285 +2771,178 @@ export interface components {
        *     ]
        */
       extensions: string[];
-      /**
-       * @description Language identifier used in submission payloads.
-       * @example cpp
-       */
+      /** @example cpp */
       id: string;
-      /**
-       * @description Human-friendly display name.
-       * @example C++
-       */
+      /** @example C++ */
       name: string;
       /**
-       * @description Starter template code shown in the editor for new files.
-       * @example #include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n
+       * @example #include <iostream>
+       *     using namespace std;
+       *
+       *     int main() {
+       *         return 0;
+       *     }
        */
       template: string;
     };
-    /** @description Request body for user login. */
     LoginRequest: {
-      /**
-       * @description Account password.
-       * @example s3cure_P@ss!
-       */
+      /** @example s3cure_P@ss! */
       password: string;
-      /**
-       * @description Username of the account to log into.
-       * @example alice_wonder
-       */
+      /** @example alice_wonder */
       username: string;
     };
-    /** @description Successful login response. */
     LoginResponse: {
       /**
        * Format: int32
-       * @description ID of the authenticated user.
        * @example 42
        */
       id: number;
       /**
-       * @description Permissions granted to the user.
        * @example [
        *       "submission:submit"
        *     ]
        */
       permissions: string[];
       /**
-       * @description User's roles
        * @example [
        *       "contestant"
        *     ]
        */
       roles: string[];
-      /**
-       * @description JWT bearer access token valid for 5 minutes.
-       * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-       */
+      /** @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... */
       token: string;
-      /**
-       * @description Authenticated user's username.
-       * @example alice_wonder
-       */
+      /** @example alice_wonder */
       username: string;
     };
-    /** @description Current authenticated user's profile. */
     MeResponse: {
       /**
        * Format: int32
-       * @description User ID.
        * @example 42
        */
       id: number;
       /**
-       * @description Permissions.
        * @example [
        *       "submission:submit"
        *     ]
        */
       permissions: string[];
       /**
-       * @description Roles.
        * @example [
        *       "contestant"
        *     ]
        */
       roles: string[];
-      /**
-       * @description Username.
-       * @example alice_wonder
-       */
+      /** @example alice_wonder */
       username: string;
     };
-    /** @description Unresolved message counts by message type. */
     MessageTypeCounts: {
       /**
        * Format: int64
-       * @description Number of unresolved operation_task messages.
        * @example 1
        */
       operation_task: number;
       /**
        * Format: int64
-       * @description Number of unresolved stuck_submission messages.
        * @example 3
        */
       stuck_submission: number;
     };
-    /** @description Pagination metadata included in list responses. */
     Pagination: {
       /**
        * Format: int64
-       * @description Current page number (1-based).
        * @example 1
        */
       page: number;
       /**
        * Format: int64
-       * @description Number of items per page.
        * @example 20
        */
       per_page: number;
       /**
        * Format: int64
-       * @description Total number of matching items across all pages.
        * @example 47
        */
       total: number;
       /**
        * Format: int64
-       * @description Total number of pages.
        * @example 3
        */
       total_pages: number;
     };
-    /** @description Request body for granting a permission to a role. */
     PermissionGrantRequest: {
-      /**
-       * @description Permission name to grant.
-       * @example manage_users
-       */
+      /** @example manage_users */
       permission: string;
     };
-    /** @description Response for a single plugin config entry. */
     PluginConfigResponse: {
-      /** @description Config JSON blob */
       config: unknown;
-      /** @description Human-readable description of what this config controls. */
       description?: string | null;
-      /** @description Whether this plugin is enabled for the given scope. */
-      enabled: boolean;
-      /** @description JSON Schema for this config namespace (from the plugin manifest). */
+      enabled?: boolean | null;
       json_schema?: unknown;
-      /**
-       * @description Plugin namespace (e.g., "checker", "ioi")
-       * @example checker
-       */
+      /** @example checker */
       namespace: string;
-      /**
-       * @description The plugin that owns this config entry.
-       * @example cooldown
-       */
+      /** @example cooldown */
       plugin_id: string;
-      /**
-       * Format: int32
-       * @description Hook execution order (lower runs first).
-       */
+      /** Format: int32 */
       position: number;
-      /**
-       * Format: date-time
-       * @description Last update timestamp. `null` when no config has been saved yet (using defaults).
-       */
+      /** Format: date-time */
       updated_at?: string | null;
     };
-    /** @description Detailed information about a plugin (used in list endpoint). */
     PluginDetailResponse: {
-      /** @description Config schemas declared by this plugin. */
       config_schemas: components['schemas']['ConfigSchemaResponse'][];
-      /**
-       * @description Plugin description.
-       * @example This plugin does awesome things!
-       */
+      /** @example This plugin does awesome things! */
       description?: string | null;
-      /**
-       * @description Indicates if the plugin has a server component.
-       * @example true
-       */
+      /** @example true */
       has_server: boolean;
-      /**
-       * @description Indicates if the plugin has a web (frontend) component.
-       * @example true
-       */
+      /** @example true */
       has_web: boolean;
-      /**
-       * @description Indicates if the plugin has a worker component.
-       * @example false
-       */
+      /** @example false */
       has_worker: boolean;
-      /**
-       * @description Unique identifier for the plugin.
-       * @example plugin-123
-       */
+      /** @example plugin-123 */
       id: string;
-      /**
-       * @description Plugin name.
-       * @example An Awesome Plugin
-       */
+      /** @example An Awesome Plugin */
       name: string;
-      /** @description Plugin status. */
       status: components['schemas']['PluginStatusResponse'];
-      /**
-       * @description Plugin version.
-       * @example 1.0.0
-       */
+      /** @example 1.0.0 */
       version: string;
     };
-    /** @description Full detailed information about a plugin including manifest data. */
     PluginFullDetailResponse: {
       /**
-       * @description Plugin description.
-       * @example This plugin does awesome things!
+       * @description Config schemas declared by this plugin (from `[server.config_schemas.<key>]`
+       *     sections in plugin.toml). Used by the admin UI to render config forms and
+       *     by the server for validation.
        */
+      config_schemas: components['schemas']['ConfigSchemaResponse'][];
+      /** @example This plugin does awesome things! */
       description?: string | null;
-      /**
-       * @description Indicates if the plugin has a server component.
-       * @example true
-       */
+      /** @example true */
       has_server: boolean;
-      /**
-       * @description Indicates if the plugin has a web (frontend) component.
-       * @example true
-       */
+      /** @example true */
       has_web: boolean;
-      /**
-       * @description Indicates if the plugin has a worker component.
-       * @example false
-       */
+      /** @example false */
       has_worker: boolean;
-      /**
-       * @description Unique identifier for the plugin.
-       * @example plugin-123
-       */
+      /** @example plugin-123 */
       id: string;
-      /**
-       * @description Plugin name.
-       * @example An Awesome Plugin
-       */
+      /** @example An Awesome Plugin */
       name: string;
       server?: null | components['schemas']['ServerDetailResponse'];
-      /** @description Plugin status. */
       status: components['schemas']['PluginStatusResponse'];
-      /** @description Available translation locales. */
       translations: string[];
-      /**
-       * @description Plugin version.
-       * @example 1.0.0
-       */
+      /** @example 1.0.0 */
       version: string;
       web?: null | components['schemas']['WebDetailResponse'];
       worker?: null | components['schemas']['WorkerDetailResponse'];
     };
-    /**
-     * @description Plugin status for API responses, abstracting away error details.
-     * @enum {string}
-     */
+    /** @enum {string} */
     PluginStatusResponse: 'Unloaded' | 'Loaded' | 'Failed';
-    /** @description Problem summary for list views (content omitted). */
     ProblemListItem: {
-      /**
-       * @description Checker format for output comparison.
-       * @example exact
-       */
+      /** @example exact */
       checker_format: string;
       /**
        * Format: date-time
        * @example 2025-09-01T08:00:00Z
        */
       created_at: string;
-      /**
-       * @description Default contest type for standalone submissions.
-       * @example ioi
-       */
+      /** @example ioi */
       default_contest_type: string;
       /**
        * Format: int32
@@ -3251,15 +2954,9 @@ export interface components {
        * @example 262144
        */
       memory_limit: number;
-      /**
-       * @description Problem type for evaluator dispatch.
-       * @example batch
-       */
+      /** @example batch */
       problem_type: string;
-      /**
-       * @description Whether contestants see full input/output for all test cases.
-       * @example false
-       */
+      /** @example false */
       show_test_details: boolean;
       /**
        * Format: int32
@@ -3274,19 +2971,13 @@ export interface components {
        */
       updated_at: string;
     };
-    /** @description Paginated list of problems. */
     ProblemListResponse: {
       data: components['schemas']['ProblemListItem'][];
       pagination: components['schemas']['Pagination'];
     };
-    /** @description Full problem details. */
     ProblemResponse: {
-      /**
-       * @description Checker format for output comparison.
-       * @example exact
-       */
+      /** @example exact */
       checker_format: string;
-      /** @description Custom checker source files (read-only, uploaded via separate endpoint). */
       checker_source?: unknown;
       /** @example Given an array of integers... */
       content: string;
@@ -3295,10 +2986,7 @@ export interface components {
        * @example 2025-09-01T08:00:00Z
        */
       created_at: string;
-      /**
-       * @description Default contest type for standalone submissions.
-       * @example ioi
-       */
+      /** @example ioi */
       default_contest_type: string;
       /**
        * Format: int32
@@ -3310,21 +2998,12 @@ export interface components {
        * @example 262144
        */
       memory_limit: number;
-      /**
-       * @description Problem type for evaluator dispatch.
-       * @example batch
-       */
+      /** @example batch */
       problem_type: string;
-      /** @description Sample test case metadata (is_sample = true). */
       samples: components['schemas']['SampleTestCaseMeta'][];
-      /**
-       * @description Whether contestants see full input/output for all test cases.
-       * @example false
-       */
+      /** @example false */
       show_test_details: boolean;
       /**
-       * @description Expected submission file names per language.
-       *     Null means use client-side defaults.
        * @example {
        *       "cpp": [
        *         "solution.cpp"
@@ -3350,55 +3029,59 @@ export interface components {
        */
       updated_at: string;
     };
-    /** @description Request body for user registration. */
+    QueueInfo: {
+      /** @description Per-state breakdown (e.g. `{"queued": 0, "processing": 0, "failed": 0}`). */
+      breakdown: {
+        [key: string]: number;
+      };
+      /**
+       * Format: int64
+       * @description Total messages across all sub-queues (pending, processing, etc.).
+       * @example 0
+       */
+      depth: number;
+      /** @example operation_tasks */
+      name: string;
+    };
+    QueuesResponse: {
+      queues: components['schemas']['QueueInfo'][];
+    };
     RegisterRequest: {
-      /**
-       * @description Password (8-128 characters).
-       * @example s3cure_P@ss!
-       */
+      /** @example s3cure_P@ss! */
       password: string;
-      /**
-       * @description Unique username (1-32 chars, alphanumeric and underscores).
-       * @example alice_wonder
-       */
+      /** @example alice_wonder */
       username: string;
     };
-    /** @description Successful registration response. */
     RegisterResponse: {
       /**
        * Format: int32
-       * @description ID of the newly created user.
        * @example 42
        */
       id: number;
-      /**
-       * @description Username of the newly created user.
-       * @example alice_wonder
-       */
+      /** @example alice_wonder */
       username: string;
     };
-    /** @description Available registry values for problem types, checker formats, and contest types. */
     RegistriesResponse: {
+      checker_format_handlers: components['schemas']['CheckerFormatEntry'][];
       /**
-       * @description Available checker formats (e.g. "exact", "tokens").
        * @example [
        *       "exact",
        *       "tokens"
        *     ]
        */
       checker_formats: string[];
+      contest_type_handlers: components['schemas']['ContestTypeEntry'][];
       /**
-       * @description Available contest types (e.g. "icpc", "ioi").
        * @example [
        *       "icpc",
        *       "ioi"
        *     ]
        */
       contest_types: string[];
-      /** @description Configured submission languages from the server config. */
+      evaluators: components['schemas']['EvaluatorEntry'][];
+      hooks: components['schemas']['HookEntryInfo'][];
       languages: components['schemas']['LanguageRegistryItem'][];
       /**
-       * @description Available problem types (e.g. "batch", "interactive").
        * @example [
        *       "batch",
        *       "interactive"
@@ -3406,27 +3089,17 @@ export interface components {
        */
       problem_types: string[];
     };
-    /** @description Response for the reload-all endpoint. */
     ReloadAllResponse: {
-      /** @description Plugins that failed to reload. */
       failed: components['schemas']['ReloadFailure'][];
-      /** @description Plugin IDs that were newly discovered and loaded. */
       new: string[];
-      /** @description Plugin IDs that were successfully reloaded. */
       reloaded: string[];
     };
-    /** @description A plugin that failed to reload. */
     ReloadFailure: {
-      /** @description The error message. */
       error: string;
-      /** @description The plugin ID. */
       id: string;
     };
-    /** @description Request body for reordering problems in a contest. */
     ReorderContestProblemsRequest: {
       /**
-       * @description Ordered list of problem_ids. Positions assigned 0, 1, 2... by array index.
-       *     Must contain exactly the problem_ids currently in the contest.
        * @example [
        *       3,
        *       1,
@@ -3435,10 +3108,8 @@ export interface components {
        */
       problem_ids: number[];
     };
-    /** @description Request body for reordering test cases. */
     ReorderTestCasesRequest: {
       /**
-       * @description Ordered list of test_case_ids. Positions assigned 0, 1, 2, ... by array index.
        * @example [
        *       3,
        *       1,
@@ -3447,110 +3118,60 @@ export interface components {
        */
       test_case_ids: number[];
     };
-    /** @description Request body for replying to a clarification. */
     ReplyClarificationRequest: {
-      /**
-       * @description Reply content (1 – 10 000 chars).
-       * @example Yes, the input is always sorted in ascending order.
-       */
+      /** @example Yes, the input is always sorted in ascending order. */
       content: string;
-      /**
-       * @description If true the reply is visible to all contest participants (admin-only flag).
-       * @example true
-       */
+      /** @example true */
       is_public: boolean;
     };
-    /** @description Request body for resolving / reopening a clarification thread. */
     ResolveClarificationRequest: {
-      /**
-       * @description true = resolve, false = reopen.
-       * @example true
-       */
+      /** @example true */
       resolved: boolean;
     };
-    /** @description Request body for assigning a role to a user. */
     RoleAssignmentRequest: {
-      /**
-       * @description Role name to assign.
-       * @example admin
-       */
+      /** @example admin */
       role: string;
     };
-    /** @description Request body for running code against custom test cases. */
     RunCodeRequest: {
-      /** @description Custom test cases to run against. At least one required. */
       custom_test_cases: components['schemas']['CustomTestCaseInput'][];
-      /** @description Source files. At least one file required. */
       files: components['schemas']['SubmissionFileDto'][];
-      /**
-       * @description Programming language (e.g., "cpp", "java", "python3").
-       * @example cpp
-       */
+      /** @example cpp */
       language: string;
     };
-    /** @description A sample test case metadata included in problem detail responses. */
     SampleTestCaseMeta: {
       /**
        * Format: int32
        * @example 1
        */
       id: number;
-      /**
-       * @description Sample input file size in bytes.
-       * @example 12
-       */
+      /** @example 12 */
       input_size: number;
-      /**
-       * @description Sample output file size in bytes.
-       * @example 4
-       */
+      /** @example 4 */
       output_size: number;
     };
-    /** @description Server component details. */
     ServerDetailResponse: {
-      /** @description Permissions requested by the server component. */
       permissions: string[];
-      /** @description HTTP routes exposed by the server component. */
       routes: components['schemas']['ServerRouteConfig'][];
     };
     ServerRouteConfig: {
-      /** @description The handler function for this route. */
       handler: string;
-      /** @description The HTTP method for the route, e.g., "GET", "POST", etc. */
       method: string;
-      /** @description The URL path for the route, e.g., "/problems/{id}/export". */
       path: string;
-      /**
-       * @description The permission required to access this route, e.g., "problems:export".
-       *     If not specified, the route is public.
-       */
       permission?: string | null;
     };
-    /** @description A single file in a submission. */
     SubmissionFileDto: {
       /**
-       * @description Source code content.
        * @example #include <iostream>
        *     int main() { return 0; }
        */
       content: string;
-      /**
-       * @description Filename (e.g., "Main.java", "solution.cpp"). No path separators allowed.
-       * @example solution.cpp
-       */
+      /** @example solution.cpp */
       filename: string;
     };
-    /** @description Submission summary for list views (files omitted). */
     SubmissionListItem: {
-      /**
-       * Format: int32
-       * @description Contest ID if this is a contest submission, null otherwise.
-       */
+      /** Format: int32 */
       contest_id?: number | null;
-      /**
-       * @description Contest type used for judging.
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type: string;
       /**
        * Format: date-time
@@ -3562,11 +3183,15 @@ export interface components {
        * @example 1
        */
       id: number;
+      /**
+       * Format: int32
+       * @example 0
+       */
+      judge_epoch: number;
       /** @example cpp */
       language: string;
       /**
        * Format: int32
-       * @description Total memory used in KB if judged, null otherwise.
        * @example 1024
        */
       memory_used?: number | null;
@@ -3579,14 +3204,12 @@ export interface components {
       problem_title: string;
       /**
        * Format: double
-       * @description Total score if judged, null otherwise.
        * @example 100
        */
       score?: number | null;
       status: components['schemas']['SubmissionStatus'];
       /**
        * Format: int32
-       * @description Total time used in ms if judged, null otherwise.
        * @example 50
        */
       time_used?: number | null;
@@ -3597,29 +3220,20 @@ export interface components {
       user_id: number;
       /** @example alice */
       username: string;
-      /**
-       * @description Execution verdict if judged, null otherwise.
-       * @example Accepted
-       */
+      /** @example Accepted */
       verdict?: string | null;
     };
-    /** @description Paginated list of submissions. */
     SubmissionListResponse: {
       data: components['schemas']['SubmissionListItem'][];
       pagination: components['schemas']['Pagination'];
     };
-    /** @description Full submission details. */
     SubmissionResponse: {
       /**
        * Format: int32
-       * @description Contest ID if this is a contest submission, null otherwise.
        * @example 1
        */
       contest_id?: number | null;
-      /**
-       * @description Contest type used for judging this submission.
-       * @example ioi
-       */
+      /** @example ioi */
       contest_type: string;
       /**
        * Format: date-time
@@ -3632,6 +3246,11 @@ export interface components {
        * @example 1
        */
       id: number;
+      /**
+       * Format: int32
+       * @example 0
+       */
+      judge_epoch: number;
       /** @example cpp */
       language: string;
       /**
@@ -3651,10 +3270,7 @@ export interface components {
       /** @example alice */
       username: string;
     };
-    /**
-     * @description Status of a submission during the judging lifecycle.
-     * @enum {string}
-     */
+    /** @enum {string} */
     SubmissionStatus:
       | 'Pending'
       | 'Compiling'
@@ -3662,7 +3278,22 @@ export interface components {
       | 'Judged'
       | 'CompilationError'
       | 'SystemError';
-    /** @description Test case summary (input/output truncated to 100-char previews). */
+    SystemOverviewResponse: {
+      /**
+       * Format: int64
+       * @description DLQ messages with `resolved = false`.
+       * @example 0
+       */
+      dlq_unresolved_count: number;
+      queues: components['schemas']['QueueInfo'][];
+      /**
+       * Format: int64
+       * @description Submissions currently in a non-terminal state (Pending, Compiling, Running).
+       * @example 0
+       */
+      submissions_in_progress: number;
+      workers: components['schemas']['WorkerInfo'][];
+    };
     TestCaseListItem: {
       /**
        * Format: date-time
@@ -3684,10 +3315,7 @@ export interface components {
       input_preview: string;
       /** @example true */
       is_sample: boolean;
-      /**
-       * @description Short identifier (unique within problem).
-       * @example sample_01
-       */
+      /** @example sample_01 */
       label: string;
       /** @example 0 1 */
       output_preview: string;
@@ -3707,7 +3335,6 @@ export interface components {
        */
       score: number;
     };
-    /** @description Full test case details. */
     TestCaseResponse: {
       /**
        * Format: date-time
@@ -3731,10 +3358,7 @@ export interface components {
       input: string;
       /** @example true */
       is_sample: boolean;
-      /**
-       * @description Short identifier (unique within problem).
-       * @example sample_01
-       */
+      /** @example sample_01 */
       label: string;
       /**
        * Format: int32
@@ -3752,22 +3376,17 @@ export interface components {
        */
       score: number;
     };
-    /** @description Result for a single test case. */
     TestCaseResultResponse: {
-      /** @description Custom checker feedback. */
       checker_output?: string | null;
-      /** @description Expected output (only visible for sample test cases or when user has view_all permission). */
       expected_output?: string | null;
       /**
        * Format: int32
        * @example 1
        */
       id: number;
-      /** @description Test case input (only visible for sample test cases or when user has view_all permission). */
       input?: string | null;
       /**
        * Format: int32
-       * @description Memory used in kilobytes.
        * @example 256
        */
       memory_used?: number | null;
@@ -3776,18 +3395,12 @@ export interface components {
        * @example 10
        */
       score: number;
-      /** @description Program stderr. */
       stderr?: string | null;
-      /** @description Program stdout. */
       stdout?: string | null;
-      /**
-       * Format: int32
-       * @description DB test case ID. Null for custom run test cases.
-       */
+      /** Format: int32 */
       test_case_id?: number | null;
       /**
        * Format: int32
-       * @description Time used in milliseconds.
        * @example 5
        */
       time_used?: number | null;
@@ -3803,120 +3416,68 @@ export interface components {
     TranslationMap: {
       [key: string]: string;
     };
-    /** @description PATCH body for updating a contest problem's label or position. */
     UpdateContestProblemRequest: {
-      /**
-       * @description Short label for the problem within the contest (1-10 chars, must be unique).
-       * @example B
-       */
+      /** @example B */
       label?: string | null;
       /**
        * Format: int32
-       * @description Display position (0-based).
        * @example 1
        */
       position?: number | null;
     };
-    /** @description PATCH body for updating a contest. Only provided fields are modified. */
     UpdateContestRequest: {
       /**
        * Format: date-time
-       * @description Time when the contest becomes visible and registration opens (must be before start_time,
-       *     default: never).
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
-      /**
-       * @description Contest type for plugin dispatch (e.g., "ioi", "icpc").
-       * @example icpc
-       */
+      /** @example icpc */
       contest_type?: string | null;
       /**
        * Format: date-time
-       * @description Time when the contest is archived and becomes invisible (must be after end_time, default:
-       *     never).
        * @example 2025-10-02T12:00:00Z
        */
       deactivate_time?: string | null;
-      /**
-       * @description Contest description (non-empty, max 1 MB).
-       * @example Updated description...
-       */
+      /** @example Updated description... */
       description?: string | null;
       /**
        * Format: date-time
-       * @description Contest end time (must be after start_time).
        * @example 2025-10-01T18:00:00Z
        */
       end_time?: string | null;
-      /**
-       * @description Whether the contest is visible to all users.
-       * @example false
-       */
+      /** @example false */
       is_public?: boolean | null;
-      /**
-       * @description Whether participants can see compile output during contest.
-       * @example true
-       */
+      /** @example true */
       show_compile_output?: boolean | null;
-      /**
-       * @description Whether participants list is visible.
-       * @example true
-       */
+      /** @example true */
       show_participants_list?: boolean | null;
       /**
        * Format: date-time
-       * @description Contest start time (must be before end_time).
        * @example 2025-10-01T13:00:00Z
        */
       start_time?: string | null;
-      /**
-       * @description Whether participants can see each other's submissions.
-       * @example true
-       */
+      /** @example true */
       submissions_visible?: boolean | null;
-      /**
-       * @description Contest title (trimmed, 1-256 chars).
-       * @example Weekly Contest #42 (Extended)
-       */
+      /** @example Weekly Contest #42 (Extended) */
       title?: string | null;
     };
-    /** @description PATCH body for updating a problem. Only provided fields are modified. */
     UpdateProblemRequest: {
-      /**
-       * @description Checker format: "exact", "ignore_case", "ignore_whitespace", or "floating_point".
-       * @example ignore_case
-       */
+      /** @example ignore_case */
       checker_format?: string | null;
-      /**
-       * @description Problem statement in Markdown (non-empty, max 1 MB).
-       * @example Updated problem statement...
-       */
+      /** @example Updated problem statement... */
       content?: string | null;
-      /**
-       * @description Default contest type for standalone submissions.
-       * @example ioi
-       */
+      /** @example ioi */
       default_contest_type?: string | null;
       /**
        * Format: int32
-       * @description Memory limit in kilobytes (1-1048576).
        * @example 524288
        */
       memory_limit?: number | null;
-      /**
-       * @description Problem type for evaluator dispatch: "batch" or "interactive".
-       * @example batch
-       */
+      /** @example batch */
       problem_type?: string | null;
-      /**
-       * @description Whether contestants see full input/output for all test cases.
-       * @example true
-       */
+      /** @example true */
       show_test_details?: boolean | null;
       /**
-       * @description Expected submission file names per language.
-       *     Set to a value to update, set to null to clear, or omit to leave unchanged.
        * @example {
        *       "cpp": [
        *         "solution.cpp"
@@ -3931,131 +3492,69 @@ export interface components {
       } | null;
       /**
        * Format: int32
-       * @description Execution time limit in milliseconds (1-30000).
        * @example 2000
        */
       time_limit?: number | null;
-      /**
-       * @description Problem title (trimmed, 1-256 chars).
-       * @example Two Sum (Easy)
-       */
+      /** @example Two Sum (Easy) */
       title?: string | null;
     };
-    /** @description PATCH body for updating a test case. Only provided fields are modified. */
     UpdateTestCaseRequest: {
-      /**
-       * @description Set to a string value to update, set to `null` to clear, or omit to leave unchanged.
-       * @example Updated edge case
-       */
+      /** @example Updated edge case */
       description?: string | null;
-      /**
-       * @description Expected output. May be empty for custom-checker problems.
-       * @example 1 2
-       */
+      /** @example 1 2 */
       expected_output?: string | null;
       /**
-       * @description Input data. May be empty for output-only or custom-checker problems.
        * @example 5
        *     1 2 3 4 5
        *     3
        */
       input?: string | null;
-      /**
-       * @description Whether this test case is visible to contestants.
-       * @example false
-       */
+      /** @example false */
       is_sample?: boolean | null;
-      /**
-       * @description Display label for this test case (e.g. "sample_01"). Must be unique within the problem.
-       * @example sample_01
-       */
+      /** @example sample_01 */
       label?: string | null;
       /**
        * Format: int32
-       * @description Display position (0-based).
        * @example 1
        */
       position?: number | null;
       /**
        * Format: int32
-       * @description Point value for this test case (0-10000).
        * @example 20
        */
       score?: number | null;
     };
-    /** @description Request body for updating user information. */
     UpdateUserRequest: {
-      /** @description New password. If not provided, the password will not be updated. */
       password?: string | null;
-      /** @description New username. If not provided, the username will not be updated. */
       username?: string | null;
     };
-    /** @description Request body for uploading checker source files. */
     UploadCheckerSourceRequest: {
-      /** @description Array of source files for the checker. */
       files: components['schemas']['CheckerSourceFile'][];
     };
-    /**
-     * @description Merge strategy for handling test case label conflicts during ZIP upload.
-     * @enum {string}
-     */
+    /** @enum {string} */
     UploadTestCasesMergeStrategy: 'abort' | 'skip' | 'overwrite' | 'replace';
-    /**
-     * @description Multipart form data for uploading test cases via ZIP file. The ZIP should contain pairs of
-     *     input/output files
-     */
     UploadTestCasesRequest: {
-      /**
-       * Format: binary
-       * @description ZIP file containing test cases. Each test case consists of an input file and an output
-       *     file.
-       */
-      file: string;
-      /**
-       * @description Input file name format with `*` as wildcard for label. E.g. `input_*.txt` matches
-       *     `input_01.txt` with label `01`.
-       * @example input_*.txt
-       */
+      /** Format: binary */
+      file: Blob;
+      /** @example input_*.txt */
       input_format: string;
-      /**
-       * @description Output file name format with `*` as wildcard for label. E.g. `output_*.txt` matches
-       *     `output_01.txt` with label `01`.
-       * @example output_*.txt
-       */
+      /** @example output_*.txt */
       output_format: string;
-      /**
-       * @description Merge strategy when test case labels in the ZIP conflict with existing ones. See
-       *     `UploadTestCasesMergeStrategy` docs for details.
-       */
       strategy: components['schemas']['UploadTestCasesMergeStrategy'];
     };
-    /** @description Response from ZIP upload. */
     UploadTestCasesResponse: {
-      /**
-       * @description Number of test cases created.
-       * @example 5
-       */
+      /** @example 5 */
       created: number;
       test_cases: components['schemas']['TestCaseListItem'][];
-      /**
-       * @description Number of test cases updated (only for "overwrite" strategy).
-       * @example 2
-       */
+      /** @example 2 */
       updated: number;
     };
-    /** @description Request body for upserting config (raw JSON value). */
     UpsertPluginConfigRequest: {
-      /** @description Config JSON blob to store */
       config: unknown;
-      /** @description Whether this plugin is enabled. Defaults to true if omitted (backward compat). */
-      enabled?: boolean;
-      /**
-       * Format: int32
-       * @description Hook execution order (lower runs first). Defaults to 0 if omitted.
-       */
+      enabled?: boolean | null;
+      /** Format: int32 */
       position?: number;
     };
-    /** @description User details returned by user listing and retrieval endpoints. */
     UserResponse: {
       /**
        * Format: date-time
@@ -4067,10 +3566,7 @@ export interface components {
        * @example 1
        */
       id: number;
-      /**
-       * @description Password hash stored in database.
-       * @example $argon2id$v=19$m=19456,t=2,p=1$...
-       */
+      /** @example $argon2id$v=19$m=19456,t=2,p=1$... */
       password: string;
       /**
        * @example [
@@ -4081,36 +3577,19 @@ export interface components {
       /** @example alice */
       username: string;
     };
-    /** @description Web (frontend) component details. */
     WebDetailResponse: {
-      /** @description Components exposed by the plugin. */
       components: components['schemas']['ComponentMap'];
-      /** @description Routes for client-side navigation. */
       routes: components['schemas']['WebRouteConfig'][];
-      /** @description Slots for UI extension. */
       slots: components['schemas']['WebSlotConfig'][];
     };
     WebRouteConfig: {
-      /**
-       * @description Component to render for this route, which must match a key in the
-       *     `components` map.
-       */
       component: string;
-      /**
-       * @description Meta information for this route, which can be used for things like page
-       *     titles or icons in the frontend.
-       */
       meta?: {
         [key: string]: string;
       } | null;
-      /** @description Path for client-side navigation, e.g., "/problems/{id}/export". */
       path: string;
     };
     WebSlotConfig: {
-      /**
-       * @description Name of the component to render in this slot, which must match a key in
-       *     the `components` map.
-       */
       component: string;
       /**
        * @description Restrict rendering to contests of this type. When set, the host only
@@ -4118,19 +3597,10 @@ export interface components {
        *     type (e.g. "ioi", "icpc"). When unset, the slot is rendered everywhere.
        */
       contest_type?: string | null;
-      /** @description Name of the slot to render into, e.g., "sidebar.footer". */
       name: string;
-      /**
-       * @description Permission required to render this slot entry, e.g., "problem:create".
-       *     If not specified, the slot is visible to everyone.
-       */
       permission?: string | null;
-      /** @description Positioning strategy for the component in the slot. */
       position: components['schemas']['WebSlotPosition'];
-      /**
-       * Format: int32
-       * @description Priority for ordering when multiple plugins target the same slot.
-       */
+      /** Format: int32 */
       priority?: number | null;
     };
     /** @enum {string} */
@@ -4141,10 +3611,81 @@ export interface components {
       | 'before'
       | 'after'
       | 'wrap';
-    /** @description Worker component details. */
+    WebVital: {
+      /** @example LCP */
+      name: string;
+      /** @example https://app.example.com/problems/1 */
+      url?: string | null;
+      /**
+       * Format: double
+       * @example 1234.5
+       */
+      value: number;
+    };
+    WebVitalsPayload: {
+      vitals: components['schemas']['WebVital'][];
+    };
     WorkerDetailResponse: {
-      /** @description Permissions requested by the worker component. */
       permissions: string[];
+    };
+    WorkerInfo: {
+      /** @example worker-1 */
+      id: string;
+      /**
+       * Format: int32
+       * @example 0
+       */
+      in_flight: number;
+      /** Format: date-time */
+      last_seen: string;
+      /** Format: int32 */
+      max_concurrency?: number | null;
+      /** @example isolate */
+      sandbox_backend: string;
+      /**
+       * Format: int64
+       * @description Seconds since the worker last wrote a heartbeat. 0 means just now.
+       * @example 3
+       */
+      seconds_since_last_seen: number;
+      /** @description True when the heartbeat is older than 10s — worker is likely unhealthy. */
+      stale: boolean;
+      /** Format: date-time */
+      started_at: string;
+      /** @example 0.1.0 */
+      version: string;
+      /**
+       * @description OS hostname of the machine running this worker. Useful for identifying physical machines in a lab.
+       * @example lab-pc-07
+       */
+      hostname?: string | null;
+      /** @description Non-loopback IPv4/IPv6 addresses bound to this worker's interfaces. */
+      ip_addresses?: string[];
+      /**
+       * @description Operating system family (e.g. `linux`, `macos`).
+       * @example linux
+       */
+      os?: string | null;
+      /**
+       * @description CPU architecture (e.g. `x86_64`, `aarch64`).
+       * @example x86_64
+       */
+      arch?: string | null;
+      /**
+       * Format: int32
+       * @description Number of logical CPUs visible to the worker process.
+       * @example 8
+       */
+      cpu_count?: number | null;
+      /**
+       * Format: int32
+       * @description Worker process ID on its host machine.
+       * @example 4242
+       */
+      pid?: number | null;
+    };
+    WorkersResponse: {
+      workers: components['schemas']['WorkerInfo'][];
     };
   };
   responses: never;
@@ -4736,6 +4277,120 @@ export interface operations {
       };
     };
   };
+  getSystemOverview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description System overview */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SystemOverviewResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listSystemQueues: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Queue depths */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['QueuesResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  listSystemWorkers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of workers */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkersResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   authorizeDevice: {
     parameters: {
       query?: never;
@@ -5124,15 +4779,9 @@ export interface operations {
         per_page?: number;
         /** @example weekly */
         search?: string;
-        /**
-         * @description Sort field: `created_at` (default), `updated_at`, `activate_time`, `start_time`, or `title`.
-         * @example start_time
-         */
+        /** @example start_time */
         sort_by?: string;
-        /**
-         * @description Sort direction: `asc` or `desc` (default).
-         * @example asc
-         */
+        /** @example asc */
         sort_order?: string;
       };
       header?: never;
@@ -5367,10 +5016,7 @@ export interface operations {
   listClarifications: {
     parameters: {
       query?: {
-        /**
-         * @description Filter by type: `announcement`, `question`, or `direct_message`.
-         * @example question
-         */
+        /** @example question */
         type?: string;
       };
       header?: never;
@@ -5486,7 +5132,6 @@ export interface operations {
   toggleReplyPublic: {
     parameters: {
       query?: {
-        /** @description If true, also make the parent question visible to all when making a reply public. */
         include_question?: boolean;
       };
       header?: never;
@@ -6985,32 +6630,21 @@ export interface operations {
         page?: number;
         /** @example 20 */
         per_page?: number;
-        /**
-         * @description Filter by problem ID.
-         * @example 1
-         */
+        /** @example 1 */
         problem_id?: number;
-        /**
-         * @description Filter by user ID.
-         * @example 1
-         */
+        /** @example 1 */
         user_id?: number;
-        /**
-         * @description Filter by language.
-         * @example cpp
-         */
+        /** @example cpp */
         language?: string;
-        /** @description Filter by status. */
         status?: components['schemas']['SubmissionStatus'];
         /**
-         * @description Sort field: `created_at` (default), `status`.
-         * @example created_at
+         * @description Free-text search across username, problem title, and contest title (case-insensitive).
+         * @example alice
          */
+        q?: string;
+        /** @example created_at */
         sort_by?: string;
-        /**
-         * @description Sort direction: `asc` or `desc` (default).
-         * @example desc
-         */
+        /** @example desc */
         sort_order?: string;
       };
       header?: never;
@@ -7063,25 +6697,13 @@ export interface operations {
   listDlqMessages: {
     parameters: {
       query?: {
-        /**
-         * @description Filter by message type.
-         * @example stuck_submission
-         */
+        /** @example stuck_submission */
         message_type?: string;
-        /**
-         * @description Filter by resolved status.
-         * @example false
-         */
+        /** @example false */
         resolved?: boolean;
-        /**
-         * @description Page number (1-indexed).
-         * @example 1
-         */
+        /** @example 1 */
         page?: number;
-        /**
-         * @description Items per page (1-100, default 20).
-         * @example 20
-         */
+        /** @example 20 */
         per_page?: number;
       };
       header?: never;
@@ -8033,15 +7655,9 @@ export interface operations {
         per_page?: number;
         /** @example sum */
         search?: string;
-        /**
-         * @description Sort field: `created_at` (default), `updated_at`, or `title`.
-         * @example created_at
-         */
+        /** @example created_at */
         sort_by?: string;
-        /**
-         * @description Sort direction: `asc` or `desc` (default).
-         * @example desc
-         */
+        /** @example desc */
         sort_order?: string;
       };
       header?: never;
@@ -9934,32 +9550,21 @@ export interface operations {
         page?: number;
         /** @example 20 */
         per_page?: number;
-        /**
-         * @description Filter by problem ID.
-         * @example 1
-         */
+        /** @example 1 */
         problem_id?: number;
-        /**
-         * @description Filter by user ID.
-         * @example 1
-         */
+        /** @example 1 */
         user_id?: number;
-        /**
-         * @description Filter by language.
-         * @example cpp
-         */
+        /** @example cpp */
         language?: string;
-        /** @description Filter by status. */
         status?: components['schemas']['SubmissionStatus'];
         /**
-         * @description Sort field: `created_at` (default), `status`.
-         * @example created_at
+         * @description Free-text search across username, problem title, and contest title (case-insensitive).
+         * @example alice
          */
+        q?: string;
+        /** @example created_at */
         sort_by?: string;
-        /**
-         * @description Sort direction: `asc` or `desc` (default).
-         * @example desc
-         */
+        /** @example desc */
         sort_order?: string;
       };
       header?: never;
@@ -10139,6 +9744,104 @@ export interface operations {
       };
       /** @description Submission not found (NOT_FOUND) */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  reportError: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ClientError'];
+      };
+    };
+    responses: {
+      /** @description Error recorded */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Payload too large (VALIDATION_ERROR) */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Internal error (INTERNAL_ERROR) */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  reportVitals: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['WebVitalsPayload'];
+      };
+    };
+    responses: {
+      /** @description Vitals recorded */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Payload too large (VALIDATION_ERROR) */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Internal error (INTERNAL_ERROR) */
+      500: {
         headers: {
           [name: string]: unknown;
         };

@@ -176,6 +176,12 @@ async fn read_workers(state: &AppState) -> Vec<WorkerInfo> {
                 max_concurrency: p.max_concurrency,
                 sandbox_backend: p.sandbox_backend,
                 version: p.version,
+                hostname: p.hostname,
+                ip_addresses: p.ip_addresses,
+                os: p.os,
+                arch: p.arch,
+                cpu_count: p.cpu_count,
+                pid: p.pid,
             }
         })
         .collect();
@@ -223,4 +229,16 @@ struct HeartbeatPayload {
     max_concurrency: Option<u32>,
     sandbox_backend: String,
     version: String,
+    #[serde(default)]
+    hostname: Option<String>,
+    #[serde(default)]
+    ip_addresses: Vec<String>,
+    #[serde(default)]
+    os: Option<String>,
+    #[serde(default)]
+    arch: Option<String>,
+    #[serde(default)]
+    cpu_count: Option<u32>,
+    #[serde(default)]
+    pid: Option<u32>,
 }

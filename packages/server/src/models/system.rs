@@ -19,6 +19,25 @@ pub struct WorkerInfo {
     pub sandbox_backend: String,
     #[schema(example = "0.1.0")]
     pub version: String,
+    /// OS hostname of the machine running this worker. Useful for identifying
+    /// physical machines in a lab.
+    #[schema(example = "lab-pc-07")]
+    pub hostname: Option<String>,
+    /// Non-loopback IPv4/IPv6 addresses bound to this worker's interfaces.
+    #[serde(default)]
+    pub ip_addresses: Vec<String>,
+    /// Operating system family (e.g. `linux`, `macos`).
+    #[schema(example = "linux")]
+    pub os: Option<String>,
+    /// CPU architecture (e.g. `x86_64`, `aarch64`).
+    #[schema(example = "x86_64")]
+    pub arch: Option<String>,
+    /// Number of logical CPUs visible to the worker process.
+    #[schema(example = 8)]
+    pub cpu_count: Option<u32>,
+    /// Worker process ID on its host machine.
+    #[schema(example = 4242)]
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
