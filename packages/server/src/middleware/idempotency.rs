@@ -136,6 +136,7 @@ async fn try_claim_key(
     Ok(ClaimResult::AlreadyExists(existing))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_existing_key(
     db: &DatabaseConnection,
     existing: idempotency_key::Model,
