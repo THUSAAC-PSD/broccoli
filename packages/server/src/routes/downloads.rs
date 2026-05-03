@@ -49,6 +49,7 @@ pub fn router() -> Router<AppState> {
         .route("/downloads/stress-test/{file}", get(serve))
         .route("/downloads/manifest.json", get(serve_manifest))
         .route("/downloads", get(serve_discovery))
+        .route("/downloads/help", get(serve_help))
 }
 
 fn detect_platform(user_agent: &str) -> Option<&'static str> {
@@ -122,6 +123,40 @@ fn render_discovery_html(version: &str, recommended: Option<&str>) -> String {
 </body></html>
 "#
     )
+}
+
+async fn serve_help() -> Response {
+    let html = r#"<!doctype html>
+<html><head><meta charset="utf-8"><title>Trouble Running Broccoli Stress Test</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2em auto;padding:0 1em;}
+code,pre{background:#f4f4f4;padding:2px 4px;border-radius:3px;}
+pre{padding:1em;overflow-x:auto;}</style></head><body>
+<h1>Trouble running?</h1>
+<p>The binaries are not code-signed in v1. Each OS has a one-line workaround:</p>
+
+<h2>macOS</h2>
+<p>If macOS says "cannot be opened because the developer cannot be verified":</p>
+<pre>xattr -d com.apple.quarantine ./broccoli-stress-test-macos-universal</pre>
+<p>Or right-click the binary in Finder, choose Open, then click Open in the dialog.</p>
+
+<h2>Windows</h2>
+<p>If SmartScreen warns "Microsoft Defender prevented an unrecognized app from starting":</p>
+<ol><li>Click <strong>More info</strong>.</li>
+<li>Click <strong>Run anyway</strong>.</li></ol>
+<p>Or in PowerShell: <code>Unblock-File .\broccoli-stress-test-windows-x86_64.exe</code></p>
+
+<h2>Linux</h2>
+<pre>chmod +x ./broccoli-stress-test-linux-x86_64
+./broccoli-stress-test-linux-x86_64 --help</pre>
+
+<p><a href="/downloads">&larr; back to downloads</a></p>
+</body></html>
+"#;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(html))
+        .unwrap()
 }
 
 async fn serve(Path(file): Path<String>) -> Response {

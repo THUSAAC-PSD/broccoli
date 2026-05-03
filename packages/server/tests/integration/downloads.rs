@@ -124,3 +124,16 @@ async fn discovery_page_renders_with_all_platforms() {
     }
     assert!(resp.text.to_lowercase().contains("stress"));
 }
+
+#[tokio::test]
+async fn help_page_documents_macos_workaround() {
+    let app = TestApp::spawn().await;
+    let resp = app.get_without_token("/downloads/help").await;
+    assert_eq!(resp.status, 200);
+    assert!(resp.text.contains("xattr"));
+    assert!(
+        resp.text.to_lowercase().contains("smartscreen")
+            || resp.text.to_lowercase().contains("windows")
+    );
+    assert!(resp.text.contains("chmod +x"));
+}
