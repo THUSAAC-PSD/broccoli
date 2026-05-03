@@ -278,6 +278,41 @@ impl SandboxManager for IsolateSandboxManager {
             ));
         }
 
+        const MAX_TRANSIENT_RETRIES: usize = 3;
+        for attempt in 0..=MAX_TRANSIENT_RETRIES {
+            let result = self.execute_once(box_id, argv.clone(), run_options).await;
+            let Ok(exec) = result else { return result };
+            if attempt < MAX_TRANSIENT_RETRIES && is_transient_exec_failure(&exec) {
+                let backoff_ms = 25u64 << attempt;
+                tracing::warn!(
+                    box_id = %box_id,
+                    attempt = attempt + 1,
+                    backoff_ms,
+                    stderr_preview = %exec.stderr.chars().take(120).collect::<String>(),
+                    "Transient exec failure (EAGAIN), retrying after backoff",
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                continue;
+            }
+            return Ok(exec);
+        }
+        unreachable!("retry loop exits via return")
+    }
+}
+
+fn is_transient_exec_failure(result: &ExecutionResult) -> bool {
+    result.exit_code == Some(127)
+        && result.stderr.contains("execve(")
+        && result.stderr.contains("Resource temporarily unavailable")
+}
+
+impl IsolateSandboxManager {
+    async fn execute_once(
+        &self,
+        box_id: &str,
+        argv: Vec<String>,
+        run_options: &RunOptions,
+    ) -> Result<ExecutionResult, SandboxError> {
         let box_id = parse_box_id(Some(box_id))?;
         let meta_path = std::env::temp_dir().join(format!(
             "broccoli-isolate-{box_id}-{}.meta",
