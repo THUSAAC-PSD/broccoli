@@ -1,0 +1,26 @@
+{
+  "version": "test-fixture",
+  "released_at": "2026-05-03T00:00:00Z",
+  "platforms": {
+    "linux-x86_64": {
+      "url": "https://github.com/example/broccoli/releases/download/test/broccoli-stress-test-linux-x86_64",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "size_bytes": 17
+    },
+    "linux-aarch64": {
+      "url": "https://github.com/example/broccoli/releases/download/test/broccoli-stress-test-linux-aarch64",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "size_bytes": 17
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/example/broccoli/releases/download/test/broccoli-stress-test-windows-x86_64.exe",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "size_bytes": 17
+    },
+    "macos-universal": {
+      "url": "https://github.com/example/broccoli/releases/download/test/broccoli-stress-test-macos-universal",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "size_bytes": 17
+    }
+  }
+}
