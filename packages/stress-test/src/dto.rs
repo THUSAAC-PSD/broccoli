@@ -260,6 +260,14 @@ impl<'de> Deserialize<'de> for Verdict {
     }
 }
 
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct DlqStats {
+    pub total_unresolved: u64,
+    pub total_resolved: u64,
+    #[serde(default)]
+    pub unresolved_by_error_code: HashMap<String, u64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
