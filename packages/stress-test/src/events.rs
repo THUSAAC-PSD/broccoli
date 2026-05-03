@@ -1,4 +1,3 @@
-
 use serde::Serialize;
 
 use crate::dto::{SubmissionStatus, Verdict};
@@ -42,6 +41,8 @@ pub struct ActualTerminal {
 pub enum Event {
     PhaseStarted {
         phase: Phase,
+        #[serde(default)]
+        total: Option<u64>,
     },
     PhaseFinished {
         phase: Phase,

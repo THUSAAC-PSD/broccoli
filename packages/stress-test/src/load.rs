@@ -198,7 +198,10 @@ pub async fn run(
     config: &LoadConfig,
     tx: &mpsc::UnboundedSender<Event>,
 ) -> LoadOutcome {
-    let _ = tx.send(Event::PhaseStarted { phase: Phase::Load });
+    let _ = tx.send(Event::PhaseStarted {
+        phase: Phase::Load,
+        total: Some(config.total),
+    });
 
     if config.total == 0 || config.rate == 0 || config.concurrency == 0 {
         let outcome = LoadOutcome::empty();
@@ -664,7 +667,10 @@ mod tests {
 
         assert!(matches!(
             events.first().unwrap(),
-            Event::PhaseStarted { phase: Phase::Load }
+            Event::PhaseStarted {
+                phase: Phase::Load,
+                ..
+            }
         ));
         assert!(matches!(
             events.last().unwrap(),

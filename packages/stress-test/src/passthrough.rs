@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -35,7 +34,9 @@ struct SubResult {
 
 #[derive(Debug)]
 pub enum PassthroughOutcome {
-    Skipped { reason: String },
+    Skipped {
+        reason: String,
+    },
     Completed {
         count: usize,
         terminal: usize,
@@ -74,6 +75,7 @@ pub async fn run(
 ) -> StressResult<PassthroughOutcome> {
     let _ = tx.send(Event::PhaseStarted {
         phase: Phase::Passthrough,
+        total: None,
     });
 
     let outcome = match run_inner(client, config, tx).await {
@@ -723,7 +725,8 @@ mod tests {
         assert!(matches!(
             events.first(),
             Some(Event::PhaseStarted {
-                phase: Phase::Passthrough
+                phase: Phase::Passthrough,
+                ..
             })
         ));
         assert!(events.iter().any(|e| matches!(
