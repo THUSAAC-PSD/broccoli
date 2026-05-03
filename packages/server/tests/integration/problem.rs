@@ -1623,9 +1623,7 @@ mod test_case_zip_upload {
 
         let pid = app.create_problem(&token, "Test Problem").await;
 
-        let zip_data = build_zip(&[
-            ("01.in", "input\n"),
-        ]);
+        let zip_data = build_zip(&[("01.in", "input\n")]);
 
         let res = app
             .upload_with_token(

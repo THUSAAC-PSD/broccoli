@@ -1,4 +1,3 @@
-
 use crate::common::E2eTestApp;
 
 fn is_real_sandbox() -> bool {

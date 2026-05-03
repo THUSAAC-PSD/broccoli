@@ -271,7 +271,7 @@ mod clarification_listing {
 
         assert_eq!(res.status, 200);
         let data = res.body["data"].as_array().unwrap();
-        assert!(data.len() >= 1);
+        assert!(!data.is_empty());
     }
 }
 
