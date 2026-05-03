@@ -283,3 +283,41 @@ just stress-test-portability
 ```
 
 The harness is a no-op on non-Linux build hosts (cfg-gated to compile away).
+
+## Releases
+
+Pre-built binaries for Linux (x86_64, aarch64), Windows (x86_64), and macOS
+(universal) are published with each tagged version:
+
+- **Recommended:** download from your Broccoli server at `<server>/downloads`.
+  The binary served there is automatically version-matched to the server.
+- **Alternative:** GitHub Releases at
+  <https://github.com/THUSAAC-PSD/broccoli/releases>.
+
+For air-gapped lab environments, the bundled-server distribution path means lab
+clients only need to reach the Broccoli server, not GitHub.
+
+### Verifying downloads
+
+Each binary ships with a `.sha256` companion file:
+
+```sh
+sha256sum -c broccoli-stress-test-linux-x86_64.sha256
+```
+
+### Unsigned binaries
+
+The v1 release does not code-sign the macOS or Windows artifacts. After
+download:
+
+- **macOS:**
+  `xattr -d com.apple.quarantine ./broccoli-stress-test-macos-universal`
+- **Windows:** Click "More info → Run anyway" on SmartScreen, or `Unblock-File`
+  in PowerShell.
+- **Linux:** `chmod +x ./broccoli-stress-test-linux-x86_64`.
+
+### CLI/server version handshake
+
+On startup, the CLI fetches `<server>/api/v1/version` and prints a warning to
+stderr if its own compile-time version doesn't match the server. Pass
+`--no-version-check` to skip the handshake entirely.

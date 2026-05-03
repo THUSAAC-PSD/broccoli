@@ -6,6 +6,7 @@ use clap::Parser;
     version,
     about = "Broccoli platform stress test",
     long_about = None,
+    after_help = "First time? Get the matching binary at <your-server>/downloads.",
 )]
 pub struct Cli {
     #[arg(long)]
