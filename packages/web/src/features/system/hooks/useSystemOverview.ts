@@ -13,7 +13,7 @@ export function useSystemOverview() {
     refetchInterval: REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
     queryFn: async (): Promise<SystemOverviewResponse> => {
-      const res = await apiFetch('/admin/system/overview');
+      const res = await apiFetch('/api/v1/admin/system/overview');
       if (!res.ok) {
         throw new Error(`Failed to fetch system overview (${res.status})`);
       }

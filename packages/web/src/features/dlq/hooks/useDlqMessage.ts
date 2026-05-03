@@ -10,7 +10,7 @@ export function useDlqMessage(id: number | null) {
     queryKey: ['dlq', 'message', id],
     enabled: id !== null,
     queryFn: async (): Promise<DlqMessageDetail> => {
-      const res = await apiFetch(`/dlq/${id}`);
+      const res = await apiFetch(`/api/v1/dlq/${id}`);
       if (!res.ok)
         throw new Error(`Failed to load DLQ message (${res.status})`);
       return (await res.json()) as DlqMessageDetail;
