@@ -58,6 +58,34 @@ fn sanitize_nul_bytes(s: String, plugin_id: &str, sql: &str) -> String {
     }
 }
 
+fn sanitize_sql_text(label: &str, plugin_id: &str, sql: String) -> String {
+    if sql.contains('\0') {
+        let nul_count = sql.matches('\0').count();
+        let mut nul_offsets: Vec<usize> = sql
+            .bytes()
+            .enumerate()
+            .filter(|(_, b)| *b == 0)
+            .map(|(i, _)| i)
+            .take(8)
+            .collect();
+        nul_offsets.sort_unstable();
+        let len = sql.len();
+        let preview: String = sql.chars().take(240).collect();
+        tracing::warn!(
+            plugin_id,
+            param = label,
+            nul_count,
+            len,
+            nul_offsets = ?nul_offsets,
+            preview = %preview,
+            "Sanitized NUL bytes from plugin SQL host_fn parameter",
+        );
+        sql.replace('\0', "\u{FFFD}")
+    } else {
+        sql
+    }
+}
+
 fn json_to_sea_value(v: JsonValue, plugin_id: &str, sql: &str) -> sea_orm::Value {
     match v {
         JsonValue::Null => sea_orm::Value::String(None),
@@ -98,6 +126,8 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*ctx;
 
+    let sql = sanitize_sql_text("sql", plugin_id, sql);
+    let args = sanitize_sql_text("args", plugin_id, args);
     let values = parse_args(&args, plugin_id, &sql)?;
     let stmt = Statement::from_sql_and_values(DbBackend::Postgres, &sql, values);
 
@@ -110,9 +140,9 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     match exec_result {
         Ok(res) => HostDbResponse::ok(JsonValue::from(res.rows_affected())).to_json_string(),
         Err(e) => {
-            let sql_preview: String = sql.chars().take(200).collect();
-            let args_preview: String = args.chars().take(500).collect();
-            error!(plugin_id = %plugin_id, sql = %sql_preview, args = %args_preview, "DB execution error: {}", e);
+            let sql_preview: String = sql.chars().take(800).collect();
+            let args_preview: String = args.chars().take(800).collect();
+            error!(plugin_id = %plugin_id, sql_len = sql.len(), args_len = args.len(), sql = %sql_preview, args = %args_preview, "DB execution error: {}", e);
             HostDbResponse::err(e.to_string()).to_json_string()
         }
     }
@@ -123,6 +153,8 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*ctx;
 
+    let sql = sanitize_sql_text("sql", plugin_id, sql);
+    let args = sanitize_sql_text("args", plugin_id, args);
     let values = parse_args(&args, plugin_id, &sql)?;
     let wrapped_sql = format!(
         "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM ({}) AS t",
@@ -179,6 +211,8 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
         (ctx.0.clone(), ctx.2.clone())
     };
 
+    let sql = sanitize_sql_text("sql", &plugin_id, sql);
+    let args = sanitize_sql_text("args", &plugin_id, args);
     let values = parse_args(&args, &plugin_id, &sql)?;
     let wrapped_sql = format!(
         "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM ({}) AS t",
@@ -216,6 +250,8 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
         (ctx.0.clone(), ctx.2.clone())
     };
 
+    let sql = sanitize_sql_text("sql", &plugin_id, sql);
+    let args = sanitize_sql_text("args", &plugin_id, args);
     let values = parse_args(&args, &plugin_id, &sql)?;
     let stmt = Statement::from_sql_and_values(DbBackend::Postgres, sql, values);
 
