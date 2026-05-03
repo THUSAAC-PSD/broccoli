@@ -1,11 +1,11 @@
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
-use crate::bootstrap::BootstrapConfig;
+use crate::bootstrap::{BootstrapConfig, BootstrapState};
 use crate::cli::Cli;
 use crate::client::{AuthCreds, Client};
 use crate::events::{Event, Phase};
@@ -13,6 +13,8 @@ use crate::report::{
     CorrectnessSummary, LoadSummary, PassthroughSummary, RunSummary, format_summary,
 };
 use crate::scenarios::SCENARIOS;
+
+type SharedState = Arc<AsyncMutex<Option<BootstrapState>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LogTarget {
@@ -26,6 +28,13 @@ pub fn pick_log_target(choice: RendererChoice) -> LogTarget {
             std::env::temp_dir().join(format!("broccoli-stress-test-{}.log", std::process::id())),
         ),
         RendererChoice::Plain | RendererChoice::None => LogTarget::Stderr,
+    }
+}
+
+fn log_file_path(target: &LogTarget) -> Option<PathBuf> {
+    match target {
+        LogTarget::File(p) => Some(p.clone()),
+        LogTarget::Stderr => None,
     }
 }
 
@@ -57,6 +66,29 @@ pub mod exit_code {
     pub const PASSTHROUGH_FAIL: u8 = 3;
     pub const SETUP_FAIL: u8 = 4;
     pub const CLEANUP_DEGRADED: u8 = 5;
+    pub const INTERRUPTED: u8 = 130;
+}
+
+fn spawn_sigint_watchdog(client: Client, state_holder: SharedState) {
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_err() {
+            return;
+        }
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen,);
+        let _ = writeln!(
+            io::stderr(),
+            "\nstress-test: interrupted, running cleanup..."
+        );
+        let state_opt = state_holder.lock().await.take();
+        if let Some(state) = state_opt {
+            let outcome = crate::cleanup::run(&client, &state).await;
+            for w in &outcome.warnings {
+                let _ = writeln!(io::stderr(), "  warn: {w}");
+            }
+        }
+        std::process::exit(exit_code::INTERRUPTED as i32);
+    });
 }
 
 pub async fn run(cli: Cli) -> u8 {
@@ -81,6 +113,9 @@ pub async fn run(cli: Cli) -> u8 {
             return exit_code::SETUP_FAIL;
         }
     };
+
+    let state_holder: SharedState = Arc::new(AsyncMutex::new(None));
+    spawn_sigint_watchdog(client.clone(), state_holder.clone());
 
     let (tx, rx) = mpsc::unbounded_channel::<Event>();
     let renderer = match choice {
@@ -123,6 +158,7 @@ pub async fn run(cli: Cli) -> u8 {
                     load: None,
                     passthrough: PassthroughSummary::NotRun,
                     cleanup_warnings: vec![],
+                    log_file: log_file_path(&log_target),
                 }),
                 exit_code::SETUP_FAIL,
                 cli.json,
@@ -130,6 +166,8 @@ pub async fn run(cli: Cli) -> u8 {
             .await;
         }
     };
+    *state_holder.lock().await = Some(state.clone());
+
     tx.send(Event::PhaseFinished {
         phase: Phase::Bootstrap,
         ok: true,
@@ -144,6 +182,7 @@ pub async fn run(cli: Cli) -> u8 {
         load: None,
         passthrough: PassthroughSummary::NotRun,
         cleanup_warnings: vec![],
+        log_file: log_file_path(&log_target),
     };
     let mut overall_exit = exit_code::PASS;
 
@@ -228,6 +267,7 @@ pub async fn run(cli: Cli) -> u8 {
             total: None,
         })
         .ok();
+        let _ = state_holder.lock().await.take();
         let outcome = crate::cleanup::run(&client, &state).await;
         tx.send(Event::PhaseFinished {
             phase: Phase::Cleanup,
