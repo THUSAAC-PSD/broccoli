@@ -38,6 +38,7 @@ pub async fn run(
 ) -> CorrectnessOutcome {
     let _ = tx.send(Event::PhaseStarted {
         phase: Phase::Correctness,
+        total: Some(scenarios.len() as u64),
     });
 
     let mut passed: usize = 0;
@@ -414,7 +415,7 @@ mod tests {
         assert_eq!(events.len(), 1 + 9 * 2 + 1, "events: {:#?}", events);
 
         match &events[0] {
-            Event::PhaseStarted { phase } => assert_eq!(*phase, Phase::Correctness),
+            Event::PhaseStarted { phase, .. } => assert_eq!(*phase, Phase::Correctness),
             other => panic!("expected PhaseStarted, got {:?}", other),
         }
         match events.last().unwrap() {

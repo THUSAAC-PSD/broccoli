@@ -149,6 +149,7 @@ mod tests {
         let (tx, rx) = mpsc::unbounded_channel();
         tx.send(Event::PhaseStarted {
             phase: Phase::Correctness,
+            total: Some(9),
         })
         .unwrap();
         tx.send(Event::ScenarioStarted {
@@ -168,7 +169,11 @@ mod tests {
             ok: true,
         })
         .unwrap();
-        tx.send(Event::PhaseStarted { phase: Phase::Load }).unwrap();
+        tx.send(Event::PhaseStarted {
+            phase: Phase::Load,
+            total: Some(200),
+        })
+        .unwrap();
         tx.send(Event::LoadSubmitted {
             sequence: 1,
             scenario: "ab-cpp-ac".into(),

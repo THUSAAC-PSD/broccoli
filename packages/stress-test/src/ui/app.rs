@@ -174,13 +174,31 @@ impl AppState {
 
     pub fn apply_event(&mut self, event: &Event) {
         match event {
-            Event::PhaseStarted { phase } => match phase {
-                Phase::Bootstrap => self.bootstrap_state = PhaseState::Running,
-                Phase::Correctness => self.correctness_state = PhaseState::Running,
-                Phase::Load => self.load_state = PhaseState::Running,
-                Phase::Passthrough => self.passthrough_state = PhaseState::Running,
-                Phase::Cleanup => {}
-            },
+            Event::PhaseStarted { phase, total } => {
+                let total_usize = total.map(|t| t as usize);
+                match phase {
+                    Phase::Bootstrap => self.bootstrap_state = PhaseState::Running,
+                    Phase::Correctness => {
+                        self.correctness_state = PhaseState::Running;
+                        if let Some(t) = total_usize {
+                            self.correctness_progress.1 = t;
+                        }
+                    }
+                    Phase::Load => {
+                        self.load_state = PhaseState::Running;
+                        if let Some(t) = total_usize {
+                            self.load_progress.1 = t;
+                        }
+                    }
+                    Phase::Passthrough => {
+                        self.passthrough_state = PhaseState::Running;
+                        if let Some(t) = total_usize {
+                            self.passthrough_progress.1 = t;
+                        }
+                    }
+                    Phase::Cleanup => {}
+                }
+            }
             Event::PhaseFinished { phase, ok } => {
                 let next = if *ok {
                     PhaseState::Passed
@@ -196,7 +214,6 @@ impl AppState {
                 }
             }
             Event::ScenarioStarted { id } => {
-                self.correctness_progress.1 += 1;
                 self.push_log(LogEntry {
                     timestamp: Utc::now(),
                     severity: LogSeverity::Ok,
@@ -230,7 +247,6 @@ impl AppState {
                 });
             }
             Event::LoadSubmitted { sequence, scenario } => {
-                self.load_progress.1 += 1;
                 self.in_flight = self.in_flight.saturating_add(1);
                 let _ = sequence;
                 let _ = scenario;
@@ -386,6 +402,7 @@ mod tests {
         let mut s = make();
         s.apply_event(&Event::PhaseStarted {
             phase: Phase::Correctness,
+            total: None,
         });
         assert_eq!(s.correctness_state, PhaseState::Running);
         s.apply_event(&Event::PhaseFinished {
@@ -403,10 +420,15 @@ mod tests {
     #[test]
     fn scenario_events_track_progress_and_log() {
         let mut s = make();
+        s.apply_event(&Event::PhaseStarted {
+            phase: Phase::Correctness,
+            total: Some(9),
+        });
+        assert_eq!(s.correctness_progress, (0, 9));
         s.apply_event(&Event::ScenarioStarted {
             id: "ab-cpp-ac".into(),
         });
-        assert_eq!(s.correctness_progress, (0, 1));
+        assert_eq!(s.correctness_progress, (0, 9));
         s.apply_event(&Event::ScenarioFinished {
             id: "ab-cpp-ac".into(),
             ok: true,
@@ -414,7 +436,7 @@ mod tests {
             verdict: Some(Verdict::Accepted),
             duration_ms: 412,
         });
-        assert_eq!(s.correctness_progress, (1, 1));
+        assert_eq!(s.correctness_progress, (1, 9));
         assert!(
             s.event_log
                 .iter()
@@ -425,6 +447,11 @@ mod tests {
     #[test]
     fn load_events_increment_and_decrement_in_flight() {
         let mut s = make();
+        s.apply_event(&Event::PhaseStarted {
+            phase: Phase::Load,
+            total: Some(200),
+        });
+        assert_eq!(s.load_progress, (0, 200));
         s.apply_event(&Event::LoadSubmitted {
             sequence: 1,
             scenario: "ab-cpp-ac".into(),
@@ -434,7 +461,7 @@ mod tests {
             scenario: "ab-cpp-ac".into(),
         });
         assert_eq!(s.in_flight, 2);
-        assert_eq!(s.load_progress.1, 2);
+        assert_eq!(s.load_progress.1, 200);
         s.apply_event(&Event::LoadCompleted {
             sequence: 1,
             ok: true,
@@ -449,7 +476,7 @@ mod tests {
             },
         });
         assert_eq!(s.in_flight, 1);
-        assert_eq!(s.load_progress, (1, 2));
+        assert_eq!(s.load_progress, (1, 200));
         assert_eq!(s.verdict_counts.get("Accepted").copied().unwrap_or(0), 1);
         assert!(s.latency_max_ms >= 800);
     }

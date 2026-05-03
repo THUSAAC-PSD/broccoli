@@ -28,7 +28,7 @@ pub fn render_line(event: &Event, now: chrono::DateTime<Utc>) -> String {
     }
 
     match event {
-        Event::PhaseStarted { phase } => format!("[{ts}] --- {:<12} starting", phase.label(),),
+        Event::PhaseStarted { phase, .. } => format!("[{ts}] --- {:<12} starting", phase.label(),),
         Event::PhaseFinished { phase, ok } => {
             let status = if *ok { "OK " } else { "ERR" };
             format!("[{ts}] {status} {:<12} finished ok={}", phase.label(), ok)
@@ -109,6 +109,7 @@ mod tests {
         let line = render_line(
             &Event::PhaseStarted {
                 phase: Phase::Correctness,
+                total: None,
             },
             fixed_now(),
         );
@@ -204,6 +205,7 @@ mod tests {
         let (tx, rx) = mpsc::unbounded_channel();
         tx.send(Event::PhaseStarted {
             phase: Phase::Correctness,
+            total: None,
         })
         .unwrap();
         tx.send(Event::PhaseFinished {

@@ -1,4 +1,6 @@
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
@@ -12,6 +14,42 @@ use crate::report::{
 };
 use crate::scenarios::SCENARIOS;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogTarget {
+    Stderr,
+    File(PathBuf),
+}
+
+pub fn pick_log_target(choice: RendererChoice) -> LogTarget {
+    match choice {
+        RendererChoice::Tui => LogTarget::File(
+            std::env::temp_dir().join(format!("broccoli-stress-test-{}.log", std::process::id())),
+        ),
+        RendererChoice::Plain | RendererChoice::None => LogTarget::Stderr,
+    }
+}
+
+fn install_tracing(target: &LogTarget) {
+    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "warn,stress_test=info".to_string());
+    let builder = tracing_subscriber::fmt().with_env_filter(filter);
+    match target {
+        LogTarget::Stderr => {
+            let _ = builder
+                .with_writer(std::io::stderr)
+                .with_ansi(false)
+                .try_init();
+        }
+        LogTarget::File(path) => {
+            if let Ok(file) = std::fs::File::create(path) {
+                let _ = builder
+                    .with_writer(Mutex::new(file))
+                    .with_ansi(false)
+                    .try_init();
+            }
+        }
+    }
+}
+
 pub mod exit_code {
     pub const PASS: u8 = 0;
     pub const CORRECTNESS_FAIL: u8 = 1;
@@ -24,6 +62,17 @@ pub mod exit_code {
 pub async fn run(cli: Cli) -> u8 {
     let started = Instant::now();
 
+    let choice = pick_renderer(
+        cli.json,
+        io::stdout().is_terminal(),
+        crossterm::terminal::size().ok(),
+    );
+    let log_target = pick_log_target(choice);
+    if let LogTarget::File(p) = &log_target {
+        let _ = writeln!(io::stderr(), "stress-test: tracing log -> {}", p.display());
+    }
+    install_tracing(&log_target);
+
     let creds = build_creds(&cli);
     let client = match Client::new(cli.url.clone(), creds).await {
         Ok(c) => c,
@@ -34,12 +83,6 @@ pub async fn run(cli: Cli) -> u8 {
     };
 
     let (tx, rx) = mpsc::unbounded_channel::<Event>();
-
-    let choice = pick_renderer(
-        cli.json,
-        io::stdout().is_terminal(),
-        crossterm::terminal::size().ok(),
-    );
     let renderer = match choice {
         RendererChoice::None => None,
         RendererChoice::Plain => Some(spawn_plain_renderer(rx)),
@@ -48,6 +91,7 @@ pub async fn run(cli: Cli) -> u8 {
 
     tx.send(Event::PhaseStarted {
         phase: Phase::Bootstrap,
+        total: None,
     })
     .ok();
 
@@ -181,6 +225,7 @@ pub async fn run(cli: Cli) -> u8 {
     } else {
         tx.send(Event::PhaseStarted {
             phase: Phase::Cleanup,
+            total: None,
         })
         .ok();
         let outcome = crate::cleanup::run(&client, &state).await;
@@ -339,5 +384,26 @@ mod tests {
             pick_renderer(false, true, Some((200, 60))),
             RendererChoice::Tui,
         );
+    }
+
+    #[test]
+    fn tui_choice_logs_to_a_file_under_tempdir() {
+        match pick_log_target(RendererChoice::Tui) {
+            LogTarget::File(p) => {
+                assert!(p.starts_with(std::env::temp_dir()));
+                assert!(
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with("broccoli-stress-test-")),
+                );
+            }
+            other => panic!("expected File, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plain_and_none_choices_log_to_stderr() {
+        assert_eq!(pick_log_target(RendererChoice::Plain), LogTarget::Stderr);
+        assert_eq!(pick_log_target(RendererChoice::None), LogTarget::Stderr);
     }
 }
