@@ -21,7 +21,6 @@ const WINDOWS_X86_64: &[u8] = include_bytes!("../../embedded/stress-test/windows
 const MACOS_UNIVERSAL: &[u8] = include_bytes!("../../embedded/stress-test/macos-universal");
 // Used by the manifest endpoint (added in a follow-up task); compiled in here so
 // the embed list lives in one place.
-#[allow(dead_code)]
 const MANIFEST_JSON: &[u8] = include_bytes!("../../embedded/stress-test/manifest.json");
 
 /// Returns `(bytes, download_filename)` for a known platform identifier, or `None`.
@@ -39,7 +38,9 @@ pub fn router() -> Router<AppState> {
     // axum/matchit forbids mixing a parameter with a literal in the same path
     // segment (`{platform}.sha256` is rejected). Instead we accept a single
     // `{file}` segment and dispatch on the optional `.sha256` suffix in code.
-    Router::new().route("/downloads/stress-test/{file}", get(serve))
+    Router::new()
+        .route("/downloads/stress-test/{file}", get(serve))
+        .route("/downloads/manifest.json", get(serve_manifest))
 }
 
 async fn serve(Path(file): Path<String>) -> Response {
@@ -84,6 +85,35 @@ fn serve_sha256(platform: &str) -> Response {
         .unwrap()
 }
 
+async fn serve_manifest() -> Response {
+    let manifest = rewrite_manifest_urls(MANIFEST_JSON);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(manifest))
+        .unwrap()
+}
+
+/// Rewrite the GitHub Releases URLs in the embedded manifest to relative server paths,
+/// so air-gapped lab clients never get pointed back at github.com.
+fn rewrite_manifest_urls(raw: &[u8]) -> Vec<u8> {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(raw).expect("embedded manifest.json must be valid JSON");
+
+    if let Some(platforms) = value.get_mut("platforms").and_then(|p| p.as_object_mut()) {
+        for (platform, info) in platforms.iter_mut() {
+            if let Some(obj) = info.as_object_mut() {
+                obj.insert(
+                    "url".into(),
+                    serde_json::Value::String(format!("/downloads/stress-test/{platform}")),
+                );
+            }
+        }
+    }
+
+    serde_json::to_vec_pretty(&value).expect("re-serialize manifest")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,8 +136,23 @@ mod tests {
         );
     }
 
-    #[allow(dead_code)]
-    fn _manifest_is_compiled_in() {
-        let _ = MANIFEST_JSON;
+    #[test]
+    fn rewrite_manifest_urls_replaces_github_urls() {
+        let raw = br#"{
+          "version": "0.2.0",
+          "platforms": {
+            "linux-x86_64": {
+              "url": "https://github.com/x/y/releases/download/v0.2.0/foo",
+              "sha256": "abc"
+            }
+          }
+        }"#;
+        let out = rewrite_manifest_urls(raw);
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            v["platforms"]["linux-x86_64"]["url"],
+            "/downloads/stress-test/linux-x86_64"
+        );
+        assert_eq!(v["platforms"]["linux-x86_64"]["sha256"], "abc");
     }
 }
