@@ -1,4 +1,5 @@
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -16,6 +17,7 @@ pub struct RunSummary {
     pub load: Option<LoadSummary>,
     pub passthrough: PassthroughSummary,
     pub cleanup_warnings: Vec<String>,
+    pub log_file: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -37,11 +39,18 @@ pub struct LoadSummary {
     pub p95_budget_ms: u64,
     pub passed_budget: bool,
     pub error_count: usize,
+    pub error_samples: Vec<String>,
     pub passed_overall: bool,
 }
 
 impl LoadSummary {
     pub fn from_outcome(outcome: &LoadOutcome, total: u64, p95_budget_ms: u64) -> Self {
+        let error_samples = outcome
+            .errors
+            .iter()
+            .take(5)
+            .map(|(_, msg)| msg.clone())
+            .collect();
         Self {
             total,
             completed: outcome.completed,
@@ -53,6 +62,7 @@ impl LoadSummary {
             p95_budget_ms,
             passed_budget: outcome.passed_budget,
             error_count: outcome.errors.len(),
+            error_samples,
             passed_overall: outcome.passed_overall,
         }
     }
@@ -418,7 +428,7 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
             if l.error_count > 0 {
                 let _ = writeln!(
                     out,
-                    "{} {} HTTP / network errors",
+                    "{} {} load failures (verdict mismatches + submit/poll errors)",
                     bullet,
                     p.red(&l.error_count.to_string()),
                 );
@@ -429,6 +439,35 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
                 out,
                 "{} pass-through phase failed across {} submissions",
                 bullet, count,
+            );
+        }
+
+        if let Some(l) = &summary.load
+            && !l.error_samples.is_empty()
+        {
+            let _ = writeln!(out);
+            let header = if l.error_count > l.error_samples.len() {
+                format!(
+                    "First {} of {} load failures:",
+                    l.error_samples.len(),
+                    l.error_count,
+                )
+            } else {
+                "Load failures:".to_string()
+            };
+            let _ = writeln!(out, "  {}", p.yellow(&header));
+            for sample in &l.error_samples {
+                let _ = writeln!(out, "  {} {}", p.dim("•"), p.dim(sample));
+            }
+        }
+
+        if let Some(path) = &summary.log_file {
+            let _ = writeln!(out);
+            let _ = writeln!(
+                out,
+                "  {} {}",
+                p.dim("Full log:"),
+                p.cyan(&path.display().to_string()),
             );
         }
     }
@@ -470,10 +509,12 @@ mod tests {
                 p95_budget_ms: 15000,
                 passed_budget: true,
                 error_count: 0,
+                error_samples: vec![],
                 passed_overall: true,
             }),
             passthrough: PassthroughSummary::NotRun,
             cleanup_warnings: vec![],
+            log_file: None,
         }
     }
 
@@ -531,6 +572,7 @@ mod tests {
                 reason: "no contestid".into(),
             },
             cleanup_warnings: vec![],
+            log_file: None,
         };
         let v = s.to_json(0);
         assert!(v["correctness"].is_null());
