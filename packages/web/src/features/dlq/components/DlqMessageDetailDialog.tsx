@@ -13,9 +13,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Loader2, RotateCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 
 import { useDlqMessage } from '@/features/dlq/hooks/useDlqMessage';
+import { messageTypeMeta } from '@/features/dlq/utils/messageType';
 
 interface Props {
   messageId: number | null;
@@ -29,6 +31,7 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
   const open = messageId !== null;
 
   const { data, isLoading, error } = useDlqMessage(messageId);
+  const meta = data ? messageTypeMeta(data.message_type) : null;
 
   const [busy, setBusy] = useState<'retry' | 'delete' | null>(null);
 
@@ -105,9 +108,12 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
                 <span className="font-mono text-xs">{data.message_id}</span>
               </Field>
               <Field label={t('dlq.detail.type')}>
-                <Badge variant="outline" className="font-mono">
-                  {data.message_type}
-                </Badge>
+                {meta && (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-0.5 text-xs">
+                    <meta.icon className="h-3 w-3 text-muted-foreground" />
+                    {t(meta.labelKey)}
+                  </span>
+                )}
               </Field>
               <Field label={t('dlq.detail.errorCode')}>
                 <span className="font-medium">{data.error_code}</span>
@@ -127,9 +133,12 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
               </Field>
               {data.submission_id !== null && (
                 <Field label={t('dlq.detail.submissionId')}>
-                  <span className="font-mono text-xs">
-                    {data.submission_id}
-                  </span>
+                  <Link
+                    to={`/submissions/${data.submission_id}`}
+                    className="font-mono text-xs text-primary hover:underline"
+                  >
+                    #{data.submission_id}
+                  </Link>
                 </Field>
               )}
               <Field label={t('dlq.detail.status')}>
@@ -166,12 +175,6 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
           </div>
         )}
 
-        {data && !data.resolved && data.message_type !== 'stuck_submission' && (
-          <p className="text-xs text-muted-foreground">
-            {t('dlq.detail.retryUnsupported')}
-          </p>
-        )}
-
         <DialogFooter className="gap-2 sm:gap-2">
           <Button
             variant="outline"
@@ -185,22 +188,19 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
             )}
             {t('dlq.detail.deleteAction')}
           </Button>
-          <Button
-            onClick={handleRetry}
-            disabled={
-              busy !== null ||
-              !data ||
-              data.resolved ||
-              data.message_type !== 'stuck_submission'
-            }
-          >
-            {busy === 'retry' ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <RotateCw className="h-4 w-4 mr-2" />
-            )}
-            {t('dlq.detail.retryAction')}
-          </Button>
+          {meta?.retryable && (
+            <Button
+              onClick={handleRetry}
+              disabled={busy !== null || !data || data.resolved}
+            >
+              {busy === 'retry' ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <RotateCw className="h-4 w-4 mr-2" />
+              )}
+              {t('dlq.detail.retryAction')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
