@@ -320,6 +320,7 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         tasks: steps,
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     }];
 
     let batch_id = match host.operations.start_batch(&operations) {

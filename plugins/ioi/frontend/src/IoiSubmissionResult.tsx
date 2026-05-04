@@ -576,7 +576,7 @@ function SubtaskCard({
       <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-foreground">
+            <div className="text-[13px] font-semibold text-foreground ml-2">
               {subtask.name ||
                 t('ioi.submission.subtaskFallback', { index: index + 1 })}
             </div>
@@ -592,7 +592,7 @@ function SubtaskCard({
           </span>
         </div>
         <span
-          className="whitespace-nowrap font-mono tabular-nums text-sm font-bold"
+          className="whitespace-nowrap font-mono tabular-nums text-sm font-bold mr-2"
           style={{ color }}
         >
           {score.toFixed(score === Math.floor(score) ? 0 : 2)}
@@ -994,14 +994,14 @@ export function IoiSubmissionResult({
     <div className="flex flex-col gap-2">
       {/* Total score summary bar */}
       <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3.5 py-2">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 ml-2">
           <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t('ioi.submission.total')}
             {visibility.usesTokenMode && isTokened && <TokenedBadge />}
           </span>
         </div>
         <span
-          className="font-mono tabular-nums text-base font-bold"
+          className="font-mono tabular-nums text-base font-bold mr-2"
           style={{ color: scoreColor(totalScore, maxPossible) }}
         >
           {totalScore.toFixed(totalScore === Math.floor(totalScore) ? 0 : 2)}
