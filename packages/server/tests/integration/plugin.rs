@@ -192,7 +192,7 @@ mod plugin_routing {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn plugin_can_use_kv_store_to_persist_data() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
         let url = routes::plugin_proxy("server-plugin", "kv/some-key");
 
         let res = app.get_without_token(&url).await;
@@ -211,7 +211,7 @@ mod sql {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn plugin_can_execute_parameterized_sql() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_plugins().await;
 
         let res = app
             .post_without_token(
