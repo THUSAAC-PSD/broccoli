@@ -110,9 +110,21 @@ pub async fn activate_plugin(state: &AppState, plugin_id: &str) -> Result<(), Pl
     }
 }
 
+/// Activation outcome for a single plugin during [`sync_plugins`].
+///
+/// Production startup logs and ignores failures so one broken plugin doesn't
+/// abort boot; tests inspect the returned vec and fail loudly when non-empty.
+#[derive(Debug)]
+pub struct PluginActivationFailure {
+    pub plugin_id: String,
+    pub error: PluginError,
+}
+
 #[instrument(skip(state))]
-pub async fn sync_plugins(state: &AppState) -> anyhow::Result<()> {
+pub async fn sync_plugins(state: &AppState) -> anyhow::Result<Vec<PluginActivationFailure>> {
     state.plugins.discover_plugins()?;
+
+    let mut failures = Vec::new();
 
     for plugin in state.plugins.list_plugins()? {
         let plugin_id = plugin.id.clone();
@@ -139,6 +151,10 @@ pub async fn sync_plugins(state: &AppState) -> anyhow::Result<()> {
                 }
                 Err(error) => {
                     tracing::error!("Plugin '{}' activation failed: {}", plugin.id, error);
+                    failures.push(PluginActivationFailure {
+                        plugin_id: plugin.id.clone(),
+                        error,
+                    });
                 }
             }
         } else {
@@ -146,7 +162,7 @@ pub async fn sync_plugins(state: &AppState) -> anyhow::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(failures)
 }
 
 async fn register_plugin_hooks(
