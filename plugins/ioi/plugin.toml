@@ -70,6 +70,13 @@ description = "Baseline submission feedback visible before a token is used"
 enum = ["full", "subtask_scores", "total_only", "none"]
 default = "full"
 
+[config.contest.properties.scoreboard_visibility]
+type = "string"
+title = "Scoreboard Visibility Before End"
+description = "Who can see the full scoreboard before the contest ends"
+enum = ["admins_only", "all_contest_viewers"]
+default = "admins_only"
+
 [config.contest.properties.tokens]
 type = "object"
 title = "Token Configuration"
@@ -157,6 +164,7 @@ css = ["styles.css"]
 [web.components]
 ScoringModeSelector = "ScoringModeSelector"
 FeedbackLevelSelector = "FeedbackLevelSelector"
+ScoreboardVisibilitySelector = "ScoreboardVisibilitySelector"
 SubtaskEditor = "SubtaskEditor"
 TokenConfigPanel = "TokenConfigPanel"
 IoiScoreboard = "IoiScoreboard"
@@ -186,6 +194,11 @@ component = "ScoringModeSelector"
 name = "config.field.ioi.contest.feedback_level"
 position = "replace"
 component = "FeedbackLevelSelector"
+
+[[web.slots]]
+name = "config.field.ioi.contest.scoreboard_visibility"
+position = "replace"
+component = "ScoreboardVisibilitySelector"
 
 [[web.slots]]
 name = "config.field.ioi.contest.tokens"

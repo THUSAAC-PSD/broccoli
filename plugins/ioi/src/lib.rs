@@ -14,13 +14,23 @@ use extism_pdk::{FnResult, plugin_fn};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    ContestConfig, FeedbackLevel, ScoringMode, SubtaskDef, TaskConfig, TokenMode, resolve_tc_label,
-    round_score,
+    ContestConfig, FeedbackLevel, ScoreboardVisibility, ScoringMode, SubtaskDef, TaskConfig,
+    TokenMode, resolve_tc_label, round_score,
 };
 use crate::judge::{JudgeContext, judge_with_context};
 use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
 use crate::subtasks::{build_default_subtasks, score_all_subtasks};
 use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
+
+fn full_scoreboard_visible_for_phase(
+    phase: &str,
+    can_view_all: bool,
+    scoreboard_visibility: ScoreboardVisibility,
+) -> bool {
+    can_view_all
+        || phase == "after"
+        || (phase == "during" && scoreboard_visibility == ScoreboardVisibility::AllContestViewers)
+}
 
 #[derive(Deserialize)]
 struct ElapsedMinutes {
@@ -708,6 +718,7 @@ fn handle_contest_info(
         body: Some(serde_json::json!({
             "scoring_mode": contest_config.scoring_mode,
             "feedback_level": contest_config.feedback_level,
+            "scoreboard_visibility": contest_config.scoreboard_visibility,
             "token_mode": contest_config.tokens.mode,
         })),
     })
@@ -1051,16 +1062,17 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
 
     let mut entries: Vec<RankEntry> = Vec::new();
 
-    // During before/during phase, contestants only see themselves; organizers
-    // (with contest:manage) see the full live scoreboard for supervision.
+    // Before the contest ends, full scoreboard visibility is controlled by
+    // contest config; organizers always retain full visibility for supervision.
     let can_view_all = req.has_permission("contest:manage");
+    let full_scoreboard_visible = full_scoreboard_visible_for_phase(
+        phase,
+        can_view_all,
+        contest_config.scoreboard_visibility,
+    );
     let visible_participants: Vec<&Participant> = participants
         .iter()
-        .filter(|p| {
-            !(phase == "before" || phase == "during")
-                || can_view_all
-                || req.user_id() == Some(p.user_id)
-        })
+        .filter(|p| full_scoreboard_visible || req.user_id() == Some(p.user_id))
         .collect();
 
     let all_keys: Vec<String> = visible_participants
@@ -1128,6 +1140,7 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
             "phase": phase,
             "scoring_mode": contest_config.scoring_mode,
             "feedback_level": contest_config.feedback_level,
+            "scoreboard_visibility": contest_config.scoreboard_visibility,
             "max_scores": max_scores,
             "rankings": entries,
         })),
@@ -1217,4 +1230,39 @@ fn handle_submission_subtask_scores(
             }
         })),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_contest_viewers_visibility_only_opens_full_scoreboard_during_contest() {
+        assert!(!full_scoreboard_visible_for_phase(
+            "before",
+            false,
+            ScoreboardVisibility::AllContestViewers,
+        ));
+        assert!(full_scoreboard_visible_for_phase(
+            "during",
+            false,
+            ScoreboardVisibility::AllContestViewers,
+        ));
+        assert!(full_scoreboard_visible_for_phase(
+            "after",
+            false,
+            ScoreboardVisibility::AdminsOnly,
+        ));
+    }
+
+    #[test]
+    fn admins_can_view_full_scoreboard_in_any_phase() {
+        for phase in ["before", "during", "after"] {
+            assert!(full_scoreboard_visible_for_phase(
+                phase,
+                true,
+                ScoreboardVisibility::AdminsOnly,
+            ));
+        }
+    }
 }

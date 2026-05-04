@@ -271,6 +271,19 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
         </div>
       </div>
 
+      {phase === 'during' &&
+        scoreboard.scoreboard_visibility === 'admins_only' && (
+          <div className="py-1.5 px-3 mb-3 rounded text-xs text-muted-foreground bg-muted border border-border">
+            {t('ioi.scoreboard.ownScoresOnly')}
+          </div>
+        )}
+      {phase === 'during' &&
+        scoreboard.scoreboard_visibility === 'all_contest_viewers' && (
+          <div className="py-1.5 px-3 mb-3 rounded text-xs text-muted-foreground bg-muted border border-border">
+            {t('ioi.scoreboard.fullLiveVisible')}
+          </div>
+        )}
+
       {rankings.length === 0 ? (
         <div className="py-12 text-center text-muted-foreground">
           {phase === 'before'
