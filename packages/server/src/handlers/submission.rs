@@ -150,6 +150,68 @@ async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
+/// Opens a fresh judgement row for a rejudge. The previous current
+/// judgement is demoted to `is_current = false` and the new row becomes
+/// the dispatch target. The old row keeps its `test_case_result`
+/// attachments so the prior verdict is preserved as version history.
+///
+/// Caller is responsible for committing the surrounding transaction.
+async fn open_rejudge_judgement(
+    txn: &DatabaseTransaction,
+    sub: &submission::Model,
+    triggered_by_user_id: i32,
+    target_worker_id: Option<String>,
+    note: Option<String>,
+    new_judge_epoch: i32,
+) -> Result<submission_judgement::Model, AppError> {
+    use sea_orm::ColumnTrait;
+
+    let max_version: Option<i32> = submission_judgement::Entity::find()
+        .filter(submission_judgement::Column::SubmissionId.eq(sub.id))
+        .order_by_desc(submission_judgement::Column::Version)
+        .one(txn)
+        .await?
+        .map(|j| j.version);
+    let next_version = max_version.unwrap_or(0).saturating_add(1);
+
+    // Demote any judgement currently flagged as current. There should be
+    // at most one row matching this filter (enforced by the partial
+    // unique index `idx_submission_judgement_one_current`).
+    submission_judgement::Entity::update_many()
+        .col_expr(
+            submission_judgement::Column::IsCurrent,
+            sea_orm::sea_query::Expr::value(false),
+        )
+        .filter(submission_judgement::Column::SubmissionId.eq(sub.id))
+        .filter(submission_judgement::Column::IsCurrent.eq(true))
+        .exec(txn)
+        .await?;
+
+    let now = Utc::now();
+    let new = submission_judgement::ActiveModel {
+        submission_id: Set(sub.id),
+        version: Set(next_version),
+        is_current: Set(true),
+        is_finalized: Set(false),
+        triggered_by_user_id: Set(Some(triggered_by_user_id)),
+        target_worker_id: Set(target_worker_id),
+        note: Set(note),
+        status: Set(SubmissionStatus::Pending),
+        verdict: Set(None),
+        score: Set(None),
+        time_used: Set(None),
+        memory_used: Set(None),
+        compile_output: Set(None),
+        error_code: Set(None),
+        error_message: Set(None),
+        judge_epoch: Set(new_judge_epoch),
+        created_at: Set(now),
+        finalized_at: Set(None),
+        ..Default::default()
+    };
+    Ok(new.insert(txn).await?)
+}
+
 /// Resolves the active judgement for a submission.
 ///
 /// Returns the id of the current non-finalized judgement, creating a v1
@@ -1215,10 +1277,23 @@ pub async fn rejudge_submission(
         .await?
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))?;
 
-    test_case_result::Entity::delete_many()
-        .filter(test_case_result::Column::SubmissionId.eq(sub.id))
-        .exec(&txn)
-        .await?;
+    let new_epoch = sub.judge_epoch.saturating_add(1);
+
+    // The prior verdict (and its test_case_result rows) stay attached to
+    // the old judgement so it remains visible as version history. The
+    // dispatch path will look up the new current judgement created here.
+    let resolved_target = new_target
+        .clone()
+        .unwrap_or_else(|| sub.target_worker_id.clone());
+    let _new_judgement = open_rejudge_judgement(
+        &txn,
+        &sub,
+        auth_user.user_id,
+        resolved_target,
+        None,
+        new_epoch,
+    )
+    .await?;
 
     let mut active: submission::ActiveModel = sub.clone().into();
     active.status = Set(SubmissionStatus::Pending);
@@ -1230,7 +1305,7 @@ pub async fn rejudge_submission(
     active.time_used = Set(None);
     active.memory_used = Set(None);
     active.judged_at = Set(None);
-    active.judge_epoch = Set(sub.judge_epoch.saturating_add(1));
+    active.judge_epoch = Set(new_epoch);
     if let Some(target) = new_target {
         active.target_worker_id = Set(target);
     }
@@ -1566,16 +1641,32 @@ pub async fn bulk_rejudge_submissions(
     for batch_ids in all_ids.chunks(BATCH_SIZE) {
         let txn = state.db.begin().await?;
 
-        let _lock = submission::Entity::find()
+        let locked = submission::Entity::find()
             .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
             .lock(LockType::Update)
             .all(&txn)
             .await?;
 
-        test_case_result::Entity::delete_many()
-            .filter(test_case_result::Column::SubmissionId.is_in(batch_ids.to_vec()))
-            .exec(&txn)
+        // Open one fresh judgement per submission. The prior verdict and
+        // its test_case_result rows stay attached to the demoted
+        // judgement so version history is preserved across bulk
+        // rejudges.
+        for sub in &locked {
+            let resolved_target = match new_target.clone() {
+                Some(t) => t,
+                None => sub.target_worker_id.clone(),
+            };
+            let new_epoch = sub.judge_epoch.saturating_add(1);
+            let _ = open_rejudge_judgement(
+                &txn,
+                sub,
+                auth_user.user_id,
+                resolved_target,
+                None,
+                new_epoch,
+            )
             .await?;
+        }
 
         let mut update = submission::Entity::update_many()
             .col_expr(
