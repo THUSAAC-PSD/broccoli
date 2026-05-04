@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router';
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 
 import { getVerdictBadge } from '../utils/verdict';
+import { PinnedSubmissionGroup } from './PinnedSubmissionGroup';
 
 const DEFAULT_VISIBLE_COUNT = 5;
 
@@ -88,8 +89,31 @@ export function RecentSubmissionOverview({
   const { t } = useTranslation();
   const navigate = useNavigate();
 
+  // Bucket fan-out entries by groupKey so they render together as a single
+  // comparison strip rather than N independent overview rows. Single-target
+  // pins still create a 1-row group, which is fine — it shows the worker
+  // label and avoids special-casing.
+  const groups = new Map<string, SubmissionEntry[]>();
+  const ungrouped: SubmissionEntry[] = [];
+  for (const entry of entries) {
+    if (entry.groupKey) {
+      const arr = groups.get(entry.groupKey) ?? [];
+      arr.push(entry);
+      groups.set(entry.groupKey, arr);
+    } else {
+      ungrouped.push(entry);
+    }
+  }
+  const groupedSubmissionIds = new Set<number>();
+  for (const arr of groups.values()) {
+    for (const e of arr) {
+      if (e.submission) groupedSubmissionIds.add(e.submission.id);
+    }
+  }
+
   const rowsById = new Map<number, OverviewRow>();
   for (const item of history) {
+    if (groupedSubmissionIds.has(item.id)) continue;
     rowsById.set(item.id, {
       key: `history-${item.id}`,
       submissionId: item.id,
@@ -104,7 +128,7 @@ export function RecentSubmissionOverview({
   }
 
   const pendingRows: OverviewRow[] = [];
-  for (const entry of entries) {
+  for (const entry of ungrouped) {
     if (!entry.submission) {
       pendingRows.push({
         key: `entry-${entry.id}`,
@@ -147,7 +171,9 @@ export function RecentSubmissionOverview({
     })
     .slice(0, visibleCount);
 
-  if (mergedRows.length === 0) {
+  const groupBlocks = Array.from(groups.entries());
+
+  if (mergedRows.length === 0 && groupBlocks.length === 0) {
     return (
       <section className="rounded-lg border bg-card p-4">
         <h3 className="text-sm font-semibold">
@@ -160,12 +186,23 @@ export function RecentSubmissionOverview({
     );
   }
 
+  const linkBuilderForGroup = linkBuilder
+    ? (id: number) => linkBuilder(id)
+    : undefined;
+
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-semibold">
         {t('result.latestOverviewTitle')}
       </h3>
       <div className="mt-3 space-y-2">
+        {groupBlocks.map(([key, groupEntries]) => (
+          <PinnedSubmissionGroup
+            key={key}
+            entries={groupEntries}
+            linkBuilder={linkBuilderForGroup}
+          />
+        ))}
         {mergedRows.map((row) => {
           const { label, variant } = getVerdictBadge(
             row.verdict,

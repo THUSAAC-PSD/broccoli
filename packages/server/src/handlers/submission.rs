@@ -10,6 +10,7 @@ use chrono::Utc;
 use common::{SubmissionStatus, Verdict};
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
+use serde::Deserialize;
 use tracing::{error, info, instrument, warn};
 
 use plugin_core::traits::PluginManagerExt;
@@ -274,6 +275,7 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
         problem_type: problem.problem_type.clone(),
         test_cases: resolved_test_cases,
         judge_epoch: submission.judge_epoch,
+        target_worker_id: submission.target_worker_id.clone(),
     };
 
     let input_bytes = match serde_json::to_vec(&input) {
@@ -414,6 +416,7 @@ async fn build_submission_list_items(
             contest_id: sub.contest_id,
             contest_type: sub.contest_type,
             judge_epoch: sub.judge_epoch,
+            target_worker_id: sub.target_worker_id,
             created_at: sub.created_at,
             score: sub.score,
             time_used: sub.time_used,
@@ -640,6 +643,7 @@ async fn build_submission_response(
         contest_id: sub.contest_id,
         contest_type: sub.contest_type.clone(),
         judge_epoch: sub.judge_epoch,
+        target_worker_id: sub.target_worker_id,
         created_at: sub.created_at,
         result: result_response,
     })
@@ -1075,31 +1079,57 @@ pub async fn get_submission(
     Ok(Json(response))
 }
 
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct RejudgeQuery {
+    #[param(example = "worker-1")]
+    pub target_worker_id: Option<String>,
+}
+
 #[utoipa::path(
     post,
     path = "/{id}/rejudge",
     tag = "Submissions",
     operation_id = "rejudgeSubmission",
     summary = "Rejudge a submission",
-    description = "Re-queues the submission for judging. Requires `submission:rejudge` permission.",
+    description = "Re-queues the submission for judging. Requires `submission:rejudge` permission. Optionally pin to a worker via `?target_worker_id=...` (requires `system:admin`); pass an empty value to clear an existing pin.",
     params(
-        ("id" = i32, Path, description = "Submission ID")
+        ("id" = i32, Path, description = "Submission ID"),
+        RejudgeQuery,
     ),
     responses(
         (status = 200, description = "Submission re-queued", body = SubmissionResponse),
+        (status = 400, description = "Invalid worker (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Submission not found (NOT_FOUND)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(submission_id = %id))]
+#[instrument(skip(state, auth_user, query), fields(submission_id = %id))]
 pub async fn rejudge_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
+    Query(query): Query<RejudgeQuery>,
 ) -> Result<Json<SubmissionResponse>, AppError> {
     auth_user.require_permission("submission:rejudge")?;
+
+    let new_target: Option<Option<String>> = match query.target_worker_id.as_deref() {
+        None => None,
+        Some("") => Some(None),
+        Some(raw) => {
+            auth_user.require_permission("system:admin")?;
+            validate_worker_id_format(raw)?;
+            let live = crate::handlers::system::live_worker_ids(&state).await;
+            if !live.contains(raw) {
+                return Err(AppError::Validation(format!(
+                    "Worker '{raw}' has no live heartbeat"
+                )));
+            }
+            Some(Some(raw.to_string()))
+        }
+    };
 
     let txn = state.db.begin().await?;
 
@@ -1125,6 +1155,9 @@ pub async fn rejudge_submission(
     active.memory_used = Set(None);
     active.judged_at = Set(None);
     active.judge_epoch = Set(sub.judge_epoch.saturating_add(1));
+    if let Some(target) = new_target {
+        active.target_worker_id = Set(target);
+    }
     let updated = active.update(&txn).await?;
 
     txn.commit().await?;
@@ -1408,6 +1441,23 @@ pub async fn bulk_rejudge_submissions(
     auth_user.require_permission("submission:rejudge")?;
     validate_bulk_rejudge(&payload)?;
 
+    // `target_worker_id=Some("")` is a sentinel for "clear pin"; non-empty
+    // requires admin + a live worker. `None` means leave existing pins alone.
+    let new_target: Option<Option<String>> = match payload.target_worker_id.as_deref() {
+        None => None,
+        Some("") => Some(None),
+        Some(raw) => {
+            auth_user.require_permission("system:admin")?;
+            let live = crate::handlers::system::live_worker_ids(&state).await;
+            if !live.contains(raw) {
+                return Err(AppError::Validation(format!(
+                    "Worker '{raw}' has no live heartbeat"
+                )));
+            }
+            Some(Some(raw.to_string()))
+        }
+    };
+
     let requested = payload.submission_ids.len();
     let mut requested_ids = payload.submission_ids;
     requested_ids.sort_unstable();
@@ -1451,7 +1501,7 @@ pub async fn bulk_rejudge_submissions(
             .exec(&txn)
             .await?;
 
-        submission::Entity::update_many()
+        let mut update = submission::Entity::update_many()
             .col_expr(
                 submission::Column::Status,
                 sea_orm::sea_query::Expr::value(SubmissionStatus::Pending),
@@ -1493,7 +1543,16 @@ pub async fn bulk_rejudge_submissions(
                 sea_orm::sea_query::Expr::cust(
                     "CASE WHEN judge_epoch < 2147483647 THEN judge_epoch + 1 ELSE 2147483647 END",
                 ),
-            )
+            );
+
+        if let Some(ref target) = new_target {
+            update = update.col_expr(
+                submission::Column::TargetWorkerId,
+                sea_orm::sea_query::Expr::value(target.clone()),
+            );
+        }
+
+        update
             .filter(submission::Column::Id.is_in(batch_ids.to_vec()))
             .exec(&txn)
             .await?;
@@ -1526,4 +1585,159 @@ pub async fn bulk_rejudge_submissions(
 
 pub fn submission_body_limit(max_size: usize) -> axum::extract::DefaultBodyLimit {
     axum::extract::DefaultBodyLimit::max(max_size + 4096)
+}
+
+#[utoipa::path(
+    post,
+    path = "/submissions/fan-out",
+    tag = "Admin",
+    operation_id = "adminFanOutSubmission",
+    summary = "Fan out a submission to a set of workers",
+    description = "Creates one submission per worker in `target_worker_ids`, each pinned to the named worker. Used by admins to verify that specific lab workers run a known-good (or known-bad) solution correctly. Skips the per-user submission rate limit. Requires `system:admin` permission.",
+    request_body = AdminFanOutSubmissionRequest,
+    responses(
+        (status = 201, description = "Submissions created", body = AdminFanOutSubmissionResponse),
+        (status = 400, description = "Validation error or worker offline (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 404, description = "Problem or contest not found (NOT_FOUND)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload))]
+pub async fn admin_fan_out_submission(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<AdminFanOutSubmissionRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    auth_user.require_permission("system:admin")?;
+    validate_admin_fan_out(&payload)?;
+    validate_code_payload(
+        &payload.files,
+        &payload.language,
+        state.config.submission.max_size,
+    )?;
+
+    let live_workers = crate::handlers::system::live_worker_ids(&state).await;
+    let mut offline: Vec<&str> = payload
+        .target_worker_ids
+        .iter()
+        .filter(|id| !live_workers.contains(*id))
+        .map(String::as_str)
+        .collect();
+    offline.sort();
+    if !offline.is_empty() {
+        return Err(AppError::Validation(format!(
+            "target_worker_ids contains worker(s) without a live heartbeat: {}",
+            offline.join(", ")
+        )));
+    }
+
+    let txn = state.db.begin().await?;
+
+    let problem = find_problem(&txn, payload.problem_id).await?;
+    let known_languages: std::collections::HashSet<String> = state
+        .registries
+        .language_resolver_registry
+        .read()
+        .await
+        .keys()
+        .cloned()
+        .collect();
+    validate_submission_contract(
+        &payload.files,
+        &payload.language,
+        problem.get_submission_format(),
+        &known_languages,
+    )?;
+
+    if let Some(contest_id) = payload.contest_id {
+        let _contest = find_contest(&txn, contest_id).await?;
+        if !is_problem_in_contest(&txn, contest_id, payload.problem_id).await? {
+            return Err(AppError::NotFound(
+                "Problem not found in this contest".into(),
+            ));
+        }
+    }
+
+    let contest_type = match payload.contest_type {
+        Some(ref ct) => {
+            let registry = state.registries.contest_type_registry.read().await;
+            if !registry.contains_key(ct) {
+                let mut valid: Vec<_> = registry.keys().cloned().collect();
+                valid.sort();
+                return Err(AppError::Validation(format!(
+                    "contest_type must be one of: {}",
+                    valid.join(", ")
+                )));
+            }
+            ct.clone()
+        }
+        None => match payload.contest_id {
+            Some(contest_id) => {
+                let contest_model = find_contest(&txn, contest_id).await?;
+                contest_model
+                    .contest_type
+                    .clone()
+                    .unwrap_or_else(|| problem.default_contest_type.clone())
+            }
+            None => problem.default_contest_type.clone(),
+        },
+    };
+
+    let language = payload.language.trim().to_string();
+    let now = Utc::now();
+    let files_json = files_to_json(&payload.files);
+
+    let mut models = Vec::with_capacity(payload.target_worker_ids.len());
+    for worker_id in &payload.target_worker_ids {
+        let new_submission = submission::ActiveModel {
+            files: Set(files_json.clone()),
+            language: Set(language.clone()),
+            status: Set(SubmissionStatus::Pending),
+            user_id: Set(auth_user.user_id),
+            problem_id: Set(payload.problem_id),
+            contest_id: Set(payload.contest_id),
+            contest_type: Set(contest_type.clone()),
+            target_worker_id: Set(Some(worker_id.clone())),
+            created_at: Set(now),
+            ..Default::default()
+        };
+        let model = new_submission.insert(&txn).await?;
+        models.push(model);
+    }
+
+    txn.commit().await?;
+
+    info!(
+        admin_user_id = auth_user.user_id,
+        problem_id = payload.problem_id,
+        contest_id = ?payload.contest_id,
+        worker_count = models.len(),
+        "Admin fan-out submission created"
+    );
+
+    let visibility = Some(VisibilityContext {
+        viewer_id: auth_user.user_id,
+        has_view_all: true,
+    });
+
+    let mut responses = Vec::with_capacity(models.len());
+    for model in models {
+        let dispatch_state = state.clone();
+        let dispatch_model = model.clone();
+        tokio::spawn(async move {
+            dispatch_to_plugin(dispatch_state, dispatch_model).await;
+        });
+
+        let response = build_submission_response(&state.db, model, visibility).await?;
+        responses.push(response);
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(AdminFanOutSubmissionResponse {
+            submissions: responses,
+        }),
+    ))
 }

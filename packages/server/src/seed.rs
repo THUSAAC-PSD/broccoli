@@ -24,6 +24,7 @@ const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
     ("admin", "plugin:manage"),
     ("admin", "dlq:manage"),
     ("admin", "system:view"),
+    ("admin", "system:admin"),
     ("problem_setter", "submission:submit"),
     ("problem_setter", "submission:view_all"),
     ("problem_setter", "problem:create"),

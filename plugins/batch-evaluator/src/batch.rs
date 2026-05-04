@@ -223,6 +223,7 @@ pub fn build_operation(
         tasks: steps,
         channels: vec![],
         priority: None,
+        target_worker_id: req.target_worker_id.clone(),
     };
 
     Ok(vec![op])
@@ -251,6 +252,7 @@ mod tests {
             checker_config: None,
             checker_source: None,
             additional_file_refs: vec![],
+            target_worker_id: None,
         }
     }
 

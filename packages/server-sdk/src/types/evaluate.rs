@@ -18,6 +18,10 @@ pub struct StartEvaluateCaseInput {
     pub inline_input: Option<String>,
     #[serde(default)]
     pub inline_expected_output: Option<String>,
+    /// Pin the resulting operation to a specific worker. Set by contest
+    /// plugins from `OnSubmissionInput.target_worker_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_worker_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +48,12 @@ pub struct BuildEvalOpsInput {
 
     #[serde(default)]
     pub additional_file_refs: Vec<FileRef>,
+
+    /// Forwarded from `StartEvaluateCaseInput.target_worker_id`. Evaluator
+    /// plugins copy this onto each `OperationTask` they build so the host
+    /// routes the operation to the pinned worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_worker_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

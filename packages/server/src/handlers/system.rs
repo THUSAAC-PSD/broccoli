@@ -114,6 +114,18 @@ pub async fn system_overview(
     }))
 }
 
+/// Returns the set of worker IDs that have a live (non-stale) heartbeat in
+/// Redis. Used by admin endpoints that need to validate `target_worker_id`
+/// values before they are persisted on submissions.
+pub(crate) async fn live_worker_ids(state: &AppState) -> std::collections::HashSet<String> {
+    read_workers(state)
+        .await
+        .into_iter()
+        .filter(|w| !w.stale)
+        .map(|w| w.id)
+        .collect()
+}
+
 async fn read_workers(state: &AppState) -> Vec<WorkerInfo> {
     let Some(client) = state.redis_client.as_ref() else {
         return Vec::new();

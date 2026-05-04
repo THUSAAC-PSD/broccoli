@@ -282,6 +282,7 @@ fn start_evaluate_batch_fn(
                     checker_config: checker_config_value.clone(),
                     checker_source: parsed_checker_source.clone(),
                     additional_file_refs: additional_file_refs.clone(),
+                    target_worker_id: tc.target_worker_id,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?

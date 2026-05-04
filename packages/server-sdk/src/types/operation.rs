@@ -158,6 +158,11 @@ pub struct OperationTask {
     pub channels: Vec<Channel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u8>,
+    /// When set, the host routes this operation to the worker's private
+    /// queue (`<operation_queue_name>:worker:<id>`) instead of the shared
+    /// pool. Used by admin probe / pinned-rejudge flows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_worker_id: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

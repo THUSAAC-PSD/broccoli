@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Inbox,
   Minus,
+  Pin,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
@@ -345,6 +346,15 @@ function SubmissionRow({
         <td key="verdict" className={`${px} ${py}`}>
           <span className="flex items-center gap-1.5">
             {customVerdict ?? defaultVerdict}
+            {submission.target_worker_id ? (
+              <span
+                className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary/70 bg-primary/10 px-1 py-0.5 rounded"
+                title={`Pinned to ${submission.target_worker_id}`}
+              >
+                <Pin className="h-2.5 w-2.5" />
+                {submission.target_worker_id}
+              </span>
+            ) : null}
             {/* Show #id next to verdict when there's no problem column */}
             {!columns.some((c) => c.key === 'problem') && (
               <>

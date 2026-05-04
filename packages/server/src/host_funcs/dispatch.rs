@@ -37,6 +37,18 @@ struct DispatchContext {
 
 type DispatchUserData = DispatchContext;
 
+/// Defense-in-depth validator for `target_worker_id` values arriving from
+/// plugins. Worker IDs are admin-configured and should already be safe; this
+/// just ensures a malicious plugin cannot inject `..`, glob characters, or
+/// other tokens that would warp the resulting Redis queue name.
+fn is_valid_worker_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
 pub fn create_dispatch_functions(
     plugin_id: String,
     mq: Option<Arc<MqQueue>>,
@@ -165,6 +177,21 @@ fn start_operation_batch_fn(
             }
         });
 
+        let target_queue = match op.target_worker_id.as_deref() {
+            Some(worker_id) if is_valid_worker_id(worker_id) => {
+                format!("{}:worker:{}", queue_name, worker_id)
+            }
+            Some(invalid) => {
+                tracing::warn!(
+                    plugin_id = %plugin_id,
+                    target = %invalid,
+                    "Rejecting operation with invalid target_worker_id; falling back to shared queue"
+                );
+                queue_name.clone()
+            }
+            None => queue_name.clone(),
+        };
+
         let task = Task {
             id: correlation_id.clone(),
             task_type: "operation".to_string(),
@@ -179,7 +206,7 @@ fn start_operation_batch_fn(
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 mq.publish(
-                    &queue_name,
+                    &target_queue,
                     None,
                     &task,
                     task.priority
@@ -191,7 +218,7 @@ fn start_operation_batch_fn(
         .map_err(|e| {
             tracing::error!(
                 error = %e,
-                queue = %queue_name,
+                queue = %target_queue,
                 batch_id = %batch_id,
                 correlation_id = %correlation_id,
                 "Failed to publish operation task to MQ"

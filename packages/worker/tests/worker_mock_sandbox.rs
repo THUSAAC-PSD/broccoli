@@ -60,6 +60,7 @@ fn build_operation_task(command: &str) -> OperationTask {
         }],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     }
 }
 
@@ -249,6 +250,7 @@ printf '2 40\n' > input.txt
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) = execute_operation_with_mock("task-cpp-oi", operation).await;
@@ -346,6 +348,7 @@ CPP
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -396,6 +399,7 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail() {
         }],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -472,6 +476,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -599,6 +604,7 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let result = handler
@@ -667,6 +673,7 @@ async fn shared_channel_fifo_between_two_environments() {
             buffer_size: Some(8192),
         }],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -747,6 +754,7 @@ async fn channel_pipe_io_redirect_between_environments() {
             buffer_size: Some(8192),
         }],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -818,6 +826,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
             buffer_size: Some(8192),
         }],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =

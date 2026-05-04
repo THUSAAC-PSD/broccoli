@@ -74,6 +74,7 @@ fn admin_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::admin::disable_plugin))
         .routes(routes!(handlers::admin::reload_plugin))
         .routes(routes!(handlers::admin::reload_all_plugins))
+        .routes(routes!(handlers::submission::admin_fan_out_submission))
         .merge(upload)
         .nest("/plugins/{id}/config", plugin_global_config_routes())
         .nest("/system", system_routes())

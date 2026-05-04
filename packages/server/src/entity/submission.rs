@@ -47,6 +47,11 @@ pub struct Model {
     #[sea_orm(default_value = 0)]
     pub judge_epoch: i32,
 
+    /// When set by an admin, every operation produced for this submission is
+    /// pinned to the named worker via the worker's private queue.
+    #[sea_orm(nullable)]
+    pub target_worker_id: Option<String>,
+
     pub created_at: DateTimeUtc,
     pub judged_at: Option<DateTimeUtc>,
 }

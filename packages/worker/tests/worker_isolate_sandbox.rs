@@ -83,6 +83,7 @@ fn build_operation_task(command: &str) -> OperationTask {
         }],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     }
 }
 
@@ -277,6 +278,7 @@ printf '2 40\n' > input.txt
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -371,6 +373,7 @@ CPP
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -427,6 +430,7 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
         }],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
@@ -516,6 +520,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
         ],
         channels: vec![],
         priority: None,
+        target_worker_id: None,
     };
 
     let (result, operation_result) =
