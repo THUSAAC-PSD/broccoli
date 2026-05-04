@@ -1443,7 +1443,7 @@ export interface paths {
     put?: never;
     /**
      * Create a test case for a problem
-     * @description Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 32 MB.
+     * @description Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 128 MB.
      */
     post: operations['createTestCase'];
     delete?: never;
@@ -1535,7 +1535,7 @@ export interface paths {
     head?: never;
     /**
      * Update a test case
-     * @description Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 32 MB.
+     * @description Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 128 MB.
      */
     patch: operations['updateTestCase'];
     trace?: never;
