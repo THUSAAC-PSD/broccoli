@@ -1,6 +1,6 @@
 use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 
 pub use common::config::MqAppConfig;
 pub use common::storage::config::BlobStoreConfig;
@@ -102,6 +102,7 @@ pub fn resolve_server_id(configured: &str) -> String {
     let trimmed = configured.trim();
     if !trimmed.is_empty() {
         if is_valid_server_id(trimmed) {
+            info!(server_id = %trimmed, "Server ID resolved from explicit configuration");
             return trimmed.to_string();
         }
         warn!(
@@ -124,6 +125,12 @@ pub fn resolve_server_id(configured: &str) -> String {
             .take(128)
             .collect();
         if is_valid_server_id(&sanitized) {
+            warn!(
+                server_id = %sanitized,
+                "Server ID not configured; inferred from hostname. \
+                 Set BROCCOLI__SERVER__ID explicitly in multi-replica deployments \
+                 to avoid silent collisions between replicas with identical hostnames."
+            );
             return sanitized;
         }
         warn!(
@@ -134,8 +141,19 @@ pub fn resolve_server_id(configured: &str) -> String {
         warn!("Could not read OS hostname; using random server.id fallback");
     }
 
-    let fallback = uuid::Uuid::new_v4().simple().to_string();
-    fallback.chars().take(8).collect()
+    let fallback: String = uuid::Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect();
+    warn!(
+        server_id = %fallback,
+        "Server ID generated as random fallback because hostname was unobtainable or invalid. \
+         This ID changes every restart — set BROCCOLI__SERVER__ID explicitly so in-flight \
+         operation results route correctly across restarts."
+    );
+    fallback
 }
 
 /// Centralized derivation of the per-replica operation-result queue name.
@@ -205,6 +223,15 @@ mod tests {
     #[test]
     fn resolves_empty_to_hostname_or_random_fallback() {
         let resolved = resolve_server_id("");
+        assert!(!resolved.is_empty());
+        assert!(is_valid_server_id(&resolved));
+    }
+
+    #[test]
+    fn resolves_whitespace_only_to_fallback() {
+        // Whitespace-only configured value should behave like empty:
+        // produce a non-empty, well-formed ID via the hostname/random path.
+        let resolved = resolve_server_id("   ");
         assert!(!resolved.is_empty());
         assert!(is_valid_server_id(&resolved));
     }

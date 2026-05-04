@@ -1,6 +1,13 @@
 [server]
 host = "127.0.0.1"
 port = 3000
+# Stable per-replica identity. Suffixes the operation-result queue so each
+# server behind a load balancer receives its own dispatch results. Defaults
+# to the OS hostname; set explicitly in container deployments where two
+# replicas may share the same hostname (e.g., two pods scheduled to nodes
+# with identical names) — silent ID collisions cause results to be routed
+# to the wrong replica.
+id = ""
 
 [server.cors]
 allow_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
