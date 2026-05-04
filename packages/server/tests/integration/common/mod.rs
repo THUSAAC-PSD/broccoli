@@ -481,6 +481,7 @@ impl TestApp {
                     allow_origins: vec![],
                     max_age: 3600,
                 },
+                id: String::new(),
             },
             database: DatabaseConfig {
                 url: db_url.clone(),

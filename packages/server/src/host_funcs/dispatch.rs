@@ -40,13 +40,10 @@ type DispatchUserData = DispatchContext;
 /// Defense-in-depth validator for `target_worker_id` values arriving from
 /// plugins. Worker IDs are admin-configured and should already be safe; this
 /// just ensures a malicious plugin cannot inject `..`, glob characters, or
-/// other tokens that would warp the resulting Redis queue name.
+/// other tokens that would warp the resulting Redis queue name. Shares its
+/// charset rules with the server-id validator in `crate::config`.
 fn is_valid_worker_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    crate::config::is_valid_server_id(id)
 }
 
 pub fn create_dispatch_functions(

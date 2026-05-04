@@ -5875,6 +5875,7 @@ dependencies = [
  "extism",
  "flate2",
  "hex",
+ "hostname",
  "jsonwebtoken",
  "libc",
  "lru 0.16.3",
