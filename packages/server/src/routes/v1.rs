@@ -310,6 +310,9 @@ fn submission_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::submission::list_submissions))
         .routes(routes!(handlers::submission::bulk_rejudge_submissions))
         .routes(routes!(handlers::submission::get_submission))
+        .routes(routes!(handlers::submission::list_submission_judgements))
+        .routes(routes!(handlers::submission::apply_submission_judgement))
+        .routes(routes!(handlers::submission::discard_submission_judgement))
         .routes(routes!(handlers::submission::rejudge_submission))
 }
 

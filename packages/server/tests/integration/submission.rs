@@ -718,6 +718,308 @@ mod rejudge {
     }
 }
 
+mod judgement_history {
+    use super::*;
+    use chrono::Utc;
+    use common::{SubmissionStatus, Verdict};
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+    use server::entity::{submission, submission_judgement, test_case_result, user};
+
+    async fn seed_history(app: &TestApp, username: &str, problem_id: i32) -> (i32, i32, i32) {
+        let now = Utc::now();
+        let user_model = user::Entity::find()
+            .filter(user::Column::Username.eq(username))
+            .one(&app.db)
+            .await
+            .expect("query user")
+            .expect("user should exist");
+
+        let submission = submission::ActiveModel {
+            files: Set(json!([{ "filename": "main.cpp", "content": "int main() {}" }])),
+            language: Set("cpp".into()),
+            user_id: Set(user_model.id),
+            problem_id: Set(problem_id),
+            contest_id: Set(None),
+            contest_type: Set("standard".into()),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(100.0)),
+            time_used: Set(Some(7)),
+            memory_used: Set(Some(128)),
+            compile_output: Set(Some("ok".to_string())),
+            judge_epoch: Set(11),
+            created_at: Set(now),
+            judged_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert submission");
+        let submission_id = submission.id;
+
+        let old = submission_judgement::ActiveModel {
+            submission_id: Set(submission_id),
+            version: Set(10),
+            is_current: Set(false),
+            is_finalized: Set(true),
+            triggered_by_user_id: Set(None),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::WrongAnswer)),
+            score: Set(Some(40.0)),
+            judge_epoch: Set(10),
+            created_at: Set(now),
+            finalized_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert old judgement");
+
+        let current = submission_judgement::ActiveModel {
+            submission_id: Set(submission_id),
+            version: Set(11),
+            is_current: Set(true),
+            is_finalized: Set(true),
+            triggered_by_user_id: Set(None),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(100.0)),
+            time_used: Set(Some(7)),
+            memory_used: Set(Some(128)),
+            compile_output: Set(Some("ok".to_string())),
+            judge_epoch: Set(11),
+            created_at: Set(now),
+            finalized_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert current judgement");
+
+        for (judgement_id, verdict, score) in [
+            (old.id, Verdict::WrongAnswer, 40.0),
+            (current.id, Verdict::Accepted, 100.0),
+        ] {
+            test_case_result::ActiveModel {
+                submission_id: Set(submission_id),
+                judgement_id: Set(Some(judgement_id)),
+                test_case_id: Set(None),
+                run_index: Set(None),
+                verdict: Set(verdict),
+                score: Set(score),
+                created_at: Set(now),
+                ..Default::default()
+            }
+            .insert(&app.db)
+            .await
+            .expect("insert test case result");
+        }
+
+        (submission_id, old.id, current.id)
+    }
+
+    #[tokio::test]
+    async fn get_submission_only_returns_current_judgement_results() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_jhist1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "History Problem").await;
+        let (submission_id, _old_judgement_id, current_judgement_id) =
+            seed_history(&app, "admin_jhist1", problem_id).await;
+
+        let res = app
+            .get_with_token(&routes::submission(submission_id), &admin_token)
+            .await;
+
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
+        let results = res.body["result"]["test_case_results"]
+            .as_array()
+            .expect("test_case_results should be an array");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["score"], 100.0);
+
+        let db_rows = test_case_result::Entity::find()
+            .filter(test_case_result::Column::JudgementId.eq(Some(current_judgement_id)))
+            .all(&app.db)
+            .await
+            .expect("query current rows");
+        assert_eq!(db_rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_judgements_returns_each_version_with_its_results() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_jhist2", "pass1234", "admin")
+            .await;
+        let problem_id = app
+            .create_problem(&admin_token, "History List Problem")
+            .await;
+        let (submission_id, _, _) = seed_history(&app, "admin_jhist2", problem_id).await;
+
+        let res = app
+            .get_with_token(&routes::submission_judgements(submission_id), &admin_token)
+            .await;
+
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
+        let versions = res.body.as_array().expect("response should be an array");
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0]["version"], 10);
+        assert_eq!(versions[0]["test_case_results"][0]["score"], 40.0);
+        assert_eq!(versions[1]["version"], 11);
+        assert_eq!(versions[1]["is_current"], true);
+        assert_eq!(versions[1]["test_case_results"][0]["score"], 100.0);
+    }
+
+    #[tokio::test]
+    async fn deferred_rejudge_preserves_current_cache_and_creates_pending_non_current_version() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_jhist3", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Deferred Problem").await;
+        let (submission_id, _old_judgement_id, current_judgement_id) =
+            seed_history(&app, "admin_jhist3", problem_id).await;
+
+        let res = app
+            .post_with_token(
+                &routes::submission_rejudge(submission_id),
+                &json!({"apply_immediately": false}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
+        assert_eq!(res.body["status"], "Judged");
+        assert_eq!(res.body["result"]["verdict"], "Accepted");
+        assert_eq!(res.body["judge_epoch"], 11);
+
+        let current = submission_judgement::Entity::find_by_id(current_judgement_id)
+            .one(&app.db)
+            .await
+            .expect("load current judgement")
+            .expect("current judgement exists");
+        assert!(current.is_current);
+
+        let pending = submission_judgement::Entity::find()
+            .filter(submission_judgement::Column::SubmissionId.eq(submission_id))
+            .filter(submission_judgement::Column::Version.eq(12))
+            .one(&app.db)
+            .await
+            .expect("load pending judgement")
+            .expect("pending judgement exists");
+        assert!(!pending.is_current);
+        assert_eq!(pending.judge_epoch, 12);
+    }
+
+    #[tokio::test]
+    async fn apply_finalized_judgement_makes_it_current_and_updates_submission_cache() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_jhist4", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Apply Problem").await;
+        let (submission_id, old_judgement_id, _current_judgement_id) =
+            seed_history(&app, "admin_jhist4", problem_id).await;
+
+        let res = app
+            .post_with_token(
+                &routes::submission_judgement_apply(submission_id, old_judgement_id),
+                &json!({}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200, "unexpected body: {}", res.body);
+        assert_eq!(res.body["result"]["verdict"], "WrongAnswer");
+        assert_eq!(res.body["result"]["score"], 40.0);
+
+        let applied = submission_judgement::Entity::find_by_id(old_judgement_id)
+            .one(&app.db)
+            .await
+            .expect("load applied judgement")
+            .expect("applied judgement exists");
+        assert!(applied.is_current);
+    }
+
+    #[tokio::test]
+    async fn discard_non_current_judgement_deletes_only_that_version_and_results() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_jhist5", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Discard Problem").await;
+        let (submission_id, old_judgement_id, current_judgement_id) =
+            seed_history(&app, "admin_jhist5", problem_id).await;
+
+        let res = app
+            .post_with_token(
+                &routes::submission_judgement_discard(submission_id, old_judgement_id),
+                &json!({}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 204, "unexpected body: {}", res.body);
+        let old = submission_judgement::Entity::find_by_id(old_judgement_id)
+            .one(&app.db)
+            .await
+            .expect("query discarded judgement");
+        assert!(old.is_none());
+
+        let current_rows = test_case_result::Entity::find()
+            .filter(test_case_result::Column::JudgementId.eq(Some(current_judgement_id)))
+            .all(&app.db)
+            .await
+            .expect("query current rows");
+        assert_eq!(current_rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn discard_rejects_pending_non_current_judgement() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin_jhist6", "pass1234", "admin")
+            .await;
+        let problem_id = app
+            .create_problem(&admin_token, "Pending Discard Problem")
+            .await;
+        let (submission_id, _, _) = seed_history(&app, "admin_jhist6", problem_id).await;
+
+        let pending = submission_judgement::ActiveModel {
+            submission_id: Set(submission_id),
+            version: Set(12),
+            is_current: Set(false),
+            is_finalized: Set(false),
+            triggered_by_user_id: Set(None),
+            status: Set(SubmissionStatus::Running),
+            judge_epoch: Set(12),
+            created_at: Set(Utc::now()),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert pending judgement");
+
+        let res = app
+            .post_with_token(
+                &routes::submission_judgement_discard(submission_id, pending.id),
+                &json!({}),
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 409, "unexpected body: {}", res.body);
+        let still_exists = submission_judgement::Entity::find_by_id(pending.id)
+            .one(&app.db)
+            .await
+            .expect("query pending judgement")
+            .is_some();
+        assert!(still_exists);
+    }
+}
+
 mod contest_submissions {
     use super::*;
 
@@ -1147,7 +1449,7 @@ mod bulk_rejudge {
     }
 
     #[tokio::test]
-    async fn bulk_rejudge_ignores_non_terminal_submissions() {
+    async fn bulk_rejudge_allows_non_terminal_submissions() {
         use common::{SubmissionStatus, Verdict};
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         use server::entity::submission;
@@ -1206,7 +1508,7 @@ mod bulk_rejudge {
             .await;
 
         assert_eq!(res.status, 200, "unexpected body: {}", res.body);
-        assert_eq!(res.body["queued"], 1);
+        assert_eq!(res.body["queued"], 2);
 
         let terminal = submission::Entity::find_by_id(terminal_id)
             .one(&app.db)
@@ -1226,6 +1528,10 @@ mod bulk_rejudge {
             .expect("pending submission should exist");
         assert_eq!(pending.status, SubmissionStatus::Pending);
         assert_eq!(pending.verdict, None);
+        assert!(
+            pending.judge_epoch > 0,
+            "pending submission should have been re-dispatched"
+        );
     }
 
     #[tokio::test]

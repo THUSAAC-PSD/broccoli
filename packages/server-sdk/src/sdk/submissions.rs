@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
-use crate::types::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow, TestCaseRow};
+#[cfg(target_arch = "wasm32")]
+use crate::types::SubmissionStatus;
+use crate::types::{SubmissionUpdate, TestCaseResultRow, TestCaseRow};
 
 pub struct Submissions {
     #[cfg(not(target_arch = "wasm32"))]
@@ -50,6 +52,7 @@ impl Submissions {
         // versioned row stays in sync with the denormalized cache. Skipped
         // when judgement_id is unset (legacy caller path); the backfill
         // job handles those rows on the next server boot.
+        let mut judgement_rows = 0;
         if update.judgement_id > 0 {
             let mut jp = Params::new();
             let mut jsets = Vec::new();
@@ -79,12 +82,16 @@ impl Submissions {
                 }
                 let jsql = format!(
                     "UPDATE submission_judgement SET {} WHERE id = {} AND judge_epoch = {} \
-                     AND is_finalized = FALSE",
+                     AND is_finalized = FALSE \
+                     AND (is_current = TRUE OR version = ( \
+                         SELECT MAX(version) FROM submission_judgement WHERE submission_id = {} \
+                     ))",
                     judgement_sets.join(", "),
                     jp.bind(update.judgement_id),
                     jp.bind(update.judge_epoch),
+                    jp.bind(update.submission_id),
                 );
-                super::shared::raw_execute(&jsql, &jp.into_args())?;
+                judgement_rows = super::shared::raw_execute(&jsql, &jp.into_args())?;
             }
         }
 
@@ -95,7 +102,12 @@ impl Submissions {
             p.bind(update.submission_id),
             p.bind(update.judge_epoch),
         );
-        super::shared::raw_execute(&sql, &p.into_args())
+        let submission_rows = super::shared::raw_execute(&sql, &p.into_args())?;
+        if update.judgement_id > 0 {
+            Ok(judgement_rows)
+        } else {
+            Ok(submission_rows)
+        }
     }
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
@@ -147,14 +159,22 @@ impl Submissions {
         Ok(())
     }
 
-    pub fn delete_results(&self, submission_id: i32) -> Result<(), SdkError> {
+    pub fn delete_results(&self, submission_id: i32, judgement_id: i32) -> Result<(), SdkError> {
         use crate::db::Params;
 
         let mut p = Params::new();
-        let sql = format!(
-            "DELETE FROM test_case_result WHERE submission_id = {}",
-            p.bind(submission_id),
-        );
+        let sql = if judgement_id > 0 {
+            format!(
+                "DELETE FROM test_case_result WHERE submission_id = {} AND judgement_id = {}",
+                p.bind(submission_id),
+                p.bind(judgement_id),
+            )
+        } else {
+            format!(
+                "DELETE FROM test_case_result WHERE submission_id = {} AND judgement_id IS NULL",
+                p.bind(submission_id),
+            )
+        };
         super::shared::raw_execute(&sql, &p.into_args())?;
         Ok(())
     }
@@ -212,8 +232,11 @@ impl Submissions {
         Ok(())
     }
 
-    pub fn delete_results(&self, _submission_id: i32) -> Result<(), SdkError> {
-        self.inner.tc_results.borrow_mut().clear();
+    pub fn delete_results(&self, submission_id: i32, judgement_id: i32) -> Result<(), SdkError> {
+        self.inner
+            .tc_results
+            .borrow_mut()
+            .retain(|r| r.submission_id != submission_id || r.judgement_id != judgement_id);
         Ok(())
     }
 

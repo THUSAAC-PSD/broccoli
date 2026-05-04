@@ -1,4 +1,8 @@
+use chrono::Utc;
+use common::{SubmissionStatus, Verdict};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::json;
+use server::entity::{submission, submission_judgement, test_case_result, user};
 
 use crate::{common::E2eTestApp, judging::CPP_SUM};
 
@@ -133,6 +137,146 @@ async fn ioi_token_endpoint_exists() {
         "Token endpoint should not return 5xx: status={}, body={}",
         res.status,
         res.text
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ioi_feedback_filter_redacts_judgement_history() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("ioi_admin_history", "password", "admin")
+        .await;
+    let contestant = app
+        .create_authenticated_user("ioi_history_user", "password")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "IOI History Problem").await;
+    app.create_test_case(problem_id, &admin).await;
+
+    let contest_id = app
+        .create_typed_contest(&admin, "IOI History Contest", "ioi", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant).await;
+
+    let config_path = format!("/api/v1/contests/{contest_id}/config/ioi/contest");
+    let put_res = app
+        .put_with_token(
+            &config_path,
+            &json!({
+                "config": {
+                    "feedback_level": "none"
+                },
+                "enabled": true
+            }),
+            &admin,
+        )
+        .await;
+    assert_eq!(
+        put_res.status, 200,
+        "Failed to set IOI feedback config: {}",
+        put_res.text
+    );
+
+    let contestant_model = user::Entity::find()
+        .filter(user::Column::Username.eq("ioi_history_user"))
+        .one(&app.db)
+        .await;
+    let contestant_model = contestant_model
+        .expect("query contestant")
+        .expect("contestant should exist");
+    let now = Utc::now();
+    let submission = submission::ActiveModel {
+        files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
+        language: Set("cpp".into()),
+        user_id: Set(contestant_model.id),
+        problem_id: Set(problem_id),
+        contest_id: Set(Some(contest_id)),
+        contest_type: Set("ioi".into()),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(100.0)),
+        time_used: Set(Some(10)),
+        memory_used: Set(Some(256)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        judged_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert judged submission");
+    let sub_id = submission.id;
+    let judgement = submission_judgement::ActiveModel {
+        submission_id: Set(submission.id),
+        version: Set(1),
+        is_current: Set(true),
+        is_finalized: Set(true),
+        triggered_by_user_id: Set(None),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(100.0)),
+        time_used: Set(Some(10)),
+        memory_used: Set(Some(256)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        finalized_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert judged judgement");
+    test_case_result::ActiveModel {
+        submission_id: Set(submission.id),
+        judgement_id: Set(Some(judgement.id)),
+        test_case_id: Set(None),
+        run_index: Set(None),
+        verdict: Set(Verdict::Accepted),
+        score: Set(100.0),
+        time_used: Set(Some(10)),
+        memory_used: Set(Some(256)),
+        created_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert judgement result");
+
+    let admin_res = app
+        .get_with_token(&format!("/api/v1/submissions/{sub_id}/judgements"), &admin)
+        .await;
+    assert_eq!(
+        admin_res.status, 200,
+        "Admin judgement history failed: {}",
+        admin_res.text
+    );
+    assert!(
+        admin_res.body[0]["score"].is_number(),
+        "Admin history should retain the raw score: {}",
+        admin_res.text
+    );
+
+    let contestant_res = app
+        .get_with_token(
+            &format!("/api/v1/submissions/{sub_id}/judgements"),
+            &contestant,
+        )
+        .await;
+    assert_eq!(
+        contestant_res.status, 200,
+        "Contestant judgement history failed: {}",
+        contestant_res.text
+    );
+    assert_eq!(contestant_res.body[0]["score"], serde_json::Value::Null);
+    assert_eq!(
+        contestant_res.body[0]["test_case_results"]
+            .as_array()
+            .map(Vec::len),
+        Some(0),
+        "Contestant history should hide per-test-case rows: {}",
+        contestant_res.text
     );
 }
 

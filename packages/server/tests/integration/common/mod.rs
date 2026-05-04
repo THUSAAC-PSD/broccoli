@@ -298,6 +298,18 @@ pub mod routes {
         format!("/api/v1/submissions/{id}/rejudge")
     }
 
+    pub fn submission_judgements(id: i32) -> String {
+        format!("/api/v1/submissions/{id}/judgements")
+    }
+
+    pub fn submission_judgement_apply(id: i32, judgement_id: i32) -> String {
+        format!("/api/v1/submissions/{id}/judgements/{judgement_id}/apply")
+    }
+
+    pub fn submission_judgement_discard(id: i32, judgement_id: i32) -> String {
+        format!("/api/v1/submissions/{id}/judgements/{judgement_id}/discard")
+    }
+
     pub fn problem_submissions(problem_id: i32) -> String {
         format!("/api/v1/problems/{problem_id}/submissions")
     }

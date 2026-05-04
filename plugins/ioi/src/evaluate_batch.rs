@@ -52,7 +52,9 @@ pub fn evaluate_all(
 
     let tc_map: HashMap<i32, &TestCaseRow> = test_cases.iter().map(|tc| (tc.id, tc)).collect();
 
-    let _ = host.submission.delete_results(submission_id);
+    let _ = host
+        .submission
+        .delete_results(submission_id, req.judgement_id);
 
     let mut outcomes: Vec<EvalOutcome> = Vec::new();
 

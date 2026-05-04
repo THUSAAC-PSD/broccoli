@@ -10,6 +10,7 @@ import {
 } from '@/features/submission/hooks/use-submission-detail';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
+import { SubmissionJudgementHistory } from './SubmissionJudgementHistory';
 import { SubmissionResult } from './SubmissionResult';
 import { formatMemory } from './TestCaseRow';
 
@@ -157,6 +158,8 @@ export function SubmissionDetailView({
 
         <SubmissionResult submission={submission} />
       </div>
+
+      <SubmissionJudgementHistory submissionId={submission.id} />
     </div>
   );
 }

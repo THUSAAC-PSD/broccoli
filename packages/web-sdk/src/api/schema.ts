@@ -1664,6 +1664,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/submissions/{id}/judgements': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List submission judgement versions */
+    get: operations['listSubmissionJudgements'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/submissions/{id}/judgements/{judgement_id}/apply': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Apply a finalized submission judgement */
+    post: operations['applySubmissionJudgement'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/submissions/{id}/judgements/{judgement_id}/discard': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Discard a non-current submission judgement */
+    post: operations['discardSubmissionJudgement'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/submissions/{id}/rejudge': {
     parameters: {
       query?: never;
@@ -2043,6 +2094,13 @@ export interface components {
     };
     BulkRejudgeRequest: {
       submission_ids: number[];
+      /**
+       * @description When true (default), the new judgement becomes current immediately
+       *     and the submission cache is reset to Pending. When false, the new
+       *     judgement runs as a non-current candidate until explicitly applied.
+       * @default true
+       */
+      apply_immediately?: boolean;
       /**
        * @description When set, every rejudged submission is pinned to this worker. The
        *     caller must hold `system:admin` and the worker must have a live
@@ -3169,6 +3227,21 @@ export interface components {
       error: string;
       id: string;
     };
+    RejudgeRequest: {
+      /**
+       * @description When true (default), the new judgement becomes current immediately
+       *     and the submission cache is reset to Pending. When false, the new
+       *     judgement runs as a non-current candidate until explicitly applied.
+       * @default true
+       */
+      apply_immediately?: boolean;
+      /**
+       * @description Pin the rejudged submission to a specific worker. Requires
+       *     `system:admin`. When omitted, the submission is rejudged on the
+       *     shared worker pool.
+       */
+      target_worker_id?: string | null;
+    };
     ReorderContestProblemsRequest: {
       /**
        * @example [
@@ -3348,6 +3421,54 @@ export interface components {
       user_id: number;
       /** @example alice */
       username: string;
+    };
+    SubmissionJudgementResponse: {
+      compile_output?: string | null;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:30:00Z
+       */
+      created_at: string;
+      error_code?: string | null;
+      error_message?: string | null;
+      /**
+       * Format: date-time
+       */
+      finalized_at?: string | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      is_current: boolean;
+      is_finalized: boolean;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      judge_epoch: number;
+      /** @example 1024 */
+      memory_used?: number | null;
+      /** @example 100 */
+      score?: number | null;
+      status: components['schemas']['SubmissionStatus'];
+      /**
+       * Format: int32
+       * @example 1
+       */
+      submission_id: number;
+      /** @example worker-1 */
+      target_worker_id?: string | null;
+      test_case_results: components['schemas']['TestCaseResultResponse'][];
+      /** @example 50 */
+      time_used?: number | null;
+      /** @example Accepted */
+      verdict?: string | null;
+      /**
+       * Format: int32
+       * @example 2
+       */
+      version: number;
     };
     /** @enum {string} */
     SubmissionStatus:
@@ -9855,6 +9976,157 @@ export interface operations {
       };
     };
   };
+  listSubmissionJudgements: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Submission ID */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Submission judgement versions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionJudgementResponse'][];
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  applySubmissionJudgement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Submission ID */
+        id: number;
+        /** @description Judgement ID */
+        judgement_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Applied judgement */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  discardSubmissionJudgement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Submission ID */
+        id: number;
+        /** @description Judgement ID */
+        judgement_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Judgement discarded */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   rejudgeSubmission: {
     parameters: {
       query?: {
@@ -9868,7 +10140,11 @@ export interface operations {
       };
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['RejudgeRequest'];
+      };
+    };
     responses: {
       /** @description Submission re-queued */
       200: {

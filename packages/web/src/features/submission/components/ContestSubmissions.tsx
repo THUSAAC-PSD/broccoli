@@ -59,6 +59,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<
     Set<number>
   >(() => new Set<number>());
+  const [bulkApplyImmediately, setBulkApplyImmediately] = useState(true);
 
   const canBulkRejudge = !!user?.permissions.includes('submission:rejudge');
   const scopedUserId =
@@ -198,6 +199,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         {
           body: {
             submission_ids: submissionIds,
+            apply_immediately: bulkApplyImmediately,
           },
         },
       );
@@ -497,6 +499,17 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
               count: matchedSubmissionIds.length,
             })}
           </span>
+          <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={bulkApplyImmediately}
+              onChange={(event) =>
+                setBulkApplyImmediately(event.currentTarget.checked)
+              }
+              className="h-4 w-4 rounded border-muted"
+            />
+            {t('submissions.bulkRejudge.applyImmediately')}
+          </label>
           <Button
             className="h-8 ml-auto"
             disabled={
