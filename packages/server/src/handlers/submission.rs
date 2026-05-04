@@ -893,32 +893,94 @@ async fn build_judgement_response(
         .all(db)
         .await?;
 
-    let test_case_results = results
+    let tc_ids: Vec<i32> = results.iter().filter_map(|r| r.test_case_id).collect();
+    let tc_meta: HashMap<i32, TestCaseMeta> = if tc_ids.is_empty() {
+        HashMap::new()
+    } else {
+        test_case::Entity::find()
+            .filter(test_case::Column::Id.is_in(tc_ids.clone()))
+            .select_only()
+            .column(test_case::Column::Id)
+            .column(test_case::Column::IsSample)
+            .column(test_case::Column::Position)
+            .into_model::<TestCaseMeta>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|tc| (tc.id, tc))
+            .collect()
+    };
+
+    let mut results_with_pos: Vec<_> = results
         .into_iter()
-        .map(|result| TestCaseResultResponse {
-            id: result.id,
-            verdict: result.verdict,
-            score: result.score,
-            time_used: result.time_used,
-            memory_used: result.memory_used,
-            test_case_id: result.test_case_id,
-            input: None,
-            expected_output: None,
-            stdout: if show_test_details {
-                result.stdout
+        .map(|r| {
+            let pos = r
+                .test_case_id
+                .and_then(|tc_id| tc_meta.get(&tc_id))
+                .map_or(i32::MAX, |m| m.position);
+            (r, pos)
+        })
+        .collect();
+    results_with_pos.sort_by_key(|(_, pos)| *pos);
+
+    let io_ids: Vec<i32> = if show_test_details {
+        tc_ids
+    } else {
+        tc_meta
+            .values()
+            .filter(|m| m.is_sample)
+            .map(|m| m.id)
+            .collect()
+    };
+    let io_data: HashMap<i32, TestCaseIoData> = if io_ids.is_empty() {
+        HashMap::new()
+    } else {
+        test_case::Entity::find()
+            .filter(test_case::Column::Id.is_in(io_ids))
+            .select_only()
+            .column(test_case::Column::Id)
+            .column(test_case::Column::Input)
+            .column(test_case::Column::ExpectedOutput)
+            .into_model::<TestCaseIoData>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|io| (io.id, io))
+            .collect()
+    };
+
+    let test_case_results = results_with_pos
+        .into_iter()
+        .map(|(result, _)| {
+            let is_sample = result
+                .test_case_id
+                .and_then(|tc_id| tc_meta.get(&tc_id))
+                .is_some_and(|m| m.is_sample);
+            let show_io = show_test_details || is_sample;
+
+            let (tc_input, tc_expected) = if show_io {
+                let io = result.test_case_id.and_then(|tc_id| io_data.get(&tc_id));
+                (
+                    io.map(|d| d.input.clone()),
+                    io.map(|d| d.expected_output.clone()),
+                )
             } else {
-                None
-            },
-            stderr: if show_test_details {
-                result.stderr
-            } else {
-                None
-            },
-            checker_output: if show_test_details {
-                result.checker_output
-            } else {
-                None
-            },
+                (None, None)
+            };
+
+            TestCaseResultResponse {
+                id: result.id,
+                verdict: result.verdict,
+                score: result.score,
+                time_used: result.time_used,
+                memory_used: result.memory_used,
+                test_case_id: result.test_case_id,
+                input: tc_input,
+                expected_output: tc_expected,
+                stdout: if show_io { result.stdout } else { None },
+                stderr: if show_io { result.stderr } else { None },
+                checker_output: if show_io { result.checker_output } else { None },
+            }
         })
         .collect();
 
@@ -1023,14 +1085,16 @@ async fn filter_submission_via_plugin(
     match output {
         Ok(out) => Ok(out.submission),
         Err(e) => {
-            warn!(
+            tracing::error!(
                 contest_type = %contest_type,
                 plugin_id = %handler.plugin_id,
                 func = %filter_fn,
                 error = %e,
-                "filter_submission plugin call failed; returning unfiltered"
+                "filter_submission plugin call failed"
             );
-            Ok(submission_value)
+            Err(AppError::Internal(
+                "Failed to apply submission visibility filter".into(),
+            ))
         }
     }
 }
@@ -1698,7 +1762,7 @@ pub struct RejudgeQuery {
     tag = "Submissions",
     operation_id = "rejudgeSubmission",
     summary = "Rejudge a submission",
-    description = "Re-queues the submission for judging. Requires `submission:rejudge` permission. Optionally pin to a worker via `?target_worker_id=...` (requires `system:admin`); pass an empty value to clear an existing pin.",
+    description = "Re-queues the submission for judging. Requires `submission:rejudge` permission. Optionally pin to a worker via `?target_worker_id=...` (requires `system:admin`); pass an empty value to clear an existing pin (also requires `system:admin`).",
     params(
         ("id" = i32, Path, description = "Submission ID"),
         RejudgeQuery,
@@ -1736,7 +1800,10 @@ pub async fn rejudge_submission(
         .or(query.target_worker_id.as_deref());
     let new_target: Option<Option<String>> = match requested_target {
         None => None,
-        Some("") => Some(None),
+        Some("") => {
+            auth_user.require_permission("system:admin")?;
+            Some(None)
+        }
         Some(raw) => {
             auth_user.require_permission("system:admin")?;
             validate_worker_id_format(raw)?;
@@ -2092,11 +2159,14 @@ pub async fn bulk_rejudge_submissions(
     auth_user.require_permission("submission:rejudge")?;
     validate_bulk_rejudge(&payload)?;
 
-    // `target_worker_id=Some("")` is a sentinel for "clear pin"; non-empty
-    // requires admin + a live worker. `None` means leave existing pins alone.
+    // `target_worker_id=Some("")` is a sentinel for "clear pin"; any explicit
+    // routing change requires admin. `None` means leave existing pins alone.
     let new_target: Option<Option<String>> = match payload.target_worker_id.as_deref() {
         None => None,
-        Some("") => Some(None),
+        Some("") => {
+            auth_user.require_permission("system:admin")?;
+            Some(None)
+        }
         Some(raw) => {
             auth_user.require_permission("system:admin")?;
             let live = crate::handlers::system::live_worker_ids(&state).await;

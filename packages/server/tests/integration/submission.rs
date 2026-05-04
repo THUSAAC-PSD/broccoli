@@ -668,6 +668,8 @@ mod submission_detail {
 
 mod rejudge {
     use super::*;
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+    use server::entity::{role_permission, submission};
 
     #[tokio::test]
     async fn admin_can_rejudge_submission() {
@@ -716,6 +718,59 @@ mod rejudge {
         assert_eq!(res.status, 403);
         assert_eq!(res.body["code"], "PERMISSION_DENIED");
     }
+
+    #[tokio::test]
+    async fn rejudge_requires_system_admin_to_clear_worker_pin() {
+        let app = TestApp::spawn().await;
+        role_permission::ActiveModel {
+            role: Set("problem_setter".to_string()),
+            permission: Set("submission:rejudge".to_string()),
+        }
+        .insert(&app.db)
+        .await
+        .expect("grant rejudge permission");
+
+        let admin_token = app
+            .create_user_with_role("admin_clear_pin_single", "pass1234", "admin")
+            .await;
+        let rejudge_token = app
+            .create_user_with_role("setter_clear_pin_single", "pass1234", "problem_setter")
+            .await;
+        let problem_id = app
+            .create_problem(&admin_token, "Pinned Rejudge Problem")
+            .await;
+        let submission_id = app
+            .create_submission(problem_id, &admin_token, "cpp", "int main() {}")
+            .await;
+
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::TargetWorkerId,
+                sea_orm::sea_query::Expr::value(Some("worker-a".to_string())),
+            )
+            .filter(submission::Column::Id.eq(submission_id))
+            .exec(&app.db)
+            .await
+            .expect("pin submission");
+
+        let res = app
+            .post_with_token(
+                &routes::submission_rejudge(submission_id),
+                &json!({"target_worker_id": ""}),
+                &rejudge_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 403, "unexpected body: {}", res.body);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+
+        let submission = submission::Entity::find_by_id(submission_id)
+            .one(&app.db)
+            .await
+            .expect("load submission")
+            .expect("submission exists");
+        assert_eq!(submission.target_worker_id.as_deref(), Some("worker-a"));
+    }
 }
 
 mod judgement_history {
@@ -723,7 +778,7 @@ mod judgement_history {
     use chrono::Utc;
     use common::{SubmissionStatus, Verdict};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-    use server::entity::{submission, submission_judgement, test_case_result, user};
+    use server::entity::{submission, submission_judgement, test_case, test_case_result, user};
 
     async fn seed_history(app: &TestApp, username: &str, problem_id: i32) -> (i32, i32, i32) {
         let now = Utc::now();
@@ -796,6 +851,21 @@ mod judgement_history {
         .await
         .expect("insert current judgement");
 
+        let test_case = test_case::ActiveModel {
+            problem_id: Set(problem_id),
+            input: Set("1 2\n".to_string()),
+            expected_output: Set("3\n".to_string()),
+            score: Set(100),
+            label: Set("sum".to_string()),
+            is_sample: Set(false),
+            position: Set(1),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert test case");
+
         for (judgement_id, verdict, score) in [
             (old.id, Verdict::WrongAnswer, 40.0),
             (current.id, Verdict::Accepted, 100.0),
@@ -803,7 +873,7 @@ mod judgement_history {
             test_case_result::ActiveModel {
                 submission_id: Set(submission_id),
                 judgement_id: Set(Some(judgement_id)),
-                test_case_id: Set(None),
+                test_case_id: Set(Some(test_case.id)),
                 run_index: Set(None),
                 verdict: Set(verdict),
                 score: Set(score),
@@ -867,6 +937,11 @@ mod judgement_history {
         assert_eq!(versions.len(), 2);
         assert_eq!(versions[0]["version"], 10);
         assert_eq!(versions[0]["test_case_results"][0]["score"], 40.0);
+        assert_eq!(versions[0]["test_case_results"][0]["input"], "1 2\n");
+        assert_eq!(
+            versions[0]["test_case_results"][0]["expected_output"],
+            "3\n"
+        );
         assert_eq!(versions[1]["version"], 11);
         assert_eq!(versions[1]["is_current"], true);
         assert_eq!(versions[1]["test_case_results"][0]["score"], 100.0);
@@ -1559,6 +1634,62 @@ mod bulk_rejudge {
 
         assert_eq!(res.status, 403);
         assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+
+    #[tokio::test]
+    async fn bulk_rejudge_requires_system_admin_to_clear_worker_pin() {
+        use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+        use server::entity::{role_permission, submission};
+
+        let app = TestApp::spawn().await;
+        role_permission::ActiveModel {
+            role: Set("problem_setter".to_string()),
+            permission: Set("submission:rejudge".to_string()),
+        }
+        .insert(&app.db)
+        .await
+        .expect("grant rejudge permission");
+
+        let admin_token = app
+            .create_user_with_role("admin_clear_pin_bulk", "pass1234", "admin")
+            .await;
+        let rejudge_token = app
+            .create_user_with_role("setter_clear_pin_bulk", "pass1234", "problem_setter")
+            .await;
+        let problem_id = app
+            .create_problem(&admin_token, "Pinned Bulk Rejudge Problem")
+            .await;
+        let submission_id = app
+            .create_submission(problem_id, &admin_token, "cpp", "int main() {}")
+            .await;
+
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::TargetWorkerId,
+                sea_orm::sea_query::Expr::value(Some("worker-a".to_string())),
+            )
+            .filter(submission::Column::Id.eq(submission_id))
+            .exec(&app.db)
+            .await
+            .expect("pin submission");
+
+        let res = app
+            .post_with_token(
+                routes::SUBMISSIONS_BULK_REJUDGE,
+                &json!({"submission_ids": [submission_id], "target_worker_id": ""}),
+                &rejudge_token,
+            )
+            .await;
+
+        assert_eq!(res.status, 403, "unexpected body: {}", res.body);
+        assert_eq!(res.body["code"], "PERMISSION_DENIED");
+
+        let submission = submission::Entity::find_by_id(submission_id)
+            .one(&app.db)
+            .await
+            .expect("load submission")
+            .expect("submission exists");
+        assert_eq!(submission.target_worker_id.as_deref(), Some("worker-a"));
     }
 }
 

@@ -206,14 +206,7 @@ pub fn filter_submission_for_viewer(input: String) -> FnResult<String> {
     let host = Host::new();
     let req: FilterSubmissionInput = serde_json::from_str(&input)?;
 
-    let submission = match apply_feedback_filter(&host, &req) {
-        Ok(s) => s,
-        Err(e) => {
-            host.log
-                .info(&format!("filter_submission_for_viewer error: {e:?}"))?;
-            req.submission
-        }
-    };
+    let submission = apply_feedback_filter(&host, &req)?;
 
     Ok(serde_json::to_string(&FilterSubmissionOutput {
         submission,

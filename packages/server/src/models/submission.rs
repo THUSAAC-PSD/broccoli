@@ -220,7 +220,8 @@ pub struct BulkRejudgeRequest {
     pub apply_immediately: bool,
     /// When set, every rejudged submission is pinned to this worker. The
     /// caller must hold `system:admin` and the worker must have a live
-    /// heartbeat.
+    /// heartbeat. An empty string clears existing pins and also requires
+    /// `system:admin`.
     #[serde(default)]
     pub target_worker_id: Option<String>,
 }
@@ -234,7 +235,8 @@ pub struct RejudgeRequest {
     #[schema(default = true)]
     pub apply_immediately: bool,
     /// Pin the rejudged submission to a specific worker. Requires
-    /// `system:admin`. When omitted, the submission is rejudged on the
+    /// `system:admin`. An empty string clears an existing pin and also
+    /// requires `system:admin`. When omitted, the submission is rejudged on the
     /// shared worker pool.
     #[serde(default)]
     pub target_worker_id: Option<String>,
