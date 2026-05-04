@@ -9,6 +9,7 @@ mod dlq;
 mod downloads;
 #[cfg(not(feature = "bundled-stress-test"))]
 mod downloads_slim;
+mod health;
 mod meta;
 mod plugin;
 mod plugin_config;

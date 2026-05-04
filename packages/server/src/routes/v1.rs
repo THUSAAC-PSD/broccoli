@@ -9,6 +9,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
 
     OpenApiRouter::new()
         .routes(routes!(handlers::meta::get_version))
+        .routes(routes!(handlers::health::get_health))
         .nest("/auth", auth_routes())
         .nest("/users", user_routes())
         .nest("/roles", role_routes())

@@ -25,6 +25,11 @@ use server::utils::plugin::sync_plugins;
 async fn main() -> anyhow::Result<()> {
     let app_config = AppConfig::load().context("Failed to load configuration")?;
 
+    if std::env::args().any(|a| a == "--healthcheck") {
+        let exit_code = run_healthcheck(&app_config).await;
+        std::process::exit(exit_code);
+    }
+
     let _telemetry_guard = common::observability::init_tracing(&app_config.observability);
 
     let (metrics, prometheus_registry) =
@@ -33,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
     let db = server::database::init_db(&app_config.database.url).await?;
     server::seed::seed_role_permissions(&db).await?;
     server::seed::ensure_indexes(&db).await?;
+    server::seed::backfill_submission_judgements(&db).await?;
 
     let mq = if app_config.mq.enabled {
         match init_mq(MqConnConfig {
@@ -264,4 +270,37 @@ async fn main() -> anyhow::Result<()> {
         .context("Server runtime error")?;
 
     Ok(())
+}
+
+/// Hits the local `/healthz` endpoint and returns a process exit code:
+/// `0` on a 2xx response, `1` on any other status or transport error.
+///
+/// Used by the Docker `HEALTHCHECK` directive in `Dockerfile.server`. Skips
+/// observability initialization so the probe stays fast and silent.
+async fn run_healthcheck(app_config: &AppConfig) -> i32 {
+    let url = format!("http://127.0.0.1:{}/healthz", app_config.server.port);
+
+    let client = match reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("healthcheck failed: {e}");
+            return 1;
+        }
+    };
+
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => 0,
+        Ok(resp) => {
+            eprintln!("healthcheck failed: status {}", resp.status());
+            1
+        }
+        Err(e) => {
+            eprintln!("healthcheck failed: {e}");
+            1
+        }
+    }
 }
