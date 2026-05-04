@@ -571,7 +571,7 @@ export const en: Record<string, string> = {
   'admin.attachments.dropImageHint': 'Drop files here to upload',
   'admin.attachments.uploadingBatch':
     'Uploading {current} of {total} — {filename}...',
-  'admin.attachments.fileTooLarge': 'File is too large (max 128MB).',
+  'admin.attachments.fileTooLarge': 'File is too large (max 1GB).',
   'admin.attachments.editorHint':
     'Drag & drop images, paste screenshots, or type ![ for autocomplete',
   'admin.attachments.insertImage': 'Insert image',

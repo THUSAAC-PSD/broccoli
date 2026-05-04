@@ -15,13 +15,14 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::path::AppPath;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
+use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
 use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024)
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
 #[utoipa::path(

@@ -9,6 +9,8 @@ use super::database::DatabaseBlobStore;
 use super::filesystem::FilesystemBlobStore;
 use super::traits::BlobStore;
 
+pub const DEFAULT_MAX_BLOB_SIZE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
 #[cfg(feature = "object-storage")]
 use super::object_storage::{ObjectStorageBlobStore, ObjectStorageConfig};
 
@@ -49,7 +51,7 @@ fn default_data_dir() -> String {
 }
 
 fn default_max_blob_size() -> u64 {
-    128 * 1024 * 1024
+    DEFAULT_MAX_BLOB_SIZE_BYTES
 }
 
 impl Default for BlobStoreConfig {

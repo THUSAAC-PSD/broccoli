@@ -17,6 +17,7 @@ pub mod routes;
 pub mod seed;
 pub mod serve;
 pub mod state;
+pub mod upload_limits;
 pub mod utils;
 
 use axum::extract::{MatchedPath, State};

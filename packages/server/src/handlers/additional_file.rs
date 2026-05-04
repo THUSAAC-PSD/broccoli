@@ -15,12 +15,13 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::path::AppPath;
 use crate::models::attachment::{AdditionalFileListResponse, AdditionalFileResponse};
 use crate::state::AppState;
+use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
 use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
 use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn additional_file_upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024)
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
 fn validate_language_code(lang: &str) -> Result<(), AppError> {

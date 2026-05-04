@@ -164,11 +164,13 @@ fn problem_submission_routes(submission_max_size: usize) -> OpenApiRouter<AppSta
 }
 
 fn checker_source_routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(
-        handlers::problem::get_checker_source,
-        handlers::problem::upload_checker_source,
-        handlers::problem::delete_checker_source,
-    ))
+    OpenApiRouter::new()
+        .routes(routes!(
+            handlers::problem::get_checker_source,
+            handlers::problem::upload_checker_source,
+            handlers::problem::delete_checker_source,
+        ))
+        .layer(handlers::problem::checker_source_body_limit())
 }
 
 fn test_case_routes() -> OpenApiRouter<AppState> {

@@ -1338,7 +1338,7 @@ export interface paths {
     get: operations['getCheckerSource'];
     /**
      * Upload checker source files
-     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission.
+     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 1 GB.
      */
     put: operations['uploadCheckerSource'];
     post?: never;
@@ -1443,7 +1443,7 @@ export interface paths {
     put?: never;
     /**
      * Create a test case for a problem
-     * @description Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 128 MB.
+     * @description Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 1 GB.
      */
     post: operations['createTestCase'];
     delete?: never;
@@ -1503,7 +1503,7 @@ export interface paths {
     put?: never;
     /**
      * Upload test cases from a ZIP file
-     * @description Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.
+     * @description Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 1 GB per file, 4 GB total. Body limit: 1 GB.
      */
     post: operations['uploadTestCases'];
     delete?: never;
@@ -1535,7 +1535,7 @@ export interface paths {
     head?: never;
     /**
      * Update a test case
-     * @description Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 128 MB.
+     * @description Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 1 GB.
      */
     patch: operations['updateTestCase'];
     trace?: never;
