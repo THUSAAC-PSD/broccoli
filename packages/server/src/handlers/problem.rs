@@ -402,7 +402,7 @@ pub async fn delete_problem(
     tag = "Test Cases",
     operation_id = "createTestCase",
     summary = "Create a test case for a problem",
-    description = "Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 32 MB.",
+    description = "Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 128 MB.",
     params(("id" = i32, Path, description = "Problem ID")),
     request_body = CreateTestCaseRequest,
     responses(
@@ -566,7 +566,7 @@ pub async fn get_test_case(
     tag = "Test Cases",
     operation_id = "updateTestCase",
     summary = "Update a test case",
-    description = "Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 32 MB.",
+    description = "Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 128 MB.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
         ("tc_id" = i32, Path, description = "Test case ID"),
@@ -974,7 +974,7 @@ pub async fn bulk_delete_test_cases(
 }
 
 pub fn test_case_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(32 * 1024 * 1024)
+    DefaultBodyLimit::max(128 * 1024 * 1024)
 }
 
 pub fn upload_body_limit() -> DefaultBodyLimit {

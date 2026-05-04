@@ -686,6 +686,37 @@ mod test_case_creation {
     }
 
     #[tokio::test]
+    async fn can_create_test_case_with_large_input_file_contents() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_large_testcase_input", "password123", "admin")
+            .await;
+
+        let pid = app
+            .create_problem(&token, "Large Single Test Case Problem")
+            .await;
+        let large_input = String::from_utf8(vec![b'x'; 33 * 1024 * 1024])
+            .expect("ASCII input should be valid UTF-8");
+
+        let res = app
+            .post_with_token(
+                &routes::test_cases(pid),
+                &json!({
+                    "input": large_input,
+                    "expected_output": "ok",
+                    "score": 10,
+                    "is_sample": false,
+                    "label": "large_input"
+                }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 201, "response body: {}", res.body);
+        assert_eq!(res.body["label"], "large_input");
+    }
+
+    #[tokio::test]
     async fn create_defaults_label_to_position_when_omitted() {
         let app = TestApp::spawn().await;
         let token = app
