@@ -32,6 +32,19 @@ impl Default for FeedbackLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ScoreboardVisibility {
+    AdminsOnly,
+    AllContestViewers,
+}
+
+impl Default for ScoreboardVisibility {
+    fn default() -> Self {
+        Self::AdminsOnly
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TokenMode {
     None,
     FixedBudget,
@@ -76,6 +89,8 @@ pub struct ContestConfig {
     pub scoring_mode: ScoringMode,
     #[serde(default)]
     pub feedback_level: FeedbackLevel,
+    #[serde(default)]
+    pub scoreboard_visibility: ScoreboardVisibility,
     #[serde(default)]
     pub tokens: TokenConfig,
 }
@@ -122,6 +137,10 @@ mod tests {
     fn deserialize_from_empty_json() {
         let config: ContestConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(config.scoring_mode, ScoringMode::MaxSubmission);
+        assert_eq!(
+            config.scoreboard_visibility,
+            ScoreboardVisibility::AdminsOnly
+        );
     }
 
     #[test]
@@ -129,6 +148,16 @@ mod tests {
         let config: ContestConfig =
             serde_json::from_str(r#"{"scoring_mode": "sum_best_subtask"}"#).unwrap();
         assert_eq!(config.scoring_mode, ScoringMode::SumBestSubtask);
+    }
+
+    #[test]
+    fn deserialize_scoreboard_visibility() {
+        let config: ContestConfig =
+            serde_json::from_str(r#"{"scoreboard_visibility": "all_contest_viewers"}"#).unwrap();
+        assert_eq!(
+            config.scoreboard_visibility,
+            ScoreboardVisibility::AllContestViewers
+        );
     }
 
     #[test]

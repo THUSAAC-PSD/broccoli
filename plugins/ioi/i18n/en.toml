@@ -21,6 +21,7 @@
 'ioi.scoreboard.autoRefresh' = 'Auto-refresh'
 'ioi.scoreboard.lastUpdated' = '{seconds}s ago'
 'ioi.scoreboard.ownScoresOnly' = 'Only your scores are visible during the contest.'
+'ioi.scoreboard.fullLiveVisible' = 'Full live standings are visible during this contest.'
 'ioi.scoreboard.header.rank' = '#'
 'ioi.scoreboard.header.user' = 'User'
 'ioi.scoreboard.header.total' = 'Total'
@@ -186,3 +187,11 @@
 'ioi.feedbackLevel.label' = 'Feedback Level'
 'ioi.feedbackLevel.tokenEnabledHint' = 'This is the baseline feedback shown without spending a token. A tokened submission always reveals full feedback.'
 'ioi.feedbackLevel.tokenDisabledHint' = 'This is the submission feedback shown during the contest.'
+
+# ScoreboardVisibilitySelector
+'ioi.scoreboardVisibility.label' = 'Scoreboard Visibility Before End'
+'ioi.scoreboardVisibility.description' = 'Who can see the full scoreboard before the contest ends'
+'ioi.scoreboardVisibility.adminsOnly.label' = 'Admins only'
+'ioi.scoreboardVisibility.adminsOnly.description' = 'Contestants see only their own row until the contest ends.'
+'ioi.scoreboardVisibility.allContestViewers.label' = 'All contest viewers'
+'ioi.scoreboardVisibility.allContestViewers.description' = 'Everyone who can access the contest sees full live standings.'

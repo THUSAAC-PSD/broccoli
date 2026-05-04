@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::common::E2eTestApp;
+use crate::{common::E2eTestApp, judging::CPP_SUM};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ioi_contest_type_registered() {
@@ -181,5 +181,143 @@ async fn ioi_contest_config_scoring_mode() {
     assert_eq!(
         get_res.body["config"]["feedback_level"].as_str(),
         Some("subtask_scores")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ioi_scoreboard_visibility_config_can_show_all_viewers_during_contest() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("ioi_admin6", "password", "admin")
+        .await;
+    let contestant_a = app
+        .create_authenticated_user("ioi_user6a", "password")
+        .await;
+    let contestant_b = app
+        .create_authenticated_user("ioi_user6b", "password")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "IOI Problem 6").await;
+    app.create_test_case(problem_id, &admin).await;
+
+    let contest_id = app
+        .create_typed_contest(&admin, "IOI Contest 6", "ioi", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant_a).await;
+    app.register_for_contest(contest_id, &contestant_b).await;
+
+    let sub_a = app
+        .create_contest_submission(contest_id, problem_id, &contestant_a, "cpp", CPP_SUM)
+        .await;
+    let sub_b = app
+        .create_contest_submission(contest_id, problem_id, &contestant_b, "cpp", CPP_SUM)
+        .await;
+    for (id, token) in [(sub_a, &contestant_a), (sub_b, &contestant_b)] {
+        let res = app.wait_for_submission_terminal(id, token, 60).await;
+        assert_eq!(
+            res.body["status"].as_str(),
+            Some("Judged"),
+            "Submission {id} should be judged before scoreboard assertions: {}",
+            res.text
+        );
+    }
+
+    let scoreboard_path = format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/scoreboard");
+    let default_res = app.get_with_token(&scoreboard_path, &contestant_a).await;
+    assert_eq!(
+        default_res.status, 200,
+        "Default scoreboard request failed: {}",
+        default_res.text
+    );
+    assert_eq!(
+        default_res.body["scoreboard_visibility"].as_str(),
+        Some("admins_only")
+    );
+    assert_eq!(
+        default_res.body["rankings"].as_array().map(Vec::len),
+        Some(1),
+        "Default live scoreboard should only show the viewer row: {}",
+        default_res.text
+    );
+    let default_rows = default_res.body["rankings"].as_array().unwrap();
+    assert_eq!(
+        default_rows[0]["username"].as_str(),
+        Some("ioi_user6a"),
+        "Default live scoreboard should show only the viewer row: {}",
+        default_res.text
+    );
+    assert_eq!(
+        default_rows[0]["total_score"].as_f64(),
+        Some(10.0),
+        "Viewer score should be visible in the default live scoreboard: {}",
+        default_res.text
+    );
+    assert!(
+        default_rows
+            .iter()
+            .all(|row| row["username"].as_str() != Some("ioi_user6b")),
+        "Default live scoreboard should not expose another contestant row: {}",
+        default_res.text
+    );
+
+    let config_path = format!("/api/v1/contests/{contest_id}/config/ioi/contest");
+    let put_res = app
+        .put_with_token(
+            &config_path,
+            &json!({
+                "config": {
+                    "scoreboard_visibility": "all_contest_viewers"
+                },
+                "enabled": true
+            }),
+            &admin,
+        )
+        .await;
+    assert_eq!(
+        put_res.status, 200,
+        "Failed to set IOI scoreboard visibility config: {}",
+        put_res.text
+    );
+
+    let visible_res = app.get_with_token(&scoreboard_path, &contestant_a).await;
+    assert_eq!(
+        visible_res.status, 200,
+        "Configured scoreboard request failed: {}",
+        visible_res.text
+    );
+    assert_eq!(
+        visible_res.body["scoreboard_visibility"].as_str(),
+        Some("all_contest_viewers")
+    );
+    assert_eq!(
+        visible_res.body["rankings"].as_array().map(Vec::len),
+        Some(2),
+        "Configured live scoreboard should show all contest viewers: {}",
+        visible_res.text
+    );
+    let visible_rows = visible_res.body["rankings"].as_array().unwrap();
+    let contestant_b_row = visible_rows
+        .iter()
+        .find(|row| row["username"].as_str() == Some("ioi_user6b"))
+        .unwrap_or_else(|| {
+            panic!(
+                "Configured scoreboard should include contestant B: {}",
+                visible_res.text
+            )
+        });
+    assert_eq!(
+        contestant_b_row["total_score"].as_f64(),
+        Some(10.0),
+        "Configured live scoreboard should expose contestant B's total score: {}",
+        visible_res.text
+    );
+    assert_eq!(
+        contestant_b_row["problems"][0]["score"].as_f64(),
+        Some(10.0),
+        "Configured live scoreboard should expose contestant B's per-problem score: {}",
+        visible_res.text
     );
 }
