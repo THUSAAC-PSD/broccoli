@@ -3283,6 +3283,8 @@ export interface components {
       language: string;
     };
     SampleTestCaseMeta: {
+      /** @example The sample demonstrates the smallest non-empty input. */
+      description?: string | null;
       /**
        * Format: int32
        * @example 1

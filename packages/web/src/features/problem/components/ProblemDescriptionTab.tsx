@@ -25,6 +25,7 @@ interface ProblemSample {
   id: number;
   input_size: number;
   output_size: number;
+  description?: string | null;
 }
 
 interface ProblemData {

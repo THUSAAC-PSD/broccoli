@@ -3,6 +3,8 @@ import { Button } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
 import { Check, Copy } from 'lucide-react';
 
+import { Markdown } from '@/components/Markdown';
+
 type SampleContentMap = Record<number, { input?: string; output?: string }>;
 
 type CopySampleHandler = (
@@ -23,6 +25,7 @@ interface ProblemSample {
   id: number;
   input_size: number;
   output_size: number;
+  description?: string | null;
 }
 
 interface ProblemSamplesSectionProps {
@@ -155,6 +158,11 @@ export function ProblemSamplesSection({
                 </div>
               </div>
             </div>
+            {sample.description && (
+              <div className="rounded-md border bg-muted/20 px-4 py-3">
+                <Markdown>{sample.description}</Markdown>
+              </div>
+            )}
           </div>
         );
       })}

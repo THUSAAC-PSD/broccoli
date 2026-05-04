@@ -102,6 +102,8 @@ pub struct SampleTestCaseMeta {
     pub input_size: usize,
     #[schema(example = 4)]
     pub output_size: usize,
+    #[schema(example = "The sample demonstrates the smallest non-empty input.")]
+    pub description: Option<String>,
 }
 
 #[derive(Serialize, FromQueryResult, utoipa::ToSchema)]

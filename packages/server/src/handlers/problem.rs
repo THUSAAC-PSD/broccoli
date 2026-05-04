@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 
 use axum::Json;
@@ -721,6 +721,7 @@ pub async fn upload_test_cases(
             "ZIP contains no valid input/output file pairs matching the specified formats".into(),
         ));
     }
+    let auto_scores = default_uploaded_scores(&entries);
 
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
@@ -755,6 +756,7 @@ pub async fn upload_test_cases(
     let now = chrono::Utc::now();
 
     for entry in entries {
+        let score = auto_score_for_uploaded_entry(&entry, &auto_scores);
         if let Some(existing) = existing_cases.remove(&entry.label) {
             match data.strategy {
                 UploadTestCasesMergeStrategy::Abort => {
@@ -769,6 +771,7 @@ pub async fn upload_test_cases(
                     active.input = Set(entry.input);
                     active.expected_output = Set(entry.expected_output);
                     active.label = Set(entry.label);
+                    active.score = Set(score);
                     active.is_sample = Set(entry.is_sample);
                     let model = active.update(&txn).await?;
                     affected.push(model);
@@ -784,7 +787,7 @@ pub async fn upload_test_cases(
         let new_tc = test_case::ActiveModel {
             input: Set(entry.input),
             expected_output: Set(entry.expected_output),
-            score: Set(0),
+            score: Set(score),
             label: Set(entry.label),
             description: Set(None),
             is_sample: Set(entry.is_sample),
@@ -994,6 +997,7 @@ async fn load_sample_test_cases<C: ConnectionTrait>(
             id: tc.id,
             input_size: tc.input.len(),
             output_size: tc.expected_output.len(),
+            description: tc.description,
         })
         .collect())
 }
@@ -1091,6 +1095,42 @@ struct ZipTestEntry {
     expected_output: String,
     is_sample: bool,
     sort_key: (u8, String),
+}
+
+fn default_uploaded_scores(entries: &[ZipTestEntry]) -> HashMap<String, i32> {
+    let non_sample_labels: Vec<&str> = entries
+        .iter()
+        .filter(|entry| !entry.is_sample)
+        .map(|entry| entry.label.as_str())
+        .collect();
+    let count = non_sample_labels.len();
+    if count == 0 {
+        return HashMap::new();
+    }
+
+    let mut scores = HashMap::with_capacity(count);
+    if count > 100 {
+        for label in non_sample_labels {
+            scores.insert(label.to_string(), 1);
+        }
+        return scores;
+    }
+
+    let base = (100 / count) as i32;
+    let remainder = 100 % count;
+    for (index, label) in non_sample_labels.into_iter().enumerate() {
+        let score = base + i32::from(index < remainder);
+        scores.insert(label.to_string(), score);
+    }
+    scores
+}
+
+fn auto_score_for_uploaded_entry(entry: &ZipTestEntry, scores: &HashMap<String, i32>) -> i32 {
+    if entry.is_sample {
+        0
+    } else {
+        scores.get(&entry.label).copied().unwrap_or(0)
+    }
 }
 
 const MAX_DECOMPRESSED_FILE_SIZE: u64 = 128 * 1024 * 1024;

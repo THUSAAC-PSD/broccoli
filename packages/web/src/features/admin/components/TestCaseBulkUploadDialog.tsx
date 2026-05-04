@@ -134,6 +134,10 @@ export function TestCaseBulkUploadDialog({
 
       toast.success(t('admin.testCases.bulkUpload.uploadSuccess'));
       queryClient.invalidateQueries({ queryKey: testCasesQueryKey });
+      queryClient.invalidateQueries({ queryKey: ['problem', problemId] });
+      queryClient.invalidateQueries({
+        queryKey: ['problem-sample-contents', problemId],
+      });
       onOpenChange(false);
       setSelectedFile(null);
       setInputFormat('*.in');

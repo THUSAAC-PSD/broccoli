@@ -173,6 +173,10 @@ export function TestCaseFormDialog({
         isEdit ? t('toast.testCase.updated') : t('toast.testCase.created'),
       );
       queryClient.invalidateQueries({ queryKey: testCasesQueryKey });
+      queryClient.invalidateQueries({ queryKey: ['problem', problemId] });
+      queryClient.invalidateQueries({
+        queryKey: ['problem-sample-contents', problemId],
+      });
       onOpenChange(false);
     }
   }
