@@ -5,7 +5,7 @@
 'ioi.contestInfo.scoringMode.sumBestSubtask.description' = '取所有提交中每个子任务的最高分，然后求和作为该题的最终得分。'
 'ioi.contestInfo.scoringMode.bestTokenedOrLast.title' = '最佳令牌提交或最后提交'
 'ioi.contestInfo.scoringMode.bestTokenedOrLast.description' = '该题的最终得分为 max(得分最高的已使用令牌的提交, 最后一次提交)。'
-'ioi.contestInfo.feedback.full' = '不使用令牌也提供完整反馈'
+'ioi.contestInfo.feedback.full' = '即时提供完整反馈'
 'ioi.contestInfo.feedback.subtaskScores' = '不使用令牌仅显示子任务得分'
 'ioi.contestInfo.feedback.totalOnly' = '不使用令牌仅显示总分'
 'ioi.contestInfo.feedback.none' = '不使用令牌则无反馈'
