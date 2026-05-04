@@ -1574,6 +1574,8 @@ mod test_case_zip_upload {
         let tcs = res.body["test_cases"].as_array().unwrap();
         assert_eq!(tcs.len(), 2);
         assert_eq!(tcs[0]["is_sample"], false);
+        assert_eq!(tcs[0]["score"], 50);
+        assert_eq!(tcs[1]["score"], 50);
     }
 
     #[tokio::test]
@@ -1612,6 +1614,8 @@ mod test_case_zip_upload {
         let main_tc = tcs.iter().find(|tc| tc["is_sample"] == false);
         assert!(sample.is_some(), "Should have a sample test case");
         assert!(main_tc.is_some(), "Should have a main test case");
+        assert_eq!(sample.unwrap()["score"], 0);
+        assert_eq!(main_tc.unwrap()["score"], 100);
     }
 
     #[tokio::test]
@@ -1936,6 +1940,7 @@ mod test_case_zip_upload {
         assert_ne!(tc1["input_preview"], "new input\n");
         let tc2 = cases.iter().find(|tc| tc["label"] == "02").unwrap();
         assert_eq!(tc2["position"], 1);
+        assert_eq!(tc2["score"], 50);
     }
 
     #[tokio::test]
@@ -1975,8 +1980,10 @@ mod test_case_zip_upload {
         assert_eq!(cases.len(), 2);
         let tc1 = cases.iter().find(|tc| tc["label"] == "01").unwrap();
         assert_eq!(tc1["input_preview"], "updated input\n");
+        assert_eq!(tc1["score"], 50);
         let tc2 = cases.iter().find(|tc| tc["label"] == "02").unwrap();
         assert_eq!(tc2["position"], 1);
+        assert_eq!(tc2["score"], 50);
     }
 
     #[tokio::test]
@@ -2315,6 +2322,7 @@ mod problem_contest_access {
                     "score": 10,
                     "is_sample": true,
                     "label": "sample_01",
+                    "description": "Try choosing the first available pair.",
                 }),
                 &admin,
             )
@@ -2349,6 +2357,10 @@ mod problem_contest_access {
         assert!(samples[0]["id"].is_number());
         assert_eq!(samples[0]["input_size"], "sample input".len());
         assert_eq!(samples[0]["output_size"], "sample output".len());
+        assert_eq!(
+            samples[0]["description"],
+            "Try choosing the first available pair."
+        );
         assert!(samples[0].get("input").is_none());
         assert!(samples[0].get("expected_output").is_none());
     }

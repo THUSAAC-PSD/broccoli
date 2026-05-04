@@ -126,6 +126,10 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     } else {
       toast.success(t('toast.testCase.deleted'));
       queryClient.invalidateQueries({ queryKey: testCasesQueryKey });
+      queryClient.invalidateQueries({ queryKey: ['problem', problemIdNum] });
+      queryClient.invalidateQueries({
+        queryKey: ['problem-sample-contents', problemIdNum],
+      });
     }
   }
 
