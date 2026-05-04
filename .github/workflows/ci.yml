@@ -70,8 +70,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-  bundled-server:
-    name: Server (bundled-stress-test feature)
+  release-bundled-feature:
+    name: Release / bundled-stress-test feature
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: bundled-server
+          key: release-bundled-feature
 
       - name: Stage fixture binaries as embedded
         run: |
@@ -93,5 +93,7 @@ jobs:
       - name: Build (bundled feature)
         run: cargo build -p server --features bundled-stress-test --locked
 
-      - name: Test (bundled feature)
-        run: cargo test -p server --features bundled-stress-test --locked
+      # The vanilla `Rust` job already runs the full server test suite. Here we
+      # only re-run the tests that exercise the cfg-gated `/downloads` routes.
+      - name: Test downloads endpoint
+        run: cargo test -p server --features bundled-stress-test --locked --test integration -- downloads

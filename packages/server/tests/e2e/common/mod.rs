@@ -45,6 +45,66 @@ static CREATE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static PG_CONTAINER_ID: OnceLock<String> = OnceLock::new();
 static REDIS_CONTAINER_ID: OnceLock<String> = OnceLock::new();
 
+/// Dedicated multi-thread runtime that owns the shared admin DB connection.
+///
+/// `#[tokio::test]` spins up a fresh current-thread runtime per test and tears
+/// it down at exit; a sqlx pool stored in a `OnceCell` would be tied to the
+/// first test's runtime and become invalid for the rest. Housing the pool
+/// inside a long-lived dedicated runtime — and dispatching `CREATE DATABASE`
+/// onto it — keeps a single admin connection alive across every test, instead
+/// of churning a new pool per test (which exhausts PostgreSQL backend slots).
+static ADMIN_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+static SHARED_ADMIN_CONN: OnceLock<DatabaseConnection> = OnceLock::new();
+
+fn admin_runtime() -> &'static tokio::runtime::Handle {
+    ADMIN_RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("e2e-admin")
+                .build()
+                .expect("Failed to build admin runtime")
+        })
+        .handle()
+}
+
+async fn create_test_database(db_name: &str) {
+    let port = shared_pg_port().await;
+    let handle = admin_runtime().clone();
+    let db_name = db_name.to_string();
+
+    handle
+        .spawn(async move {
+            if SHARED_ADMIN_CONN.get().is_none() {
+                let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+                let mut admin_opts = ConnectOptions::new(&admin_url);
+                admin_opts
+                    .max_connections(1)
+                    .min_connections(1)
+                    .acquire_timeout(Duration::from_secs(60))
+                    .idle_timeout(Duration::from_secs(600));
+                let conn = Database::connect(admin_opts)
+                    .await
+                    .expect("Failed to initialize shared admin database pool");
+                let _ = SHARED_ADMIN_CONN.set(conn);
+            }
+
+            let admin = SHARED_ADMIN_CONN
+                .get()
+                .expect("shared admin connection must be initialized");
+            admin
+                .execute_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    format!("CREATE DATABASE \"{db_name}\" TEMPLATE template_test"),
+                ))
+                .await
+                .expect("Failed to create test database from template");
+        })
+        .await
+        .expect("admin runtime task panicked");
+}
+
 extern "C" fn cleanup_containers() {
     for id in [PG_CONTAINER_ID.get(), REDIS_CONTAINER_ID.get()]
         .into_iter()
@@ -292,24 +352,10 @@ impl E2eTestApp {
 
         let db_name = format!("e2e_{test_id}");
 
-        let _lock = CREATE_DB_LOCK.get_or_init(|| Mutex::new(())).lock().await;
-
-        let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{pg_port}/postgres");
-        let mut admin_opts = ConnectOptions::new(&admin_url);
-        admin_opts.max_connections(1).min_connections(0);
-        let admin_conn = Database::connect(admin_opts)
-            .await
-            .expect("Failed to connect to admin database");
-        admin_conn
-            .execute_raw(Statement::from_string(
-                DbBackend::Postgres,
-                format!("CREATE DATABASE \"{db_name}\" TEMPLATE template_test"),
-            ))
-            .await
-            .expect("Failed to create test database from template");
-        admin_conn.close().await.ok();
-
-        drop(_lock);
+        {
+            let _lock = CREATE_DB_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+            create_test_database(&db_name).await;
+        }
 
         let db_url = format!("postgres://postgres:postgres@127.0.0.1:{pg_port}/{db_name}");
         let mut opts = ConnectOptions::new(&db_url);
@@ -427,7 +473,16 @@ impl E2eTestApp {
         let mut worker_handle_opt = None;
 
         if load_plugins {
-            sync_plugins(&state).await.expect("Failed to sync plugins");
+            let failures = sync_plugins(&state).await.expect("Failed to sync plugins");
+            assert!(
+                failures.is_empty(),
+                "Plugin activations failed: {}",
+                failures
+                    .iter()
+                    .map(|f| format!("{}: {}", f.plugin_id, f.error))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            );
 
             let consumer_mq = Arc::clone(&mq);
             let consumer_waiters = operation_waiters.clone();

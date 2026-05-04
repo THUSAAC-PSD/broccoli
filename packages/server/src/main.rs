@@ -218,7 +218,7 @@ async fn main() -> anyhow::Result<()> {
         prometheus_registry,
     };
 
-    sync_plugins(&state).await?;
+    let _failures = sync_plugins(&state).await?;
 
     let mut allow_origins = Vec::new();
     for origin in &app_config.server.cors.allow_origins {
