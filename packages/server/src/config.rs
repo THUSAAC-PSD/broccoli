@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -29,10 +31,17 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub cors: CorsConfig,
+    /// Directory containing the baked frontend `dist/` output served by the
+    /// server in production.
+    #[serde(default = "default_frontend_dist")]
+    pub frontend_dist: PathBuf,
     /// CIDR ranges for trusted L7 proxies. Empty means no proxy headers are
     /// trusted and client IP extraction falls back to the socket address.
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
+    /// Enables IP-based throttling on `/api/v1/auth/login`.
+    #[serde(default)]
+    pub rate_limit_auth: bool,
     /// Logical identity of this replica. Used to derive the per-replica
     /// operation-result queue name so multiple servers behind a load balancer
     /// each receive their own plugin-dispatch results. Empty (the default)
@@ -42,9 +51,19 @@ pub struct ServerConfig {
     pub id: String,
 }
 
+fn default_frontend_dist() -> PathBuf {
+    PathBuf::from("/srv/dist")
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AuthConfig {
     pub jwt_secret: String,
+    #[serde(default = "default_secure_cookies")]
+    pub secure_cookies: bool,
+}
+
+fn default_secure_cookies() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -174,8 +193,11 @@ impl AppConfig {
             .set_default("server.port", 3000)?
             .set_default("server.cors.allow_origins", Vec::<String>::new())?
             .set_default("server.cors.max_age", 3600_i64)?
+            .set_default("server.frontend_dist", "/srv/dist")?
             .set_default("server.id", "")?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
+            .set_default("server.rate_limit_auth", false)?
+            .set_default("auth.secure_cookies", true)?
             .set_default("plugin.plugins_dir", "./plugins")?
             .set_default("plugin.enable_wasi", true)?
             .set_default("submission.max_size", 1_048_576_i64)?

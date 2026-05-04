@@ -394,7 +394,9 @@ impl E2eTestApp {
                     allow_origins: vec![],
                     max_age: 3600,
                 },
+                frontend_dist: PathBuf::from("/srv/dist"),
                 trusted_proxies: vec![],
+                rate_limit_auth: false,
                 id: String::new(),
             },
             database: DatabaseConfig {
@@ -402,6 +404,7 @@ impl E2eTestApp {
             },
             auth: AuthConfig {
                 jwt_secret: "e2e-test-jwt-secret".to_string(),
+                secure_cookies: false,
             },
             plugin: PluginConfig {
                 plugins_dir: plugins_dir(),

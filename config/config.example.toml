@@ -41,6 +41,8 @@ retry_max_age_secs = 600
 
 [auth]
 jwt_secret = "generate-a-long-random-string-here"
+# Set to false when serving over plain HTTP (browsers drop Secure cookies on HTTP).
+secure_cookies = true
 
 [storage]
 backend = "database"  # Options: "filesystem", "database", "object_storage"

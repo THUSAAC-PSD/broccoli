@@ -493,7 +493,9 @@ impl TestApp {
                     allow_origins: vec![],
                     max_age: 3600,
                 },
+                frontend_dist: PathBuf::from("/srv/dist"),
                 trusted_proxies: vec![],
+                rate_limit_auth: false,
                 id: String::new(),
             },
             database: DatabaseConfig {
@@ -501,6 +503,7 @@ impl TestApp {
             },
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),
+                secure_cookies: false,
             },
             plugin: PluginConfig {
                 plugins_dir: fixtures_dir(),

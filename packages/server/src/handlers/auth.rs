@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use axum_extra::extract::CookieJar;
-use axum_extra::extract::cookie::Cookie;
 use sea_orm::*;
 use tracing::instrument;
 
@@ -89,6 +88,7 @@ pub async fn register(
         (status = 200, description = "Login successful", body = LoginResponse),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Invalid credentials (INVALID_CREDENTIALS)", body = ErrorBody),
+        (status = 429, description = "Rate limited (RATE_LIMITED). Includes Retry-After header when auth rate limiting is enabled.", body = ErrorBody),
     ),
 )]
 #[instrument(skip(state, payload, jar), fields(username = %payload.username))]
@@ -155,7 +155,8 @@ pub async fn login(
     .insert(&state.db)
     .await?;
 
-    let cookie = refresh::build_refresh_cookie(&selector, &validator);
+    let cookie =
+        refresh::build_refresh_cookie(&selector, &validator, state.config.auth.secure_cookies);
 
     Ok((
         jar.add(cookie),
@@ -272,7 +273,11 @@ pub async fn refresh(
 
     txn.commit().await?;
 
-    let new_cookie = refresh::build_refresh_cookie(&new_selector, &new_validator);
+    let new_cookie = refresh::build_refresh_cookie(
+        &new_selector,
+        &new_validator,
+        state.config.auth.secure_cookies,
+    );
 
     Ok((
         jar.add(new_cookie),
@@ -322,10 +327,7 @@ pub async fn logout(
         rt_model.delete(&state.db).await?;
     }
 
-    let mut removal_cookie = Cookie::build((refresh::REFRESH_COOKIE_NAME, ""))
-        .path("/")
-        .build();
-    removal_cookie.make_removal();
+    let removal_cookie = refresh::build_removal_cookie(state.config.auth.secure_cookies);
 
     Ok((StatusCode::NO_CONTENT, jar.add(removal_cookie)))
 }
