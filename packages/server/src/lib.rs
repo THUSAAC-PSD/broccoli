@@ -1,3 +1,4 @@
+mod client_ip;
 pub mod config;
 pub mod consumers;
 pub mod database;
@@ -14,13 +15,15 @@ pub mod models;
 pub mod registry;
 pub mod routes;
 pub mod seed;
+pub mod serve;
 pub mod state;
 pub mod utils;
 
 use axum::extract::{MatchedPath, State};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use opentelemetry::KeyValue;
-use tower_http::trace::TraceLayer;
+use tower_http::{compression::CompressionLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use tracing::{info, info_span};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
@@ -103,12 +106,18 @@ async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
 
 pub fn build_router(state: AppState) -> axum::Router {
     let metrics = state.metrics.clone();
+    let trusted_proxies =
+        client_ip::parse_trusted_proxy_networks(&state.config.server.trusted_proxies);
 
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
 
     let router = router.layer(axum::middleware::from_fn_with_state(
         state.clone(),
         middleware::idempotency_middleware,
+    ));
+    let router = router.layer(TimeoutLayer::with_status_code(
+        StatusCode::REQUEST_TIMEOUT,
+        std::time::Duration::from_secs(60),
     ));
 
     let metrics_on_request = metrics.clone();
@@ -132,7 +141,12 @@ pub fn build_router(state: AppState) -> axum::Router {
     #[cfg(feature = "bundled-stress-test")]
     let app = app.merge(routes::downloads::router().with_state(state_for_downloads));
 
-    app.layer(
+    app.layer(axum::middleware::from_fn_with_state(
+        trusted_proxies,
+        client_ip::client_ip_source_middleware,
+    ))
+    .layer(CompressionLayer::new())
+    .layer(
         TraceLayer::new_for_http()
             .make_span_with(|request: &axum::http::Request<_>| {
                 let path = request

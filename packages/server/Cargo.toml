@@ -14,6 +14,7 @@ crossbeam.workspace = true
 dashmap.workspace = true
 mq.workspace = true
 axum = { workspace = true, features = ["multipart"] }
+axum-client-ip.workspace = true
 chrono.workspace = true
 config.workspace = true
 extism.workspace = true
@@ -61,6 +62,10 @@ lru = "0.16.3"
 redis = { version = "1.0", features = ["tokio-comp"] }
 reqwest = { workspace = true }
 hostname = "0.4"
+hyper.workspace = true
+hyper-util.workspace = true
+ipnet.workspace = true
+tower.workspace = true
 
 [features]
 default = []

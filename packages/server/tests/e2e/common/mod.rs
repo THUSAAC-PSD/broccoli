@@ -394,6 +394,7 @@ impl E2eTestApp {
                     allow_origins: vec![],
                     max_age: 3600,
                 },
+                trusted_proxies: vec![],
                 id: String::new(),
             },
             database: DatabaseConfig {
@@ -572,7 +573,13 @@ impl E2eTestApp {
         let addr = listener.local_addr().unwrap();
 
         let server_handle = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            server::serve::serve_with_graceful_shutdown(
+                listener,
+                app,
+                server::serve::pending_shutdown_signal(),
+            )
+            .await
+            .unwrap();
         });
 
         tokio::task::yield_now().await;
