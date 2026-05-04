@@ -11,7 +11,7 @@ import {
 } from '@/features/problem/api/attachments';
 import { extractErrorMessage } from '@/lib/extract-error';
 
-const MAX_FILE_SIZE = 128 * 1024 * 1024; // 128MB
+const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
 
 export function useAttachmentUpload(problemId: number) {
   const { t } = useTranslation();

@@ -20,6 +20,10 @@ use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_sc
 use crate::models::plugin_config::config_key;
 use crate::models::problem::*;
 use crate::state::AppState;
+use crate::upload_limits::{
+    BULK_TEST_CASE_MAX_TOTAL_DECOMPRESSED_BYTES, BULK_TEST_CASE_MAX_TOTAL_DECOMPRESSED_MIB,
+    LARGE_UPLOAD_LIMIT_BYTES, LARGE_UPLOAD_LIMIT_MIB,
+};
 use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{is_sample_directory, split_dir_filename};
 use crate::utils::problem::find_problem;
@@ -402,7 +406,7 @@ pub async fn delete_problem(
     tag = "Test Cases",
     operation_id = "createTestCase",
     summary = "Create a test case for a problem",
-    description = "Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 128 MB.",
+    description = "Creates a new test case under the specified problem. Requires `problem:edit` permission. Position is auto-assigned if omitted. Input and expected_output may be empty for output-only or custom-checker problems. Body limit: 1 GB.",
     params(("id" = i32, Path, description = "Problem ID")),
     request_body = CreateTestCaseRequest,
     responses(
@@ -566,7 +570,7 @@ pub async fn get_test_case(
     tag = "Test Cases",
     operation_id = "updateTestCase",
     summary = "Update a test case",
-    description = "Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 128 MB.",
+    description = "Partially updates a test case using PATCH semantics. Requires `problem:edit` permission. The `description` field supports three-state updates: omit to leave unchanged, set to null to clear, or provide a value. Body limit: 1 GB.",
     params(
         ("id" = i32, Path, description = "Problem ID"),
         ("tc_id" = i32, Path, description = "Test case ID"),
@@ -687,7 +691,7 @@ pub async fn delete_test_case(
     tag = "Test Cases",
     operation_id = "uploadTestCases",
     summary = "Upload test cases from a ZIP file",
-    description = "Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 128 MB per file, 2 GB total. Body limit: 128 MB.",
+    description = "Bulk-creates test cases from a ZIP archive. Customizable file matching formats using `*` wildcard. Requires `problem:edit` permission. Files under `sample/` are marked as samples. Decompression limits: 1 GB per file, 4 GB total. Body limit: 1 GB.",
     params(("id" = i32, Path, description = "Problem ID")),
     request_body(content_type = "multipart/form-data", content = UploadTestCasesRequest),
     responses(
@@ -974,11 +978,15 @@ pub async fn bulk_delete_test_cases(
 }
 
 pub fn test_case_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024)
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
 pub fn upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024)
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
+}
+
+pub fn checker_source_body_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
 async fn load_sample_test_cases<C: ConnectionTrait>(
@@ -1133,9 +1141,9 @@ fn auto_score_for_uploaded_entry(entry: &ZipTestEntry, scores: &HashMap<String, 
     }
 }
 
-const MAX_DECOMPRESSED_FILE_SIZE: u64 = 128 * 1024 * 1024;
+const MAX_DECOMPRESSED_FILE_SIZE: u64 = LARGE_UPLOAD_LIMIT_BYTES as u64;
 
-const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = 2048 * 1024 * 1024;
+const MAX_TOTAL_DECOMPRESSED_SIZE: u64 = BULK_TEST_CASE_MAX_TOTAL_DECOMPRESSED_BYTES;
 
 fn extract_label<'a>(filename: &'a str, format: &str) -> Option<&'a str> {
     let (prefix, suffix) = format.split_once('*')?;
@@ -1198,15 +1206,15 @@ fn parse_zip_test_cases(
 
         if buf.len() as u64 > MAX_DECOMPRESSED_FILE_SIZE {
             return Err(AppError::Validation(format!(
-                "File '{name}' exceeds maximum decompressed size of 128MB"
+                "File '{name}' exceeds maximum decompressed size of {LARGE_UPLOAD_LIMIT_MIB}MB"
             )));
         }
 
         total_decompressed += buf.len() as u64;
         if total_decompressed > MAX_TOTAL_DECOMPRESSED_SIZE {
-            return Err(AppError::Validation(
-                "Total decompressed ZIP content exceeds 2048MB limit".into(),
-            ));
+            return Err(AppError::Validation(format!(
+                "Total decompressed ZIP content exceeds {BULK_TEST_CASE_MAX_TOTAL_DECOMPRESSED_MIB}MB limit"
+            )));
         }
 
         let content = String::from_utf8(buf)
@@ -1283,7 +1291,7 @@ fn parse_zip_test_cases(
     tag = "Checker Source",
     operation_id = "uploadCheckerSource",
     summary = "Upload checker source files",
-    description = "Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission.",
+    description = "Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 1 GB.",
     params(("id" = i32, Path, description = "Problem ID")),
     request_body = UploadCheckerSourceRequest,
     responses(

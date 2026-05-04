@@ -2,6 +2,7 @@ use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
 pub use common::config::MqAppConfig;
+use common::storage::config::DEFAULT_MAX_BLOB_SIZE_BYTES;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
@@ -120,7 +121,7 @@ impl WorkerAppConfig {
             .set_default("database.url", "postgres://localhost/broccoli")?
             .set_default("storage.backend", "database")?
             .set_default("storage.data_dir", "./data")?
-            .set_default("storage.max_blob_size", 128 * 1024 * 1024_i64)?
+            .set_default("storage.max_blob_size", DEFAULT_MAX_BLOB_SIZE_BYTES as i64)?
             .set_default("storage.cache_dir", "./data/cache")?
             .set_default("storage.max_cache_size", 512 * 1024 * 1024_i64)?
             .add_source(File::with_name(&config_path).required(false))

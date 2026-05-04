@@ -8,11 +8,12 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::models::config_upload::ConfigBlobUploadResponse;
 use crate::state::AppState;
+use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
 use crate::utils::blob::stream_field_to_store;
 use crate::utils::filename::validate_flat_filename;
 
 pub fn config_upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(32 * 1024 * 1024)
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
 #[utoipa::path(

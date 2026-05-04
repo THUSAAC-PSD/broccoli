@@ -47,7 +47,7 @@ secure_cookies = true
 [storage]
 backend = "database"  # Options: "filesystem", "database", "object_storage"
 data_dir = "./data"
-max_blob_size = 134217728 # 128MB
+max_blob_size = 2147483648 # 2GB
 
 # S3-compatible storage settings (used when storage.backend = "object_storage")
 [storage.object_storage]

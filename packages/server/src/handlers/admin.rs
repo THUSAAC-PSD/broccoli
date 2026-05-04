@@ -20,6 +20,7 @@ use crate::models::plugin::{
     PluginDetailResponse, PluginFullDetailResponse, ReloadAllResponse, ReloadFailure,
 };
 use crate::state::AppState;
+use crate::upload_limits::{LARGE_UPLOAD_LIMIT_BYTES, LARGE_UPLOAD_LIMIT_MIB};
 use crate::utils::plugin::{activate_plugin, purge_plugin_registrations};
 
 #[utoipa::path(
@@ -328,7 +329,7 @@ pub async fn reload_all_plugins(
 }
 
 pub fn upload_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(128 * 1024 * 1024)
+    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
 fn is_valid_plugin_id(id: &str) -> bool {
@@ -343,8 +344,8 @@ fn is_valid_plugin_id(id: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-const MAX_FILE_SIZE: u64 = 128 * 1024 * 1024;
-const MAX_AGGREGATE_SIZE: u64 = 512 * 1024 * 1024;
+const MAX_FILE_SIZE: u64 = LARGE_UPLOAD_LIMIT_BYTES as u64;
+const MAX_AGGREGATE_SIZE: u64 = 2 * LARGE_UPLOAD_LIMIT_BYTES as u64;
 
 #[utoipa::path(
     post,
@@ -473,7 +474,7 @@ pub async fn upload_plugin(
             return Err(AppError::Validation(format!(
                 "File '{}' exceeds maximum size of {}MB",
                 raw_path.display(),
-                MAX_FILE_SIZE / (1024 * 1024)
+                LARGE_UPLOAD_LIMIT_MIB
             )));
         }
 
