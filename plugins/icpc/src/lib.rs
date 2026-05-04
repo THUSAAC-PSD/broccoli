@@ -93,6 +93,7 @@ fn run_judge(
             .info("ICPC: No test cases found, marking as judged with score 0");
         let affected = host.submission.update(&SubmissionUpdate {
             submission_id: req.submission_id,
+            judgement_id: req.judgement_id,
             judge_epoch: req.judge_epoch,
             status: Some(SubmissionStatus::Judged),
             verdict: Some(Some(Verdict::Accepted)),
@@ -130,6 +131,7 @@ fn run_judge(
     persist_and_track(
         host,
         req.submission_id,
+        req.judgement_id,
         req.judge_epoch,
         contest_id,
         req.user_id,

@@ -36,6 +36,7 @@ pub fn judge_with_context(
             .info("No test cases found, marking as judged with score 0");
         let affected = host.submission.update(&SubmissionUpdate {
             submission_id: ctx.submission_id,
+            judgement_id: req.judgement_id,
             judge_epoch: req.judge_epoch,
             status: Some(SubmissionStatus::Judged),
             verdict: Some(Some(Verdict::Accepted)),
@@ -105,6 +106,7 @@ pub fn judge_with_context(
     let output = persist_results(
         host,
         ctx.submission_id,
+        req.judgement_id,
         req.judge_epoch,
         &outcomes,
         submission_score,
@@ -125,6 +127,7 @@ mod tests {
     fn sample_input() -> OnSubmissionInput {
         OnSubmissionInput {
             submission_id: 1,
+            judgement_id: 1,
             user_id: 1,
             problem_id: 10,
             contest_id: Some(1),
@@ -138,6 +141,7 @@ mod tests {
             problem_type: "standard".into(),
             test_cases: vec![],
             judge_epoch: 0,
+            target_worker_id: None,
         }
     }
 

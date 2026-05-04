@@ -79,7 +79,7 @@ pub fn evaluate_short_circuit(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(host, submission_id, &outcome, &tc_map)?;
+                insert_tc_result(host, submission_id, req.judgement_id, &outcome, &tc_map)?;
                 outcomes.push(outcome);
             }
             return Ok(EvalResult {
@@ -93,6 +93,7 @@ pub fn evaluate_short_circuit(
     // Mark submission as Running
     let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
+        judgement_id: req.judgement_id,
         judge_epoch: req.judge_epoch,
         status: Some(SubmissionStatus::Running),
         ..Default::default()
@@ -130,7 +131,7 @@ pub fn evaluate_short_circuit(
                 };
 
                 if outcome.verdict == Verdict::CompileError {
-                    insert_tc_result(host, submission_id, &outcome, &tc_map)?;
+                    insert_tc_result(host, submission_id, req.judgement_id, &outcome, &tc_map)?;
                     outcomes.push(outcome);
                     is_compile_error = true;
                     let _ = host.eval.cancel_batch(&batch_id);
@@ -140,7 +141,7 @@ pub fn evaluate_short_circuit(
 
                 let is_fail = outcome.verdict != Verdict::Accepted;
 
-                insert_tc_result(host, submission_id, &outcome, &tc_map)?;
+                insert_tc_result(host, submission_id, req.judgement_id, &outcome, &tc_map)?;
                 outcomes.push(outcome);
                 collected += 1;
 
@@ -195,6 +196,7 @@ pub fn evaluate_short_circuit(
                 };
                 fill_rows.push(TestCaseResultRow {
                     submission_id,
+                    judgement_id: req.judgement_id,
                     test_case_id: tc_id,
                     run_index,
                     verdict: fill_verdict.clone(),
@@ -241,6 +243,7 @@ pub fn evaluate_short_circuit(
 fn test_submission(test_cases: Vec<TestCaseRow>) -> OnSubmissionInput {
     OnSubmissionInput {
         submission_id: 1,
+        judgement_id: 1,
         user_id: 10,
         problem_id: 100,
         contest_id: Some(1000),
@@ -254,6 +257,7 @@ fn test_submission(test_cases: Vec<TestCaseRow>) -> OnSubmissionInput {
         problem_type: "standard".into(),
         test_cases,
         judge_epoch: 1,
+        target_worker_id: None,
     }
 }
 
@@ -275,6 +279,7 @@ fn test_case(id: i32) -> TestCaseRow {
 fn insert_tc_result(
     host: &Host,
     submission_id: i32,
+    judgement_id: i32,
     outcome: &EvalOutcome,
     tc_map: &HashMap<i32, &TestCaseRow>,
 ) -> Result<(), SdkError> {
@@ -293,6 +298,7 @@ fn insert_tc_result(
     };
     host.submission.insert_results(&[TestCaseResultRow {
         submission_id,
+        judgement_id,
         test_case_id: tc_id,
         run_index,
         verdict: outcome.verdict.clone(),

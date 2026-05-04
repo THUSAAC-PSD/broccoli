@@ -70,7 +70,14 @@ pub fn evaluate_all(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(host, submission_id, &outcome, &tc_map, &scale_score)?;
+                insert_tc_result(
+                    host,
+                    submission_id,
+                    req.judgement_id,
+                    &outcome,
+                    &tc_map,
+                    &scale_score,
+                )?;
                 outcomes.push(outcome);
             }
             return Ok(outcomes);
@@ -79,6 +86,7 @@ pub fn evaluate_all(
 
     let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
+        judgement_id: req.judgement_id,
         judge_epoch: req.judge_epoch,
         status: Some(SubmissionStatus::Running),
         ..Default::default()
@@ -122,13 +130,27 @@ pub fn evaluate_all(
                 };
 
                 if outcome.verdict == Verdict::CompileError {
-                    insert_tc_result(host, submission_id, &outcome, &tc_map, &scale_score)?;
+                    insert_tc_result(
+                        host,
+                        submission_id,
+                        req.judgement_id,
+                        &outcome,
+                        &tc_map,
+                        &scale_score,
+                    )?;
                     outcomes.push(outcome);
                     let _ = host.eval.cancel_batch(&batch_id);
                     break;
                 }
 
-                insert_tc_result(host, submission_id, &outcome, &tc_map, &scale_score)?;
+                insert_tc_result(
+                    host,
+                    submission_id,
+                    req.judgement_id,
+                    &outcome,
+                    &tc_map,
+                    &scale_score,
+                )?;
                 outcomes.push(outcome);
                 collected += 1;
             }
@@ -163,7 +185,14 @@ pub fn evaluate_all(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(host, submission_id, &outcome, &tc_map, &scale_score)?;
+                insert_tc_result(
+                    host,
+                    submission_id,
+                    req.judgement_id,
+                    &outcome,
+                    &tc_map,
+                    &scale_score,
+                )?;
                 outcomes.push(outcome);
             }
         }
@@ -176,6 +205,7 @@ pub fn evaluate_all(
 fn insert_tc_result(
     host: &Host,
     submission_id: i32,
+    judgement_id: i32,
     outcome: &EvalOutcome,
     tc_map: &HashMap<i32, &TestCaseRow>,
     scale_score: &impl Fn(f64, &TestCaseRow) -> f64,
@@ -193,6 +223,7 @@ fn insert_tc_result(
     };
     host.submission.insert_results(&[TestCaseResultRow {
         submission_id,
+        judgement_id,
         test_case_id: tc_id,
         run_index,
         verdict: outcome.verdict.clone(),
