@@ -271,12 +271,6 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
         </div>
       </div>
 
-      {phase === 'during' && (
-        <div className="py-1.5 px-3 mb-3 rounded text-xs text-muted-foreground bg-muted border border-border">
-          {t('ioi.scoreboard.ownScoresOnly')}
-        </div>
-      )}
-
       {rankings.length === 0 ? (
         <div className="py-12 text-center text-muted-foreground">
           {phase === 'before'
