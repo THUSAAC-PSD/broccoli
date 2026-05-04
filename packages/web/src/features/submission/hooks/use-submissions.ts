@@ -24,6 +24,17 @@ export interface SubmissionEntry {
   error: SubmissionError | null;
   /** True for "run code" entries */
   isRun?: boolean;
+  /**
+   * Shared key linking sibling entries created together by an admin fan-out
+   * (one submit, N pinned submissions). Entries with the same groupKey are
+   * rendered together as a comparison strip.
+   */
+  groupKey?: string;
+  /**
+   * Worker this entry was pinned to, if any. Used by the comparison strip and
+   * the per-row label.
+   */
+  targetWorkerId?: string;
 }
 
 interface SubmissionFile {
@@ -41,6 +52,12 @@ export interface UseSubmissionsReturn {
     files: SubmissionFile[],
     language: string,
     contestType?: string,
+    /**
+     * Admin-only: pin every operation produced by this submit to the named
+     * workers. When non-empty, the server creates one pinned submission per
+     * worker (fan-out) and we group them under a single client-side group.
+     */
+    targetWorkerIds?: string[],
   ) => Promise<void>;
   run: (
     files: SubmissionFile[],
@@ -205,7 +222,104 @@ export function useSubmissions({
   );
 
   const submit = useCallback(
-    async (files: SubmissionFile[], language: string, contestType?: string) => {
+    async (
+      files: SubmissionFile[],
+      language: string,
+      contestType?: string,
+      targetWorkerIds?: string[],
+    ) => {
+      // Fan-out path: one pinned submission per worker, grouped together for
+      // the comparison-strip UI.
+      if (targetWorkerIds && targetWorkerIds.length > 0) {
+        const groupKey = `group-${++entryIdCounter}`;
+        const placeholderEntries: SubmissionEntry[] = targetWorkerIds.map(
+          (workerId) => ({
+            id: ++entryIdCounter,
+            submission: null,
+            codeRun: null,
+            status: 'submitting' as const,
+            error: null,
+            groupKey,
+            targetWorkerId: workerId,
+          }),
+        );
+
+        setEntries((prev) => [...placeholderEntries, ...prev]);
+        setActiveEntryId(placeholderEntries[0]?.id ?? null);
+
+        try {
+          const res = await apiClient.POST('/admin/submissions/fan-out', {
+            body: {
+              problem_id: problemId,
+              contest_id: contestId ?? null,
+              contest_type: contestType ?? null,
+              files,
+              language,
+              target_worker_ids: targetWorkerIds,
+            },
+          });
+          if (res.error) throw res.error;
+
+          const created = res.data.submissions;
+          // Match each created submission back to its placeholder by worker.
+          setEntries((prev) =>
+            prev.map((e) => {
+              if (e.groupKey !== groupKey) return e;
+              const match = created.find(
+                (s) => s.target_worker_id === e.targetWorkerId,
+              );
+              if (!match) {
+                return {
+                  ...e,
+                  status: 'error' as const,
+                  error: {
+                    code: 'NO_MATCH',
+                    message: `No submission returned for worker ${e.targetWorkerId}`,
+                  },
+                };
+              }
+              return {
+                ...e,
+                submission: match,
+                status: 'polling' as const,
+              };
+            }),
+          );
+
+          if (contestId) {
+            queryClient.invalidateQueries({
+              queryKey: ['contest-submissions-table', String(contestId)],
+            });
+          }
+
+          toast.success(
+            t('toast.submission.fannedOut', {
+              count: String(created.length),
+            }),
+          );
+
+          for (const sub of created) {
+            const placeholder = placeholderEntries.find(
+              (p) => p.targetWorkerId === sub.target_worker_id,
+            );
+            if (placeholder) startSubmissionPolling(placeholder.id, sub.id);
+          }
+        } catch (err) {
+          console.error('Fan-out submission failed:', err);
+          const submissionError = parseSubmissionError(err);
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.groupKey === groupKey
+                ? { ...e, status: 'error' as const, error: submissionError }
+                : e,
+            ),
+          );
+          toast.error(t('toast.submission.error'));
+        }
+        return;
+      }
+
+      // Standard single-submission path.
       const entryId = ++entryIdCounter;
 
       const newEntry: SubmissionEntry = {

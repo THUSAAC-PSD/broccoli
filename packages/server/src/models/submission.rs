@@ -92,6 +92,10 @@ pub struct SubmissionResponse {
     pub contest_type: String,
     #[schema(example = 0)]
     pub judge_epoch: i32,
+    /// When set, the submission has been pinned to this worker by an admin
+    /// and every operation it produces will run there.
+    #[schema(example = "worker-1")]
+    pub target_worker_id: Option<String>,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     pub result: Option<JudgeResultResponse>,
@@ -119,6 +123,8 @@ pub struct SubmissionListItem {
     pub contest_type: String,
     #[schema(example = 0)]
     pub judge_epoch: i32,
+    #[schema(example = "worker-1")]
+    pub target_worker_id: Option<String>,
     #[schema(example = "2025-10-01T14:30:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = 100.0)]
@@ -174,6 +180,43 @@ pub struct TestCaseResultResponse {
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkRejudgeRequest {
     pub submission_ids: Vec<i32>,
+    /// When set, every rejudged submission is pinned to this worker. The
+    /// caller must hold `system:admin` and the worker must have a live
+    /// heartbeat.
+    #[serde(default)]
+    pub target_worker_id: Option<String>,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct RejudgeRequest {
+    /// Pin the rejudged submission to a specific worker. Requires
+    /// `system:admin`. When omitted, the submission is rejudged on the
+    /// shared worker pool.
+    #[serde(default)]
+    pub target_worker_id: Option<String>,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct AdminFanOutSubmissionRequest {
+    #[schema(example = 1)]
+    pub problem_id: i32,
+    pub files: Vec<SubmissionFileDto>,
+    #[schema(example = "cpp")]
+    pub language: String,
+    #[schema(example = 1)]
+    #[serde(default)]
+    pub contest_id: Option<i32>,
+    #[schema(example = "ioi")]
+    #[serde(default)]
+    pub contest_type: Option<String>,
+    /// Workers to fan out to. One submission is created per worker. Each ID
+    /// must have a live heartbeat. Cannot be empty.
+    pub target_worker_ids: Vec<String>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct AdminFanOutSubmissionResponse {
+    pub submissions: Vec<SubmissionResponse>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -195,6 +238,56 @@ pub fn validate_bulk_rejudge(req: &BulkRejudgeRequest) -> Result<(), AppError> {
         )));
     }
 
+    if let Some(ref tw) = req.target_worker_id {
+        validate_worker_id_format(tw)?;
+    }
+
+    Ok(())
+}
+
+/// Format-only validator for `target_worker_id` strings arriving from API
+/// clients. Existence-against-live-heartbeats is checked separately by
+/// handlers that have access to `AppState`.
+pub fn validate_worker_id_format(id: &str) -> Result<(), AppError> {
+    let len = id.len();
+    if !(1..=128).contains(&len) {
+        return Err(AppError::Validation(
+            "target_worker_id must be 1-128 characters".into(),
+        ));
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err(AppError::Validation(
+            "target_worker_id may only contain alphanumerics, '-', '_', and '.'".into(),
+        ));
+    }
+    Ok(())
+}
+
+const MAX_FAN_OUT_WORKERS: usize = 32;
+
+pub fn validate_admin_fan_out(req: &AdminFanOutSubmissionRequest) -> Result<(), AppError> {
+    if req.target_worker_ids.is_empty() {
+        return Err(AppError::Validation(
+            "target_worker_ids cannot be empty".into(),
+        ));
+    }
+    if req.target_worker_ids.len() > MAX_FAN_OUT_WORKERS {
+        return Err(AppError::Validation(format!(
+            "target_worker_ids cannot exceed {MAX_FAN_OUT_WORKERS} entries"
+        )));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for id in &req.target_worker_ids {
+        validate_worker_id_format(id)?;
+        if !seen.insert(id.as_str()) {
+            return Err(AppError::Validation(format!(
+                "target_worker_ids contains duplicate '{id}'"
+            )));
+        }
+    }
     Ok(())
 }
 

@@ -23,6 +23,11 @@ pub struct OnSubmissionInput {
     pub test_cases: Vec<TestCaseRow>,
     #[serde(default)]
     pub judge_epoch: i32,
+    /// Pin every operation produced for this submission to a specific worker.
+    /// Set by the server when an admin pinned the submission; contest plugins
+    /// must forward it onto each `StartEvaluateCaseInput`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_worker_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

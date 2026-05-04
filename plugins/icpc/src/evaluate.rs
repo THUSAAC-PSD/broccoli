@@ -54,6 +54,7 @@ pub fn evaluate_short_circuit(
                 contest_id: req.contest_id,
                 inline_input: tc.inline_input.clone(),
                 inline_expected_output: tc.inline_expected_output.clone(),
+                target_worker_id: req.target_worker_id.clone(),
             })
             .collect(),
     };

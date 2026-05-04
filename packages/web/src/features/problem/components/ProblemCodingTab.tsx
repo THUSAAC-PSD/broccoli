@@ -6,6 +6,7 @@ import type {
 
 import { CodeEditor, type EditorFile } from '@/components/CodeEditor';
 import { RecentSubmissionOverview } from '@/features/submission/components/RecentSubmissionOverview';
+import { TargetWorkerSelector } from '@/features/submission/components/TargetWorkerSelector';
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 
 interface ProblemCodingTabProps {
@@ -31,6 +32,12 @@ interface ProblemCodingTabProps {
   submissionDetailLinkBuilder?: (submissionId: number) => string;
   contestId?: number;
   problemId: number;
+  /**
+   * When non-null, the user is admin (`system:admin`) and the worker-pin
+   * selector is shown. The array contains currently pinned worker IDs.
+   */
+  targetWorkers?: string[] | null;
+  onTargetWorkersChange?: (next: string[]) => void;
 }
 
 export function ProblemCodingTab({
@@ -52,12 +59,23 @@ export function ProblemCodingTab({
   submissionDetailLinkBuilder,
   contestId,
   problemId,
+  targetWorkers,
+  onTargetWorkersChange,
 }: ProblemCodingTabProps) {
   return (
     <div className="grid flex-1 grid-cols-1 gap-6 overflow-hidden p-6 lg:grid-cols-5">
       <div
         className={`flex flex-col overflow-hidden ${isCodeFullscreen ? 'lg:col-span-5' : 'lg:col-span-3'}`}
       >
+        {targetWorkers != null && onTargetWorkersChange && (
+          <div className="mb-2">
+            <TargetWorkerSelector
+              selected={targetWorkers}
+              onChange={onTargetWorkersChange}
+              disabled={isSubmitting}
+            />
+          </div>
+        )}
         <CodeEditor
           onSubmit={onSubmit}
           onRun={onRun}

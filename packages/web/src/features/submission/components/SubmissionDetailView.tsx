@@ -111,6 +111,17 @@ export function SubmissionDetailView({
                 {formatRelativeDatetime(submission.created_at, t)}
               </span>
             </MetaItem>
+            {submission.target_worker_id ? (
+              <MetaItem label={t('submissionDetail.pinnedWorker')}>
+                <Badge
+                  variant="outline"
+                  className="font-mono text-primary/80"
+                  title={t('submissionDetail.pinnedWorkerHint')}
+                >
+                  {submission.target_worker_id}
+                </Badge>
+              </MetaItem>
+            ) : null}
             {result?.time_used != null && (
               <MetaItem label={t('result.timeHeader')}>
                 <span className="font-mono tabular-nums text-foreground">

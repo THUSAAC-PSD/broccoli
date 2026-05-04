@@ -288,6 +288,7 @@ pub fn build_operation(
         tasks: steps,
         channels,
         priority: None,
+        target_worker_id: req.target_worker_id.clone(),
     }])
 }
 
@@ -314,6 +315,7 @@ mod tests {
             checker_config: None,
             checker_source: None,
             additional_file_refs: vec![],
+            target_worker_id: None,
         }
     }
 

@@ -204,6 +204,9 @@ export const en: Record<string, string> = {
   'submissionDetail.problem': 'Problem',
   'submissionDetail.user': 'User',
   'submissionDetail.language': 'Language',
+  'submissionDetail.pinnedWorker': 'Pinned Worker',
+  'submissionDetail.pinnedWorkerHint':
+    'This submission was pinned to a specific worker by an admin. Every operation it produces runs on that worker only.',
 
   // Problems
   'problems.title': 'Problems',
@@ -648,6 +651,18 @@ export const en: Record<string, string> = {
   'toast.participant.bulkSuccess': 'Bulk enrollment completed successfully.',
   'toast.participant.bulkError': 'Bulk enrollment failed.',
   'toast.submission.submitted': 'Code submitted successfully.',
+  'toast.submission.fannedOut':
+    'Code pinned to {count} worker(s). Comparing results below.',
+  'submit.pinTo': 'Pin to:',
+  'submit.pinToHint': 'Admin only — submit to specific workers.',
+  'submit.addWorker': '+ Add worker…',
+  'submit.addAnother': '+ Add another',
+  'submit.removeWorker': 'Remove {id}',
+  'pinnedGroup.title': 'Pinned submission · {count} workers',
+  'pinnedGroup.diverges': 'Verdicts disagree',
+  'pinnedGroup.divergesHint':
+    'At least one worker produced a different verdict from the others.',
+  'pinnedGroup.allAccepted': 'All workers accepted',
   'toast.submission.running': 'Running code...',
   'toast.submission.error': 'Failed to submit code. Please try again.',
 

@@ -118,10 +118,21 @@ async fn main() -> anyhow::Result<()> {
 
     let drain_timeout = Duration::from_secs(30);
 
+    let shared_queue = config.mq.operation_queue_name.clone();
+    let private_queue = format!(
+        "{}:worker:{}",
+        config.mq.operation_queue_name, config.worker.id
+    );
+    info!(
+        shared_queue = %shared_queue,
+        private_queue = %private_queue,
+        "Subscribing to operation queues"
+    );
+
     enum OpOutcome {
         Shutdown,
-        Done,
-        Reconnect(BroccoliError),
+        Done(&'static str),
+        Reconnect(&'static str, BroccoliError),
     }
 
     loop {
@@ -129,20 +140,17 @@ async fn main() -> anyhow::Result<()> {
             break;
         }
 
-        let mq_for_handler = Arc::clone(&mq_for_handler);
-        let worker = Arc::clone(&worker);
-        let op_dlq_queue = op_dlq_queue.clone();
-        let dlq_config_handler = dlq_config.clone();
-        let retry_tracker = Arc::clone(&retry_tracker);
-        let dedup = dedup.clone();
-        let metrics = metrics.clone();
-        let in_flight_for_handler = in_flight.clone();
-        let shutdown_for_handler = shutdown.clone();
+        let handler = {
+            let mq_for_handler = Arc::clone(&mq_for_handler);
+            let worker = Arc::clone(&worker);
+            let op_dlq_queue = op_dlq_queue.clone();
+            let dlq_config_handler = dlq_config.clone();
+            let retry_tracker = Arc::clone(&retry_tracker);
+            let dedup = dedup.clone();
+            let metrics = metrics.clone();
+            let in_flight_for_handler = in_flight.clone();
+            let shutdown_for_handler = shutdown.clone();
 
-        let op_fut = mq.process_messages(
-            &config.mq.operation_queue_name,
-            None,
-            None,
             move |message: BrokerMessage<Task>| {
                 let mq = Arc::clone(&mq_for_handler);
                 let worker = Arc::clone(&worker);
@@ -174,17 +182,24 @@ async fn main() -> anyhow::Result<()> {
                     )
                     .await
                 }
-            },
-        );
+            }
+        };
 
-        tokio::pin!(op_fut);
+        let shared_fut = mq.process_messages(&shared_queue, None, None, handler.clone());
+        let private_fut = mq.process_messages(&private_queue, None, None, handler);
+
+        tokio::pin!(shared_fut, private_fut);
 
         let outcome = tokio::select! {
             biased;
             _ = wait_for_shutdown(&shutdown) => OpOutcome::Shutdown,
-            result = &mut op_fut => match result {
-                Ok(()) => OpOutcome::Done,
-                Err(e) => OpOutcome::Reconnect(e),
+            result = &mut shared_fut => match result {
+                Ok(()) => OpOutcome::Done("shared"),
+                Err(e) => OpOutcome::Reconnect("shared", e),
+            },
+            result = &mut private_fut => match result {
+                Ok(()) => OpOutcome::Done("private"),
+                Err(e) => OpOutcome::Reconnect("private", e),
             },
         };
 
@@ -193,12 +208,12 @@ async fn main() -> anyhow::Result<()> {
                 drain_in_flight(&in_flight, drain_timeout).await;
                 break;
             }
-            OpOutcome::Done => {
-                info!("Operation consumer exited normally");
+            OpOutcome::Done(which) => {
+                info!(consumer = which, "Operation consumer exited normally");
                 break;
             }
-            OpOutcome::Reconnect(e) => {
-                error!(error = %e, "Operation MQ error, reconnecting in 5s...");
+            OpOutcome::Reconnect(which, e) => {
+                error!(consumer = which, error = %e, "Operation MQ error, reconnecting in 5s...");
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(5)) => {}
                     _ = wait_for_shutdown(&shutdown) => {

@@ -52,6 +52,8 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
                 contest_id: req.contest_id,
                 inline_input: tc.inline_input.clone(),
                 inline_expected_output: tc.inline_expected_output.clone(),
+                // Code-run flow does not currently support worker pinning.
+                target_worker_id: None,
             })
             .collect(),
     };

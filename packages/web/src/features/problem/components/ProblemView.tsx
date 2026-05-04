@@ -40,8 +40,10 @@ export default function ProblemView({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedNotice, setCopiedNotice] = useState<CopiedNotice>(null);
   const [contestType, setContestType] = useState<string | undefined>(undefined);
+  const [targetWorkers, setTargetWorkers] = useState<string[]>([]);
   const apiClient = useApiClient();
   const { data: registries } = useRegistries();
+  const canPinWorker = !!user?.permissions.includes('system:admin');
 
   const rawTab = searchParams.get('tab');
   const routeTab: ProblemRouteTab =
@@ -284,9 +286,10 @@ export default function ProblemView({
         files.map(({ filename, content }) => ({ filename, content })),
         language,
         effectiveContestType,
+        canPinWorker && targetWorkers.length > 0 ? targetWorkers : undefined,
       );
     },
-    [submissions, effectiveContestType],
+    [submissions, effectiveContestType, canPinWorker, targetWorkers],
   );
 
   const handleRun = useCallback(
@@ -417,6 +420,10 @@ export default function ProblemView({
               submissionDetailLinkBuilder={submissionDetailLinkBuilder}
               contestId={contestId}
               problemId={problemId}
+              targetWorkers={canPinWorker ? targetWorkers : null}
+              onTargetWorkersChange={
+                canPinWorker ? setTargetWorkers : undefined
+              }
             />
           }
         />

@@ -180,6 +180,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/submissions/fan-out': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Fan out a submission to a set of workers
+     * @description Creates one submission per worker in `target_worker_ids`, each pinned to the named worker. Used by admins to verify that specific lab workers run a known-good (or known-bad) solution correctly. Skips the per-user submission rate limit. Requires `system:admin` permission.
+     */
+    post: operations['adminFanOutSubmission'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/system/overview': {
     parameters: {
       query?: never;
@@ -1655,7 +1675,7 @@ export interface paths {
     put?: never;
     /**
      * Rejudge a submission
-     * @description Re-queues the submission for judging. Requires `submission:rejudge` permission.
+     * @description Re-queues the submission for judging. Requires `submission:rejudge` permission. Optionally pin to a worker via `?target_worker_id=...` (requires `system:admin`); pass an empty value to clear an existing pin.
      */
     post: operations['rejudgeSubmission'];
     delete?: never;
@@ -1794,6 +1814,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/version': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Server version and build info
+     * @description Public, unauthenticated. Used by the stress-test CLI for an advisory client/server version check.
+     */
+    get: operations['getVersion'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1879,6 +1919,31 @@ export interface components {
        * @example 2048
        */
       size: number;
+    };
+    AdminFanOutSubmissionRequest: {
+      /**
+       * Format: int32
+       * @example 1
+       */
+      contest_id?: number | null;
+      /** @example ioi */
+      contest_type?: string | null;
+      files: components['schemas']['SubmissionFileDto'][];
+      /** @example cpp */
+      language: string;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      problem_id: number;
+      /**
+       * @description Workers to fan out to. One submission is created per worker. Each ID
+       *     must have a live heartbeat. Cannot be empty.
+       */
+      target_worker_ids: string[];
+    };
+    AdminFanOutSubmissionResponse: {
+      submissions: components['schemas']['SubmissionResponse'][];
     };
     AttachmentListResponse: {
       attachments: components['schemas']['AttachmentResponse'][];
@@ -1978,6 +2043,12 @@ export interface components {
     };
     BulkRejudgeRequest: {
       submission_ids: number[];
+      /**
+       * @description When set, every rejudged submission is pinned to this worker. The
+       *     caller must hold `system:admin` and the worker must have a live
+       *     heartbeat.
+       */
+      target_worker_id?: string | null;
     };
     BulkRejudgeResponse: {
       /** @example 1234 */
@@ -3208,6 +3279,8 @@ export interface components {
        */
       score?: number | null;
       status: components['schemas']['SubmissionStatus'];
+      /** @example worker-1 */
+      target_worker_id?: string | null;
       /**
        * Format: int32
        * @example 50
@@ -3262,6 +3335,12 @@ export interface components {
       problem_title: string;
       result?: null | components['schemas']['JudgeResultResponse'];
       status: components['schemas']['SubmissionStatus'];
+      /**
+       * @description When set, the submission has been pinned to this worker by an admin
+       *     and every operation it produces will run there.
+       * @example worker-1
+       */
+      target_worker_id?: string | null;
       /**
        * Format: int32
        * @example 1
@@ -3535,7 +3614,7 @@ export interface components {
     UploadTestCasesMergeStrategy: 'abort' | 'skip' | 'overwrite' | 'replace';
     UploadTestCasesRequest: {
       /** Format: binary */
-      file: Blob;
+      file: string;
       /** @example input_*.txt */
       input_format: string;
       /** @example output_*.txt */
@@ -3576,6 +3655,18 @@ export interface components {
       roles: string[];
       /** @example alice */
       username: string;
+    };
+    VersionResponse: {
+      /**
+       * @description Short Git SHA captured at build time (or `"unknown"` if not built from a git checkout).
+       * @example abc1234
+       */
+      git_sha: string;
+      /**
+       * @description Server version, matching the `Cargo.toml` `[package].version`.
+       * @example 0.2.0
+       */
+      version: string;
     };
     WebDetailResponse: {
       components: components['schemas']['ComponentMap'];
@@ -3629,6 +3720,23 @@ export interface components {
       permissions: string[];
     };
     WorkerInfo: {
+      /**
+       * @description CPU architecture (e.g. `x86_64`, `aarch64`).
+       * @example x86_64
+       */
+      arch?: string | null;
+      /**
+       * Format: int32
+       * @description Number of logical CPUs visible to the worker process.
+       * @example 8
+       */
+      cpu_count?: number | null;
+      /**
+       * @description OS hostname of the machine running this worker. Useful for identifying
+       *     physical machines in a lab.
+       * @example lab-pc-07
+       */
+      hostname?: string | null;
       /** @example worker-1 */
       id: string;
       /**
@@ -3636,10 +3744,23 @@ export interface components {
        * @example 0
        */
       in_flight: number;
+      /** @description Non-loopback IPv4/IPv6 addresses bound to this worker's interfaces. */
+      ip_addresses?: string[];
       /** Format: date-time */
       last_seen: string;
       /** Format: int32 */
       max_concurrency?: number | null;
+      /**
+       * @description Operating system family (e.g. `linux`, `macos`).
+       * @example linux
+       */
+      os?: string | null;
+      /**
+       * Format: int32
+       * @description Worker process ID on its host machine.
+       * @example 4242
+       */
+      pid?: number | null;
       /** @example isolate */
       sandbox_backend: string;
       /**
@@ -3654,35 +3775,6 @@ export interface components {
       started_at: string;
       /** @example 0.1.0 */
       version: string;
-      /**
-       * @description OS hostname of the machine running this worker. Useful for identifying physical machines in a lab.
-       * @example lab-pc-07
-       */
-      hostname?: string | null;
-      /** @description Non-loopback IPv4/IPv6 addresses bound to this worker's interfaces. */
-      ip_addresses?: string[];
-      /**
-       * @description Operating system family (e.g. `linux`, `macos`).
-       * @example linux
-       */
-      os?: string | null;
-      /**
-       * @description CPU architecture (e.g. `x86_64`, `aarch64`).
-       * @example x86_64
-       */
-      arch?: string | null;
-      /**
-       * Format: int32
-       * @description Number of logical CPUs visible to the worker process.
-       * @example 8
-       */
-      cpu_count?: number | null;
-      /**
-       * Format: int32
-       * @description Worker process ID on its host machine.
-       * @example 4242
-       */
-      pid?: number | null;
     };
     WorkersResponse: {
       workers: components['schemas']['WorkerInfo'][];
@@ -4268,6 +4360,66 @@ export interface operations {
       };
       /** @description Plugin not currently loaded (CONFLICT) */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  adminFanOutSubmission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AdminFanOutSubmissionRequest'];
+      };
+    };
+    responses: {
+      /** @description Submissions created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AdminFanOutSubmissionResponse'];
+        };
+      };
+      /** @description Validation error or worker offline (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Problem or contest not found (NOT_FOUND) */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -9705,7 +9857,10 @@ export interface operations {
   };
   rejudgeSubmission: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @example worker-1 */
+        target_worker_id?: string;
+      };
       header?: never;
       path: {
         /** @description Submission ID */
@@ -9722,6 +9877,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Invalid worker (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
         };
       };
       /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
@@ -10166,6 +10330,26 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getVersion: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Server version info */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['VersionResponse'];
         };
       };
     };
