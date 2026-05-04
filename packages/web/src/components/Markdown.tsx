@@ -1,5 +1,6 @@
 import 'katex/dist/katex.min.css';
 
+import { cn } from '@broccoli/web-sdk/utils';
 import type { ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
@@ -12,6 +13,19 @@ import { AuthLink } from '@/components/AuthLink';
 interface MarkdownProps {
   children: string;
   className?: string;
+}
+
+function markdownCellAlignClass(
+  align: ComponentPropsWithoutRef<'td'>['align'],
+) {
+  switch (align) {
+    case 'center':
+      return 'text-center';
+    case 'right':
+      return 'text-right';
+    default:
+      return 'text-left';
+  }
 }
 
 export function Markdown({ children, className }: MarkdownProps) {
@@ -89,21 +103,61 @@ export function Markdown({ children, className }: MarkdownProps) {
               </code>
             );
           },
-          table: ({ children }: ComponentPropsWithoutRef<'table'>) => (
+          table: ({
+            children,
+            className,
+            ...props
+          }: ComponentPropsWithoutRef<'table'>) => (
             <div className="overflow-x-auto my-3 rounded-md border border-border">
-              <table className="w-full text-sm">{children}</table>
+              <table {...props} className={cn('w-full text-sm', className)}>
+                {children}
+              </table>
             </div>
           ),
-          thead: ({ children }: ComponentPropsWithoutRef<'thead'>) => (
-            <thead className="bg-muted/40">{children}</thead>
+          thead: ({
+            children,
+            className,
+            ...props
+          }: ComponentPropsWithoutRef<'thead'>) => (
+            <thead {...props} className={cn('bg-muted/40', className)}>
+              {children}
+            </thead>
           ),
-          th: ({ children }: ComponentPropsWithoutRef<'th'>) => (
-            <th className="px-3 py-2 text-left font-medium text-foreground/80 border-b border-border">
+          th: ({
+            align,
+            children,
+            className,
+            ...props
+          }: ComponentPropsWithoutRef<'th'>) => (
+            <th
+              {...props}
+              align={align}
+              className={cn(
+                'px-3 py-2 font-medium text-foreground/80 border-b border-border',
+                markdownCellAlignClass(align),
+                className,
+              )}
+            >
               {children}
             </th>
           ),
-          td: ({ children }: ComponentPropsWithoutRef<'td'>) => (
-            <td className="px-3 py-2 border-b border-border/50">{children}</td>
+          td: ({
+            align,
+            children,
+            className,
+            ...props
+          }: ComponentPropsWithoutRef<'td'>) => (
+            <td
+              {...props}
+              align={align}
+              className={cn(
+                'px-3 py-2 border-b border-border/50',
+                markdownCellAlignClass(align),
+                className,
+              )}
+            >
+              {children}
+            </td>
           ),
           img: ({ src, alt }: ComponentPropsWithoutRef<'img'>) => (
             <AuthImage
