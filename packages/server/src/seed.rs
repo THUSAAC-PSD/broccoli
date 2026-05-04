@@ -4,7 +4,7 @@ use tracing::info;
 
 use crate::entity::{
     additional_file, clarification, dead_letter_message, problem_attachment, role, role_permission,
-    submission, user,
+    submission, submission_judgement, test_case_result, user,
 };
 
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
@@ -250,5 +250,121 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         }
     }
 
+    let stmt = Index::create()
+        .if_not_exists()
+        .unique()
+        .name("idx_submission_judgement_version_unique")
+        .table(submission_judgement::Entity)
+        .col(submission_judgement::Column::SubmissionId)
+        .col(submission_judgement::Column::Version)
+        .to_string(PostgresQueryBuilder);
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => info!("Ensured idx_submission_judgement_version_unique exists"),
+        Err(e) => tracing::warn!(
+            "Failed to create idx_submission_judgement_version_unique: {}",
+            e
+        ),
+    }
+
+    let stmt = Index::create()
+        .if_not_exists()
+        .unique()
+        .name("idx_submission_judgement_one_current")
+        .table(submission_judgement::Entity)
+        .col(submission_judgement::Column::SubmissionId)
+        .and_where(Expr::col(submission_judgement::Column::IsCurrent).into())
+        .to_string(PostgresQueryBuilder);
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => info!("Ensured idx_submission_judgement_one_current exists"),
+        Err(e) => tracing::warn!(
+            "Failed to create idx_submission_judgement_one_current: {}",
+            e
+        ),
+    }
+
+    let stmt = Index::create()
+        .if_not_exists()
+        .name("idx_test_case_result_judgement")
+        .table(test_case_result::Entity)
+        .col(test_case_result::Column::JudgementId)
+        .to_string(PostgresQueryBuilder);
+    let result = db.execute_unprepared(&stmt).await;
+    match result {
+        Ok(_) => info!("Ensured idx_test_case_result_judgement exists"),
+        Err(e) => tracing::warn!("Failed to create idx_test_case_result_judgement: {}", e),
+    }
+
+    Ok(())
+}
+
+/// One-shot migration that ensures every existing submission has a v1
+/// judgement and that every existing test_case_result row points at it.
+///
+/// Idempotent: rows that are already attached to a judgement are left
+/// alone. Submissions that already have at least one judgement are left
+/// alone. Safe to run on every server boot.
+pub async fn backfill_submission_judgements(db: &DatabaseConnection) -> Result<(), DbErr> {
+    let pending_subs: Option<i64> = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::bigint AS count FROM submission s \
+             WHERE NOT EXISTS (SELECT 1 FROM submission_judgement j WHERE j.submission_id = s.id)",
+        ))
+        .await?
+        .map(|row| row.try_get::<i64>("", "count"))
+        .transpose()?;
+    let pending_results: Option<i64> = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*)::bigint AS count FROM test_case_result WHERE judgement_id IS NULL",
+        ))
+        .await?
+        .map(|row| row.try_get::<i64>("", "count"))
+        .transpose()?;
+
+    if pending_subs.unwrap_or(0) == 0 && pending_results.unwrap_or(0) == 0 {
+        return Ok(());
+    }
+
+    info!(
+        pending_submissions = pending_subs.unwrap_or(0),
+        pending_results = pending_results.unwrap_or(0),
+        "Backfilling submission_judgement rows for legacy submissions"
+    );
+
+    db.execute_unprepared(
+        "INSERT INTO submission_judgement \
+            (submission_id, version, is_current, is_finalized, \
+             status, verdict, score, time_used, memory_used, \
+             compile_output, error_code, error_message, judge_epoch, \
+             created_at, finalized_at) \
+         SELECT s.id, 1, TRUE, \
+                s.status IN ('Judged', 'CompilationError', 'SystemError'), \
+                s.status, s.verdict, s.score, s.time_used, s.memory_used, \
+                s.compile_output, s.error_code, s.error_message, \
+                COALESCE(s.judge_epoch, 0), \
+                s.created_at, \
+                CASE WHEN s.status IN ('Judged', 'CompilationError', 'SystemError') \
+                     THEN COALESCE(s.judged_at, s.created_at) \
+                     ELSE NULL END \
+         FROM submission s \
+         WHERE NOT EXISTS \
+            (SELECT 1 FROM submission_judgement j WHERE j.submission_id = s.id)",
+    )
+    .await?;
+
+    db.execute_unprepared(
+        "UPDATE test_case_result tcr \
+         SET judgement_id = j.id \
+         FROM submission_judgement j \
+         WHERE tcr.judgement_id IS NULL \
+           AND j.submission_id = tcr.submission_id \
+           AND j.is_current = TRUE",
+    )
+    .await?;
+
+    info!("Backfill of submission_judgement complete");
     Ok(())
 }

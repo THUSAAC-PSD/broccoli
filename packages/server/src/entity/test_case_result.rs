@@ -10,6 +10,11 @@ pub struct Model {
     pub id: i32,
 
     pub submission_id: i32,
+    /// Versioned-judgement FK. Nullable during the rolling migration; the
+    /// `seed::backfill_submission_judgements` step populates it for every
+    /// pre-existing row by attaching them to a synthetic v1 judgement.
+    /// New rows written by plugins always set this.
+    pub judgement_id: Option<i32>,
     pub test_case_id: Option<i32>,
     /// 0-based ordinal for custom run test cases. NULL for DB-backed test cases.
     pub run_index: Option<i32>,
@@ -31,6 +36,8 @@ pub struct Model {
 
     #[sea_orm(belongs_to, from = "submission_id", to = "id")]
     pub submission: HasOne<super::submission::Entity>,
+    #[sea_orm(belongs_to, from = "judgement_id", to = "id")]
+    pub judgement: Option<super::submission_judgement::Entity>,
     #[sea_orm(belongs_to, from = "test_case_id", to = "id")]
     pub test_case: HasOne<super::test_case::Entity>,
 
