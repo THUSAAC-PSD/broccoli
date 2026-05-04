@@ -20,6 +20,7 @@ use server::consumers::{
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
 use server::registry;
+use server::serve::serve_with_shutdown;
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
 
@@ -307,7 +308,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("Failed to bind to {}", addr))?;
-    axum::serve(listener, app)
+    serve_with_shutdown(listener, app)
         .await
         .context("Server runtime error")?;
 

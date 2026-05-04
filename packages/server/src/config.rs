@@ -29,6 +29,10 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub cors: CorsConfig,
+    /// CIDR ranges for trusted L7 proxies. Empty means no proxy headers are
+    /// trusted and client IP extraction falls back to the socket address.
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
     /// Logical identity of this replica. Used to derive the per-replica
     /// operation-result queue name so multiple servers behind a load balancer
     /// each receive their own plugin-dispatch results. Empty (the default)
@@ -171,6 +175,7 @@ impl AppConfig {
             .set_default("server.cors.allow_origins", Vec::<String>::new())?
             .set_default("server.cors.max_age", 3600_i64)?
             .set_default("server.id", "")?
+            .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("plugin.plugins_dir", "./plugins")?
             .set_default("plugin.enable_wasi", true)?
             .set_default("submission.max_size", 1_048_576_i64)?
