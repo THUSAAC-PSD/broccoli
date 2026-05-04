@@ -120,6 +120,7 @@ pub fn build_router(state: AppState) -> axum::Router {
     let app = axum::Router::new()
         .nest("/api", router)
         .route("/metrics", axum::routing::get(metrics_handler))
+        .route("/healthz", axum::routing::get(handlers::health::healthz))
         .route(
             "/assets/{plugin_id}/{*file_path}",
             axum::routing::get(handlers::assets::serve_plugin_asset),

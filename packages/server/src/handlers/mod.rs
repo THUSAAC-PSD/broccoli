@@ -8,6 +8,7 @@ pub mod code_run;
 pub mod config_upload;
 pub mod contest;
 pub mod dlq;
+pub mod health;
 pub mod i18n;
 pub mod meta;
 pub mod plugin;
