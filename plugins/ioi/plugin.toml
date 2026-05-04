@@ -50,6 +50,7 @@ handler = "api_submission_subtask_scores"
 
 [translations]
 en = "i18n/en.toml"
+zh-CN = "i18n/zh-CN.toml"
 
 [config.contest]
 description = "IOI contest-level configuration: scoring mode, feedback, tokens"
