@@ -61,6 +61,50 @@ pub async fn mark_submission_system_error_with_epoch<C: ConnectionTrait>(
         values,
     ))
     .await?;
+
+    // Mirror the system-error onto the submission's current judgement so
+    // the versioned row stays in sync with the denormalized cache. Best
+    // effort: a missing judgement (legacy submissions before backfill)
+    // simply matches zero rows. The epoch guard mirrors the submission
+    // update so a stale call from a retried worker does not flip a
+    // judgement that has already been re-dispatched.
+    let safe_code = sanitize_text_field(error_code);
+    let safe_message = sanitize_text_field(error_message);
+    let (jsql, jvalues) = if let Some(epoch) = judge_epoch {
+        (
+            r#"UPDATE submission_judgement
+               SET status = $1, error_code = $2, error_message = $3,
+                   is_finalized = TRUE, finalized_at = NOW()
+               WHERE submission_id = $4 AND is_current = TRUE AND is_finalized = FALSE
+                 AND judge_epoch = $5"#,
+            vec![
+                SubmissionStatus::SystemError.to_string().into(),
+                safe_code.as_ref().to_string().into(),
+                safe_message.as_ref().to_string().into(),
+                submission_id.into(),
+                epoch.into(),
+            ],
+        )
+    } else {
+        (
+            r#"UPDATE submission_judgement
+               SET status = $1, error_code = $2, error_message = $3,
+                   is_finalized = TRUE, finalized_at = NOW()
+               WHERE submission_id = $4 AND is_current = TRUE AND is_finalized = FALSE"#,
+            vec![
+                SubmissionStatus::SystemError.to_string().into(),
+                safe_code.as_ref().to_string().into(),
+                safe_message.as_ref().to_string().into(),
+                submission_id.into(),
+            ],
+        )
+    };
+    conn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        jsql,
+        jvalues,
+    ))
+    .await?;
     Ok(())
 }
 

@@ -7,6 +7,7 @@ use crate::evaluate_batch::EvalOutcome;
 pub fn persist_results(
     host: &Host,
     submission_id: i32,
+    judgement_id: i32,
     judge_epoch: i32,
     outcomes: &[EvalOutcome],
     submission_score: f64,
@@ -44,6 +45,7 @@ pub fn persist_results(
 
     let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
+        judgement_id,
         judge_epoch,
         status: Some(status),
         verdict: Some(db_verdict),

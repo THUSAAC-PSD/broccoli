@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
-use crate::types::{SubmissionUpdate, TestCaseResultRow, TestCaseRow};
+use crate::types::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow, TestCaseRow};
 
 pub struct Submissions {
     #[cfg(not(target_arch = "wasm32"))]
@@ -46,6 +46,48 @@ impl Submissions {
             return Ok(1);
         }
 
+        // Mirror the same column writes onto submission_judgement so the
+        // versioned row stays in sync with the denormalized cache. Skipped
+        // when judgement_id is unset (legacy caller path); the backfill
+        // job handles those rows on the next server boot.
+        if update.judgement_id > 0 {
+            let mut jp = Params::new();
+            let mut jsets = Vec::new();
+            super::shared::push_judge_sets(
+                &mut jp,
+                &mut jsets,
+                &update.status,
+                &update.verdict,
+                &update.score,
+                &update.time_used,
+                &update.memory_used,
+                &update.compile_output,
+                &update.error_code,
+                &update.error_message,
+            );
+            if !jsets.is_empty() {
+                let mut judgement_sets = jsets;
+                let is_terminal_marker = match update.status {
+                    Some(SubmissionStatus::Judged) | Some(SubmissionStatus::CompilationError) => {
+                        true
+                    }
+                    _ => false,
+                };
+                if is_terminal_marker {
+                    judgement_sets.push("is_finalized = TRUE".to_string());
+                    judgement_sets.push("finalized_at = NOW()".to_string());
+                }
+                let jsql = format!(
+                    "UPDATE submission_judgement SET {} WHERE id = {} AND judge_epoch = {} \
+                     AND is_finalized = FALSE",
+                    judgement_sets.join(", "),
+                    jp.bind(update.judgement_id),
+                    jp.bind(update.judge_epoch),
+                );
+                super::shared::raw_execute(&jsql, &jp.into_args())?;
+            }
+        }
+
         let sql = format!(
             "UPDATE submission SET {} WHERE id = {} AND judge_epoch = {} \
              AND status NOT IN ('Judged', 'CompilationError', 'SystemError')",
@@ -73,9 +115,15 @@ impl Submissions {
             let message = r.message.as_deref().map(sanitize_text_field);
             let stdout = r.stdout.as_deref().map(sanitize_text_field);
             let stderr = r.stderr.as_deref().map(sanitize_text_field);
+            let judgement_param = if r.judgement_id > 0 {
+                json!(r.judgement_id)
+            } else {
+                json!(null)
+            };
             rows.push(format!(
-                "({}, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
+                "({}, {}::int, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.submission_id),
+                p.bind(judgement_param),
                 p.bind(json!(r.test_case_id)),
                 p.bind(json!(r.run_index)),
                 p.bind(r.verdict.to_db_str()),
@@ -90,7 +138,7 @@ impl Submissions {
 
         let sql = format!(
             "INSERT INTO test_case_result \
-             (submission_id, test_case_id, run_index, verdict, score, \
+             (submission_id, judgement_id, test_case_id, run_index, verdict, score, \
               time_used, memory_used, checker_output, stdout, stderr, created_at) \
              VALUES {}",
             rows.join(", ")

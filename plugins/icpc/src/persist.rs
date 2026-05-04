@@ -7,6 +7,7 @@ use crate::evaluate::EvalResult;
 pub fn persist_and_track(
     host: &Host,
     submission_id: i32,
+    judgement_id: i32,
     judge_epoch: i32,
     contest_id: i32,
     user_id: i32,
@@ -52,6 +53,7 @@ pub fn persist_and_track(
 
     let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
+        judgement_id,
         judge_epoch,
         status: Some(status),
         verdict: Some(db_verdict),
@@ -178,6 +180,7 @@ mod tests {
     const USER_ID: i32 = 10;
     const PROBLEM_ID: i32 = 100;
     const SUBMISSION_ID: i32 = 1;
+    const JUDGEMENT_ID: i32 = 1;
     const JUDGE_EPOCH: i32 = 1;
 
     fn key() -> String {
@@ -206,6 +209,7 @@ mod tests {
         let out = persist_and_track(
             &host,
             SUBMISSION_ID,
+            JUDGEMENT_ID,
             JUDGE_EPOCH,
             CONTEST_ID,
             USER_ID,
@@ -235,6 +239,7 @@ mod tests {
         let out = persist_and_track(
             &host,
             SUBMISSION_ID,
+            JUDGEMENT_ID,
             JUDGE_EPOCH,
             CONTEST_ID,
             USER_ID,
@@ -260,6 +265,7 @@ mod tests {
         persist_and_track(
             &host,
             SUBMISSION_ID,
+            JUDGEMENT_ID,
             JUDGE_EPOCH,
             CONTEST_ID,
             USER_ID,
@@ -283,6 +289,7 @@ mod tests {
         persist_and_track(
             &host,
             SUBMISSION_ID,
+            JUDGEMENT_ID,
             JUDGE_EPOCH,
             CONTEST_ID,
             USER_ID,
@@ -315,6 +322,7 @@ mod tests {
         persist_and_track(
             &host,
             SUBMISSION_ID,
+            JUDGEMENT_ID,
             JUDGE_EPOCH,
             CONTEST_ID,
             USER_ID,
@@ -339,6 +347,7 @@ mod tests {
         persist_and_track(
             &host,
             SUBMISSION_ID,
+            JUDGEMENT_ID,
             JUDGE_EPOCH,
             CONTEST_ID,
             USER_ID,

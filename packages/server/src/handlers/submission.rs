@@ -15,7 +15,9 @@ use tracing::{error, info, instrument, warn};
 
 use plugin_core::traits::PluginManagerExt;
 
-use crate::entity::{contest, problem, submission, test_case, test_case_result, user};
+use crate::entity::{
+    contest, problem, submission, submission_judgement, test_case, test_case_result, user,
+};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -148,6 +150,77 @@ async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
+/// Resolves the active judgement for a submission.
+///
+/// Returns the id of the current non-finalized judgement, creating a v1
+/// row if none exists. Used at dispatch time so the plugin always has a
+/// judgement_id to attach results to. The created v1 mirrors the
+/// submission's current denormalized cache columns; subsequent SDK
+/// updates will mutate this row in place. Logs and falls back to 0
+/// (legacy mode, results land with judgement_id NULL) when the
+/// resolution fails so a transient DB error does not block judging.
+pub(crate) async fn ensure_active_judgement_id(
+    db: &DatabaseConnection,
+    sub: &submission::Model,
+) -> i32 {
+    use sea_orm::ColumnTrait;
+    let existing = submission_judgement::Entity::find()
+        .filter(submission_judgement::Column::SubmissionId.eq(sub.id))
+        .filter(submission_judgement::Column::IsCurrent.eq(true))
+        .filter(submission_judgement::Column::IsFinalized.eq(false))
+        .one(db)
+        .await;
+    match existing {
+        Ok(Some(j)) => return j.id,
+        Ok(None) => {}
+        Err(e) => {
+            warn!(error = %e, submission_id = sub.id, "Judgement lookup failed, dispatching with id=0");
+            return 0;
+        }
+    }
+    // Look up the next version to assign. Allows races at submit time to
+    // recover gracefully even if a concurrent rejudge already inserted a
+    // higher-versioned judgement (the partial unique index protects
+    // is_current).
+    let next_version: i32 = match submission_judgement::Entity::find()
+        .filter(submission_judgement::Column::SubmissionId.eq(sub.id))
+        .order_by_desc(submission_judgement::Column::Version)
+        .one(db)
+        .await
+    {
+        Ok(Some(j)) => j.version.saturating_add(1),
+        _ => 1,
+    };
+    let active = submission_judgement::ActiveModel {
+        submission_id: Set(sub.id),
+        version: Set(next_version),
+        is_current: Set(true),
+        is_finalized: Set(false),
+        triggered_by_user_id: Set(None),
+        target_worker_id: Set(sub.target_worker_id.clone()),
+        note: Set(None),
+        status: Set(sub.status.clone()),
+        verdict: Set(sub.verdict.clone()),
+        score: Set(sub.score),
+        time_used: Set(sub.time_used),
+        memory_used: Set(sub.memory_used),
+        compile_output: Set(sub.compile_output.clone()),
+        error_code: Set(sub.error_code.clone()),
+        error_message: Set(sub.error_message.clone()),
+        judge_epoch: Set(sub.judge_epoch),
+        created_at: Set(sub.created_at),
+        finalized_at: Set(None),
+        ..Default::default()
+    };
+    match active.insert(db).await {
+        Ok(j) => j.id,
+        Err(e) => {
+            warn!(error = %e, submission_id = sub.id, "Judgement insert failed, dispatching with id=0");
+            0
+        }
+    }
+}
+
 #[instrument(skip(state), fields(submission_id = submission.id))]
 pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
     use common::submission_dispatch::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
@@ -263,8 +336,11 @@ pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::
             .collect()
     };
 
+    let judgement_id = ensure_active_judgement_id(&state.db, &submission).await;
+
     let input = OnSubmissionInput {
         submission_id: submission.id,
+        judgement_id,
         user_id: submission.user_id,
         problem_id: submission.problem_id,
         contest_id: submission.contest_id,

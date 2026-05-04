@@ -11,6 +11,13 @@ pub struct SourceFile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnSubmissionInput {
     pub submission_id: i32,
+    /// ID of the active `submission_judgement` row this dispatch is for.
+    /// Plugins must forward it onto every `SubmissionUpdate` and
+    /// `TestCaseResultRow` they write so each result is attached to the
+    /// right version. The server creates the v1 judgement at submit time
+    /// and a new one on rejudge.
+    #[serde(default)]
+    pub judgement_id: i32,
     pub user_id: i32,
     pub problem_id: i32,
     pub contest_id: Option<i32>,
