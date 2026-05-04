@@ -28,6 +28,7 @@ jobs:
         with:
           toolchain: nightly
           components: rustfmt, clippy
+          targets: wasm32-wasip1
 
       - uses: Swatinem/rust-cache@v2
 
@@ -36,6 +37,9 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Build plugin WASM artefacts
+        run: ./scripts/build-plugins.sh
 
       - name: Test
         run: cargo test --workspace --locked
