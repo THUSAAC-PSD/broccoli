@@ -13,8 +13,10 @@ use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
 use server::build_router;
-use server::config::AppConfig;
-use server::consumers::{consume_operation_dlq, consume_operation_results};
+use server::config::{AppConfig, per_replica_result_queue_name, resolve_server_id};
+use server::consumers::{
+    consume_legacy_operation_results, consume_operation_dlq, consume_operation_results,
+};
 use server::dlq::run_stuck_job_detector;
 use server::manager::ServerManager;
 use server::registry;
@@ -23,7 +25,7 @@ use server::utils::plugin::sync_plugins;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let app_config = AppConfig::load().context("Failed to load configuration")?;
+    let mut app_config = AppConfig::load().context("Failed to load configuration")?;
 
     if std::env::args().any(|a| a == "--healthcheck") {
         let exit_code = run_healthcheck(&app_config).await;
@@ -31,6 +33,23 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let _telemetry_guard = common::observability::init_tracing(&app_config.observability);
+
+    // Resolve the per-replica server identity and rewrite the result-queue
+    // name in-place so every downstream user (host_funcs dispatch, the result
+    // consumer) sees the same suffixed value. The original (un-suffixed) name
+    // is kept as `legacy_op_result_queue` for the rolling-upgrade compat
+    // consumer below.
+    let server_id = resolve_server_id(&app_config.server.id);
+    app_config.server.id = server_id.clone();
+    let legacy_op_result_queue = app_config.mq.operation_result_queue_name.clone();
+    let per_replica_op_result_queue =
+        per_replica_result_queue_name(&legacy_op_result_queue, &server_id);
+    app_config.mq.operation_result_queue_name = per_replica_op_result_queue.clone();
+    info!(
+        server_id = %server_id,
+        result_queue = %per_replica_op_result_queue,
+        "Resolved server identity"
+    );
 
     let (metrics, prometheus_registry) =
         common::observability::init_metrics(&app_config.observability.otlp.service_name);
@@ -159,7 +178,30 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             consume_operation_results(op_consumer_mq, op_waiters, op_result_queue).await;
         });
-        info!("Operation result consumer started");
+        info!(
+            queue = %app_config.mq.operation_result_queue_name,
+            "Operation result consumer started (per-replica)"
+        );
+
+        // Compatibility consumer for the legacy un-suffixed queue. A pre-fix
+        // (v0.2) worker still publishes to the shared `operation_results`
+        // queue; if a result lands here we attempt best-effort delivery via
+        // the local waiters map (only succeeds if this replica originated the
+        // task) and warn so operators notice. Remove once the rolling upgrade
+        // window closes — see docs/upgrade.md.
+        if legacy_op_result_queue != per_replica_op_result_queue {
+            let legacy_consumer_mq = Arc::clone(mq_arc);
+            let legacy_queue = legacy_op_result_queue.clone();
+            let legacy_waiters = operation_waiters.clone();
+            tokio::spawn(async move {
+                consume_legacy_operation_results(legacy_consumer_mq, legacy_waiters, legacy_queue)
+                    .await;
+            });
+            info!(
+                queue = %legacy_op_result_queue,
+                "Legacy operation result consumer started for rolling-upgrade compatibility"
+            );
+        }
     }
 
     let manager = ServerManager::new(

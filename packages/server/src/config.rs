@@ -1,5 +1,6 @@
 use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 pub use common::config::MqAppConfig;
 pub use common::storage::config::BlobStoreConfig;
@@ -28,6 +29,13 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub cors: CorsConfig,
+    /// Logical identity of this replica. Used to derive the per-replica
+    /// operation-result queue name so multiple servers behind a load balancer
+    /// each receive their own plugin-dispatch results. Empty (the default)
+    /// resolves to the OS hostname; an unusable hostname falls back to a
+    /// random short ID. See [`resolve_server_id`].
+    #[serde(default)]
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -72,6 +80,71 @@ fn default_batch_max_age_secs() -> u64 {
     600
 }
 
+/// Returns true if `id` is a safe queue-suffix (alphanumeric + `-_.`,
+/// non-empty, ≤128 chars). Mirrors the worker-id rules so the same
+/// validation applies to both sides of the MQ envelope.
+pub fn is_valid_server_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// Resolves the effective server ID from a configured value:
+/// 1. If `configured` is non-empty and valid, use it.
+/// 2. Else fall back to the OS hostname (sanitized — Windows hostnames may
+///    contain characters Redis dislikes in queue names).
+/// 3. Else generate an 8-char random ID and warn. Refusing to start would
+///    be too aggressive — operators can set `BROCCOLI__SERVER__ID` explicitly
+///    if they care about stable identity.
+pub fn resolve_server_id(configured: &str) -> String {
+    let trimmed = configured.trim();
+    if !trimmed.is_empty() {
+        if is_valid_server_id(trimmed) {
+            return trimmed.to_string();
+        }
+        warn!(
+            configured = %trimmed,
+            "Configured server.id failed validation; falling back to hostname"
+        );
+    }
+
+    if let Ok(host) = hostname::get() {
+        let lossy = host.to_string_lossy();
+        let sanitized: String = lossy
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .take(128)
+            .collect();
+        if is_valid_server_id(&sanitized) {
+            return sanitized;
+        }
+        warn!(
+            hostname = %lossy,
+            "OS hostname unsuitable as server.id; using random fallback"
+        );
+    } else {
+        warn!("Could not read OS hostname; using random server.id fallback");
+    }
+
+    let fallback = uuid::Uuid::new_v4().simple().to_string();
+    fallback.chars().take(8).collect()
+}
+
+/// Centralized derivation of the per-replica operation-result queue name.
+/// Suffixing with `server_id` ensures each replica's `consume_operation_results`
+/// only receives results for tasks it dispatched.
+pub fn per_replica_result_queue_name(base: &str, server_id: &str) -> String {
+    format!("{}.{}", base, server_id)
+}
+
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let s = Config::builder()
@@ -79,6 +152,7 @@ impl AppConfig {
             .set_default("server.port", 3000)?
             .set_default("server.cors.allow_origins", Vec::<String>::new())?
             .set_default("server.cors.max_age", 3600_i64)?
+            .set_default("server.id", "")?
             .set_default("plugin.plugins_dir", "./plugins")?
             .set_default("plugin.enable_wasi", true)?
             .set_default("submission.max_size", 1_048_576_i64)?
@@ -97,5 +171,53 @@ impl AppConfig {
             .build()?;
 
         s.try_deserialize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_server_id_charset() {
+        assert!(is_valid_server_id("alpha"));
+        assert!(is_valid_server_id("server-01.east_2"));
+        assert!(!is_valid_server_id(""));
+        assert!(!is_valid_server_id("has space"));
+        assert!(!is_valid_server_id("colon:bad"));
+        assert!(!is_valid_server_id(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn resolves_explicit_server_id_when_valid() {
+        assert_eq!(resolve_server_id("alpha"), "alpha");
+        assert_eq!(resolve_server_id("  alpha  "), "alpha");
+    }
+
+    #[test]
+    fn resolves_invalid_explicit_id_via_fallback() {
+        // "has space" is invalid; we expect a non-empty fallback (hostname or random).
+        let resolved = resolve_server_id("has space");
+        assert!(!resolved.is_empty());
+        assert!(is_valid_server_id(&resolved));
+    }
+
+    #[test]
+    fn resolves_empty_to_hostname_or_random_fallback() {
+        let resolved = resolve_server_id("");
+        assert!(!resolved.is_empty());
+        assert!(is_valid_server_id(&resolved));
+    }
+
+    #[test]
+    fn per_replica_queue_name_appends_dotted_suffix() {
+        assert_eq!(
+            per_replica_result_queue_name("operation_results", "alpha"),
+            "operation_results.alpha"
+        );
+        assert_eq!(
+            per_replica_result_queue_name("operation_results", "server-1"),
+            "operation_results.server-1"
+        );
     }
 }
