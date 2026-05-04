@@ -577,12 +577,16 @@ impl TestApp {
             prometheus_registry: test_prom_registry.clone(),
         };
         if load_plugins {
-            // Tolerate per-plugin activation failures here: the integration
-            // fixtures include a stale `server-plugin` wasm whose imports no
-            // longer match the host (a pre-existing bug). The e2e suite does
-            // the strict no-failures assertion instead, since that's where
-            // silent activation errors caused the original user-facing flake.
-            let _failures = sync_plugins(&state).await.expect("Failed to sync plugins");
+            let failures = sync_plugins(&state).await.expect("Failed to sync plugins");
+            assert!(
+                failures.is_empty(),
+                "Plugin activations failed: {}",
+                failures
+                    .iter()
+                    .map(|f| format!("{}: {}", f.plugin_id, f.error))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            );
         }
 
         let app = server::build_router(state);
