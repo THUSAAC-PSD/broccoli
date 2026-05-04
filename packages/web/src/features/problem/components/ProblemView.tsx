@@ -72,6 +72,7 @@ export default function ProblemView({
     setCopiedKey(null);
     setCopiedNotice(null);
     setContestType(undefined);
+    setTargetWorkers([]);
   }, [problemId]);
 
   const {

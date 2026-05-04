@@ -4,6 +4,8 @@ export type SubmissionStatus = components['schemas']['SubmissionStatus'];
 
 export type Submission = components['schemas']['SubmissionResponse'];
 export type SubmissionSummary = components['schemas']['SubmissionListItem'];
+export type SubmissionJudgement =
+  components['schemas']['SubmissionJudgementResponse'];
 
 export type JudgeResult = components['schemas']['JudgeResultResponse'];
 export type TestCaseResult = components['schemas']['TestCaseResultResponse'];

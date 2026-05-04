@@ -291,6 +291,12 @@ export function useSubmissions({
               queryKey: ['contest-submissions-table', String(contestId)],
             });
           }
+          queryClient.invalidateQueries({
+            queryKey: ['problem-recent-submissions', contestId, problemId],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ['admin-submissions-table'],
+          });
 
           toast.success(
             t('toast.submission.fannedOut', {
@@ -381,6 +387,12 @@ export function useSubmissions({
             queryKey: ['contest-submission-languages', contestId],
           });
         }
+        queryClient.invalidateQueries({
+          queryKey: ['problem-recent-submissions', contestId, problemId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['admin-submissions-table'],
+        });
 
         toast.success(t('toast.submission.submitted'));
         startSubmissionPolling(entryId, data.id);

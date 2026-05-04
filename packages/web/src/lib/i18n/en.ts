@@ -94,6 +94,7 @@ export const en: Record<string, string> = {
     'Select at least one submission first.',
   'submissions.bulkRejudge.queued': 'Queued {count} submissions for rejudge.',
   'submissions.bulkRejudge.error': 'Failed to bulk rejudge submissions.',
+  'submissions.bulkRejudge.applyImmediately': 'Apply immediately',
 
   // Homepage
   'homepage.title': 'Broccoli Online Judge',
@@ -207,6 +208,20 @@ export const en: Record<string, string> = {
   'submissionDetail.pinnedWorker': 'Pinned Worker',
   'submissionDetail.pinnedWorkerHint':
     'This submission was pinned to a specific worker by an admin. Every operation it produces runs on that worker only.',
+  'submissionDetail.versions': 'Versions',
+  'submissionDetail.workerSharedPool': 'Shared worker pool',
+  'submissionDetail.regradeCandidate': 'Regrade Candidate',
+  'submissionDetail.rejudgeNow': 'Rejudge Now',
+  'submissionDetail.currentVersion': 'Current',
+  'submissionDetail.pendingVersion': 'Pending',
+  'submissionDetail.applyVersion': 'Apply',
+  'submissionDetail.discardVersion': 'Discard',
+  'submissionDetail.rejudgeQueued': 'Rejudge queued.',
+  'submissionDetail.rejudgeError': 'Failed to queue rejudge.',
+  'submissionDetail.judgementApplied': 'Version applied.',
+  'submissionDetail.applyError': 'Failed to apply version.',
+  'submissionDetail.judgementDiscarded': 'Version discarded.',
+  'submissionDetail.discardError': 'Failed to discard version.',
 
   // Problems
   'problems.title': 'Problems',

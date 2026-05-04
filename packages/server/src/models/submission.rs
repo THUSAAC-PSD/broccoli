@@ -141,7 +141,7 @@ pub struct SubmissionListResponse {
     pub pagination: Pagination,
 }
 
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
     #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
@@ -157,7 +157,39 @@ pub struct JudgeResultResponse {
     pub test_case_results: Vec<TestCaseResultResponse>,
 }
 
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SubmissionJudgementResponse {
+    #[schema(example = 1)]
+    pub id: i32,
+    #[schema(example = 1)]
+    pub submission_id: i32,
+    #[schema(example = 2)]
+    pub version: i32,
+    pub is_current: bool,
+    pub is_finalized: bool,
+    pub status: SubmissionStatus,
+    #[schema(value_type = Option<String>, example = "Accepted")]
+    pub verdict: Option<Verdict>,
+    #[schema(example = 100.0)]
+    pub score: Option<f64>,
+    #[schema(example = 50)]
+    pub time_used: Option<i32>,
+    #[schema(example = 1024)]
+    pub memory_used: Option<i32>,
+    pub compile_output: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    #[schema(example = 1)]
+    pub judge_epoch: i32,
+    #[schema(example = "worker-1")]
+    pub target_worker_id: Option<String>,
+    #[schema(example = "2025-10-01T14:30:00Z")]
+    pub created_at: DateTime<Utc>,
+    pub finalized_at: Option<DateTime<Utc>>,
+    pub test_case_results: Vec<TestCaseResultResponse>,
+}
+
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TestCaseResultResponse {
     #[schema(example = 1)]
     pub id: i32,
@@ -180,6 +212,12 @@ pub struct TestCaseResultResponse {
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkRejudgeRequest {
     pub submission_ids: Vec<i32>,
+    /// When true (default), the new judgement becomes current immediately
+    /// and the submission cache is reset to Pending. When false, the new
+    /// judgement runs as a non-current candidate until explicitly applied.
+    #[serde(default = "default_true")]
+    #[schema(default = true)]
+    pub apply_immediately: bool,
     /// When set, every rejudged submission is pinned to this worker. The
     /// caller must hold `system:admin` and the worker must have a live
     /// heartbeat.
@@ -189,11 +227,30 @@ pub struct BulkRejudgeRequest {
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct RejudgeRequest {
+    /// When true (default), the new judgement becomes current immediately
+    /// and the submission cache is reset to Pending. When false, the new
+    /// judgement runs as a non-current candidate until explicitly applied.
+    #[serde(default = "default_true")]
+    #[schema(default = true)]
+    pub apply_immediately: bool,
     /// Pin the rejudged submission to a specific worker. Requires
     /// `system:admin`. When omitted, the submission is rejudged on the
     /// shared worker pool.
     #[serde(default)]
     pub target_worker_id: Option<String>,
+}
+
+impl Default for RejudgeRequest {
+    fn default() -> Self {
+        Self {
+            apply_immediately: true,
+            target_worker_id: None,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -238,7 +295,9 @@ pub fn validate_bulk_rejudge(req: &BulkRejudgeRequest) -> Result<(), AppError> {
         )));
     }
 
-    if let Some(ref tw) = req.target_worker_id {
+    if let Some(ref tw) = req.target_worker_id
+        && !tw.is_empty()
+    {
         validate_worker_id_format(tw)?;
     }
 
