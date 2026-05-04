@@ -21,6 +21,7 @@
 'ioi.scoreboard.autoRefresh' = '自动刷新'
 'ioi.scoreboard.lastUpdated' = '{seconds} 秒前'
 'ioi.scoreboard.ownScoresOnly' = '比赛期间仅可查看自己的得分。'
+'ioi.scoreboard.fullLiveVisible' = '本场比赛期间显示完整的实时排名。'
 'ioi.scoreboard.header.rank' = '#'
 'ioi.scoreboard.header.user' = '用户'
 'ioi.scoreboard.header.total' = '总分'
@@ -186,3 +187,11 @@
 'ioi.feedbackLevel.label' = '反馈级别'
 'ioi.feedbackLevel.tokenEnabledHint' = '这是不使用令牌时显示的基础反馈。使用令牌的提交将始终显示完整反馈。'
 'ioi.feedbackLevel.tokenDisabledHint' = '这是比赛期间显示的提交反馈。'
+
+# ScoreboardVisibilitySelector
+'ioi.scoreboardVisibility.label' = '比赛结束前计分板可见性'
+'ioi.scoreboardVisibility.description' = '设置在比赛结束前谁可以查看完整的计分板'
+'ioi.scoreboardVisibility.adminsOnly.label' = '仅管理员'
+'ioi.scoreboardVisibility.adminsOnly.description' = '参赛者在比赛结束前仅能看到自己的排名信息。'
+'ioi.scoreboardVisibility.allContestViewers.label' = '所有可访问比赛的用户'
+'ioi.scoreboardVisibility.allContestViewers.description' = '任何有权访问比赛的用户均可查看完整的实时排名。'
