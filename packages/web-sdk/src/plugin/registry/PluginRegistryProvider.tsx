@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -61,15 +62,24 @@ export function PluginRegistryProvider({
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
 
+  const resolvedBackendUrl = useMemo(() => {
+    if (typeof window === 'undefined') return backendUrl;
+    try {
+      return new URL(backendUrl).toString();
+    } catch {
+      return new URL(backendUrl, window.location.origin).toString();
+    }
+  }, [backendUrl]);
+
   const resolvePluginEntryUrl = useCallback(
     (entry: string, bustCache = false) => {
-      const url = new URL(entry, backendUrl);
+      const url = new URL(entry, resolvedBackendUrl);
       if (bustCache) {
         url.searchParams.set('_ts', `${Date.now()}`);
       }
       return url.toString();
     },
-    [backendUrl],
+    [resolvedBackendUrl],
   );
 
   const refreshI18n = useCallback(async () => {

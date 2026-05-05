@@ -52,15 +52,18 @@ function buildConfigCallbacks(
       return {
         getConfig: async () => {
           const { data, error } = await apiClient.GET(
-            '/admin/plugins/{id}/config/{namespace}',
+            '/admin/plugins/{id}/config',
             {
               params: {
-                path: { id: scope.pluginId, namespace },
+                path: { id: scope.pluginId },
               },
             },
           );
           if (error) throw error;
-          return (data?.config ?? {}) as Record<string, unknown>;
+          const entry = data?.find(
+            (item: ConfigEntry) => item.namespace === namespace,
+          );
+          return (entry?.config ?? {}) as Record<string, unknown>;
         },
         putConfig: async (config: Record<string, unknown>) => {
           const { error } = await apiClient.PUT(

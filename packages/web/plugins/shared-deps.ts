@@ -151,6 +151,29 @@ function readBrowserHash(cacheDir: string): string {
   }
 }
 
+function readClientSharedDepsMap(
+  config: ResolvedConfig,
+): Record<string, string> {
+  try {
+    const manifestPath = resolve(
+      config.root,
+      'build',
+      'client',
+      MANIFEST_FILENAME,
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    if (typeof manifest === 'object' && manifest !== null) {
+      return manifest;
+    }
+  } catch {
+    // React Router's client build writes this before the server/static pass.
+    // If another build mode runs without that client pass, fall through to an
+    // empty map rather than emitting server-only chunk URLs into index.html.
+  }
+
+  return {};
+}
+
 /**
  * Generate a dev-mode ESM shim that re-exports a pre-bundled dependency.
  *
@@ -326,6 +349,11 @@ export function sharedDepsPlugin(): Plugin {
       if (id === RESOLVED_MAP_ID) {
         if (isDev) {
           return `export default {};`;
+        }
+
+        if (config.build.ssr) {
+          const imports = readClientSharedDepsMap(config);
+          return `export default ${JSON.stringify(imports)};`;
         }
 
         // For production:
