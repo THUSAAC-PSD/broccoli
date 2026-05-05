@@ -41,6 +41,7 @@ import { Link, useLocation } from 'react-router';
 
 import { useContest } from '@/features/contest/contexts/contest-context';
 
+import logo from '../../resources/logo.png';
 import { LocaleSelector } from './LocaleSelector';
 import { ThemeToggle } from './ThemeSwitcher';
 
@@ -348,15 +349,17 @@ export function Sidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuButton size="lg" asChild className="h-auto p-0">
               <Link to="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <Code2 className="size-4" />
-                </div>
-                <div className="flex flex-col gap-0.5 leading-none">
+                <img
+                  src={logo}
+                  className="flex items-center justify-center w-full"
+                />
+                {/* <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-semibold">{t('app.name')}</span>
                   <span className="text-xs">{t('app.tagline')}</span>
                 </div>
+                */}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
