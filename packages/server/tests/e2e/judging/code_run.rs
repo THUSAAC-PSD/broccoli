@@ -2,8 +2,23 @@ use serde_json::json;
 
 use crate::common::E2eTestApp;
 
+fn skip_with_mock_sandbox() -> bool {
+    if std::env::var("E2E_SERVER_URL").is_ok() {
+        return false;
+    }
+    if std::env::var("E2E_SANDBOX_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("mock")) {
+        eprintln!("skip code-run sandbox test under mock sandbox");
+        return true;
+    }
+    false
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn code_run_reaches_terminal_state() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("cr_admin1", "pass1234", "admin")
@@ -37,6 +52,10 @@ async fn code_run_reaches_terminal_state() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn code_run_with_multiple_custom_test_cases() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("cr_admin2", "pass1234", "admin")
@@ -81,6 +100,10 @@ async fn code_run_with_multiple_custom_test_cases() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn contest_code_run_reaches_terminal_state() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("cr_admin3", "pass1234", "admin")
@@ -130,6 +153,10 @@ async fn contest_code_run_reaches_terminal_state() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn code_run_does_not_appear_in_submissions() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("cr_admin4", "pass1234", "admin")

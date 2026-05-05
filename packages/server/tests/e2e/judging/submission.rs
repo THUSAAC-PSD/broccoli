@@ -6,6 +6,17 @@ use server::entity::{submission, user};
 
 use crate::common::E2eTestApp;
 
+fn skip_with_mock_sandbox() -> bool {
+    if std::env::var("E2E_SERVER_URL").is_ok() {
+        return false;
+    }
+    if std::env::var("E2E_SANDBOX_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("mock")) {
+        eprintln!("skip submission sandbox test under mock sandbox");
+        return true;
+    }
+    false
+}
+
 async fn seed_submission(
     app: &E2eTestApp,
     username: &str,
@@ -43,6 +54,10 @@ async fn seed_submission(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn submission_reaches_terminal_state() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("sub_admin1", "pass1234", "admin")
@@ -65,6 +80,10 @@ async fn submission_reaches_terminal_state() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn submission_has_test_case_results_when_judged() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("sub_admin2", "pass1234", "admin")
@@ -98,6 +117,10 @@ async fn submission_has_test_case_results_when_judged() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn submission_status_transitions_observed() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("sub_admin3", "pass1234", "admin")
@@ -143,6 +166,10 @@ async fn submission_status_transitions_observed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn contest_submission_reaches_terminal_state() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("csub_admin1", "pass1234", "admin")
@@ -349,6 +376,10 @@ async fn bulk_rejudge_resets_multiple_submissions() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn multiple_test_cases_all_get_results() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
     let app = E2eTestApp::spawn().await;
     let admin = app
         .create_user_with_role("multi_tc_admin1", "pass1234", "admin")
