@@ -1,10 +1,32 @@
 use crate::common::E2eTestApp;
 
 fn is_real_sandbox() -> bool {
-    std::env::var("E2E_SERVER_URL").is_ok()
-        || std::env::var("E2E_SANDBOX_BACKEND")
-            .map(|v| v != "mock")
-            .unwrap_or(cfg!(target_os = "linux"))
+    if std::env::var("E2E_SERVER_URL").is_ok() {
+        return true;
+    }
+
+    match std::env::var("E2E_SANDBOX_BACKEND") {
+        Ok(v) if v.eq_ignore_ascii_case("mock") => false,
+        Ok(v) if v.eq_ignore_ascii_case("isolate") => isolate_available(),
+        Ok(_) => false,
+        Err(_) => cfg!(target_os = "linux") && isolate_available(),
+    }
+}
+
+fn isolate_available() -> bool {
+    std::process::Command::new("isolate")
+        .arg("--version")
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn skip_without_real_sandbox() -> bool {
+    if is_real_sandbox() {
+        false
+    } else {
+        eprintln!("skip test: real sandbox is not available");
+        true
+    }
 }
 
 const CPP_ACCEPTED: &str = r#"
@@ -94,6 +116,10 @@ mod cpp_verdicts {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn correct_cpp_gets_accepted() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_cpp_ac", "pass1234", "admin")
@@ -129,6 +155,10 @@ mod cpp_verdicts {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn wrong_output_gets_wrong_answer() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_cpp_wa", "pass1234", "admin")
@@ -153,6 +183,10 @@ mod cpp_verdicts {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn infinite_loop_gets_time_limit_exceeded() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_cpp_tle", "pass1234", "admin")
@@ -177,6 +211,10 @@ mod cpp_verdicts {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn memory_hog_gets_memory_limit_exceeded() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_cpp_mle", "pass1234", "admin")
@@ -202,6 +240,10 @@ mod cpp_verdicts {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn segfault_gets_runtime_error() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_cpp_re", "pass1234", "admin")
@@ -226,6 +268,10 @@ mod cpp_verdicts {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn invalid_syntax_gets_compilation_error() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_cpp_ce", "pass1234", "admin")
@@ -253,6 +299,10 @@ mod multi_language {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn python_correct_gets_accepted() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_py_ac", "pass1234", "admin")
@@ -277,6 +327,10 @@ mod multi_language {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn python_wrong_gets_wrong_answer() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_py_wa", "pass1234", "admin")
@@ -297,6 +351,10 @@ mod multi_language {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn python_tle_gets_time_limit_exceeded() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_py_tle", "pass1234", "admin")
@@ -317,6 +375,10 @@ mod multi_language {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn java_correct_gets_accepted() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_java_ac", "pass1234", "admin")
@@ -345,6 +407,10 @@ mod stress {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn twenty_parallel_submissions_all_complete() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_stress_admin", "pass1234", "admin")
@@ -428,6 +494,10 @@ mod stress {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn mixed_languages_parallel() {
+        if skip_without_real_sandbox() {
+            return;
+        }
+
         let app = E2eTestApp::spawn().await;
         let admin = app
             .create_user_with_role("v_mixed_admin", "pass1234", "admin")
