@@ -6,6 +6,78 @@ use server::entity::{plugin_storage, submission, submission_judgement, test_case
 
 use crate::{common::E2eTestApp, judging::CPP_SUM};
 
+async fn seed_accepted_ioi_submission(
+    app: &E2eTestApp,
+    username: &str,
+    problem_id: i32,
+    contest_id: i32,
+    score: f64,
+) -> i32 {
+    let user_model = user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&app.db)
+        .await
+        .expect("query contestant")
+        .expect("contestant should exist");
+    let now = Utc::now();
+    let submission = submission::ActiveModel {
+        files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
+        language: Set("cpp".into()),
+        user_id: Set(user_model.id),
+        problem_id: Set(problem_id),
+        contest_id: Set(Some(contest_id)),
+        contest_type: Set("ioi".into()),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(score)),
+        time_used: Set(Some(10)),
+        memory_used: Set(Some(256)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        judged_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert IOI submission");
+
+    submission_judgement::ActiveModel {
+        submission_id: Set(submission.id),
+        version: Set(1),
+        is_current: Set(true),
+        is_finalized: Set(true),
+        triggered_by_user_id: Set(None),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(score)),
+        time_used: Set(Some(10)),
+        memory_used: Set(Some(256)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        finalized_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert IOI judgement");
+
+    plugin_storage::ActiveModel {
+        plugin_id: Set("ioi".into()),
+        collection: Set("default".into()),
+        key: Set(format!(
+            "task_score:{contest_id}:{problem_id}:{}",
+            user_model.id
+        )),
+        data: Set(json!(score.to_string())),
+        created_at: Set(now),
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert IOI task score");
+
+    submission.id
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn ioi_contest_type_registered() {
     let app = E2eTestApp::spawn().await;
@@ -58,7 +130,6 @@ async fn ioi_scoreboard_reflects_judged_submission() {
     let contestant = app.create_authenticated_user("ioi_user3", "password").await;
 
     let problem_id = app.create_problem(&admin, "IOI Problem 3").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "IOI Contest 3", "ioi", true, true)
@@ -67,17 +138,7 @@ async fn ioi_scoreboard_reflects_judged_submission() {
         .await;
     app.register_for_contest(contest_id, &contestant).await;
 
-    let sub_id = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
-    app.wait_for_submission_terminal(sub_id, &contestant, 60)
-        .await;
+    seed_accepted_ioi_submission(&app, "ioi_user3", problem_id, contest_id, 100.0).await;
 
     let scoreboard_path = format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/scoreboard");
     let res = app.get_with_token(&scoreboard_path, &contestant).await;
@@ -106,7 +167,6 @@ async fn ioi_token_endpoint_exists() {
     let contestant = app.create_authenticated_user("ioi_user4", "password").await;
 
     let problem_id = app.create_problem(&admin, "IOI Problem 4").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "IOI Contest 4", "ioi", true, true)
@@ -115,17 +175,8 @@ async fn ioi_token_endpoint_exists() {
         .await;
     app.register_for_contest(contest_id, &contestant).await;
 
-    let sub_id = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
-    app.wait_for_submission_terminal(sub_id, &contestant, 60)
-        .await;
+    let sub_id =
+        seed_accepted_ioi_submission(&app, "ioi_user4", problem_id, contest_id, 100.0).await;
 
     let token_path =
         format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/submissions/{sub_id}/token");

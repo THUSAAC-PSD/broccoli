@@ -124,15 +124,19 @@ async fn limit_zero_means_unlimited() {
 
     seed_counted_submission(&app, "sl_user2", problem_id, contest_id).await;
     seed_counted_submission(&app, "sl_user2", problem_id, contest_id).await;
-    let _sub = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
+
+    let status_path = format!(
+        "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
+    );
+    let res = app.get_with_token(&status_path, &contestant).await;
+    assert_eq!(
+        res.status, 200,
+        "Limit status endpoint failed: {}",
+        res.text
+    );
+    assert_eq!(res.body["unlimited"].as_bool(), Some(true));
+    assert_eq!(res.body["remaining"], serde_json::Value::Null);
+    assert_eq!(res.body["submissions_made"].as_u64(), Some(2));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -230,15 +234,12 @@ async fn different_problems_have_independent_limits() {
         sub_a2.text
     );
 
-    let _sub_b = app
-        .create_contest_submission(
-            contest_id,
-            prob_b,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
+    let status_b = format!(
+        "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{prob_b}/status"
+    );
+    let res = app.get_with_token(&status_b, &contestant).await;
+    assert_eq!(res.status, 200, "Problem B status failed: {}", res.text);
+    assert_eq!(res.body["submissions_made"].as_u64(), Some(0));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -273,13 +274,11 @@ async fn different_users_have_independent_limits() {
 
     seed_counted_submission(&app, "sl_userA5", problem_id, contest_id).await;
 
-    let _sub_b = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &user_b,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
+    let status_path = format!(
+        "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
+    );
+    let res = app.get_with_token(&status_path, &user_b).await;
+    assert_eq!(res.status, 200, "User B status failed: {}", res.text);
+    assert_eq!(res.body["submissions_made"].as_u64(), Some(0));
+    assert_eq!(res.body["remaining"].as_u64(), Some(1));
 }

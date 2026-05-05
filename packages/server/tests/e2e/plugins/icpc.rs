@@ -1,6 +1,66 @@
+use chrono::Utc;
+use common::{SubmissionStatus, Verdict};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::json;
+use server::entity::{plugin_storage, submission, user};
 
 use crate::common::E2eTestApp;
+
+async fn seed_accepted_icpc_submission(
+    app: &E2eTestApp,
+    username: &str,
+    problem_id: i32,
+    contest_id: i32,
+) -> i32 {
+    let user_model = user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&app.db)
+        .await
+        .expect("query contestant")
+        .expect("contestant should exist");
+    let now = Utc::now();
+    let submission = submission::ActiveModel {
+        files: Set(json!([{ "filename": "main.cpp", "content": "int main() { return 0; }" }])),
+        language: Set("cpp".into()),
+        user_id: Set(user_model.id),
+        problem_id: Set(problem_id),
+        contest_id: Set(Some(contest_id)),
+        contest_type: Set("icpc".into()),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(1.0)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        judged_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert ICPC submission");
+
+    plugin_storage::ActiveModel {
+        plugin_id: Set("icpc".into()),
+        collection: Set("default".into()),
+        key: Set(format!(
+            "standings:{contest_id}:{}:{problem_id}",
+            user_model.id
+        )),
+        data: Set(json!(
+            serde_json::to_string(&json!({
+                "attempts": 1,
+                "solved": true,
+                "solve_time_ms": 60_000
+            }))
+            .unwrap()
+        )),
+        created_at: Set(now),
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert ICPC standings state");
+
+    submission.id
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn icpc_contest_type_registered() {
@@ -56,7 +116,6 @@ async fn icpc_standings_reflects_judged_submission() {
         .await;
 
     let problem_id = app.create_problem(&admin, "ICPC Problem 3").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "ICPC Contest 3", "icpc", true, true)
@@ -65,17 +124,7 @@ async fn icpc_standings_reflects_judged_submission() {
         .await;
     app.register_for_contest(contest_id, &contestant).await;
 
-    let sub_id = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
-    app.wait_for_submission_terminal(sub_id, &contestant, 60)
-        .await;
+    seed_accepted_icpc_submission(&app, "icpc_user3", problem_id, contest_id).await;
 
     let standings_path = format!("/api/v1/p/icpc/api/plugins/icpc/contests/{contest_id}/standings");
     let res = app.get_with_token(&standings_path, &contestant).await;

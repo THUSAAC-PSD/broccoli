@@ -1,6 +1,45 @@
+use chrono::Utc;
+use common::{SubmissionStatus, Verdict};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::json;
+use server::entity::{submission, user};
 
 use crate::common::E2eTestApp;
+
+async fn seed_submission(
+    app: &E2eTestApp,
+    username: &str,
+    problem_id: i32,
+    contest_id: Option<i32>,
+    contest_type: &str,
+) -> i32 {
+    let user_model = user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&app.db)
+        .await
+        .expect("query submitter")
+        .expect("submitter should exist");
+    let now = Utc::now();
+    submission::ActiveModel {
+        files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
+        language: Set("cpp".into()),
+        user_id: Set(user_model.id),
+        problem_id: Set(problem_id),
+        contest_id: Set(contest_id),
+        contest_type: Set(contest_type.into()),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(1.0)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        judged_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert submission")
+    .id
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn submission_reaches_terminal_state() {
@@ -145,7 +184,6 @@ async fn contest_submission_has_contest_id_set() {
         .await;
 
     let problem_id = app.create_problem(&admin, "Contest ID Check").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_contest(&admin, "Contest ID Test", true, true)
@@ -154,9 +192,7 @@ async fn contest_submission_has_contest_id_set() {
         .await;
     app.register_for_contest(contest_id, &user).await;
 
-    let sub_id = app
-        .create_contest_submission(contest_id, problem_id, &user, "cpp", CPP_SUM)
-        .await;
+    let sub_id = seed_submission(&app, "csub_user2", problem_id, Some(contest_id), "icpc").await;
 
     let res = app
         .get_with_token(&format!("/api/v1/submissions/{sub_id}"), &admin)
@@ -180,7 +216,6 @@ async fn contest_submission_visible_in_contest_submissions_list() {
         .await;
 
     let problem_id = app.create_problem(&admin, "Contest List").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_contest(&admin, "Contest List Test", true, true)
@@ -189,11 +224,7 @@ async fn contest_submission_visible_in_contest_submissions_list() {
         .await;
     app.register_for_contest(contest_id, &user).await;
 
-    let sub_id = app
-        .create_contest_submission(contest_id, problem_id, &user, "cpp", CPP_SUM)
-        .await;
-
-    app.wait_for_submission_terminal(sub_id, &user, 60).await;
+    let sub_id = seed_submission(&app, "csub_user3", problem_id, Some(contest_id), "icpc").await;
 
     let list = app
         .get_with_token(
@@ -219,7 +250,6 @@ async fn rejudge_resets_to_pending_then_reaches_terminal() {
         .await;
 
     let problem_id = app.create_problem(&admin, "Rejudge Test").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let sub_id = app
         .create_submission(problem_id, &admin, "cpp", CPP_SUM)
@@ -261,7 +291,6 @@ async fn bulk_rejudge_resets_multiple_submissions() {
         .await;
 
     let problem_id = app.create_problem(&admin, "Bulk Rejudge").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let mut sub_ids = Vec::new();
     for _ in 0..3 {
@@ -371,7 +400,6 @@ async fn concurrent_submissions_all_complete() {
         .await;
 
     let problem_id = app.create_problem(&admin, "Concurrent").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let mut sub_ids = Vec::new();
     for _ in 0..5 {
