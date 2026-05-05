@@ -14,10 +14,12 @@ pub struct SandboxConfig {
     pub compile_wall_time_multiplier: f64,
     pub compile_extra_time_s: f64,
     pub compile_memory_limit_kb: u32,
+    pub compile_stack_limit_kb: u32,
     pub compile_process_limit: u32,
     pub compile_open_files_limit: u32,
     pub compile_file_size_limit_kb: u32,
     pub exec_extra_time_s: f64,
+    pub exec_stack_limit_kb: u32,
     pub exec_process_limit: u32,
     pub exec_open_files_limit: u32,
     pub exec_file_size_limit_kb: u32,
@@ -32,10 +34,12 @@ impl Default for SandboxConfig {
             compile_wall_time_multiplier: 2.0,
             compile_extra_time_s: 0.0,
             compile_memory_limit_kb: 524_288, // 512 MB
+            compile_stack_limit_kb: 0,
             compile_process_limit: 32,
             compile_open_files_limit: 256,
             compile_file_size_limit_kb: 524_288, // 512 MB
             exec_extra_time_s: 0.0,
+            exec_stack_limit_kb: 0,
             exec_process_limit: 1,
             exec_open_files_limit: 64,
             exec_file_size_limit_kb: 65_536, // 64 MB
@@ -57,6 +61,7 @@ impl SandboxConfig {
                 None
             },
             memory_limit: Some(self.compile_memory_limit_kb),
+            stack_limit: limit_if_positive(self.compile_stack_limit_kb),
             process_limit: Some(self.compile_process_limit),
             open_files_limit: Some(self.compile_open_files_limit),
             file_size_limit: Some(self.compile_file_size_limit_kb),
@@ -75,12 +80,17 @@ impl SandboxConfig {
                 None
             },
             memory_limit: Some(memory_limit_kb),
+            stack_limit: limit_if_positive(self.exec_stack_limit_kb),
             process_limit: Some(self.exec_process_limit),
             open_files_limit: Some(self.exec_open_files_limit),
             file_size_limit: Some(self.exec_file_size_limit_kb),
             ..Default::default()
         }
     }
+}
+
+fn limit_if_positive(value: u32) -> Option<u32> {
+    if value > 0 { Some(value) } else { None }
 }
 
 /// Build a sandbox OperationTask from enriched evaluator input.
@@ -504,6 +514,8 @@ mod tests {
         assert_eq!(config.compile_memory_limit_kb, 524_288);
         assert_eq!(config.exec_extra_time_s, 0.0);
         assert_eq!(config.exec_wall_time_multiplier, 3.0);
+        assert_eq!(config.compile_stack_limit_kb, 0);
+        assert_eq!(config.exec_stack_limit_kb, 0);
         assert_eq!(config.result_timeout_ms, 120_000);
     }
 
@@ -534,6 +546,30 @@ mod tests {
         assert_eq!(exec.conf.resource_limits.process_limit, Some(4));
         // 1000ms = 1.0s, wall_time = 1.0 * 5.0 = 5.0s
         assert_eq!(exec.conf.resource_limits.wall_time_limit, Some(5.0));
+    }
+
+    #[test]
+    fn compile_limits_use_configured_stack_limit() {
+        let config = SandboxConfig {
+            compile_stack_limit_kb: 262_144,
+            ..SandboxConfig::default()
+        };
+        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+
+        let compile = &ops[0].tasks[0];
+        assert_eq!(compile.conf.resource_limits.stack_limit, Some(262_144));
+    }
+
+    #[test]
+    fn exec_limits_use_configured_stack_limit() {
+        let config = SandboxConfig {
+            exec_stack_limit_kb: 262_144,
+            ..SandboxConfig::default()
+        };
+        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.stack_limit, Some(262_144));
     }
 
     #[test]

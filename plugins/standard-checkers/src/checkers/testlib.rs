@@ -124,6 +124,77 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
     }
 }
 
+pub fn interpret_testlib_sandbox_result(result: &ExecutionResult) -> CheckerVerdict {
+    if let Some(exit_code) = result.exit_code {
+        return interpret_testlib_exit_code(exit_code, &result.stderr);
+    }
+
+    testlib_sandbox_failure("Checker", result)
+}
+
+fn testlib_sandbox_failure(label: &str, result: &ExecutionResult) -> CheckerVerdict {
+    let message = if result.cg_oom_killed {
+        format!(
+            "{label} exceeded memory limit{}",
+            result
+                .memory_used
+                .map(|m| format!(" ({m}KB)"))
+                .unwrap_or_default()
+        )
+    } else {
+        match result.status.as_str() {
+            "TO" => format!("{label} timed out"),
+            "SG" => result.signal.map_or_else(
+                || format!("{label} was terminated by a signal"),
+                |signal| format!("{label} was terminated by signal {signal}"),
+            ),
+            "UNKNOWN" => {
+                format!("{label} step did not run; dependency may have failed")
+            }
+            status if !status.is_empty() => {
+                let detail = result
+                    .message
+                    .trim()
+                    .to_string()
+                    .if_empty_then(|| result.stderr.trim().to_string());
+                if detail.is_empty() {
+                    format!("{label} failed with sandbox status {status}")
+                } else {
+                    format!("{label} failed with sandbox status {status}: {detail}")
+                }
+            }
+            _ => {
+                let detail = result
+                    .message
+                    .trim()
+                    .to_string()
+                    .if_empty_then(|| result.stderr.trim().to_string());
+                if detail.is_empty() {
+                    format!("{label} failed without an exit code")
+                } else {
+                    format!("{label} failed without an exit code: {detail}")
+                }
+            }
+        }
+    };
+
+    CheckerVerdict {
+        verdict: Verdict::SystemError,
+        score: 0.0,
+        message: Some(truncate(&message, 1024)),
+    }
+}
+
+trait EmptyStringExt {
+    fn if_empty_then(self, f: impl FnOnce() -> String) -> String;
+}
+
+impl EmptyStringExt for String {
+    fn if_empty_then(self, f: impl FnOnce() -> String) -> String {
+        if self.is_empty() { f() } else { self }
+    }
+}
+
 /// Dispatch testlib checker.
 #[cfg(target_arch = "wasm32")]
 pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> CheckerVerdict {
@@ -369,14 +440,13 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
                     message: Some(msg),
                 };
             }
+        } else if !cc_result.success {
+            return testlib_sandbox_failure("Checker compilation", &cc_result.sandbox_result);
         }
     }
 
     match op_result.task_results.get("check") {
-        Some(check_result) => interpret_testlib_exit_code(
-            check_result.sandbox_result.exit_code.unwrap_or(-1),
-            &check_result.sandbox_result.stderr,
-        ),
+        Some(check_result) => interpret_testlib_sandbox_result(&check_result.sandbox_result),
         None => CheckerVerdict {
             verdict: Verdict::SystemError,
             score: 0.0,
@@ -464,6 +534,40 @@ mod tests {
         let v = interpret_testlib_exit_code(3, "FAIL checker bug\n");
         assert_eq!(v.verdict, Verdict::SystemError);
         assert_eq!(v.score, 0.0);
+    }
+
+    #[test]
+    fn checker_timeout_reports_sandbox_status_instead_of_negative_exit_code() {
+        let result = ExecutionResult {
+            exit_code: None,
+            status: "TO".to_string(),
+            message: "wall-time limit exceeded".to_string(),
+            ..Default::default()
+        };
+
+        let v = interpret_testlib_sandbox_result(&result);
+
+        assert_eq!(v.verdict, Verdict::SystemError);
+        assert_eq!(v.score, 0.0);
+        assert_eq!(v.message.unwrap(), "Checker timed out");
+    }
+
+    #[test]
+    fn skipped_checker_step_reports_dependency_failure_instead_of_negative_exit_code() {
+        let result = ExecutionResult {
+            exit_code: None,
+            status: "UNKNOWN".to_string(),
+            ..Default::default()
+        };
+
+        let v = interpret_testlib_sandbox_result(&result);
+
+        assert_eq!(v.verdict, Verdict::SystemError);
+        assert_eq!(v.score, 0.0);
+        assert_eq!(
+            v.message.unwrap(),
+            "Checker step did not run; dependency may have failed"
+        );
     }
 
     #[test]

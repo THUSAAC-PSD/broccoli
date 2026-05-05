@@ -8,18 +8,19 @@ Infra images are upgraded only during a maintenance window. For normal platform
 releases, upgrade application roles first:
 
 1. Upgrade each worker node by editing `BROCCOLI_WORKER_IMAGE` in that node's
-   `.env`, then:
+   `.env.worker`, then:
 
 ```bash
-docker compose -f docker-compose.worker.yaml up -d --no-deps worker
-docker compose -f docker-compose.worker.yaml ps worker
+docker compose --env-file .env.worker -f docker-compose.worker.yaml up -d --no-deps worker
+docker compose --env-file .env.worker -f docker-compose.worker.yaml ps worker
 ```
 
 2. Upgrade server nodes one at a time by editing `BROCCOLI_SERVER_IMAGE`, then:
 
 ```bash
-docker compose -f docker-compose.server.yaml up -d --no-deps server
-docker compose -f docker-compose.server.yaml ps server
+docker compose --env-file .env.server -f docker-compose.server.yaml up -d --no-deps server
+docker compose --env-file .env.server -f docker-compose.server.yaml ps server
+set -a; . ./.env.server; set +a
 curl -fsS http://127.0.0.1:${BROCCOLI_HTTP_BIND##*:}/healthz
 ```
 
@@ -46,9 +47,9 @@ Install the old version first, then update worker nodes:
 ```bash
 sed -i.bak \
   "s#^BROCCOLI_WORKER_IMAGE=.*#BROCCOLI_WORKER_IMAGE=ghcr.io/thusaac-psd/broccoli/broccoli-worker:${NEW_VERSION}-icpc#" \
-  .env
-docker compose -f docker-compose.worker.yaml up -d --no-deps worker
-docker compose -f docker-compose.worker.yaml ps worker
+  .env.worker
+docker compose --env-file .env.worker -f docker-compose.worker.yaml up -d --no-deps worker
+docker compose --env-file .env.worker -f docker-compose.worker.yaml ps worker
 ```
 
 Run correctness through a server or gateway URL. Then update server nodes one at
@@ -57,8 +58,9 @@ a time:
 ```bash
 sed -i.bak \
   "s#^BROCCOLI_SERVER_IMAGE=.*#BROCCOLI_SERVER_IMAGE=ghcr.io/thusaac-psd/broccoli/broccoli-server:${NEW_VERSION}#" \
-  .env
-docker compose -f docker-compose.server.yaml up -d --no-deps server
+  .env.server
+docker compose --env-file .env.server -f docker-compose.server.yaml up -d --no-deps server
+set -a; . ./.env.server; set +a
 curl -fsS http://127.0.0.1:${BROCCOLI_HTTP_BIND##*:}/healthz
 ```
 
@@ -67,8 +69,9 @@ should not show legacy `operation_results` warnings for new work.
 
 ## Rollback
 
-1. Restore the previous image tag in the affected node's `.env`.
-2. Run `docker compose -f docker-compose.<role>.yaml up -d`.
+1. Restore the previous image tag in the affected node's `.env.<role>`.
+2. Run
+   `docker compose --env-file .env.<role> -f docker-compose.<role>.yaml up -d`.
 3. Confirm the role health check.
 4. Check logs for failed submissions or operation-result queue warnings.
 

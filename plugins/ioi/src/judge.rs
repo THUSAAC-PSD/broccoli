@@ -318,6 +318,42 @@ mod tests {
     }
 
     #[test]
+    fn test_case_result_text_replaces_nul_bytes() {
+        let host = Host::mock();
+        host.submission.add_test_case(1, 100.0);
+        host.eval.queue_result(TestCaseVerdict {
+            test_case_id: 1,
+            verdict: Verdict::WrongAnswer,
+            score: 0.0,
+            time_used_ms: Some(10),
+            memory_used_kb: Some(256),
+            message: Some("bad\0message".into()),
+            stdout: Some("out\0put".into()),
+            stderr: Some("err\0or".into()),
+        });
+
+        let tcs = vec![TestCaseRow {
+            id: 1,
+            score: 100.0,
+            is_sample: false,
+            position: 0,
+            description: None,
+            label: Some("1".into()),
+            inline_input: None,
+            inline_expected_output: None,
+            is_custom: false,
+        }];
+        let ctx = default_ctx(tcs);
+        judge_with_context(&host, &sample_input(), &ctx).unwrap();
+
+        let rows = host.submission.results();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].message.as_deref(), Some("bad\u{FFFD}message"));
+        assert_eq!(rows[0].stdout.as_deref(), Some("out\u{FFFD}put"));
+        assert_eq!(rows[0].stderr.as_deref(), Some("err\u{FFFD}or"));
+    }
+
+    #[test]
     fn timeout_fills_system_error() {
         let host = Host::mock();
         host.submission.add_test_case(1, 50.0);

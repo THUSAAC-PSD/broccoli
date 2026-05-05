@@ -23,6 +23,65 @@ use crate::subtasks::{build_default_subtasks, score_all_subtasks};
 use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
 
 const SCORE_EPSILON: f64 = 1e-9;
+const DETAIL_TEXT_RESPONSE_LIMIT_BYTES: usize = 65_536;
+
+fn cap_detail_text(mut value: String) -> String {
+    if value.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES {
+        return value;
+    }
+
+    let mut end = DETAIL_TEXT_RESPONSE_LIMIT_BYTES;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
+    value
+}
+
+fn cap_json_string_field(map: &mut serde_json::Map<String, serde_json::Value>, field: &str) {
+    let Some(value) = map.get_mut(field) else {
+        return;
+    };
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    if text.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES {
+        return;
+    }
+    *value = serde_json::Value::String(cap_detail_text(text.to_string()));
+}
+
+fn cap_submission_detail_texts(submission: &mut serde_json::Value) {
+    let Some(result) = submission.get_mut("result").and_then(|v| v.as_object_mut()) else {
+        return;
+    };
+
+    for field in ["compile_output", "error_message"] {
+        cap_json_string_field(result, field);
+    }
+
+    let Some(test_case_results) = result
+        .get_mut("test_case_results")
+        .and_then(|v| v.as_array_mut())
+    else {
+        return;
+    };
+
+    for test_case_result in test_case_results {
+        let Some(test_case_result) = test_case_result.as_object_mut() else {
+            continue;
+        };
+        for field in [
+            "input",
+            "expected_output",
+            "stdout",
+            "stderr",
+            "checker_output",
+        ] {
+            cap_json_string_field(test_case_result, field);
+        }
+    }
+}
 
 fn full_scoreboard_visible_for_phase(
     phase: &str,
@@ -237,6 +296,7 @@ fn apply_feedback_filter(
     req: &FilterSubmissionInput,
 ) -> Result<serde_json::Value, SdkError> {
     let mut submission = req.submission.clone();
+    cap_submission_detail_texts(&mut submission);
 
     // Admin / view-all bypass.
     if req
@@ -1478,6 +1538,48 @@ mod tests {
                 true,
                 ScoreboardVisibility::AdminsOnly,
             ));
+        }
+    }
+
+    #[test]
+    fn submission_detail_text_fields_are_capped() {
+        let long_text = "x".repeat(DETAIL_TEXT_RESPONSE_LIMIT_BYTES + 1024);
+        let mut submission = serde_json::json!({
+            "result": {
+                "compile_output": long_text,
+                "error_message": "short",
+                "test_case_results": [{
+                    "input": long_text,
+                    "expected_output": long_text,
+                    "stdout": long_text,
+                    "stderr": long_text,
+                    "checker_output": long_text
+                }]
+            }
+        });
+
+        cap_submission_detail_texts(&mut submission);
+
+        let result = &submission["result"];
+        assert_eq!(
+            result["compile_output"].as_str().unwrap().len(),
+            DETAIL_TEXT_RESPONSE_LIMIT_BYTES
+        );
+        assert_eq!(result["error_message"], "short");
+
+        let tc = &result["test_case_results"][0];
+        for field in [
+            "input",
+            "expected_output",
+            "stdout",
+            "stderr",
+            "checker_output",
+        ] {
+            assert_eq!(
+                tc[field].as_str().unwrap().len(),
+                DETAIL_TEXT_RESPONSE_LIMIT_BYTES,
+                "{field} should be capped"
+            );
         }
     }
 }

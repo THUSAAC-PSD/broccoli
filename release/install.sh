@@ -12,18 +12,29 @@ die() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: ./install.sh <role>
+usage: ./install.sh <role> [role...]
 
 Roles:
-  infra       PostgreSQL, Redis, and SeaweedFS object storage
+  infra       PostgreSQL, Redis, and optional SeaweedFS object storage
   server      one Broccoli HTTP/API server connected to infra
   worker      one Broccoli judge worker connected to infra
   gateway     optional Caddy load balancer for one or more server machines
   single-host rehearsal-only all-in-one install
 
+Each role writes its own env file, so the same extracted bundle directory can
+be used for multiple roles on a LAN host:
+
+  .env.infra, .env.server, .env.worker, .env.gateway, .env.single-host
+
+Infra and single-host installs also write connection.env and server-secrets.env.
+Copy connection.env into every server/worker bundle directory. Copy
+server-secrets.env only into server bundle directories.
+
 Server and worker nodes need BROCCOLI__DATABASE__URL, BROCCOLI__MQ__URL, and
 shared storage credentials from the infra node. Use LAN IPs or private cloud
 addresses for those URLs.
+
+Set BROCCOLI_DRY_RUN=1 to generate and validate files without starting Docker.
 EOF
 }
 
@@ -103,7 +114,7 @@ choose_role_interactive() {
   local answer
   cat >&2 <<'EOF'
 Choose this machine's Broccoli role:
-  1) infra       PostgreSQL, Redis, SeaweedFS
+  1) infra       PostgreSQL, Redis, optional SeaweedFS
   2) server      HTTP/API server connected to infra
   3) worker      one judge worker connected to infra
   4) gateway     Caddy load balancer for server machines
@@ -118,6 +129,22 @@ EOF
     4|gateway) ROLE=gateway ;;
     5|single-host) ROLE=single-host ;;
     *) die "unknown role selection '$answer'" ;;
+  esac
+}
+
+run_multiple_roles() {
+  local role
+  for role in "$@"; do
+    echo
+    echo "==> installing role '$role'"
+    "$0" "$role"
+  done
+}
+
+is_dry_run() {
+  case "${BROCCOLI_DRY_RUN:-false}" in
+    1|true|yes) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -163,7 +190,23 @@ json_string_value() {
 }
 
 compose() {
-  docker compose -f "$COMPOSE_FILE" "$@"
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+start_role() {
+  if [ "$ROLE" = "infra" ] && ! using_object_storage; then
+    compose up -d db redis
+  else
+    compose up -d
+  fi
+}
+
+selected_template_file() {
+  if [ "$ROLE" = "single-host" ] && using_object_storage; then
+    printf 'docker-compose.single-host.object-storage.yaml.template\n'
+  else
+    printf '%s\n' "$TEMPLATE_FILE"
+  fi
 }
 
 load_image() {
@@ -176,8 +219,26 @@ load_image() {
   printf '%s\n' "$image_tag"
 }
 
+single_host_storage_backend_from_env_file() {
+  [ -f "$ENV_FILE" ] || return 1
+  awk -F= '
+    $1 == "BROCCOLI__STORAGE__BACKEND" {
+      value = $2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      gsub(/^'\''|'\''$/, "", value)
+      print value
+      exit
+    }
+  ' "$ENV_FILE"
+}
+
+single_host_plans_object_storage() {
+  [ "${BROCCOLI__STORAGE__BACKEND:-}" = "object_storage" ] && return 0
+  [ "$(single_host_storage_backend_from_env_file)" = "object_storage" ]
+}
+
 load_bundled_images() {
-  local image loaded
+  local basename image loaded
   loaded_server_image=""
   loaded_worker_base_image=""
   loaded_worker_icpc_image=""
@@ -191,7 +252,16 @@ load_bundled_images() {
   [ -d images ] || return 0
   for image in images/*.tar.gz; do
     [ -e "$image" ] || continue
-    case "$ROLE:$(basename "$image")" in
+    basename="$(basename "$image")"
+    if [ "$ROLE" = "single-host" ]; then
+      case "$basename" in
+        caddy.tar.gz) continue ;;
+        seaweedfs.tar.gz)
+          single_host_plans_object_storage || continue
+          ;;
+      esac
+    fi
+    case "$ROLE:$basename" in
       infra:postgres.tar.gz|infra:redis.tar.gz|infra:seaweedfs.tar.gz|\
       server:server.tar.gz|worker:worker-base.tar.gz|worker:worker-icpc.tar.gz|\
       worker:worker-full.tar.gz|gateway:caddy.tar.gz|\
@@ -200,7 +270,7 @@ load_bundled_images() {
       single-host:redis.tar.gz|single-host:seaweedfs.tar.gz|single-host:caddy.tar.gz)
         echo "loading $image"
         loaded="$(load_image "$image")"
-        case "$(basename "$image")" in
+        case "$basename" in
           server.tar.gz) loaded_server_image="$loaded" ;;
           worker-base.tar.gz) loaded_worker_base_image="$loaded" ;;
           worker-icpc.tar.gz) loaded_worker_icpc_image="$loaded"; loaded_worker_image="$loaded" ;;
@@ -257,6 +327,154 @@ EOF
   esac
 }
 
+choose_storage_backend_interactive() {
+  local answer
+  [ -z "${BROCCOLI__STORAGE__BACKEND:-}" ] || return 0
+  is_interactive || return 0
+
+  cat >&2 <<'EOF'
+Choose blob storage backend:
+  1) database       store uploads/results in PostgreSQL (recommended for simple LAN contests)
+  2) object_storage SeaweedFS S3-compatible storage
+EOF
+  printf "Storage backend [1]: " >&2
+  read -r answer
+  case "${answer:-1}" in
+    1|database|db) BROCCOLI__STORAGE__BACKEND=database ;;
+    2|object_storage|object|s3|seaweedfs) BROCCOLI__STORAGE__BACKEND=object_storage ;;
+    *) die "unknown storage backend selection '$answer'" ;;
+  esac
+}
+
+storage_backend() {
+  printf '%s\n' "${BROCCOLI__STORAGE__BACKEND:-database}"
+}
+
+using_object_storage() {
+  [ "$(storage_backend)" = "object_storage" ]
+}
+
+connection_env_file() {
+  printf '%s\n' "${BROCCOLI_CONNECTION_ENV_FILE:-connection.env}"
+}
+
+server_secrets_env_file() {
+  printf '%s\n' "${BROCCOLI_SERVER_SECRETS_ENV_FILE:-server-secrets.env}"
+}
+
+load_connection_env_if_present() {
+  local file secrets_file
+  file="$(connection_env_file)"
+  case "$ROLE" in
+    server|worker)
+      [ -f "$file" ] || return 0
+      echo "loading shared LAN connection settings from $file"
+      set -a
+      # shellcheck disable=SC1090
+      source "$file"
+      set +a
+      ;;
+  esac
+  if [ "$ROLE" = "server" ]; then
+    secrets_file="$(server_secrets_env_file)"
+    [ -f "$secrets_file" ] || return 0
+    echo "loading server-only settings from $secrets_file"
+    set -a
+    # shellcheck disable=SC1090
+    source "$secrets_file"
+    set +a
+  fi
+}
+
+print_env_review() {
+  local file
+  file="$1"
+  echo
+  echo "Review generated settings in $file:"
+  grep -E '^(BROCCOLI_ROLE|BROCCOLI__SERVER__ID|BROCCOLI__WORKER__ID|BROCCOLI_HTTP_BIND|BROCCOLI_GATEWAY_HTTP_BIND|POSTGRES_BIND|REDIS_BIND|BROCCOLI__DATABASE__URL|BROCCOLI__MQ__URL|BROCCOLI__STORAGE__BACKEND|BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT|BROCCOLI_WORKER_IMAGE|BROCCOLI_UPSTREAMS)=' "$file" 2>/dev/null || true
+  echo
+}
+
+review_env_file_interactive() {
+  local answer editor
+  is_interactive || return 0
+  while true; do
+    print_env_review "$ENV_FILE"
+    printf "Continue with these settings? [Y/e/q] " >&2
+    read -r answer
+    case "${answer:-Y}" in
+      y|Y|yes|YES) return 0 ;;
+      e|E|edit|EDIT)
+        editor="${EDITOR:-vi}"
+        "$editor" "$ENV_FILE"
+        ;;
+      q|Q|n|N|no|NO) die "aborted before starting containers" ;;
+      *) echo "enter Y to continue, e to edit, or q to abort" >&2 ;;
+    esac
+  done
+}
+
+check_clock_sync() {
+  local sync remote_date offset_abs offset
+  case "${BROCCOLI_SKIP_TIME_CHECK:-false}" in
+    1|true|yes) return 0 ;;
+  esac
+
+  echo "checking system clock (local UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date))"
+
+  if command -v timedatectl >/dev/null 2>&1; then
+    sync="$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)"
+    case "$sync" in
+      yes) echo "time sync: timedatectl reports synchronized" ;;
+      no) echo "warning: timedatectl reports NTP is not synchronized" >&2 ;;
+      *) echo "time sync: timedatectl is present but did not report NTP status" >&2 ;;
+    esac
+  elif command -v chronyc >/dev/null 2>&1; then
+    if chronyc tracking >/dev/null 2>&1; then
+      echo "time sync: chrony is responding"
+    else
+      echo "warning: chrony is installed but not reporting healthy tracking" >&2
+    fi
+  elif command -v systemsetup >/dev/null 2>&1; then
+    sync="$(systemsetup -getusingnetworktime 2>/dev/null || true)"
+    case "$sync" in
+      *On*) echo "time sync: macOS network time is enabled" ;;
+      *Off*) echo "warning: macOS network time is disabled" >&2 ;;
+      *) echo "time sync: macOS network time status was unavailable" >&2 ;;
+    esac
+  else
+    echo "time sync: no timedatectl/chrony check available; continuing" >&2
+  fi
+
+  if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+    echo "warning: WSL detected. Make sure the Windows host clock is synchronized before judging." >&2
+  fi
+
+  if command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    remote_date="$(curl -fsSI --http1.1 --max-time 3 https://www.cloudflare.com 2>/dev/null | awk 'tolower($1)=="date:" {sub(/^Date:[[:space:]]*/,""); print; exit}' || true)"
+    if [ -n "$remote_date" ]; then
+      offset="$(REMOTE_HTTP_DATE="$remote_date" python3 - <<'PY' 2>/dev/null || true
+import datetime, email.utils, os, time
+dt = email.utils.parsedate_to_datetime(os.environ["REMOTE_HTTP_DATE"])
+if dt.tzinfo is None:
+    dt = dt.replace(tzinfo=datetime.timezone.utc)
+print(int(time.time() - dt.timestamp()))
+PY
+)"
+      if [ -n "$offset" ]; then
+        offset_abs="${offset#-}"
+        if [ "$offset_abs" -gt 5 ]; then
+          echo "warning: local clock differs from HTTPS Date header by about ${offset}s" >&2
+        else
+          echo "time sync: HTTPS Date offset is about ${offset}s"
+        fi
+      fi
+    else
+      echo "time sync: HTTPS Date check unavailable" >&2
+    fi
+  fi
+}
+
 host_health_url() {
   local bind host port
   bind="${BROCCOLI_HTTP_BIND:-0.0.0.0:3000}"
@@ -303,22 +521,30 @@ validate_role_env() {
   case "$ROLE" in
     infra)
       require_env POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB REDIS_PASSWORD \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+        BROCCOLI__AUTH__JWT_SECRET BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD
+      if using_object_storage; then
+        require_env BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+      fi
       ;;
     server)
       require_env BROCCOLI_SERVER_IMAGE BROCCOLI__SERVER__ID BROCCOLI__DATABASE__URL \
-        BROCCOLI__MQ__URL BROCCOLI__AUTH__JWT_SECRET BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+        BROCCOLI__MQ__URL BROCCOLI__AUTH__JWT_SECRET BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD
+      if using_object_storage; then
+        require_env BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+      fi
       ;;
     worker)
       require_env BROCCOLI_WORKER_IMAGE BROCCOLI__WORKER__ID BROCCOLI__DATABASE__URL \
-        BROCCOLI__MQ__URL BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+        BROCCOLI__MQ__URL
+      if using_object_storage; then
+        require_env BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+      fi
       ;;
     gateway)
       require_env CADDY_IMAGE BROCCOLI_UPSTREAMS
@@ -326,9 +552,12 @@ validate_role_env() {
     single-host)
       require_env BROCCOLI_SERVER_IMAGE BROCCOLI_WORKER_IMAGE POSTGRES_USER POSTGRES_PASSWORD \
         POSTGRES_DB REDIS_PASSWORD BROCCOLI__AUTH__JWT_SECRET \
-        BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
-        BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+        BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD
+      if using_object_storage; then
+        require_env BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
+          BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+      fi
       ;;
   esac
 }
@@ -354,12 +583,87 @@ write_seaweedfs_config() {
 EOF
 }
 
+populate_connection_defaults() {
+  local infra_host postgres_port redis_port s3_port postgres_user postgres_password postgres_db redis_password
+  case "$ROLE" in
+    infra|single-host) ;;
+    *) return 0 ;;
+  esac
+
+  infra_host="${BROCCOLI_INFRA_HOST:-$(primary_ip)}"
+  infra_host="${infra_host:-127.0.0.1}"
+  postgres_port="$(bind_port "${POSTGRES_BIND:-0.0.0.0:5432}")"
+  redis_port="$(bind_port "${REDIS_BIND:-0.0.0.0:6379}")"
+  s3_port="$(bind_port "${SEAWEEDFS_S3_BIND:-0.0.0.0:8333}")"
+  postgres_user="${POSTGRES_USER:?}"
+  postgres_password="${POSTGRES_PASSWORD:?}"
+  postgres_db="${POSTGRES_DB:?}"
+  redis_password="${REDIS_PASSWORD:?}"
+
+  if [ -z "${BROCCOLI__DATABASE__URL:-}" ]; then
+    BROCCOLI__DATABASE__URL="postgres://${postgres_user}:${postgres_password}@${infra_host}:${postgres_port}/${postgres_db}"
+  fi
+  if [ -z "${BROCCOLI__MQ__URL:-}" ]; then
+    BROCCOLI__MQ__URL="redis://:${redis_password}@${infra_host}:${redis_port}"
+  fi
+  if using_object_storage && [ -z "${BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT:-}" ]; then
+    BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT="http://${infra_host}:${s3_port}"
+  fi
+}
+
+write_connection_env_file() {
+  local file
+  file="$(connection_env_file)"
+  umask 077
+  cat > "$file" <<EOF
+# Worker-safe shared LAN connection settings generated by ./install.sh $ROLE.
+# Copy this file into every server/worker bundle directory before running
+# ./install.sh server or ./install.sh worker. It intentionally excludes
+# server-only secrets.
+BROCCOLI__DATABASE__URL=$(env_quote "$BROCCOLI__DATABASE__URL")
+BROCCOLI__MQ__URL=$(env_quote "$BROCCOLI__MQ__URL")
+BROCCOLI__STORAGE__BACKEND=$(env_quote "$(storage_backend)")
+BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET:-broccoli-blobs}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__REGION=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__REGION:-us-east-1}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE:-true}")
+EOF
+  chmod 0600 "$file"
+  echo "created $file for server/worker LAN installs"
+}
+
+write_server_secrets_env_file() {
+  local file
+  file="$(server_secrets_env_file)"
+  umask 077
+  cat > "$file" <<EOF
+# Server-only secrets generated by ./install.sh $ROLE.
+# Copy this file only into server bundle directories before running
+# ./install.sh server.
+BROCCOLI__AUTH__JWT_SECRET=$(env_quote "${BROCCOLI__AUTH__JWT_SECRET:-}")
+BROCCOLI__AUTH__SECURE_COOKIES=$(env_quote "${BROCCOLI__AUTH__SECURE_COOKIES:-false}")
+BROCCOLI_BOOTSTRAP_ADMIN_USERNAME=$(env_quote "${BROCCOLI_BOOTSTRAP_ADMIN_USERNAME:-${BROCCOLI_ADMIN_USERNAME:-admin}}")
+BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=$(env_quote "${BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD:-}")
+EOF
+  chmod 0600 "$file"
+  echo "created $file for server LAN installs"
+}
+
 write_env_file() {
   local version server_image worker_image postgres_image redis_image seaweedfs_image caddy_image
   version="${BROCCOLI_VERSION:-$BUNDLE_VERSION_DEFAULT}"
+  load_connection_env_if_present
   if [ "$ROLE" = "worker" ] || [ "$ROLE" = "single-host" ]; then
     choose_worker_image_interactive "$version"
   fi
+  case "$ROLE" in
+    infra|server|worker|single-host)
+      choose_storage_backend_interactive
+      BROCCOLI__STORAGE__BACKEND="${BROCCOLI__STORAGE__BACKEND:-database}"
+      ;;
+  esac
   server_image="${loaded_server_image:-${BROCCOLI_SERVER_IMAGE:-ghcr.io/thusaac-psd/broccoli/broccoli-server:$version}}"
   worker_image="${BROCCOLI_WORKER_IMAGE:-$(worker_image_for_variant "$version" icpc)}"
   postgres_image="${loaded_postgres_image:-${POSTGRES_IMAGE:-postgres:18-alpine}}"
@@ -397,7 +701,7 @@ write_env_file() {
       jwt_secret="${BROCCOLI__AUTH__JWT_SECRET:-$(random_secret)}"
       admin_user="${BROCCOLI_ADMIN_USERNAME:-admin}"
       admin_pass="${BROCCOLI_ADMIN_PASSWORD:-$(random_secret)}"
-      cat > .env <<EOF
+      cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE=$(env_quote "$ROLE")
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_SERVER_IMAGE=$(env_quote "$server_image")
@@ -418,7 +722,7 @@ REDIS_PASSWORD=$(env_quote "$redis_password")
 
 BROCCOLI__DATABASE__URL=$(env_quote "postgres://${postgres_user}:${postgres_password}@${infra_host}:${postgres_port}/${postgres_db}")
 BROCCOLI__MQ__URL=$(env_quote "redis://:${redis_password}@${infra_host}:${redis_port}")
-BROCCOLI__STORAGE__BACKEND='object_storage'
+BROCCOLI__STORAGE__BACKEND=$(env_quote "$(storage_backend)")
 BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET=$(env_quote "$s3_bucket")
 BROCCOLI__STORAGE__OBJECT_STORAGE__REGION='us-east-1'
 BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "$s3_endpoint")
@@ -445,15 +749,20 @@ EOF
     server)
       prompt_value BROCCOLI__SERVER__ID "Server ID" "$(hostname -s 2>/dev/null || echo server-1)"
       prompt_value BROCCOLI_HTTP_BIND "Server HTTP bind address" "0.0.0.0:3000"
-      prompt_value BROCCOLI__DATABASE__URL "PostgreSQL URL from infra .env" ""
-      prompt_value BROCCOLI__MQ__URL "Redis URL from infra .env" ""
-      prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "SeaweedFS/S3 endpoint from infra .env" ""
-      prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "SeaweedFS/S3 access key from infra .env" ""
-      prompt_secret BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "SeaweedFS/S3 secret key from infra .env" copied
-      prompt_secret BROCCOLI__AUTH__JWT_SECRET "JWT secret from infra .env" copied
-      prompt_secret BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD "Initial admin password from infra .env" copied
-      require_env BROCCOLI__DATABASE__URL BROCCOLI__MQ__URL BROCCOLI__AUTH__JWT_SECRET BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
-      cat > .env <<EOF
+      prompt_value BROCCOLI__DATABASE__URL "PostgreSQL URL from connection.env" ""
+      prompt_value BROCCOLI__MQ__URL "Redis URL from connection.env" ""
+      if using_object_storage; then
+        prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "SeaweedFS/S3 endpoint from connection.env" ""
+        prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "SeaweedFS/S3 access key from connection.env" ""
+        prompt_secret BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "SeaweedFS/S3 secret key from connection.env" copied
+      fi
+      prompt_secret BROCCOLI__AUTH__JWT_SECRET "JWT secret from server-secrets.env" copied
+      prompt_secret BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD "Initial admin password from server-secrets.env" copied
+      require_env BROCCOLI__DATABASE__URL BROCCOLI__MQ__URL BROCCOLI__AUTH__JWT_SECRET BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD
+      if using_object_storage; then
+        require_env BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+      fi
+      cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE='server'
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_SERVER_IMAGE=$(env_quote "$server_image")
@@ -466,15 +775,15 @@ BROCCOLI__DATABASE__URL=$(env_quote "$BROCCOLI__DATABASE__URL")
 BROCCOLI__MQ__URL=$(env_quote "$BROCCOLI__MQ__URL")
 BROCCOLI__AUTH__JWT_SECRET=$(env_quote "$BROCCOLI__AUTH__JWT_SECRET")
 BROCCOLI__AUTH__SECURE_COOKIES=$(env_quote "${BROCCOLI__AUTH__SECURE_COOKIES:-false}")
-BROCCOLI_BOOTSTRAP_ADMIN_USERNAME=$(env_quote "${BROCCOLI_ADMIN_USERNAME:-admin}")
+BROCCOLI_BOOTSTRAP_ADMIN_USERNAME=$(env_quote "${BROCCOLI_BOOTSTRAP_ADMIN_USERNAME:-${BROCCOLI_ADMIN_USERNAME:-admin}}")
 BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=$(env_quote "$BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD")
 BROCCOLI__SUBMISSION__RATE_LIMIT_PER_MINUTE=$(env_quote "${BROCCOLI__SUBMISSION__RATE_LIMIT_PER_MINUTE:-10000}")
-BROCCOLI__STORAGE__BACKEND='object_storage'
+BROCCOLI__STORAGE__BACKEND=$(env_quote "$(storage_backend)")
 BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET:-broccoli-blobs}")
 BROCCOLI__STORAGE__OBJECT_STORAGE__REGION=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__REGION:-us-east-1}")
-BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "$BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT")
-BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=$(env_quote "$BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY")
-BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=$(env_quote "$BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY")
+BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY:-}")
 BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE:-true}")
 BROCCOLI__OBSERVABILITY__LOG_FORMAT=$(env_quote "${BROCCOLI__OBSERVABILITY__LOG_FORMAT:-json}")
 BROCCOLI__OBSERVABILITY__LOG_FILTER=$(env_quote "${BROCCOLI__OBSERVABILITY__LOG_FILTER:-info}")
@@ -482,13 +791,18 @@ EOF
       ;;
     worker)
       prompt_value BROCCOLI__WORKER__ID "Worker ID" "$(hostname -s 2>/dev/null || echo worker-1)"
-      prompt_value BROCCOLI__DATABASE__URL "PostgreSQL URL from infra .env" ""
-      prompt_value BROCCOLI__MQ__URL "Redis URL from infra .env" ""
-      prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "SeaweedFS/S3 endpoint from infra .env" ""
-      prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "SeaweedFS/S3 access key from infra .env" ""
-      prompt_secret BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "SeaweedFS/S3 secret key from infra .env" copied
-      require_env BROCCOLI__DATABASE__URL BROCCOLI__MQ__URL BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
-      cat > .env <<EOF
+      prompt_value BROCCOLI__DATABASE__URL "PostgreSQL URL from connection.env" ""
+      prompt_value BROCCOLI__MQ__URL "Redis URL from connection.env" ""
+      if using_object_storage; then
+        prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "SeaweedFS/S3 endpoint from connection.env" ""
+        prompt_value BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "SeaweedFS/S3 access key from connection.env" ""
+        prompt_secret BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "SeaweedFS/S3 secret key from connection.env" copied
+      fi
+      require_env BROCCOLI__DATABASE__URL BROCCOLI__MQ__URL
+      if using_object_storage; then
+        require_env BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY
+      fi
+      cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE='worker'
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_WORKER_IMAGE=$(env_quote "$worker_image")
@@ -496,12 +810,12 @@ BROCCOLI__WORKER__ID=$(env_quote "${BROCCOLI__WORKER__ID:-$(hostname -s 2>/dev/n
 BROCCOLI__WORKER_DATABASE_MAX_CONNECTIONS=$(env_quote "${BROCCOLI__WORKER_DATABASE_MAX_CONNECTIONS:-5}")
 BROCCOLI__DATABASE__URL=$(env_quote "$BROCCOLI__DATABASE__URL")
 BROCCOLI__MQ__URL=$(env_quote "$BROCCOLI__MQ__URL")
-BROCCOLI__STORAGE__BACKEND='object_storage'
+BROCCOLI__STORAGE__BACKEND=$(env_quote "$(storage_backend)")
 BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET:-broccoli-blobs}")
 BROCCOLI__STORAGE__OBJECT_STORAGE__REGION=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__REGION:-us-east-1}")
-BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "$BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT")
-BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=$(env_quote "$BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY")
-BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=$(env_quote "$BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY")
+BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY:-}")
+BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY:-}")
 BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE:-true}")
 BROCCOLI__OBSERVABILITY__LOG_FORMAT=$(env_quote "${BROCCOLI__OBSERVABILITY__LOG_FORMAT:-json}")
 BROCCOLI__OBSERVABILITY__LOG_FILTER=$(env_quote "${BROCCOLI__OBSERVABILITY__LOG_FILTER:-info}")
@@ -511,7 +825,7 @@ EOF
       prompt_value BROCCOLI_UPSTREAMS "Server upstreams, separated by spaces" ""
       prompt_value BROCCOLI_GATEWAY_HTTP_BIND "Gateway HTTP bind address" "0.0.0.0:80"
       require_env BROCCOLI_UPSTREAMS
-      cat > .env <<EOF
+      cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE='gateway'
 CADDY_IMAGE=$(env_quote "$caddy_image")
 BROCCOLI_GATEWAY_HTTP_BIND=$(env_quote "${BROCCOLI_GATEWAY_HTTP_BIND:-0.0.0.0:80}")
@@ -519,8 +833,8 @@ BROCCOLI_UPSTREAMS=$(env_quote "$BROCCOLI_UPSTREAMS")
 EOF
       ;;
   esac
-  chmod 0600 .env
-  echo "created .env for role '$ROLE'"
+  chmod 0600 "$ENV_FILE"
+  echo "created $ENV_FILE for role '$ROLE'"
 }
 
 wait_http() {
@@ -587,6 +901,11 @@ wait_service_completed() {
   done
 }
 
+if [ "$#" -gt 1 ]; then
+  run_multiple_roles "$@"
+  exit 0
+fi
+
 ROLE="${1:-${BROCCOLI_ROLE:-${BROCCOLI_NODE_ROLE:-}}}"
 if [ -z "$ROLE" ] && is_interactive; then
   choose_role_interactive
@@ -599,50 +918,74 @@ esac
 
 COMPOSE_FILE="docker-compose.${ROLE}.yaml"
 TEMPLATE_FILE="${COMPOSE_FILE}.template"
+ENV_FILE="${BROCCOLI_ENV_FILE:-.env.$ROLE}"
 
-need docker "Install Docker Engine from https://docs.docker.com/engine/install/."
 need openssl "Install OpenSSL with your OS package manager."
-need gzip "Install gzip with your OS package manager."
-if [ "$ROLE" = "server" ] || [ "$ROLE" = "gateway" ] || [ "$ROLE" = "single-host" ]; then
-  need curl "Install curl with your OS package manager."
-fi
-docker compose version >/dev/null 2>&1 || die "docker compose is required. Install the Docker Compose plugin from the official Docker docs."
-
-load_bundled_images
-
-if [ ! -f "$COMPOSE_FILE" ]; then
-  [ -f "$TEMPLATE_FILE" ] || die "$TEMPLATE_FILE is missing"
-  cp "$TEMPLATE_FILE" "$COMPOSE_FILE"
+if ! is_dry_run; then
+  need docker "Install Docker Engine from https://docs.docker.com/engine/install/."
+  need gzip "Install gzip with your OS package manager."
+  if [ "$ROLE" = "server" ] || [ "$ROLE" = "gateway" ] || [ "$ROLE" = "single-host" ]; then
+    need curl "Install curl with your OS package manager."
+  fi
+  docker compose version >/dev/null 2>&1 || die "docker compose is required. Install the Docker Compose plugin from the official Docker docs."
 fi
 
-if [ -f .env ]; then
-  echo ".env already exists; preserving existing secrets"
+if ! is_dry_run; then
+  load_bundled_images
+fi
+
+if [ -f "$ENV_FILE" ]; then
+  echo "$ENV_FILE already exists; preserving existing secrets"
 else
   write_env_file
 fi
 
+review_env_file_interactive
+
 set -a
-# shellcheck disable=SC1091
-source .env
+# shellcheck disable=SC1090
+source "$ENV_FILE"
 set +a
 
 if [ -n "${BROCCOLI_ROLE:-}" ] && [ "$BROCCOLI_ROLE" != "$ROLE" ]; then
-  die ".env was created for role '$BROCCOLI_ROLE'; use a separate directory or pass role '$BROCCOLI_ROLE'"
+  die "$ENV_FILE was created for role '$BROCCOLI_ROLE'; use the matching role or remove $ENV_FILE"
 fi
 validate_role_env
 
-if [ "$ROLE" = "infra" ] || [ "$ROLE" = "single-host" ]; then
+populate_connection_defaults
+
+SELECTED_TEMPLATE_FILE="$(selected_template_file)"
+if [ ! -f "$COMPOSE_FILE" ]; then
+  [ -f "$SELECTED_TEMPLATE_FILE" ] || die "$SELECTED_TEMPLATE_FILE is missing"
+  cp "$SELECTED_TEMPLATE_FILE" "$COMPOSE_FILE"
+fi
+
+if { [ "$ROLE" = "infra" ] || [ "$ROLE" = "single-host" ]; } && using_object_storage; then
   write_seaweedfs_config
 fi
 
-compose up -d
+if [ "$ROLE" = "infra" ] || [ "$ROLE" = "single-host" ]; then
+  write_connection_env_file
+  write_server_secrets_env_file
+fi
+
+check_clock_sync
+
+if is_dry_run; then
+  echo "dry run complete; Docker containers were not started"
+  exit 0
+fi
+
+start_role
 
 case "$ROLE" in
   infra)
     wait_service_healthy db "PostgreSQL"
     wait_service_healthy redis "Redis"
-    wait_service_healthy seaweedfs "SeaweedFS"
-    wait_service_completed seaweedfs-init "SeaweedFS bucket init"
+    if using_object_storage; then
+      wait_service_healthy seaweedfs "SeaweedFS"
+      wait_service_completed seaweedfs-init "SeaweedFS bucket init"
+    fi
     ;;
   server)
     wait_http "$(host_health_url)" "server health"
@@ -656,8 +999,10 @@ case "$ROLE" in
   single-host)
     wait_service_healthy db "PostgreSQL"
     wait_service_healthy redis "Redis"
-    wait_service_healthy seaweedfs "SeaweedFS"
-    wait_service_completed seaweedfs-init "SeaweedFS bucket init"
+    if using_object_storage; then
+      wait_service_healthy seaweedfs "SeaweedFS"
+      wait_service_completed seaweedfs-init "SeaweedFS bucket init"
+    fi
     wait_http "$(host_health_url)" "server health"
     wait_service_healthy worker "worker"
     ;;
@@ -680,6 +1025,7 @@ fi
 cat <<EOF
 Broccoli role '$ROLE' is running.
 Compose file: $COMPOSE_FILE
-Logs: docker compose -f $COMPOSE_FILE logs -f
+Env file: $ENV_FILE
+Logs: docker compose --env-file $ENV_FILE -f $COMPOSE_FILE logs -f
 Runbook: docs/operator-runbook.md
 EOF

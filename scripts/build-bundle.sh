@@ -26,6 +26,23 @@ CADDY_IMAGE="${CADDY_IMAGE:-caddy:2-alpine}"
 STRESS_BIN="${STRESS_BIN:-$ROOT/target/release/broccoli-stress-test}"
 IMAGE_PLATFORM="${BROCCOLI_IMAGE_PLATFORM:-}"
 PULL_IMAGES="${BROCCOLI_PULL_IMAGES:-auto}"
+PYTHON_BIN="${PYTHON_BIN:-}"
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  for candidate in python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" - <<'PY' >/dev/null 2>&1; then
+import tomllib
+PY
+      PYTHON_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "python 3.11+ with tomllib is required; set PYTHON_BIN=/path/to/python if needed" >&2
+  exit 69
+fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK/images" "$WORK/stress-test" "$WORK/plugins"
@@ -125,6 +142,7 @@ for file in \
   docker-compose.worker.yaml.template \
   docker-compose.gateway.yaml.template \
   docker-compose.single-host.yaml.template \
+  docker-compose.single-host.object-storage.yaml.template \
   .env.example \
   .env.infra.example \
   .env.server.example \
@@ -138,7 +156,7 @@ copy_tree "$ROOT/release/examples" "$WORK/examples"
 copy_tree "$ROOT/release/docs" "$WORK/docs"
 cp "$ROOT/release/README.md" "$WORK/README.md"
 
-python3 - "$WORK" "$VERSION" <<'PY'
+"$PYTHON_BIN" - "$WORK" "$VERSION" <<'PY'
 from pathlib import Path
 import sys
 
@@ -148,8 +166,10 @@ version = sys.argv[2]
 for path in [
     work / "install.sh",
     work / ".env.example",
+    work / ".env.infra.example",
     work / ".env.worker.example",
     work / ".env.server.example",
+    work / ".env.gateway.example",
     work / "README.md",
     work / "examples" / "Dockerfile.worker.custom",
 ]:
@@ -174,7 +194,7 @@ for plugin in \
   copy_plugin_tree "$ROOT/plugins/$plugin" "$WORK/plugins/$plugin"
 done
 
-python3 - "$WORK/plugins" <<'PY'
+"$PYTHON_BIN" - "$WORK/plugins" <<'PY'
 from pathlib import Path
 import sys
 import tomllib
@@ -216,7 +236,7 @@ fi
 cp "$STRESS_BIN" "$WORK/stress-test/broccoli-stress-test"
 cp "$ROOT/packages/stress-test/README.md" "$WORK/stress-test/README.md"
 
-tar -C "$DIST" -czf "$DIST/$BUNDLE_NAME.tar.gz" "$BUNDLE_NAME"
+tar --no-xattrs -C "$DIST" -czf "$DIST/$BUNDLE_NAME.tar.gz" "$BUNDLE_NAME"
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$DIST" && sha256sum "$BUNDLE_NAME.tar.gz" > "$BUNDLE_NAME.tar.gz.sha256")
 else

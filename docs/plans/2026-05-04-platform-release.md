@@ -454,16 +454,16 @@ Depends on Phase 3 producing artifacts.
 
 ## Risk register
 
-| Risk                                                         | Mitigation                                                                                                              |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| ACR credentials leak from CI                                 | `release` environment + required reviewer; rotate credentials quarterly.                                                |
-| isolate upstream changes break our pin                       | Pinned tag, not master. Bump via PR with manual rehearsal.                                                              |
-| Distroless server image misses a runtime lib                 | Image smoke test in CI runs the binary; trivy check catches drift.                                                      |
-| Multi-arch isolate build fails on aarch64                    | CI builds both arches; failure surfaces immediately.                                                                    |
-| Bundle tarball balloons past 1 GB                            | Default uses `-icpc` worker (~600 MB compressed); `-full` is opt-in via env, not bundled.                               |
-| HA fix breaks rolling upgrade                                | Workers-first order documented; legacy queue subscriber on v0.3 server logs warnings to surface mistakes.               |
-| Operator skips `install.sh` and runs raw `docker compose up` | Compose file works on its own; `install.sh` is convenience, not required.                                               |
-| Distroless prevents shell debugging                          | Document `docker compose exec server sh` does not work; recommend a debug image variant (out of scope for v1, tracked). |
+| Risk                                                    | Mitigation                                                                                                                                           |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ACR credentials leak from CI                            | `release` environment + required reviewer; rotate credentials quarterly.                                                                             |
+| isolate upstream changes break our pin                  | Pinned tag, not master. Bump via PR with manual rehearsal.                                                                                           |
+| Distroless server image misses a runtime lib            | Image smoke test in CI runs the binary; trivy check catches drift.                                                                                   |
+| Multi-arch isolate build fails on aarch64               | CI builds both arches; failure surfaces immediately.                                                                                                 |
+| Bundle tarball balloons past 1 GB                       | Default uses `-icpc` worker (~600 MB compressed); `-full` is opt-in via env, not bundled.                                                            |
+| HA fix breaks rolling upgrade                           | Workers-first order documented; legacy queue subscriber on v0.3 server logs warnings to surface mistakes.                                            |
+| Operator skips `install.sh` and runs raw Docker Compose | Role compose files work with `docker compose --env-file .env.<role> -f docker-compose.<role>.yaml up -d`; `install.sh` is convenience, not required. |
+| Distroless prevents shell debugging                     | Document `docker compose exec server sh` does not work; recommend a debug image variant (out of scope for v1, tracked).                              |
 
 ## Done criteria
 
