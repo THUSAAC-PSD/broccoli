@@ -4,6 +4,9 @@ A plugin-based online judge system for competitive programming. Supports
 multiple contest formats (IOI, ICPC), sandboxed code execution, and a WASM
 plugin architecture for extensibility.
 
+Operator release and deployment instructions live in
+[`docs/release.md`](docs/release.md).
+
 ## Architecture
 
 ![Broccoli Architecture](./docs/architecture.png)

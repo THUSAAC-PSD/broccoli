@@ -1,0 +1,10 @@
+:80 {
+	encode zstd gzip
+
+	reverse_proxy {$BROCCOLI_UPSTREAMS} {
+		lb_policy round_robin
+		health_uri /healthz
+		health_interval 5s
+		health_timeout 2s
+	}
+}

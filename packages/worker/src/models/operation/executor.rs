@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use super::file_cacher::{BlobStoreFileCacher, FileCacher, NoopFileCacher};
 use super::models::OperationTask;
@@ -103,11 +104,17 @@ impl OperationTaskExecutor {
             .map(|s| s.max_cache_size)
             .unwrap_or(512 * 1024 * 1024);
 
-        let database_url = config
-            .map(|c| c.database.url.clone())
-            .unwrap_or_else(|| "postgres://localhost/broccoli".into());
+        let database_config = config.map(|c| c.database.clone()).unwrap_or_default();
+        let mut connect_options = sea_orm::ConnectOptions::new(database_config.url.clone());
+        connect_options
+            .max_connections(database_config.max_connections)
+            .min_connections(database_config.max_connections.min(1))
+            .connect_timeout(Duration::from_secs(30))
+            .acquire_timeout(Duration::from_secs(30))
+            .idle_timeout(Duration::from_secs(600))
+            .max_lifetime(Duration::from_secs(1800));
 
-        let db = match sea_orm::Database::connect(&database_url).await {
+        let db = match sea_orm::Database::connect(connect_options).await {
             Ok(db) => db,
             Err(e) => {
                 error!(

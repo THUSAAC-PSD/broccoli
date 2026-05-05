@@ -1,8 +1,23 @@
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::extract::ConnectInfo;
+use axum::http::{HeaderMap, Method, Request, Response, StatusCode, header};
+use axum_client_ip::ClientIpSource;
+use serde_json::json;
+use tower_governor::GovernorError;
+use tower_governor::governor::GovernorConfigBuilder;
+use tower_governor::key_extractor::KeyExtractor;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::AppConfig;
 use crate::handlers;
 use crate::state::AppState;
+
+const AUTH_RATE_LIMIT_PERIOD: Duration = Duration::from_secs(60);
+const AUTH_RATE_LIMIT_BURST: u32 = 10;
 
 pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
     let submission_max_size = config.submission.max_size;
@@ -10,7 +25,7 @@ pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::meta::get_version))
         .routes(routes!(handlers::health::get_health))
-        .nest("/auth", auth_routes())
+        .nest("/auth", auth_routes(config.server.rate_limit_auth))
         .nest("/users", user_routes())
         .nest("/roles", role_routes())
         .nest("/admin", admin_routes())
@@ -33,16 +48,220 @@ fn telemetry_routes() -> OpenApiRouter<AppState> {
         .layer(handlers::telemetry::telemetry_body_limit())
 }
 
-fn auth_routes() -> OpenApiRouter<AppState> {
+fn auth_routes(rate_limit_auth: bool) -> OpenApiRouter<AppState> {
+    let login = OpenApiRouter::new().routes(routes!(handlers::auth::login));
+    let login = if rate_limit_auth {
+        let mut builder = GovernorConfigBuilder::default();
+        builder
+            .period(AUTH_RATE_LIMIT_PERIOD)
+            .burst_size(AUTH_RATE_LIMIT_BURST)
+            .methods(vec![Method::POST]);
+        let mut builder = builder.key_extractor(ConfiguredClientIpKeyExtractor);
+
+        login.layer(
+            tower_governor::GovernorLayer::new(Arc::new(
+                builder.finish().expect("valid auth rate-limit quota"),
+            ))
+            .error_handler(auth_rate_limit_error_response),
+        )
+    } else {
+        login
+    };
+
     OpenApiRouter::new()
         .routes(routes!(handlers::auth::register))
-        .routes(routes!(handlers::auth::login))
+        .merge(login)
         .routes(routes!(handlers::auth::refresh))
         .routes(routes!(handlers::auth::logout))
         .routes(routes!(handlers::auth::me))
         .routes(routes!(handlers::auth::request_device_code))
         .routes(routes!(handlers::auth::authorize_device))
         .routes(routes!(handlers::auth::poll_device_token))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ConfiguredClientIpKeyExtractor;
+
+impl KeyExtractor for ConfiguredClientIpKeyExtractor {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
+        match req.extensions().get::<ClientIpSource>() {
+            Some(ClientIpSource::RightmostXForwardedFor) => {
+                rightmost_x_forwarded_for(req.headers()).ok_or(GovernorError::UnableToExtractKey)
+            }
+            Some(ClientIpSource::ConnectInfo) | None => {
+                connect_info_ip(req).ok_or(GovernorError::UnableToExtractKey)
+            }
+            _ => connect_info_ip(req).ok_or(GovernorError::UnableToExtractKey),
+        }
+    }
+}
+
+fn connect_info_ip<T>(req: &Request<T>) -> Option<IpAddr> {
+    req.extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip())
+}
+
+fn rightmost_x_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
+    headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .next_back()
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value
+                .split(',')
+                .next_back()
+                .and_then(|part| part.trim().parse::<IpAddr>().ok())
+        })
+}
+
+fn auth_rate_limit_error_response(error: GovernorError) -> Response<Body> {
+    match error {
+        GovernorError::TooManyRequests { wait_time, .. } => Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .header(header::RETRY_AFTER, wait_time.to_string())
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "code": "RATE_LIMITED",
+                    "message": format!("Rate limit exceeded. Try again in {wait_time} seconds"),
+                    "details": null,
+                })
+                .to_string(),
+            ))
+            .expect("valid rate-limit response"),
+        GovernorError::UnableToExtractKey => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unable to determine client IP for rate limiting",
+                    "details": null,
+                })
+                .to_string(),
+            ))
+            .expect("valid rate-limit response"),
+        GovernorError::Other { code, msg, headers } => {
+            let mut response = Response::builder().status(code);
+            if let Some(headers) = headers {
+                for (name, value) in headers {
+                    if let Some(name) = name {
+                        response = response.header(name, value);
+                    }
+                }
+            }
+            response
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "code": "RATE_LIMIT_ERROR",
+                        "message": msg.unwrap_or_else(|| "Rate limit error".to_string()),
+                        "details": null,
+                    })
+                    .to_string(),
+                ))
+                .expect("valid rate-limit response")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::Router;
+    use axum::body::Body;
+    use axum::routing::post;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn auth_governor_returns_429_with_retry_after_after_ten_posts() {
+        let mut builder = GovernorConfigBuilder::default();
+        builder
+            .period(AUTH_RATE_LIMIT_PERIOD)
+            .burst_size(AUTH_RATE_LIMIT_BURST)
+            .methods(vec![Method::POST]);
+        let mut builder = builder.key_extractor(ConfiguredClientIpKeyExtractor);
+
+        let app = Router::new()
+            .route("/login", post(|| async { StatusCode::UNAUTHORIZED }))
+            .layer(
+                tower_governor::GovernorLayer::new(Arc::new(
+                    builder.finish().expect("valid auth rate-limit quota"),
+                ))
+                .error_handler(auth_rate_limit_error_response),
+            );
+
+        for _ in 0..10 {
+            let mut request = Request::builder()
+                .method(Method::POST)
+                .uri("/login")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(
+                "203.0.113.10:12345".parse::<SocketAddr>().unwrap(),
+            ));
+
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            "203.0.113.10:12345".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key(header::RETRY_AFTER));
+    }
+
+    #[test]
+    fn configured_client_ip_extractor_uses_trusted_proxy_source() {
+        let mut request = Request::builder()
+            .uri("/")
+            .header("x-forwarded-for", "198.51.100.8, 203.0.113.9")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ClientIpSource::RightmostXForwardedFor);
+        request.extensions_mut().insert(ConnectInfo(
+            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
+        ));
+
+        assert_eq!(
+            ConfiguredClientIpKeyExtractor.extract(&request).unwrap(),
+            "203.0.113.9".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn configured_client_ip_extractor_rejects_malformed_rightmost_forwarded_for() {
+        let mut request = Request::builder()
+            .uri("/")
+            .header("x-forwarded-for", "198.51.100.8, not-an-ip")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ClientIpSource::RightmostXForwardedFor);
+        request.extensions_mut().insert(ConnectInfo(
+            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
+        ));
+
+        assert!(matches!(
+            ConfiguredClientIpKeyExtractor.extract(&request),
+            Err(GovernorError::UnableToExtractKey)
+        ));
+    }
 }
 
 fn user_routes() -> OpenApiRouter<AppState> {

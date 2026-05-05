@@ -1,0 +1,21 @@
+services:
+  gateway:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    ports:
+      - "${BROCCOLI_GATEWAY_HTTP_BIND:-0.0.0.0:80}:80"
+    environment:
+      BROCCOLI_UPSTREAMS: "${BROCCOLI_UPSTREAMS}"
+    volumes:
+      - ./examples/Caddyfile.gateway:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  caddy_data:
+  caddy_config:

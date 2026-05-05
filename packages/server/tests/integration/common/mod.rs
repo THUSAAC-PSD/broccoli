@@ -19,8 +19,8 @@ use tokio::sync::{Mutex, OnceCell, RwLock};
 
 use common::storage::config::create_blob_store;
 use server::config::{
-    AppConfig, AuthConfig, BlobStoreConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig,
-    SubmissionConfig,
+    AppConfig, AuthConfig, BlobStoreConfig, BootstrapConfig, CorsConfig, DatabaseConfig,
+    MqAppConfig, ServerConfig, SubmissionConfig,
 };
 use server::entity::{user, user_role};
 use server::manager::ServerManager;
@@ -500,6 +500,7 @@ impl TestApp {
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
+                max_connections: 2,
             },
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),
@@ -517,6 +518,7 @@ impl TestApp {
             },
             observability: common::config::ObservabilityConfig::default(),
             batch_max_age_secs: 600,
+            bootstrap: BootstrapConfig::default(),
         };
 
         let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));

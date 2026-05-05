@@ -90,6 +90,36 @@ fn rejects_skip_correctness_and_skip_load_both_set() {
 }
 
 #[test]
+fn parses_correctness_only_alias() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--correctness-only",
+    ])
+    .unwrap();
+    assert!(cli.correctness_only);
+    assert!(cli.validate().is_ok());
+}
+
+#[test]
+fn rejects_skip_correctness_and_correctness_only() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--skip-correctness",
+        "--correctness-only",
+    ])
+    .unwrap();
+    assert!(cli.validate().is_err());
+}
+
+#[test]
 fn rejects_zero_total() {
     let cli = Cli::try_parse_from([
         "broccoli-stress-test",
@@ -233,6 +263,7 @@ fn defaults_match_design_doc() {
     assert_eq!(cli.seed, 0);
     assert!(!cli.skip_correctness);
     assert!(!cli.skip_load);
+    assert!(!cli.correctness_only);
     assert!(!cli.keep_fixtures);
     assert!(!cli.json);
     assert!(cli.contest_id.is_none());

@@ -20,10 +20,14 @@ pub mod state;
 pub mod upload_limits;
 pub mod utils;
 
+use std::path::{Path, PathBuf};
+
 use axum::extract::{MatchedPath, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use opentelemetry::KeyValue;
+use tower::Service;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::{compression::CompressionLayer, timeout::TimeoutLayer, trace::TraceLayer};
 use tracing::{info, info_span};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
@@ -105,12 +109,54 @@ async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+async fn api_not_found() -> StatusCode {
+    StatusCode::NOT_FOUND
+}
+
+fn normalize_javascript_content_type<B>(mut response: Response<B>) -> Response<B> {
+    if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value == "text/javascript")
+    {
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/javascript"),
+        );
+    }
+
+    response
+}
+
+fn frontend_assets_service(
+    frontend_dist: impl AsRef<Path>,
+) -> impl Clone
++ Send
++ Sync
++ 'static
++ Service<
+    Request<axum::body::Body>,
+    Response: IntoResponse,
+    Error = std::convert::Infallible,
+    Future: Send + 'static,
+> {
+    tower::ServiceBuilder::new()
+        .map_response(normalize_javascript_content_type)
+        .service(ServeDir::new(frontend_dist.as_ref().join("assets")))
+}
+
+fn spa_fallback_service(frontend_dist: impl Into<PathBuf>) -> ServeDir<ServeFile> {
+    let frontend_dist = frontend_dist.into();
+    ServeDir::new(&frontend_dist).fallback(ServeFile::new(frontend_dist.join("index.html")))
+}
+
 pub fn build_router(state: AppState) -> axum::Router {
     let metrics = state.metrics.clone();
     let trusted_proxies =
         client_ip::parse_trusted_proxy_networks(&state.config.server.trusted_proxies);
 
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
+    let frontend_dist = state.config.server.frontend_dist.clone();
 
     let router = router.layer(axum::middleware::from_fn_with_state(
         state.clone(),
@@ -127,14 +173,19 @@ pub fn build_router(state: AppState) -> axum::Router {
     #[cfg(feature = "bundled-stress-test")]
     let state_for_downloads = state.clone();
 
-    let app = axum::Router::new()
-        .nest("/api", router)
-        .route("/metrics", axum::routing::get(metrics_handler))
-        .route("/healthz", axum::routing::get(handlers::health::healthz))
+    let assets_router = axum::Router::new()
         .route(
-            "/assets/{plugin_id}/{*file_path}",
+            "/{plugin_id}/{*file_path}",
             axum::routing::get(handlers::assets::serve_plugin_asset),
         )
+        .fallback_service(frontend_assets_service(&frontend_dist));
+
+    let app = axum::Router::new()
+        .nest("/api", router.fallback(api_not_found))
+        .route("/metrics", axum::routing::get(metrics_handler))
+        .route("/healthz", axum::routing::get(handlers::health::healthz))
+        .nest("/assets", assets_router)
+        .fallback_service(spa_fallback_service(frontend_dist))
         .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api.clone()))
         .merge(Scalar::with_url("/scalar", api));
@@ -210,4 +261,224 @@ pub fn build_router(state: AppState) -> axum::Router {
                 },
             ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::Json;
+    use axum::body::Body;
+    use axum::http::{Method, Request};
+    use axum::routing::get;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn spa_fallback_serves_index_for_root_and_client_routes() {
+        let dist = tempfile::tempdir().unwrap();
+        std::fs::write(dist.path().join("index.html"), "<html>app</html>").unwrap();
+        let service = spa_fallback_service(dist.path().to_path_buf());
+
+        for (method, path) in [(Method::GET, "/"), (Method::HEAD, "/contests/42")] {
+            let response = service
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[axum::http::header::CONTENT_TYPE],
+                "text/html"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn frontend_assets_service_serves_assets_without_spa_fallback() {
+        let dist = tempfile::tempdir().unwrap();
+        let assets = dist.path().join("assets");
+        std::fs::create_dir(&assets).unwrap();
+        std::fs::write(assets.join("main.js"), "console.log('ok');").unwrap();
+        let service = frontend_assets_service(dist.path());
+
+        for method in [Method::GET, Method::HEAD] {
+            let response = service
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri("/main.js")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let response = response.into_response();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[axum::http::header::CONTENT_TYPE],
+                "application/javascript"
+            );
+        }
+
+        let response = service
+            .oneshot(
+                Request::builder()
+                    .method(Method::HEAD)
+                    .uri("/typo.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let response = response.into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn frontend_asset_mount_keeps_plugin_asset_route_precedence() {
+        let dist = tempfile::tempdir().unwrap();
+        let assets = dist.path().join("assets");
+        std::fs::create_dir(&assets).unwrap();
+        std::fs::write(dist.path().join("index.html"), "<html>app</html>").unwrap();
+        std::fs::write(dist.path().join("robots.txt"), "User-agent: *").unwrap();
+        std::fs::write(assets.join("main.js"), "console.log('ok');").unwrap();
+
+        let assets_router = axum::Router::new()
+            .route(
+                "/{plugin_id}/{*file_path}",
+                get(|| async { "plugin asset" }),
+            )
+            .fallback_service(frontend_assets_service(dist.path()));
+        let api_router = axum::Router::new()
+            .route(
+                "/v1/health",
+                get(|| async { Json(json!({ "status": "ok" })) }),
+            )
+            .fallback(api_not_found);
+
+        let app = axum::Router::new()
+            .nest("/api", api_router)
+            .nest("/assets", assets_router)
+            .fallback_service(spa_fallback_service(dist.path().to_path_buf()));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/assets/main.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "application/javascript"
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/assets/typo.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/assets/plugin/foo.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/plain; charset=utf-8"
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/contests/42")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html"
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/robots.txt")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/plain"
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "application/json"
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/missing")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }

@@ -1,0 +1,35 @@
+services:
+  worker:
+    image: ${BROCCOLI_WORKER_IMAGE}
+    restart: unless-stopped
+    privileged: true
+    environment:
+      BROCCOLI__WORKER__ID: "${BROCCOLI__WORKER__ID}"
+      BROCCOLI__WORKER__SANDBOX_BACKEND: isolate
+      BROCCOLI__WORKER__ISOLATE_BIN: /usr/local/bin/isolate
+      BROCCOLI__WORKER__ENABLE_CGROUPS: "true"
+      BROCCOLI__DATABASE__URL: "${BROCCOLI__DATABASE__URL}"
+      BROCCOLI__DATABASE__MAX_CONNECTIONS: "${BROCCOLI__WORKER_DATABASE_MAX_CONNECTIONS:-5}"
+      BROCCOLI__MQ__ENABLED: "true"
+      BROCCOLI__MQ__URL: "${BROCCOLI__MQ__URL}"
+      BROCCOLI__STORAGE__BACKEND: "${BROCCOLI__STORAGE__BACKEND:-object_storage}"
+      BROCCOLI__STORAGE__DATA_DIR: /data
+      BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET: "${BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET:-broccoli-blobs}"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__REGION: "${BROCCOLI__STORAGE__OBJECT_STORAGE__REGION:-us-east-1}"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT: "${BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT}"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY: "${BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY}"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY: "${BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY}"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE: "${BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE:-true}"
+      BROCCOLI__OBSERVABILITY__LOG_FORMAT: "${BROCCOLI__OBSERVABILITY__LOG_FORMAT:-json}"
+      BROCCOLI__OBSERVABILITY__LOG_FILTER: "${BROCCOLI__OBSERVABILITY__LOG_FILTER:-info}"
+    volumes:
+      - ./plugins:/plugins:ro
+      - worker_data:/data
+    healthcheck:
+      test: ["CMD", "gosu", "worker:worker", "/usr/local/bin/broccoli-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  worker_data:

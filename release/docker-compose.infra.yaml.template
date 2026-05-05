@@ -1,0 +1,82 @@
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine}
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_BIND:-0.0.0.0:5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "${REDIS_BIND:-0.0.0.0:6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seaweedfs:
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.15}
+    restart: unless-stopped
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        cat > /tmp/seaweedfs-s3.json <<EOF
+        {
+          "identities": [
+            {
+              "name": "broccoli",
+              "credentials": [
+                {
+                  "accessKey": "${BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY}",
+                  "secretKey": "${BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY}"
+                }
+              ],
+              "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+            }
+          ]
+        }
+        EOF
+        exec weed server -dir=/data -s3 -s3.config=/tmp/seaweedfs-s3.json -ip=seaweedfs
+    ports:
+      - "${SEAWEEDFS_MASTER_BIND:-127.0.0.1:9333}:9333"
+      - "${SEAWEEDFS_S3_BIND:-0.0.0.0:8333}:8333"
+    volumes:
+      - seaweed_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seaweedfs-init:
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.15}
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      [
+        "printf 's3.bucket.create -name ${BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET:-broccoli-blobs}\\n' | weed shell -master=seaweedfs:9333 -filer=seaweedfs:8888",
+      ]
+    restart: "no"
+
+volumes:
+  postgres_data:
+  redis_data:
+  seaweed_data:

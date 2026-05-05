@@ -25,8 +25,8 @@ use worker::models::operation::sandbox::isolate::IsolateSandboxManager;
 use worker::models::operation::sandbox::mock::MockSandboxManager;
 
 use server::config::{
-    AppConfig, AuthConfig, BlobStoreConfig, CorsConfig, DatabaseConfig, MqAppConfig, ServerConfig,
-    SubmissionConfig,
+    AppConfig, AuthConfig, BlobStoreConfig, BootstrapConfig, CorsConfig, DatabaseConfig,
+    MqAppConfig, ServerConfig, SubmissionConfig,
 };
 use server::consumers::consume_operation_results;
 use server::entity::{user, user_role};
@@ -401,6 +401,7 @@ impl E2eTestApp {
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
+                max_connections: 3,
             },
             auth: AuthConfig {
                 jwt_secret: "e2e-test-jwt-secret".to_string(),
@@ -423,6 +424,7 @@ impl E2eTestApp {
             },
             observability: common::config::ObservabilityConfig::default(),
             batch_max_age_secs: 600,
+            bootstrap: BootstrapConfig::default(),
         };
 
         let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
@@ -531,7 +533,8 @@ impl E2eTestApp {
                                         }
                                     }
                                 };
-                                mq.publish(&task.result_queue, None, &result, None).await?;
+                                mq.publish(task.reply_queue_name(), None, &result, None)
+                                    .await?;
                                 Ok(())
                             }
                         },

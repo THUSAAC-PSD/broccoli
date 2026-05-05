@@ -243,7 +243,7 @@ pub async fn run(cli: Cli) -> u8 {
         }
     }
 
-    if overall_exit == exit_code::PASS && !cli.skip_load {
+    if overall_exit == exit_code::PASS && !cli.skip_load && !cli.correctness_only {
         let load_config = crate::load::LoadConfig {
             total: cli.total,
             rate: cli.rate,

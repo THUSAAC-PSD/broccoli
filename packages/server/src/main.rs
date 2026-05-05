@@ -26,6 +26,11 @@ use server::utils::plugin::sync_plugins;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("broccoli-server {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let mut app_config = AppConfig::load().context("Failed to load configuration")?;
 
     if std::env::args().any(|a| a == "--healthcheck") {
@@ -55,8 +60,18 @@ async fn main() -> anyhow::Result<()> {
     let (metrics, prometheus_registry) =
         common::observability::init_metrics(&app_config.observability.otlp.service_name);
 
-    let db = server::database::init_db(&app_config.database.url).await?;
+    let db = server::database::init_db_with_max_connections(
+        &app_config.database.url,
+        app_config.database.max_connections,
+    )
+    .await?;
     server::seed::seed_role_permissions(&db).await?;
+    server::seed::ensure_bootstrap_admin(
+        &db,
+        &app_config.bootstrap.admin_username,
+        &app_config.bootstrap.admin_password,
+    )
+    .await?;
     server::seed::ensure_indexes(&db).await?;
     server::seed::backfill_submission_judgements(&db).await?;
 

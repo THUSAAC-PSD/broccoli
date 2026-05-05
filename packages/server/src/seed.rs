@@ -4,8 +4,9 @@ use tracing::info;
 
 use crate::entity::{
     additional_file, clarification, dead_letter_message, problem_attachment, role, role_permission,
-    submission, submission_judgement, test_case_result, user,
+    submission, submission_judgement, test_case_result, user, user_role,
 };
+use crate::utils::hash;
 
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
 
@@ -90,6 +91,79 @@ pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr>
     }
 
     Ok(())
+}
+
+pub async fn ensure_bootstrap_admin(
+    db: &DatabaseConnection,
+    username: &str,
+    password: &str,
+) -> Result<(), DbErr> {
+    let username = username.trim();
+    if username.is_empty() || password.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(existing) = user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .filter(user::Column::DeletedAt.is_null())
+        .one(db)
+        .await?
+    {
+        let password_hash = hash::hash_password(password)
+            .map_err(|e| DbErr::Custom(format!("failed to hash bootstrap admin password: {e}")))?;
+        let mut active: user::ActiveModel = existing.clone().into();
+        active.password = Set(password_hash);
+        active.update(db).await?;
+        ensure_user_role(db, existing.id, "admin").await?;
+        info!(username, "Ensured bootstrap admin user");
+        return Ok(());
+    }
+
+    let password_hash = hash::hash_password(password)
+        .map_err(|e| DbErr::Custom(format!("failed to hash bootstrap admin password: {e}")))?;
+
+    let txn = db.begin().await?;
+    let created = user::ActiveModel {
+        username: Set(username.to_string()),
+        password: Set(password_hash),
+        created_at: Set(chrono::Utc::now()),
+        ..Default::default()
+    }
+    .insert(&txn)
+    .await?;
+
+    ensure_user_role(&txn, created.id, "admin").await?;
+    txn.commit().await?;
+
+    info!(username, "Created bootstrap admin user");
+    Ok(())
+}
+
+async fn ensure_user_role<C>(db: &C, user_id: i32, role_name: &str) -> Result<(), DbErr>
+where
+    C: ConnectionTrait,
+{
+    let model = user_role::ActiveModel {
+        user_id: Set(user_id),
+        role: Set(role_name.to_string()),
+    };
+
+    let result = user_role::Entity::insert(model)
+        .on_conflict(
+            sea_orm::sea_query::OnConflict::columns([
+                user_role::Column::UserId,
+                user_role::Column::Role,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await;
+
+    match result {
+        Ok(_) | Err(DbErr::RecordNotInserted) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {

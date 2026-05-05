@@ -28,6 +28,17 @@ use crate::system_info::SystemInfo;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("broccoli-worker {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if std::env::args().any(|a| a == "--healthcheck") {
+        run_healthcheck().await?;
+        println!("ok");
+        return Ok(());
+    }
+
     let config = config::WorkerAppConfig::load().context("Failed to load config")?;
 
     let _telemetry_guard = common::observability::init_tracing(&config.observability);
@@ -230,6 +241,73 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn run_healthcheck() -> anyhow::Result<()> {
+    use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
+
+    let config = config::WorkerAppConfig::load().context("Failed to load config")?;
+
+    let mut db_options = sea_orm::ConnectOptions::new(config.database.url.clone());
+    db_options
+        .max_connections(1)
+        .min_connections(0)
+        .connect_timeout(Duration::from_secs(5))
+        .acquire_timeout(Duration::from_secs(5))
+        .idle_timeout(Duration::from_secs(30))
+        .max_lifetime(Duration::from_secs(60))
+        .sqlx_logging(false);
+    let db = Database::connect(db_options)
+        .await
+        .context("Failed to connect to database")?;
+    db.execute_raw(Statement::from_string(
+        DbBackend::Postgres,
+        "SELECT 1".to_string(),
+    ))
+    .await
+    .context("Database ping failed")?;
+
+    if config.mq.enabled {
+        let client = redis::Client::open(config.mq.url.as_str())
+            .context("Failed to initialize Redis health client")?;
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .context("Failed to connect to Redis")?;
+        let _pong: String = redis::cmd("PING")
+            .query_async(&mut conn)
+            .await
+            .context("Redis ping failed")?;
+    }
+
+    if config
+        .worker
+        .sandbox_backend
+        .eq_ignore_ascii_case("isolate")
+    {
+        let status = tokio::process::Command::new(&config.worker.isolate_bin)
+            .arg("--version")
+            .status()
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to execute isolate binary `{}`",
+                    config.worker.isolate_bin
+                )
+            })?;
+        anyhow::ensure!(status.success(), "isolate --version exited with {status}");
+
+        if config.worker.enable_cgroups {
+            let controllers = std::fs::read_to_string("/sys/fs/cgroup/cgroup.controllers")
+                .context("cgroup v2 controllers are not visible")?;
+            anyhow::ensure!(
+                !controllers.trim().is_empty(),
+                "cgroup v2 controllers are empty"
+            );
+        }
+    }
+
+    Ok(())
+}
+
 async fn wait_for_shutdown(flag: &Arc<AtomicBool>) {
     while !flag.load(Ordering::Relaxed) {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -367,7 +445,7 @@ async fn process_message(
                             )),
                         };
                         if let Err(e) = mq
-                            .publish(&task.result_queue, None, &error_result, None)
+                            .publish(task.reply_queue_name(), None, &error_result, None)
                             .await
                         {
                             error!(job_id = %task_id, error = %e, "Failed to publish error result for operation task");
@@ -432,7 +510,7 @@ async fn process_task(
             }
         })??;
 
-    mq.publish(&task.result_queue, None, &result, None)
+    mq.publish(task.reply_queue_name(), None, &result, None)
         .await
         .map_err(|e| WorkerError::Mq(e.to_string()))?;
 
@@ -440,7 +518,7 @@ async fn process_task(
         job_id = %task.id,
         task_result_id = %result.task_id,
         success = result.success,
-        result_queue = %task.result_queue,
+        result_queue = %task.reply_queue_name(),
         "Task finished"
     );
 
