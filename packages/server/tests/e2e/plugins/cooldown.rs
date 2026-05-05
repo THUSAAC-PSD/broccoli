@@ -12,7 +12,6 @@ async fn cooldown_rejects_rapid_contest_submissions() {
     let contestant = app.create_authenticated_user("cd_user1", "password").await;
 
     let problem_id = app.create_problem(&admin, "Cooldown Problem 1").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Cooldown Contest 1", "icpc", true, true)
@@ -80,7 +79,6 @@ async fn cooldown_allows_submission_when_disabled() {
     let contestant = app.create_authenticated_user("cd_user2", "password").await;
 
     let problem_id = app.create_problem(&admin, "Cooldown Problem 2").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Cooldown Contest 2", "icpc", true, true)
@@ -128,7 +126,6 @@ async fn cooldown_status_endpoint_returns_data() {
     let contestant = app.create_authenticated_user("cd_user3", "password").await;
 
     let problem_id = app.create_problem(&admin, "Cooldown Problem 3").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Cooldown Contest 3", "icpc", true, true)
@@ -183,7 +180,6 @@ async fn cooldown_config_at_problem_scope() {
     let user = app.create_authenticated_user("cd_user4", "password").await;
 
     let problem_id = app.create_problem(&admin, "Cooldown Problem 4").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let config_path = format!("/api/v1/problems/{problem_id}/config/cooldown/cooldown");
     let put_res = app
@@ -232,7 +228,6 @@ async fn different_users_have_independent_cooldowns() {
     let user_b = app.create_authenticated_user("cd_userB5", "password").await;
 
     let problem_id = app.create_problem(&admin, "Cooldown Problem 5").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Cooldown Contest 5", "icpc", true, true)
