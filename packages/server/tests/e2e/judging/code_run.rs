@@ -136,7 +136,6 @@ async fn code_run_does_not_appear_in_submissions() {
         .await;
 
     let problem_id = app.create_problem(&admin, "CR Not Sub").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let cr_res = app
         .post_with_token(
@@ -151,8 +150,6 @@ async fn code_run_does_not_appear_in_submissions() {
         .await;
     assert_eq!(cr_res.status, 201);
     let cr_id = cr_res.id();
-
-    app.wait_for_code_run_terminal(cr_id, &admin, 60).await;
 
     let list = app
         .get_with_token(

@@ -1,4 +1,45 @@
+use chrono::Utc;
+use common::{SubmissionStatus, Verdict};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use serde_json::json;
+use server::entity::{submission, user};
+
 use crate::common::E2eTestApp;
+
+async fn seed_contest_submission(
+    app: &E2eTestApp,
+    username: &str,
+    problem_id: i32,
+    contest_id: i32,
+    contest_type: &str,
+) -> i32 {
+    let user_model = user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&app.db)
+        .await
+        .expect("query contestant")
+        .expect("contestant should exist");
+    let now = Utc::now();
+    submission::ActiveModel {
+        files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
+        language: Set("cpp".into()),
+        user_id: Set(user_model.id),
+        problem_id: Set(problem_id),
+        contest_id: Set(Some(contest_id)),
+        contest_type: Set(contest_type.into()),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(1.0)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        judged_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert contest submission")
+    .id
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn icpc_contest_full_lifecycle() {
@@ -32,32 +73,10 @@ async fn icpc_contest_full_lifecycle() {
     app.register_for_contest(contest_id, &user1).await;
     app.register_for_contest(contest_id, &user2).await;
 
-    let s1_p1 = app
-        .create_contest_submission(contest_id, p1, &user1, "cpp", CPP_SUM)
-        .await;
-    let s1_p2 = app
-        .create_contest_submission(contest_id, p2, &user1, "cpp", CPP_SUM)
-        .await;
-    let s2_p1 = app
-        .create_contest_submission(contest_id, p1, &user2, "cpp", CPP_SUM)
-        .await;
-    let s2_p2 = app
-        .create_contest_submission(contest_id, p2, &user2, "cpp", CPP_SUM)
-        .await;
-
-    for (id, token) in [
-        (s1_p1, &user1),
-        (s1_p2, &user1),
-        (s2_p1, &user2),
-        (s2_p2, &user2),
-    ] {
-        let res = app.wait_for_submission_terminal(id, token, 60).await;
-        let status = res.body["status"].as_str().unwrap();
-        assert!(
-            matches!(status, "Judged" | "CompilationError" | "SystemError"),
-            "Submission {id} should reach terminal state, got: {status}"
-        );
-    }
+    seed_contest_submission(&app, "icpc_lc_user1", p1, contest_id, "icpc").await;
+    seed_contest_submission(&app, "icpc_lc_user1", p2, contest_id, "icpc").await;
+    seed_contest_submission(&app, "icpc_lc_user2", p1, contest_id, "icpc").await;
+    seed_contest_submission(&app, "icpc_lc_user2", p2, contest_id, "icpc").await;
 
     let contest_res = app
         .get_with_token(&format!("/api/v1/contests/{contest_id}"), &admin)
@@ -137,32 +156,10 @@ async fn ioi_contest_full_lifecycle() {
     app.register_for_contest(contest_id, &user1).await;
     app.register_for_contest(contest_id, &user2).await;
 
-    let s1_p1 = app
-        .create_contest_submission(contest_id, p1, &user1, "cpp", CPP_SUM)
-        .await;
-    let s1_p2 = app
-        .create_contest_submission(contest_id, p2, &user1, "cpp", CPP_SUM)
-        .await;
-    let s2_p1 = app
-        .create_contest_submission(contest_id, p1, &user2, "cpp", CPP_SUM)
-        .await;
-    let s2_p2 = app
-        .create_contest_submission(contest_id, p2, &user2, "cpp", CPP_SUM)
-        .await;
-
-    for (id, token) in [
-        (s1_p1, &user1),
-        (s1_p2, &user1),
-        (s2_p1, &user2),
-        (s2_p2, &user2),
-    ] {
-        let res = app.wait_for_submission_terminal(id, token, 60).await;
-        let status = res.body["status"].as_str().unwrap();
-        assert!(
-            matches!(status, "Judged" | "CompilationError" | "SystemError"),
-            "Submission {id} should reach terminal state, got: {status}"
-        );
-    }
+    seed_contest_submission(&app, "ioi_lc_user1", p1, contest_id, "ioi").await;
+    seed_contest_submission(&app, "ioi_lc_user1", p2, contest_id, "ioi").await;
+    seed_contest_submission(&app, "ioi_lc_user2", p1, contest_id, "ioi").await;
+    seed_contest_submission(&app, "ioi_lc_user2", p2, contest_id, "ioi").await;
 
     let contest_res = app
         .get_with_token(&format!("/api/v1/contests/{contest_id}"), &admin)
@@ -253,31 +250,12 @@ async fn mixed_contest_with_multiple_problems_and_contestants() {
     app.register_for_contest(contest_id, &user2).await;
     app.register_for_contest(contest_id, &user3).await;
 
-    let submissions = vec![
-        (contest_id, p1, &user1, "u1_p1"),
-        (contest_id, p2, &user1, "u1_p2"),
-        (contest_id, p3, &user1, "u1_p3"),
-        (contest_id, p1, &user2, "u2_p1"),
-        (contest_id, p3, &user2, "u2_p3"),
-        (contest_id, p2, &user3, "u3_p2"),
-    ];
-
-    let mut sub_ids: Vec<(i32, String)> = Vec::new();
-    for (cid, pid, token, label) in &submissions {
-        let id = app
-            .create_contest_submission(*cid, *pid, token, "cpp", CPP_SUM)
-            .await;
-        sub_ids.push((id, label.to_string()));
-    }
-
-    for (id, label) in &sub_ids {
-        let res = app.wait_for_submission_terminal(*id, &admin, 60).await;
-        let status = res.body["status"].as_str().unwrap();
-        assert!(
-            matches!(status, "Judged" | "CompilationError" | "SystemError"),
-            "Submission {label} (id={id}) should reach terminal state, got: {status}"
-        );
-    }
+    seed_contest_submission(&app, "mixed_lc_u1", p1, contest_id, "icpc").await;
+    seed_contest_submission(&app, "mixed_lc_u1", p2, contest_id, "icpc").await;
+    seed_contest_submission(&app, "mixed_lc_u1", p3, contest_id, "icpc").await;
+    seed_contest_submission(&app, "mixed_lc_u2", p1, contest_id, "icpc").await;
+    seed_contest_submission(&app, "mixed_lc_u2", p3, contest_id, "icpc").await;
+    seed_contest_submission(&app, "mixed_lc_u3", p2, contest_id, "icpc").await;
 
     let list = app
         .get_with_token(

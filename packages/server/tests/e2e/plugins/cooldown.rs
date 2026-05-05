@@ -127,15 +127,18 @@ async fn cooldown_allows_submission_when_disabled() {
     .await;
 
     seed_recent_submission(&app, "cd_user2", problem_id, Some(contest_id)).await;
-    let _sub = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 1; }",
-        )
-        .await;
+    let status_path = format!(
+        "/api/v1/p/cooldown/api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status"
+    );
+    let res = app.get_with_token(&status_path, &contestant).await;
+    assert_eq!(
+        res.status, 200,
+        "Cooldown status endpoint failed: {}",
+        res.text
+    );
+    assert_eq!(res.body["enabled"].as_bool(), Some(true));
+    assert_eq!(res.body["cooldown_seconds"].as_u64(), Some(0));
+    assert_eq!(res.body["can_submit"].as_bool(), Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -261,13 +264,10 @@ async fn different_users_have_independent_cooldowns() {
 
     seed_recent_submission(&app, "cd_userA5", problem_id, Some(contest_id)).await;
 
-    let _sub_b = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &user_b,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
+    let status_path = format!(
+        "/api/v1/p/cooldown/api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status"
+    );
+    let res = app.get_with_token(&status_path, &user_b).await;
+    assert_eq!(res.status, 200, "User B status failed: {}", res.text);
+    assert_eq!(res.body["can_submit"].as_bool(), Some(true));
 }
