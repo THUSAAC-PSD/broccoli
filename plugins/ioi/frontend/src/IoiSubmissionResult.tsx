@@ -74,6 +74,8 @@ const VERDICT_ICONS = {
   Running: Loader2,
 } as const;
 
+const DETAIL_PREVIEW_CHARS = 4096;
+
 function VerdictIcon({
   verdict,
   size = 14,
@@ -110,6 +112,16 @@ function formatMs(ms: number): string {
 function formatKb(kb: number): string {
   const mb = kb / 1024;
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+}
+
+function formatCharCount(count: number): string {
+  if (count < 1000) {
+    return `${count}`;
+  }
+  if (count < 1_000_000) {
+    return `${(count / 1000).toFixed(count >= 10_000 ? 0 : 1)}K`;
+  }
+  return `${(count / 1_000_000).toFixed(count >= 10_000_000 ? 0 : 1)}M`;
 }
 
 function clamp01(value: number): number {
@@ -296,14 +308,47 @@ function tcHasDetails(tc: TestCaseResult): boolean {
 }
 
 function DetailBlock({ label, content }: { label: string; content: string }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const isLarge = content.length > DETAIL_PREVIEW_CHARS;
+  const visibleContent =
+    isLarge && !expanded ? content.slice(0, DETAIL_PREVIEW_CHARS) : content;
+
   return (
     <div className="mb-2">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
+      <div className="mb-1 flex items-center gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+        {isLarge && (
+          <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+            {expanded
+              ? t('ioi.submission.detail.fullSize', {
+                  count: formatCharCount(content.length),
+                })
+              : t('ioi.submission.detail.previewSize', {
+                  preview: formatCharCount(DETAIL_PREVIEW_CHARS),
+                  total: formatCharCount(content.length),
+                })}
+          </span>
+        )}
       </div>
       <pre className="m-0 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-2.5 py-2 font-mono tabular-nums text-xs leading-[18px] text-foreground">
-        {content}
+        {visibleContent}
       </pre>
+      {isLarge && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-1 h-auto px-2 py-1 text-[11px] font-medium text-primary"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded
+            ? t('ioi.submission.detail.hideFull')
+            : t('ioi.submission.detail.showFull')}
+        </Button>
+      )}
     </div>
   );
 }

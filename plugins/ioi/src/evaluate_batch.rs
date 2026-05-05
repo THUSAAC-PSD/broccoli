@@ -232,8 +232,12 @@ fn insert_tc_result(
         score,
         time_used: outcome.time_used,
         memory_used: outcome.memory_used,
-        message: outcome.message.clone(),
-        stdout: outcome.stdout.clone(),
-        stderr: outcome.stderr.clone(),
+        message: sanitize_optional_text(outcome.message.as_deref()),
+        stdout: sanitize_optional_text(outcome.stdout.as_deref()),
+        stderr: sanitize_optional_text(outcome.stderr.as_deref()),
     }])
+}
+
+fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
+    value.map(|s| sanitize_text_field(s).into_owned())
 }

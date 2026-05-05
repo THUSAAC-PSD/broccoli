@@ -307,10 +307,14 @@ fn insert_tc_result(
         score,
         time_used: outcome.time_used,
         memory_used: outcome.memory_used,
-        message: outcome.message.clone(),
-        stdout: outcome.stdout.clone(),
-        stderr: outcome.stderr.clone(),
+        message: sanitize_optional_text(outcome.message.as_deref()),
+        stdout: sanitize_optional_text(outcome.stdout.as_deref()),
+        stderr: sanitize_optional_text(outcome.stderr.as_deref()),
     }])
+}
+
+fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
+    value.map(|s| sanitize_text_field(s).into_owned())
 }
 
 #[cfg(test)]
@@ -376,6 +380,31 @@ mod tests {
         // CE fills remaining with Skipped (not SystemError)
         assert_eq!(result.outcomes[1].verdict, Verdict::Skipped);
         assert!(host.eval.was_cancelled());
+    }
+
+    #[test]
+    fn test_case_result_text_replaces_nul_bytes() {
+        let host = Host::mock();
+        let tcs = vec![test_case(1)];
+        let req = test_submission(tcs.clone());
+        host.eval.queue_result(TestCaseVerdict {
+            test_case_id: 1,
+            verdict: Verdict::WrongAnswer,
+            score: 0.0,
+            time_used_ms: Some(10),
+            memory_used_kb: Some(256),
+            message: Some("bad\0message".into()),
+            stdout: Some("out\0put".into()),
+            stderr: Some("err\0or".into()),
+        });
+
+        evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
+
+        let rows = host.submission.results();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].message.as_deref(), Some("bad\u{FFFD}message"));
+        assert_eq!(rows[0].stdout.as_deref(), Some("out\u{FFFD}put"));
+        assert_eq!(rows[0].stderr.as_deref(), Some("err\u{FFFD}or"));
     }
 
     #[test]

@@ -169,101 +169,6 @@ fn auth_rate_limit_error_response(error: GovernorError) -> Response<Body> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::Router;
-    use axum::body::Body;
-    use axum::routing::post;
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn auth_governor_returns_429_with_retry_after_after_ten_posts() {
-        let mut builder = GovernorConfigBuilder::default();
-        builder
-            .period(AUTH_RATE_LIMIT_PERIOD)
-            .burst_size(AUTH_RATE_LIMIT_BURST)
-            .methods(vec![Method::POST]);
-        let mut builder = builder.key_extractor(ConfiguredClientIpKeyExtractor);
-
-        let app = Router::new()
-            .route("/login", post(|| async { StatusCode::UNAUTHORIZED }))
-            .layer(
-                tower_governor::GovernorLayer::new(Arc::new(
-                    builder.finish().expect("valid auth rate-limit quota"),
-                ))
-                .error_handler(auth_rate_limit_error_response),
-            );
-
-        for _ in 0..10 {
-            let mut request = Request::builder()
-                .method(Method::POST)
-                .uri("/login")
-                .body(Body::empty())
-                .unwrap();
-            request.extensions_mut().insert(ConnectInfo(
-                "203.0.113.10:12345".parse::<SocketAddr>().unwrap(),
-            ));
-
-            let response = app.clone().oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        }
-
-        let mut request = Request::builder()
-            .method(Method::POST)
-            .uri("/login")
-            .body(Body::empty())
-            .unwrap();
-        request.extensions_mut().insert(ConnectInfo(
-            "203.0.113.10:12345".parse::<SocketAddr>().unwrap(),
-        ));
-
-        let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(response.headers().contains_key(header::RETRY_AFTER));
-    }
-
-    #[test]
-    fn configured_client_ip_extractor_uses_trusted_proxy_source() {
-        let mut request = Request::builder()
-            .uri("/")
-            .header("x-forwarded-for", "198.51.100.8, 203.0.113.9")
-            .body(Body::empty())
-            .unwrap();
-        request
-            .extensions_mut()
-            .insert(ClientIpSource::RightmostXForwardedFor);
-        request.extensions_mut().insert(ConnectInfo(
-            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
-        ));
-
-        assert_eq!(
-            ConfiguredClientIpKeyExtractor.extract(&request).unwrap(),
-            "203.0.113.9".parse::<IpAddr>().unwrap()
-        );
-    }
-
-    #[test]
-    fn configured_client_ip_extractor_rejects_malformed_rightmost_forwarded_for() {
-        let mut request = Request::builder()
-            .uri("/")
-            .header("x-forwarded-for", "198.51.100.8, not-an-ip")
-            .body(Body::empty())
-            .unwrap();
-        request
-            .extensions_mut()
-            .insert(ClientIpSource::RightmostXForwardedFor);
-        request.extensions_mut().insert(ConnectInfo(
-            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
-        ));
-
-        assert!(matches!(
-            ConfiguredClientIpKeyExtractor.extract(&request),
-            Err(GovernorError::UnableToExtractKey)
-        ));
-    }
-}
-
 fn user_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::user::list_users))
@@ -596,4 +501,99 @@ fn dlq_routes() -> OpenApiRouter<AppState> {
             handlers::dlq::delete_dlq_message,
         ))
         .routes(routes!(handlers::dlq::retry_dlq_message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::Router;
+    use axum::body::Body;
+    use axum::routing::post;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn auth_governor_returns_429_with_retry_after_after_ten_posts() {
+        let mut builder = GovernorConfigBuilder::default();
+        builder
+            .period(AUTH_RATE_LIMIT_PERIOD)
+            .burst_size(AUTH_RATE_LIMIT_BURST)
+            .methods(vec![Method::POST]);
+        let mut builder = builder.key_extractor(ConfiguredClientIpKeyExtractor);
+
+        let app = Router::new()
+            .route("/login", post(|| async { StatusCode::UNAUTHORIZED }))
+            .layer(
+                tower_governor::GovernorLayer::new(Arc::new(
+                    builder.finish().expect("valid auth rate-limit quota"),
+                ))
+                .error_handler(auth_rate_limit_error_response),
+            );
+
+        for _ in 0..10 {
+            let mut request = Request::builder()
+                .method(Method::POST)
+                .uri("/login")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(ConnectInfo(
+                "203.0.113.10:12345".parse::<SocketAddr>().unwrap(),
+            ));
+
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            "203.0.113.10:12345".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key(header::RETRY_AFTER));
+    }
+
+    #[test]
+    fn configured_client_ip_extractor_uses_trusted_proxy_source() {
+        let mut request = Request::builder()
+            .uri("/")
+            .header("x-forwarded-for", "198.51.100.8, 203.0.113.9")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ClientIpSource::RightmostXForwardedFor);
+        request.extensions_mut().insert(ConnectInfo(
+            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
+        ));
+
+        assert_eq!(
+            ConfiguredClientIpKeyExtractor.extract(&request).unwrap(),
+            "203.0.113.9".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn configured_client_ip_extractor_rejects_malformed_rightmost_forwarded_for() {
+        let mut request = Request::builder()
+            .uri("/")
+            .header("x-forwarded-for", "198.51.100.8, not-an-ip")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ClientIpSource::RightmostXForwardedFor);
+        request.extensions_mut().insert(ConnectInfo(
+            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
+        ));
+
+        assert!(matches!(
+            ConfiguredClientIpKeyExtractor.extract(&request),
+            Err(GovernorError::UnableToExtractKey)
+        ));
+    }
 }
