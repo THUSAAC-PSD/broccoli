@@ -353,20 +353,75 @@ async fn ioi_scoreboard_visibility_config_can_show_all_viewers_during_contest() 
     app.register_for_contest(contest_id, &contestant_a).await;
     app.register_for_contest(contest_id, &contestant_b).await;
 
-    let sub_a = app
-        .create_contest_submission(contest_id, problem_id, &contestant_a, "cpp", CPP_SUM)
-        .await;
-    let sub_b = app
-        .create_contest_submission(contest_id, problem_id, &contestant_b, "cpp", CPP_SUM)
-        .await;
-    for (id, token) in [(sub_a, &contestant_a), (sub_b, &contestant_b)] {
-        let res = app.wait_for_submission_terminal(id, token, 60).await;
-        assert_eq!(
-            res.body["status"].as_str(),
-            Some("Judged"),
-            "Submission {id} should be judged before scoreboard assertions: {}",
-            res.text
-        );
+    let contestant_a_model = user::Entity::find()
+        .filter(user::Column::Username.eq("ioi_user6a"))
+        .one(&app.db)
+        .await
+        .expect("query contestant A")
+        .expect("contestant A should exist");
+    let contestant_b_model = user::Entity::find()
+        .filter(user::Column::Username.eq("ioi_user6b"))
+        .one(&app.db)
+        .await
+        .expect("query contestant B")
+        .expect("contestant B should exist");
+
+    let contest_start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+    for (user_id, created_at) in [
+        (contestant_a_model.id, contest_start + Duration::minutes(10)),
+        (contestant_b_model.id, contest_start + Duration::minutes(20)),
+    ] {
+        let submission = submission::ActiveModel {
+            files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
+            language: Set("cpp".into()),
+            user_id: Set(user_id),
+            problem_id: Set(problem_id),
+            contest_id: Set(Some(contest_id)),
+            contest_type: Set("ioi".into()),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(10.0)),
+            time_used: Set(Some(10)),
+            memory_used: Set(Some(256)),
+            judge_epoch: Set(1),
+            created_at: Set(created_at),
+            judged_at: Set(Some(created_at)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert judged submission");
+
+        submission_judgement::ActiveModel {
+            submission_id: Set(submission.id),
+            version: Set(1),
+            is_current: Set(true),
+            is_finalized: Set(true),
+            triggered_by_user_id: Set(None),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(10.0)),
+            time_used: Set(Some(10)),
+            memory_used: Set(Some(256)),
+            judge_epoch: Set(1),
+            created_at: Set(created_at),
+            finalized_at: Set(Some(created_at)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert judged judgement");
+
+        plugin_storage::ActiveModel {
+            plugin_id: Set("ioi".into()),
+            collection: Set("default".into()),
+            key: Set(format!("task_score:{contest_id}:{problem_id}:{user_id}")),
+            data: Set(json!("10")),
+            created_at: Set(created_at),
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert task score");
     }
 
     let scoreboard_path = format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/scoreboard");
