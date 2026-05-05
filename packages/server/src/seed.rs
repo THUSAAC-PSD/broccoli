@@ -273,7 +273,7 @@ pub async fn ensure_indexes(db: &DatabaseConnection) -> Result<(), DbErr> {
         .name("idx_submission_judgement_one_current")
         .table(submission_judgement::Entity)
         .col(submission_judgement::Column::SubmissionId)
-        .and_where(Expr::col(submission_judgement::Column::IsCurrent).into())
+        .and_where(Expr::col(submission_judgement::Column::IsCurrent))
         .to_string(PostgresQueryBuilder);
     let result = db.execute_unprepared(&stmt).await;
     match result {

@@ -1,8 +1,8 @@
-use chrono::Utc;
+use chrono::{Duration, TimeZone, Utc};
 use common::{SubmissionStatus, Verdict};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::json;
-use server::entity::{submission, submission_judgement, test_case_result, user};
+use server::entity::{plugin_storage, submission, submission_judgement, test_case_result, user};
 
 use crate::{common::E2eTestApp, judging::CPP_SUM};
 
@@ -463,5 +463,124 @@ async fn ioi_scoreboard_visibility_config_can_show_all_viewers_during_contest() 
         Some(10.0),
         "Configured live scoreboard should expose contestant B's per-problem score: {}",
         visible_res.text
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ioi_scoreboard_uses_time_taken_as_score_tiebreaker() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("ioi_time_admin", "password", "admin")
+        .await;
+    let slow_token = app
+        .create_authenticated_user("ioi_time_a_slow", "password")
+        .await;
+    let fast_token = app
+        .create_authenticated_user("ioi_time_z_fast", "password")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "IOI Time Tie Problem").await;
+    app.create_test_case(problem_id, &admin).await;
+
+    let contest_id = app
+        .create_typed_contest(&admin, "IOI Time Tie Contest", "ioi", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &slow_token).await;
+    app.register_for_contest(contest_id, &fast_token).await;
+
+    let slow_user = user::Entity::find()
+        .filter(user::Column::Username.eq("ioi_time_a_slow"))
+        .one(&app.db)
+        .await
+        .expect("query slow user")
+        .expect("slow user should exist");
+    let fast_user = user::Entity::find()
+        .filter(user::Column::Username.eq("ioi_time_z_fast"))
+        .one(&app.db)
+        .await
+        .expect("query fast user")
+        .expect("fast user should exist");
+
+    let contest_start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+    for (user_id, created_at) in [
+        (slow_user.id, contest_start + Duration::minutes(60)),
+        (fast_user.id, contest_start + Duration::minutes(10)),
+    ] {
+        let submission = submission::ActiveModel {
+            files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
+            language: Set("cpp".into()),
+            user_id: Set(user_id),
+            problem_id: Set(problem_id),
+            contest_id: Set(Some(contest_id)),
+            contest_type: Set("ioi".into()),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(10.0)),
+            time_used: Set(Some(10)),
+            memory_used: Set(Some(256)),
+            judge_epoch: Set(1),
+            created_at: Set(created_at),
+            judged_at: Set(Some(created_at)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert judged submission");
+
+        submission_judgement::ActiveModel {
+            submission_id: Set(submission.id),
+            version: Set(1),
+            is_current: Set(true),
+            is_finalized: Set(true),
+            triggered_by_user_id: Set(None),
+            status: Set(SubmissionStatus::Judged),
+            verdict: Set(Some(Verdict::Accepted)),
+            score: Set(Some(10.0)),
+            time_used: Set(Some(10)),
+            memory_used: Set(Some(256)),
+            judge_epoch: Set(1),
+            created_at: Set(created_at),
+            finalized_at: Set(Some(created_at)),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert judged judgement");
+
+        plugin_storage::ActiveModel {
+            plugin_id: Set("ioi".into()),
+            collection: Set("default".into()),
+            key: Set(format!("task_score:{contest_id}:{problem_id}:{user_id}")),
+            data: Set(json!("10")),
+            created_at: Set(created_at),
+        }
+        .insert(&app.db)
+        .await
+        .expect("insert task score");
+    }
+
+    let scoreboard_path = format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/scoreboard");
+    let res = app.get_with_token(&scoreboard_path, &admin).await;
+    assert_eq!(res.status, 200, "Scoreboard request failed: {}", res.text);
+
+    let rows = res.body["rankings"].as_array().expect("rankings array");
+    let first = rows
+        .iter()
+        .find(|row| row["username"].as_str() == Some("ioi_time_z_fast"))
+        .expect("fast row should be present");
+    let second = rows
+        .iter()
+        .find(|row| row["username"].as_str() == Some("ioi_time_a_slow"))
+        .expect("slow row should be present");
+    assert_eq!(first["rank"].as_u64(), Some(1), "fast row: {first}");
+    assert_eq!(second["rank"].as_u64(), Some(2), "slow row: {second}");
+    assert_eq!(first["total_time_seconds"].as_i64(), Some(600), "{first}");
+    assert_eq!(
+        second["total_time_seconds"].as_i64(),
+        Some(3600),
+        "{second}"
     );
 }

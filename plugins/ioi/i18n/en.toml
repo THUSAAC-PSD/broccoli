@@ -24,6 +24,7 @@
 'ioi.scoreboard.fullLiveVisible' = 'Full live standings are visible during this contest.'
 'ioi.scoreboard.header.rank' = '#'
 'ioi.scoreboard.header.user' = 'User'
+'ioi.scoreboard.header.time' = 'Time'
 'ioi.scoreboard.header.total' = 'Total'
 'ioi.scoreboard.phaseChange.ended' = 'Contest has ended. Final results are now visible.'
 'ioi.scoreboard.phaseChange.started' = 'Contest has started!'

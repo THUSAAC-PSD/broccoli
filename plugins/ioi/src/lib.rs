@@ -22,6 +22,8 @@ use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
 use crate::subtasks::{build_default_subtasks, score_all_subtasks};
 use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
 
+const SCORE_EPSILON: f64 = 1e-9;
+
 fn full_scoreboard_visible_for_phase(
     phase: &str,
     can_view_all: bool,
@@ -66,6 +68,22 @@ struct TcMaxScore {
 struct SubmissionScore {
     #[allow(dead_code)]
     id: i32,
+    score: f64,
+}
+
+#[derive(Deserialize)]
+struct ScoreTimeRow {
+    elapsed_seconds: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct SubmissionElapsedRow {
+    id: i32,
+    elapsed_seconds: i64,
+}
+
+#[derive(Deserialize)]
+struct StoredSubtaskScore {
     score: f64,
 }
 
@@ -567,6 +585,195 @@ fn load_token_state(host: &Host, contest_id: i32, user_id: i32) -> Result<TokenS
 }
 
 #[cfg(target_arch = "wasm32")]
+fn earliest_submission_reaching_score_seconds(
+    host: &Host,
+    contest_id: i32,
+    problem_id: i32,
+    user_id: i32,
+    score: f64,
+    allowed_submission_ids: Option<&[i32]>,
+) -> Result<i64, SdkError> {
+    if score <= 0.0 {
+        return Ok(0);
+    }
+    if matches!(allowed_submission_ids, Some(ids) if ids.is_empty()) {
+        return Ok(0);
+    }
+
+    let mut p = Params::new();
+    let id_filter = allowed_submission_ids
+        .map(|ids| {
+            ids.iter()
+                .map(|id| p.bind(*id))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .map(|ids| format!(" AND s.id IN ({ids})"))
+        .unwrap_or_default();
+    let sql = format!(
+        "SELECT GREATEST(EXTRACT(EPOCH FROM (MIN(s.created_at) - c.start_time))::bigint, 0) \
+         as elapsed_seconds \
+         FROM submission s \
+         JOIN contest c ON c.id = s.contest_id \
+         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
+         AND s.score IS NOT NULL AND s.score >= {}{} \
+         GROUP BY c.start_time",
+        p.bind(user_id),
+        p.bind(problem_id),
+        p.bind(contest_id),
+        p.bind(score - SCORE_EPSILON),
+        id_filter,
+    );
+
+    Ok(host
+        .db
+        .query_one_with_args::<ScoreTimeRow>(&sql, &p.into_args())?
+        .and_then(|r| r.elapsed_seconds)
+        .unwrap_or(0))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn sum_best_subtask_score_time_seconds(
+    host: &Host,
+    contest_id: i32,
+    problem_id: i32,
+    user_id: i32,
+    score: f64,
+) -> Result<i64, SdkError> {
+    let mut p = Params::new();
+    let sql = format!(
+        "SELECT s.id, GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
+         as elapsed_seconds \
+         FROM submission s \
+         JOIN contest c ON c.id = s.contest_id \
+         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
+         AND s.score IS NOT NULL \
+         ORDER BY s.created_at ASC",
+        p.bind(user_id),
+        p.bind(problem_id),
+        p.bind(contest_id),
+    );
+    let submissions: Vec<SubmissionElapsedRow> = host.db.query_with_args(&sql, &p.into_args())?;
+    if submissions.is_empty() {
+        return Ok(0);
+    }
+
+    let keys: Vec<String> = submissions
+        .iter()
+        .map(|s| format!("subtask_scores:{}:{problem_id}", s.id))
+        .collect();
+    let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
+    let stored = host.storage.get(&key_refs)?;
+
+    let mut best_by_subtask: Vec<(f64, Option<i64>)> = Vec::new();
+    for submission in &submissions {
+        let key = format!("subtask_scores:{}:{problem_id}", submission.id);
+        let Some(raw) = stored.get(&key) else {
+            continue;
+        };
+        let scores: Vec<StoredSubtaskScore> = serde_json::from_str(raw).unwrap_or_default();
+        for (idx, subtask) in scores.iter().enumerate() {
+            if best_by_subtask.len() <= idx {
+                best_by_subtask.resize(idx + 1, (0.0, None));
+            }
+            let (best_score, best_time) = &mut best_by_subtask[idx];
+            if subtask.score > *best_score + SCORE_EPSILON {
+                *best_score = subtask.score;
+                *best_time = Some(submission.elapsed_seconds);
+            } else if (subtask.score - *best_score).abs() < SCORE_EPSILON
+                && subtask.score > 0.0
+                && best_time
+                    .map(|elapsed| submission.elapsed_seconds < elapsed)
+                    .unwrap_or(true)
+            {
+                *best_time = Some(submission.elapsed_seconds);
+            }
+        }
+    }
+
+    let total = best_by_subtask
+        .iter()
+        .filter(|(score, _)| *score > 0.0)
+        .filter_map(|(_, elapsed)| *elapsed)
+        .max()
+        .unwrap_or(0);
+    if total > 0 {
+        Ok(total)
+    } else {
+        earliest_submission_reaching_score_seconds(
+            host, contest_id, problem_id, user_id, score, None,
+        )
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn best_tokened_or_last_score_time_seconds(
+    host: &Host,
+    contest_id: i32,
+    problem_id: i32,
+    user_id: i32,
+    score: f64,
+) -> Result<i64, SdkError> {
+    if score <= 0.0 {
+        return Ok(0);
+    }
+
+    let token_state = load_token_state(host, contest_id, user_id)?;
+    let mut eligible_ids = token_state.tokened_submission_ids;
+
+    let mut p = Params::new();
+    let sql = format!(
+        "SELECT id, score FROM submission \
+         WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
+         ORDER BY created_at DESC LIMIT 1",
+        p.bind(user_id),
+        p.bind(problem_id),
+        p.bind(contest_id)
+    );
+    if let Some(last) = host
+        .db
+        .query_one_with_args::<SubmissionScore>(&sql, &p.into_args())?
+    {
+        if last.score >= score - SCORE_EPSILON {
+            eligible_ids.push(last.id);
+        }
+    }
+    eligible_ids.sort_unstable();
+    eligible_ids.dedup();
+
+    earliest_submission_reaching_score_seconds(
+        host,
+        contest_id,
+        problem_id,
+        user_id,
+        score,
+        Some(&eligible_ids),
+    )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn official_score_time_seconds(
+    host: &Host,
+    config: &ContestConfig,
+    contest_id: i32,
+    problem_id: i32,
+    user_id: i32,
+    score: f64,
+) -> Result<i64, SdkError> {
+    match config.scoring_mode {
+        ScoringMode::MaxSubmission => earliest_submission_reaching_score_seconds(
+            host, contest_id, problem_id, user_id, score, None,
+        ),
+        ScoringMode::SumBestSubtask => {
+            sum_best_subtask_score_time_seconds(host, contest_id, problem_id, user_id, score)
+        }
+        ScoringMode::BestTokenedOrLast => {
+            best_tokened_or_last_score_time_seconds(host, contest_id, problem_id, user_id, score)
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 #[plugin_fn]
 pub fn api_use_token(input: String) -> FnResult<String> {
     run_api_handler(&input, handle_use_token)
@@ -1049,6 +1256,7 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
         user_id: i32,
         username: String,
         total_score: f64,
+        total_time_seconds: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         problems: Option<Vec<ProblemScore>>,
     }
@@ -1081,6 +1289,7 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
 
     for participant in &visible_participants {
         let mut total = 0.0;
+        let mut total_time_seconds = 0;
         let mut prob_scores = Vec::new();
 
         for &pid in &problem_ids {
@@ -1090,6 +1299,14 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
             total += score;
+            total_time_seconds += official_score_time_seconds(
+                host,
+                &contest_config,
+                contest_id,
+                pid,
+                participant.user_id,
+                score,
+            )?;
             prob_scores.push(ProblemScore {
                 problem_id: pid,
                 score: round_score(score),
@@ -1106,20 +1323,25 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
             user_id: participant.user_id,
             username: participant.username.clone(),
             total_score: round_score(total),
+            total_time_seconds,
             problems,
         });
     }
 
-    // Sort: total desc, then username asc for tiebreaker
+    // Sort: total desc, then faster accumulated score time, then username asc.
     entries.sort_by(|a, b| {
         b.total_score
             .partial_cmp(&a.total_score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.total_time_seconds.cmp(&b.total_time_seconds))
             .then_with(|| a.username.cmp(&b.username))
     });
 
     for i in 0..entries.len() {
-        if i > 0 && (entries[i].total_score - entries[i - 1].total_score).abs() < 1e-9 {
+        if i > 0
+            && (entries[i].total_score - entries[i - 1].total_score).abs() < SCORE_EPSILON
+            && entries[i].total_time_seconds == entries[i - 1].total_time_seconds
+        {
             entries[i].rank = entries[i - 1].rank;
         } else {
             entries[i].rank = i + 1;

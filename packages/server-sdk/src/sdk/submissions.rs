@@ -69,7 +69,10 @@ impl Submissions {
                 &update.error_message,
             );
             if !jsets.is_empty() {
-                let mut judgement_sets = jsets;
+                let mut judgement_sets: Vec<String> = jsets
+                    .into_iter()
+                    .filter(|set| set != "judged_at = NOW()")
+                    .collect();
                 let is_terminal_marker = match update.status {
                     Some(SubmissionStatus::Judged) | Some(SubmissionStatus::CompilationError) => {
                         true

@@ -24,6 +24,7 @@
 'ioi.scoreboard.fullLiveVisible' = '本场比赛期间显示完整的实时排名。'
 'ioi.scoreboard.header.rank' = '#'
 'ioi.scoreboard.header.user' = '用户'
+'ioi.scoreboard.header.time' = '用时'
 'ioi.scoreboard.header.total' = '总分'
 'ioi.scoreboard.phaseChange.ended' = '比赛已结束。最终结果现已可见。'
 'ioi.scoreboard.phaseChange.started' = '比赛已开始！'
