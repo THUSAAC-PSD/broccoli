@@ -58,6 +58,7 @@ export interface ScoreboardEntry {
   user_id: number;
   username: string;
   total_score: number;
+  total_time_seconds: number;
   problems?: ScoreboardProblemScore[];
 }
 

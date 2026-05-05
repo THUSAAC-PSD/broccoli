@@ -31,6 +31,16 @@ function scoreBorderColor(score: number, maxPossible: number): string {
   return 'transparent';
 }
 
+function formatElapsedTime(seconds: number): string {
+  const totalMinutes = Math.floor(Math.max(0, seconds) / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+  }
+  return `${totalMinutes}m`;
+}
+
 function PhaseBar({ phase }: { phase: string }) {
   const { t } = useTranslation();
   return (
@@ -322,6 +332,12 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
                   className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
                   style={{ width: 90 }}
                 >
+                  {t('ioi.scoreboard.header.time')}
+                </th>
+                <th
+                  className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
+                  style={{ width: 90 }}
+                >
                   {t('ioi.scoreboard.header.total')}
                 </th>
               </tr>
@@ -381,6 +397,9 @@ function RankRow({
         const max = maxPerProblem[pid] ?? 100;
         return <ScoreCell key={pid} score={score} max={max} />;
       })}
+      <td className="py-1.5 px-3 text-center font-mono tabular-nums text-[13px] border-b border-border text-muted-foreground whitespace-nowrap">
+        {formatElapsedTime(entry.total_time_seconds)}
+      </td>
       <td
         className="py-1.5 px-3 text-center font-bold font-mono tabular-nums border-b border-border"
         style={{ background: scoreColor(entry.total_score, maxTotal) }}
