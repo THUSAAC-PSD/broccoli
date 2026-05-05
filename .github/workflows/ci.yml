@@ -50,6 +50,8 @@ jobs:
 
       - name: Test
         timeout-minutes: 45
+        env:
+          E2E_SANDBOX_BACKEND: mock
         run: cargo test --workspace --locked -- --test-threads=4
 
       - name: Documentation
