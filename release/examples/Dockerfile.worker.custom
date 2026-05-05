@@ -1,0 +1,7 @@
+ARG BROCCOLI_VERSION=v0.3.0
+FROM ghcr.io/thusaac-psd/broccoli/broccoli-worker:${BROCCOLI_VERSION}-base
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends fp-compiler kotlin && \
+    rm -rf /var/lib/apt/lists/*

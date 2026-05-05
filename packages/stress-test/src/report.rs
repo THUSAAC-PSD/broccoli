@@ -158,6 +158,7 @@ fn load_json(l: Option<&LoadSummary>) -> Value {
             "p95_budget_ms": l.p95_budget_ms,
             "passed_budget": l.passed_budget,
             "error_count": l.error_count,
+            "error_samples": l.error_samples,
             "passed_overall": l.passed_overall,
         }),
     }

@@ -30,6 +30,10 @@ x-worker-common: &worker-common
       condition: service_healthy
     redis:
       condition: service_healthy
+    seaweedfs:
+      condition: service_healthy
+    seaweedfs-init:
+      condition: service_completed_successfully
   environment: &worker-env
     BROCCOLI__DATABASE__URL: "postgres://postgres:password@db:5432/broccoli"
     BROCCOLI__MQ__URL: "redis://redis:6379"
@@ -37,7 +41,13 @@ x-worker-common: &worker-common
     BROCCOLI__WORKER__SANDBOX_BACKEND: "isolate"
     BROCCOLI__WORKER__ISOLATE_BIN: "isolate"
     BROCCOLI__WORKER__ENABLE_CGROUPS: "true"
-    BROCCOLI__STORAGE__BACKEND: "database"
+    BROCCOLI__STORAGE__BACKEND: "object_storage"
+    BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET: "broccoli-blobs"
+    BROCCOLI__STORAGE__OBJECT_STORAGE__REGION: "us-east-1"
+    BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT: "http://seaweedfs:8333"
+    BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY: "broccoli_s3_access"
+    BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY: "broccoli_s3_secret"
+    BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE: "true"
     BROCCOLI__STORAGE__DATA_DIR: "/data"
     RUST_LOG: "info"
   restart: unless-stopped
@@ -69,6 +79,40 @@ services:
       timeout: 3s
       retries: 10
 
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.15
+    command:
+      [
+        "server",
+        "-dir=/data",
+        "-s3",
+        "-s3.config=/etc/seaweedfs/s3.json",
+        "-ip=seaweedfs",
+      ]
+    ports:
+      - "127.0.0.1:9333:9333"
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - e2e_seaweed_data:/data
+      - ./config/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.15
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      [
+        "printf 's3.bucket.create -name broccoli-blobs\\n' | weed shell -master=seaweedfs:9333 -filer=seaweedfs:8888",
+      ]
+    restart: "no"
+
   server:
     build:
       context: .
@@ -80,6 +124,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
     environment:
       BROCCOLI__SERVER__HOST: "0.0.0.0"
       BROCCOLI__SERVER__PORT: "3000"
@@ -88,13 +136,19 @@ services:
       BROCCOLI__MQ__ENABLED: "true"
       BROCCOLI__AUTH__JWT_SECRET: "e2e-docker-jwt-secret"
       BROCCOLI__PLUGIN__PLUGINS_DIR: "/plugins"
-      BROCCOLI__STORAGE__BACKEND: "database"
+      BROCCOLI__STORAGE__BACKEND: "object_storage"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET: "broccoli-blobs"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__REGION: "us-east-1"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT: "http://seaweedfs:8333"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY: "broccoli_s3_access"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY: "broccoli_s3_secret"
+      BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE: "true"
       BROCCOLI__SUBMISSION__RATE_LIMIT_PER_MINUTE: "10000"
       RUST_LOG: "info"
     volumes:
       - ./plugins:/plugins:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/api-docs/openapi.json > /dev/null || exit 1"]
+      test: ["CMD", "/usr/local/bin/broccoli-server", "--healthcheck"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -121,3 +175,4 @@ services:
 
 volumes:
   e2e_pg_data:
+  e2e_seaweed_data:

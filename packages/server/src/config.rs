@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
 use config::{Config, ConfigError, Environment, File};
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, SeqAccess, Visitor},
+};
 use tracing::{info, warn};
 
 pub use common::config::MqAppConfig;
@@ -10,14 +13,21 @@ pub use common::storage::config::BlobStoreConfig;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
     pub url: String,
+    #[serde(default = "default_database_max_connections")]
+    pub max_connections: u32,
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: "postgres://postgres:password@localhost:5432/broccoli".into(),
+            max_connections: default_database_max_connections(),
         }
     }
+}
+
+fn default_database_max_connections() -> u32 {
+    100
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -37,7 +47,7 @@ pub struct ServerConfig {
     pub frontend_dist: PathBuf,
     /// CIDR ranges for trusted L7 proxies. Empty means no proxy headers are
     /// trusted and client IP extraction falls back to the socket address.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_string_vec")]
     pub trusted_proxies: Vec<String>,
     /// Enables IP-based throttling on `/api/v1/auth/login`.
     #[serde(default)]
@@ -53,6 +63,67 @@ pub struct ServerConfig {
 
 fn default_frontend_dist() -> PathBuf {
     PathBuf::from("/srv/dist")
+}
+
+fn parse_string_vec(value: &str) -> Result<Vec<String>, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "[]" {
+        return Ok(Vec::new());
+    }
+
+    if trimmed.starts_with('[') {
+        return serde_json::from_str::<Vec<String>>(trimmed)
+            .map_err(|err| format!("invalid JSON string array: {err}"));
+    }
+
+    Ok(trimmed
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+fn deserialize_string_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct StringVecVisitor;
+
+    impl<'de> Visitor<'de> for StringVecVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a string, comma-separated string, JSON string array, or sequence")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            parse_string_vec(value).map_err(E::custom)
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = Vec::new();
+            while let Some(value) = seq.next_element::<String>()? {
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_any(StringVecVisitor)
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -81,6 +152,14 @@ impl Default for SubmissionConfig {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct BootstrapConfig {
+    #[serde(default)]
+    pub admin_username: String,
+    #[serde(default)]
+    pub admin_password: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
@@ -97,6 +176,8 @@ pub struct AppConfig {
     pub observability: common::config::ObservabilityConfig,
     #[serde(default = "default_batch_max_age_secs")]
     pub batch_max_age_secs: u64,
+    #[serde(default)]
+    pub bootstrap: BootstrapConfig,
 }
 
 fn default_batch_max_age_secs() -> u64 {
@@ -197,6 +278,13 @@ impl AppConfig {
             .set_default("server.id", "")?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
+            .set_default(
+                "database.url",
+                "postgres://postgres:password@localhost:5432/broccoli",
+            )?
+            .set_default("database.max_connections", 100_i64)?
+            .set_default("bootstrap.admin_username", "")?
+            .set_default("bootstrap.admin_password", "")?
             .set_default("auth.secure_cookies", true)?
             .set_default("plugin.plugins_dir", "./plugins")?
             .set_default("plugin.enable_wasi", true)?
@@ -212,7 +300,11 @@ impl AppConfig {
             .set_default("observability.log_filter", "info")?
             .set_default("observability.otlp.service_name", "broccoli-server")?
             .add_source(File::with_name("config/config").required(false))
-            .add_source(Environment::with_prefix("BROCCOLI").separator("__"))
+            .add_source(
+                Environment::with_prefix("BROCCOLI")
+                    .separator("__")
+                    .try_parsing(true),
+            )
             .build()?;
 
         s.try_deserialize()
@@ -273,5 +365,45 @@ mod tests {
             per_replica_result_queue_name("operation_results", "server-1"),
             "operation_results.server-1"
         );
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct TrustedProxyProbe {
+        #[serde(default, deserialize_with = "deserialize_string_vec")]
+        trusted_proxies: Vec<String>,
+    }
+
+    #[test]
+    fn trusted_proxy_env_style_string_accepts_empty_json_array() {
+        let probe: TrustedProxyProbe =
+            serde_json::from_value(serde_json::json!({ "trusted_proxies": "[]" })).unwrap();
+        assert!(probe.trusted_proxies.is_empty());
+    }
+
+    #[test]
+    fn trusted_proxy_env_style_string_accepts_json_array() {
+        let probe: TrustedProxyProbe = serde_json::from_value(serde_json::json!({
+            "trusted_proxies": "[\"10.0.0.0/8\", \"192.168.0.0/16\"]"
+        }))
+        .unwrap();
+        assert_eq!(probe.trusted_proxies, vec!["10.0.0.0/8", "192.168.0.0/16"]);
+    }
+
+    #[test]
+    fn trusted_proxy_env_style_string_accepts_comma_list() {
+        let probe: TrustedProxyProbe = serde_json::from_value(serde_json::json!({
+            "trusted_proxies": "10.0.0.0/8, 192.168.0.0/16"
+        }))
+        .unwrap();
+        assert_eq!(probe.trusted_proxies, vec!["10.0.0.0/8", "192.168.0.0/16"]);
+    }
+
+    #[test]
+    fn trusted_proxy_toml_style_sequence_still_works() {
+        let probe: TrustedProxyProbe = serde_json::from_value(serde_json::json!({
+            "trusted_proxies": ["10.0.0.0/8"]
+        }))
+        .unwrap();
+        assert_eq!(probe.trusted_proxies, vec!["10.0.0.0/8"]);
     }
 }

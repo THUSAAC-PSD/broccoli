@@ -8,16 +8,22 @@ use common::storage::config::DEFAULT_MAX_BLOB_SIZE_BYTES;
 pub struct DatabaseConfig {
     #[serde(default = "default_database_url")]
     pub url: String,
+    #[serde(default = "default_database_max_connections")]
+    pub max_connections: u32,
 }
 
 fn default_database_url() -> String {
     "postgres://localhost/broccoli".into()
+}
+fn default_database_max_connections() -> u32 {
+    5
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: default_database_url(),
+            max_connections: default_database_max_connections(),
         }
     }
 }
@@ -119,13 +125,18 @@ impl WorkerAppConfig {
             .set_default("observability.log_filter", "info")?
             .set_default("observability.otlp.service_name", "broccoli-worker")?
             .set_default("database.url", "postgres://localhost/broccoli")?
+            .set_default("database.max_connections", 5_i64)?
             .set_default("storage.backend", "database")?
             .set_default("storage.data_dir", "./data")?
             .set_default("storage.max_blob_size", DEFAULT_MAX_BLOB_SIZE_BYTES as i64)?
             .set_default("storage.cache_dir", "./data/cache")?
             .set_default("storage.max_cache_size", 512 * 1024 * 1024_i64)?
             .add_source(File::with_name(&config_path).required(false))
-            .add_source(Environment::with_prefix("BROCCOLI").separator("__"))
+            .add_source(
+                Environment::with_prefix("BROCCOLI")
+                    .separator("__")
+                    .try_parsing(true),
+            )
             .build()?;
 
         s.try_deserialize()

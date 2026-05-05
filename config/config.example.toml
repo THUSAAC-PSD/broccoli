@@ -44,6 +44,17 @@ jwt_secret = "generate-a-long-random-string-here"
 # Set to false when serving over plain HTTP (browsers drop Secure cookies on HTTP).
 secure_cookies = true
 
+[bootstrap]
+# Optional first-run admin bootstrap. Leave both empty for normal development.
+admin_username = ""
+admin_password = ""
+
+[submission]
+max_size = 1048576
+# Release bundles override this to a higher value for contest/stress-test
+# readiness. Keep development conservative by default.
+rate_limit_per_minute = 10
+
 [storage]
 backend = "database"  # Options: "filesystem", "database", "object_storage"
 data_dir = "./data"

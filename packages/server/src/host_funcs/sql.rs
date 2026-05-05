@@ -100,7 +100,30 @@ fn json_to_sea_value(v: JsonValue, plugin_id: &str, sql: &str) -> sea_orm::Value
             }
         }
         JsonValue::String(s) => sea_orm::Value::String(Some(sanitize_nul_bytes(s, plugin_id, sql))),
-        v => sea_orm::Value::Json(Some(Box::new(v))),
+        v => sea_orm::Value::Json(Some(Box::new(sanitize_json_nul_bytes(v, plugin_id, sql)))),
+    }
+}
+
+fn sanitize_json_nul_bytes(v: JsonValue, plugin_id: &str, sql: &str) -> JsonValue {
+    match v {
+        JsonValue::String(s) => JsonValue::String(sanitize_nul_bytes(s, plugin_id, sql)),
+        JsonValue::Array(values) => JsonValue::Array(
+            values
+                .into_iter()
+                .map(|value| sanitize_json_nul_bytes(value, plugin_id, sql))
+                .collect(),
+        ),
+        JsonValue::Object(map) => JsonValue::Object(
+            map.into_iter()
+                .map(|(key, value)| {
+                    (
+                        sanitize_nul_bytes(key, plugin_id, sql),
+                        sanitize_json_nul_bytes(value, plugin_id, sql),
+                    )
+                })
+                .collect(),
+        ),
+        other => other,
     }
 }
 
@@ -325,3 +348,40 @@ host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap)
         None => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
     }
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_args_sanitizes_top_level_nul_string() {
+        let values = parse_args(r#"["ok\u0000bad"]"#, "test-plugin", "select $1").unwrap();
+
+        match &values[0] {
+            sea_orm::Value::String(Some(value)) => {
+                assert_eq!(value, "ok\u{FFFD}bad");
+                assert!(!value.contains('\0'));
+            }
+            other => panic!("unexpected value: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_args_sanitizes_nested_json_nul_strings() {
+        let values = parse_args(
+            r#"[{"std\u0000out":"ok\u0000bad","nested":["x\u0000y"]}]"#,
+            "test-plugin",
+            "select $1",
+        )
+        .unwrap();
+
+        match &values[0] {
+            sea_orm::Value::Json(Some(value)) => {
+                assert_eq!(value["std\u{FFFD}out"], "ok\u{FFFD}bad");
+                assert_eq!(value["nested"][0], "x\u{FFFD}y");
+                assert!(!value.to_string().contains('\0'));
+            }
+            other => panic!("unexpected value: {other:?}"),
+        }
+    }
+}

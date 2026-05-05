@@ -1,77 +1,162 @@
-# Stage 1: Build the server binary
-FROM rust:bookworm AS builder
+# syntax=docker/dockerfile:1.7
+
+ARG RUST_IMAGE=rust:bookworm@sha256:adab7941580c74513aa3347f2d2a1f975498280743d29ec62978ba12e3540d3a
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:03eae3ef7e88a9de535496fb488d67e02b9d96a063a8967bae657744ecd513f2
+ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
+ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian12:nonroot@sha256:e2d29aec8061843706b7e484c444f78fafb05bfe47745505252b1769a05d14f1
+
+FROM ${RUST_IMAGE} AS chef
 
 ARG USE_CN_MIRRORS=false
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+WORKDIR /app
 
-# China mirrors for cargo (rsproxy.cn)
 RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
       mkdir -p /usr/local/cargo && \
-      printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/crates.io-index/"\n\n[registries.rsproxy-sparse]\nindex = "sparse+https://rsproxy.cn/crates.io-index/"\n' \
+      printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"\n' \
         > /usr/local/cargo/config.toml; \
     fi
 
-WORKDIR /build
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
+        RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
+    fi && \
+    cargo install cargo-chef --version 0.1.73 --locked
 
-# Copy workspace manifests for dependency caching
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-COPY packages/common/Cargo.toml packages/common/Cargo.toml
-COPY packages/mq/Cargo.toml packages/mq/Cargo.toml
-COPY packages/plugin-core/Cargo.toml packages/plugin-core/Cargo.toml
-COPY packages/server/Cargo.toml packages/server/Cargo.toml
-COPY packages/worker/Cargo.toml packages/worker/Cargo.toml
-COPY packages/server-sdk/Cargo.toml packages/server-sdk/Cargo.toml
-COPY packages/cli/Cargo.toml packages/cli/Cargo.toml
-COPY packages/stress-test/Cargo.toml packages/stress-test/Cargo.toml
+COPY . .
+RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
+        RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
+    fi && \
+    cargo chef prepare --recipe-path recipe.json
 
-# Create stub source files so cargo can resolve the workspace
-RUN mkdir -p packages/common/src && echo "" > packages/common/src/lib.rs \
-    && mkdir -p packages/mq/src && echo "" > packages/mq/src/lib.rs \
-    && mkdir -p packages/plugin-core/src && echo "" > packages/plugin-core/src/lib.rs \
-    && mkdir -p packages/server/src && echo "fn main() {}" > packages/server/src/main.rs \
-    && mkdir -p packages/worker/src && echo "fn main() {}" > packages/worker/src/main.rs \
-    && echo "" > packages/worker/src/lib.rs \
-    && mkdir -p packages/server-sdk/src && echo "" > packages/server-sdk/src/lib.rs \
-    && mkdir -p packages/cli/src && echo "fn main() {}" > packages/cli/src/main.rs \
-    && mkdir -p packages/stress-test/src && echo "fn main() {}" > packages/stress-test/src/main.rs
+FROM ${RUST_IMAGE} AS rust-builder
 
-# Pre-build dependencies (cached layer)
-RUN cargo build --release -p server 2>/dev/null || true
+ARG USE_CN_MIRRORS=false
+ARG SERVER_FEATURES=""
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+WORKDIR /app
 
-# Copy real source code
-COPY packages/common packages/common
-COPY packages/mq packages/mq
-COPY packages/plugin-core packages/plugin-core
-COPY packages/server packages/server
-COPY packages/worker packages/worker
-COPY packages/server-sdk packages/server-sdk
+RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      mkdir -p /usr/local/cargo && \
+      printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"\n' \
+        > /usr/local/cargo/config.toml; \
+    fi
 
-# Touch to invalidate stubs
-RUN find packages -name "*.rs" | xargs touch
+COPY --from=chef /usr/local/cargo/bin/cargo-chef /usr/local/cargo/bin/cargo-chef
+COPY --from=chef /app/recipe.json recipe.json
+COPY rust-toolchain.toml rust-toolchain.toml
 
-RUN cargo build --release -p server
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
+        RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
+    fi && \
+    if [ -n "$SERVER_FEATURES" ]; then \
+      cargo chef cook --release --locked --recipe-path recipe.json --package server --features "$SERVER_FEATURES"; \
+    else \
+      cargo chef cook --release --locked --recipe-path recipe.json --package server; \
+    fi
 
-# Stage 2: Minimal runtime
-FROM debian:bookworm-slim
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
+        RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
+    fi && \
+    if [ -n "$SERVER_FEATURES" ]; then \
+      cargo build --release --locked --package server --features "$SERVER_FEATURES"; \
+    else \
+      cargo build --release --locked --package server; \
+    fi && \
+    mkdir -p /out && \
+    cp target/release/server /out/broccoli-server && \
+    strip /out/broccoli-server
+
+FROM ${NODE_IMAGE} AS web-builder
+
+ARG USE_CN_MIRRORS=false
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    HUSKY=0
+WORKDIR /app
+
+RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      npm config set registry https://registry.npmmirror.com; \
+    fi && \
+    corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/web/package.json packages/web/package.json
+COPY packages/web-sdk/package.json packages/web-sdk/package.json
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    if [ "$USE_CN_MIRRORS" = "true" ]; then \
+      pnpm config set registry https://registry.npmmirror.com; \
+    fi && \
+    pnpm install --frozen-lockfile --ignore-scripts
+
+COPY packages/web packages/web
+COPY packages/web-sdk packages/web-sdk
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm --filter @broccoli/web-sdk build && \
+    pnpm --filter @broccoli/web build && \
+    mkdir -p /out/dist && \
+    cp -a packages/web/build/client/. /out/dist/
+
+FROM scratch AS plugin-stage
+COPY plugins /out/plugins
+
+FROM ${DEBIAN_IMAGE} AS tini-stage
 
 ARG USE_CN_MIRRORS=false
 
 RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
-      sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
-    fi
+      sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends tini=0.19.0-1+b3 && \
+    rm -rf /var/lib/apt/lists/*
 
-# Server needs minimal deps: TLS, postgres client libs (linked via rustls, but
-# extism WASM runtime may need libc components).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libgcc-s1 curl \
-    && rm -rf /var/lib/apt/lists/*
+FROM ${RUNTIME_IMAGE} AS runtime
 
-COPY --from=builder /build/target/release/server /usr/local/bin/broccoli-server
+ARG CREATED=unknown
+ARG REVISION=unknown
+ARG SOURCE=https://github.com/THUSAAC-PSD/broccoli
+ARG VERSION=dev
 
-# Plugins are mounted as a volume at runtime
-RUN mkdir -p /plugins /data
+LABEL org.opencontainers.image.title="Broccoli Server" \
+      org.opencontainers.image.description="Broccoli online judge server with baked frontend assets" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="${SOURCE}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="THUSAAC-PSD" \
+      org.opencontainers.image.documentation="https://github.com/THUSAAC-PSD/broccoli/blob/main/docs/build.md" \
+      org.opencontainers.image.created="${CREATED}"
 
-ENV RUST_LOG=info
+COPY --from=rust-builder --chown=65532:65532 /out/broccoli-server /usr/local/bin/broccoli-server
+COPY --from=web-builder --chown=65532:65532 /out/dist /srv/dist
+COPY --from=plugin-stage --chown=65532:65532 /out/plugins /plugins
+COPY --from=tini-stage --chown=65532:65532 /usr/bin/tini /usr/bin/tini
 
+ENV BROCCOLI__PLUGIN__PLUGINS_DIR=/plugins \
+    BROCCOLI__SERVER__FRONTEND_DIST=/srv/dist \
+    BROCCOLI__SERVER__HOST=0.0.0.0 \
+    BROCCOLI__SERVER__PORT=3000 \
+    RUST_LOG=info
+
+USER 65532:65532
 EXPOSE 3000
 
-CMD ["broccoli-server"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["/usr/local/bin/broccoli-server", "--healthcheck"]
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/broccoli-server"]

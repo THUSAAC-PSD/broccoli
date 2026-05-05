@@ -57,6 +57,10 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub skip_load: bool,
 
+    /// Run only the correctness phase. Alias for `--skip-load`.
+    #[arg(long, default_value_t = false)]
+    pub correctness_only: bool,
+
     #[arg(long, default_value_t = false)]
     pub keep_fixtures: bool,
 
@@ -82,9 +86,9 @@ impl Cli {
             );
         }
 
-        if self.skip_correctness && self.skip_load {
+        if self.skip_correctness && (self.skip_load || self.correctness_only) {
             return Err(
-                "--skip-correctness and --skip-load cannot both be set; the run would have nothing to do"
+                "--skip-correctness cannot be combined with --skip-load or --correctness-only; the run would have nothing to do"
                     .to_string(),
             );
         }

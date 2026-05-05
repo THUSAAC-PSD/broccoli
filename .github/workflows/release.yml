@@ -4,9 +4,12 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: write
+  packages: write
+  security-events: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -15,10 +18,48 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  ACR_NAMESPACE: broccoli
 
 jobs:
-  build:
-    name: Build ${{ matrix.platform }}
+  cargo-test:
+    name: Cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --workspace --locked
+
+  docker-lint:
+    name: Dockerfile lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.server
+          failure-threshold: warning
+
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.worker
+          failure-threshold: warning
+
+  build-stress-test:
+    name: Build stress-test ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -42,6 +83,8 @@ jobs:
             ext: ""
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain (mac universal)
         if: matrix.platform == 'macos-universal'
@@ -57,7 +100,7 @@ jobs:
           toolchain: nightly
           targets: ${{ matrix.target }}
 
-      - name: Install musl tools (linux)
+      - name: Install musl tools
         if: contains(matrix.target, 'musl')
         run: |
           sudo apt-get update
@@ -67,13 +110,14 @@ jobs:
         with:
           key: release-${{ matrix.platform }}
 
-      - name: Build (non-mac)
+      - name: Build
         if: matrix.platform != 'macos-universal'
+        shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: cargo build -p stress-test --release --locked --target "$TARGET"
 
-      - name: Build (mac, both arches + lipo)
+      - name: Build mac universal
         if: matrix.platform == 'macos-universal'
         run: |
           cargo build -p stress-test --release --locked --target x86_64-apple-darwin
@@ -90,19 +134,14 @@ jobs:
           TARGET: ${{ matrix.target }}
           PLATFORM: ${{ matrix.platform }}
           EXT: ${{ matrix.ext }}
-          RUNNER_OS_NAME: ${{ runner.os }}
         run: |
           mkdir -p staging
           src="target/${TARGET}/release/broccoli-stress-test${EXT}"
           dest="staging/broccoli-stress-test-${PLATFORM}${EXT}"
           cp "$src" "$dest"
-          if [[ "$RUNNER_OS_NAME" == "macOS" ]]; then
-            shasum -a 256 "$dest" > "$dest.sha256"
-          else
-            sha256sum "$dest" > "$dest.sha256"
-          fi
+          sha256sum "$dest" > "$dest.sha256" 2>/dev/null || shasum -a 256 "$dest" > "$dest.sha256"
 
-      - name: Smoke test (--version)
+      - name: Smoke test
         if: matrix.platform == 'linux-x86_64' || matrix.platform == 'macos-universal'
         shell: bash
         env:
@@ -117,13 +156,343 @@ jobs:
           name: stress-test-${{ matrix.platform }}
           path: staging/*
 
-  release:
-    name: Publish GitHub Release
-    needs: build
+  build-images:
+    name: Build image ${{ matrix.name }}
+    needs: [cargo-test, docker-lint, build-stress-test]
+    runs-on: ubuntu-latest
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            file: Dockerfile.server
+            target: runtime
+            image: broccoli-server
+            suffix: ""
+            server_features: bundled-stress-test
+          - name: worker-base
+            file: Dockerfile.worker
+            target: runtime-base
+            image: broccoli-worker
+            suffix: "-base"
+            server_features: ""
+          - name: worker-icpc
+            file: Dockerfile.worker
+            target: runtime-icpc
+            image: broccoli-worker
+            suffix: "-icpc"
+            server_features: ""
+          - name: worker-full
+            file: Dockerfile.worker
+            target: runtime-full
+            image: broccoli-worker
+            suffix: "-full"
+            server_features: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Prepare names
+        id: names
+        shell: bash
+        run: |
+          repo_lc="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "repo_lc=$repo_lc"
+            echo "tag=${{ github.ref_name }}${{ matrix.suffix }}"
+            echo "created=$(date -u +%FT%TZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain for plugin assets
+        if: matrix.name == 'server'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.name == 'server'
+        with:
+          key: release-plugin-assets
+
+      - uses: pnpm/action-setup@v4
+        if: matrix.name == 'server'
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        if: matrix.name == 'server'
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Build plugin assets
+        if: matrix.name == 'server'
+        run: ./scripts/build-plugins.sh
+
+      - uses: actions/download-artifact@v4
+        if: matrix.name == 'server'
+        with:
+          pattern: stress-test-*
+          path: stress-artifacts
+          merge-multiple: true
+
+      - name: Stage embedded stress-test downloads
+        if: matrix.name == 'server'
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          out_dir=packages/server/embedded/stress-test
+          mkdir -p "$out_dir"
+          cp stress-artifacts/broccoli-stress-test-linux-x86_64 "$out_dir/linux-x86_64"
+          cp stress-artifacts/broccoli-stress-test-linux-aarch64 "$out_dir/linux-aarch64"
+          cp stress-artifacts/broccoli-stress-test-windows-x86_64.exe "$out_dir/windows-x86_64.exe"
+          cp stress-artifacts/broccoli-stress-test-macos-universal "$out_dir/macos-universal"
+          python3 - <<'PY' > "$out_dir/manifest.json"
+          import hashlib, json, os, pathlib
+
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          base_url = f"https://github.com/{repo}/releases/download/{tag}"
+          files = {
+              "linux-x86_64": "linux-x86_64",
+              "linux-aarch64": "linux-aarch64",
+              "windows-x86_64": "windows-x86_64.exe",
+              "macos-universal": "macos-universal",
+          }
+          out_dir = pathlib.Path("packages/server/embedded/stress-test")
+          manifest = {
+              "version": tag.lstrip("v"),
+              "platforms": {},
+          }
+          for platform, local_name in files.items():
+              data = (out_dir / local_name).read_bytes()
+              release_name = f"broccoli-stress-test-{local_name}"
+              manifest["platforms"][platform] = {
+                  "url": f"{base_url}/{release_name}",
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "size_bytes": len(data),
+              }
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          build-args: |
+            CREATED=${{ steps.names.outputs.created }}
+            REVISION=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+            SERVER_FEATURES=${{ matrix.server_features }}
+          tags: |
+            ghcr.io/${{ steps.names.outputs.repo_lc }}/${{ matrix.image }}:${{ steps.names.outputs.tag }}
+            ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/${{ matrix.image }}:${{ steps.names.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.name }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.names.outputs.created }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+      - name: Trivy vulnerability scan linux/amd64
+        uses: aquasecurity/trivy-action@0.33.1
+        env:
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          image-ref: ghcr.io/${{ steps.names.outputs.repo_lc }}/${{ matrix.image }}:${{ steps.names.outputs.tag }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Trivy vulnerability scan linux/arm64
+        uses: aquasecurity/trivy-action@0.33.1
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ghcr.io/${{ steps.names.outputs.repo_lc }}/${{ matrix.image }}:${{ steps.names.outputs.tag }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+  build-bundle:
+    name: Build platform bundle
+    needs: [build-images, build-stress-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: stress-test-linux-x86_64
+          path: stress-artifacts
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-bundle-plugin-assets
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build bundle
+        shell: bash
+        env:
+          REPO_LC: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          repo_lc="$(echo "$REPO_LC" | tr '[:upper:]' '[:lower:]')"
+          chmod +x stress-artifacts/broccoli-stress-test-linux-x86_64
+          BROCCOLI_SERVER_IMAGE="ghcr.io/${repo_lc}/broccoli-server:${TAG}" \
+          BROCCOLI_WORKER_BASE_IMAGE="ghcr.io/${repo_lc}/broccoli-worker:${TAG}-base" \
+          BROCCOLI_WORKER_ICPC_IMAGE="ghcr.io/${repo_lc}/broccoli-worker:${TAG}-icpc" \
+          BROCCOLI_WORKER_FULL_IMAGE="ghcr.io/${repo_lc}/broccoli-worker:${TAG}-full" \
+          BROCCOLI_IMAGE_PLATFORM=linux/amd64 \
+          STRESS_BIN="$PWD/stress-artifacts/broccoli-stress-test-linux-x86_64" \
+          ./scripts/build-bundle.sh "$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-bundle
+          path: |
+            dist/broccoli-platform-${{ github.ref_name }}.tar.gz
+            dist/broccoli-platform-${{ github.ref_name }}.tar.gz.sha256
+
+  bundle-smoke-test:
+    name: Bundle smoke test
+    needs: build-bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-bundle
+          path: dist
+
+      - name: Install from bundle in fresh Docker daemon
+        shell: bash
+        env:
+          BROCCOLI_ADMIN_PASSWORD: test12345
+          BROCCOLI_HTTP_BIND: 127.0.0.1:3100
+          BROCCOLI_WORKER_IMAGE: ghcr.io/${{ github.repository }}/broccoli-worker:${{ github.ref_name }}-full
+        run: |
+          set -euo pipefail
+          docker run --privileged -d \
+            --name broccoli-bundle-smoke-dind \
+            -e DOCKER_TLS_CERTDIR= \
+            docker:27-dind
+          trap 'docker logs broccoli-bundle-smoke-dind || true; docker rm -f broccoli-bundle-smoke-dind || true' EXIT
+
+          for attempt in $(seq 1 60); do
+            if docker exec broccoli-bundle-smoke-dind docker info >/dev/null 2>&1; then
+              break
+            fi
+            test "$attempt" != 60
+            sleep 2
+          done
+
+          docker exec broccoli-bundle-smoke-dind sh -lc \
+            'apk add --no-cache bash curl openssl docker-cli-compose'
+          docker cp "dist/broccoli-platform-${{ github.ref_name }}.tar.gz" \
+            broccoli-bundle-smoke-dind:/tmp/broccoli-platform.tar.gz
+          docker exec \
+            -e BROCCOLI_ADMIN_PASSWORD="$BROCCOLI_ADMIN_PASSWORD" \
+            -e BROCCOLI_HTTP_BIND="$BROCCOLI_HTTP_BIND" \
+            -e BROCCOLI_WORKER_IMAGE="$(echo "$BROCCOLI_WORKER_IMAGE" | tr '[:upper:]' '[:lower:]')" \
+            broccoli-bundle-smoke-dind bash -lc '
+              set -euo pipefail
+              mkdir -p /tmp/broccoli-smoke
+              tar -xzf /tmp/broccoli-platform.tar.gz -C /tmp/broccoli-smoke --strip-components=1
+              cd /tmp/broccoli-smoke
+              trap "docker compose -f docker-compose.single-host.yaml logs --tail=200 || true; docker compose -f docker-compose.single-host.yaml down -v || true" EXIT
+
+              docker compose --env-file .env.example -f docker-compose.single-host.yaml.template config >/dev/null
+              for role in infra server worker gateway; do
+                docker compose --env-file ".env.${role}.example" -f "docker-compose.${role}.yaml.template" config >/dev/null
+              done
+
+              ./install.sh single-host
+              docker compose -f docker-compose.single-host.yaml ps
+
+              repo_lc="$(echo "${{ github.repository }}" | tr "[:upper:]" "[:lower:]")"
+              for variant in base icpc full; do
+                docker image inspect "ghcr.io/${repo_lc}/broccoli-worker:${{ github.ref_name }}-${variant}" >/dev/null
+              done
+              docker run --rm --entrypoint /usr/local/bin/broccoli-worker "ghcr.io/${repo_lc}/broccoli-worker:${{ github.ref_name }}-base" --version
+              docker run --rm --entrypoint which "ghcr.io/${repo_lc}/broccoli-worker:${{ github.ref_name }}-icpc" g++
+              docker run --rm --entrypoint which "ghcr.io/${repo_lc}/broccoli-worker:${{ github.ref_name }}-full" kotlinc
+
+              for service in db redis server worker; do
+                cid="$(docker compose -f docker-compose.single-host.yaml ps -q "$service")"
+                test -n "$cid"
+                status="$(docker inspect -f "{{.State.Status}}" "$cid")"
+                health="$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" "$cid")"
+                test "$status" = running
+                test "$health" = healthy
+              done
+
+              curl -fsS http://127.0.0.1:3100/healthz
+              ./stress-test/broccoli-stress-test \
+                --url http://127.0.0.1:3100 \
+                --admin-username admin \
+                --admin-password "$BROCCOLI_ADMIN_PASSWORD" \
+                --correctness-only
+            '
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-images, build-stress-test, build-bundle, bundle-smoke-test]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -134,42 +503,56 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
-          version="${TAG#v}"
-          released_at="$(date -u +%FT%TZ)"
-          base_url="https://github.com/${REPO}/releases/download/${TAG}"
-          export BROCCOLI_VERSION="$version"
-          export BROCCOLI_RELEASED_AT="$released_at"
-          export BROCCOLI_BASE_URL="$base_url"
           python3 - <<'PY' > dist/manifest.json
-          import hashlib, json, os, sys
-          version = os.environ["BROCCOLI_VERSION"]
-          released_at = os.environ["BROCCOLI_RELEASED_AT"]
-          base_url = os.environ["BROCCOLI_BASE_URL"]
-          platforms = {
-              "linux-x86_64":   "broccoli-stress-test-linux-x86_64",
-              "linux-aarch64":  "broccoli-stress-test-linux-aarch64",
+          import hashlib, json, os, pathlib
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"].lower()
+          base_url = f"https://github.com/{os.environ['REPO']}/releases/download/{tag}"
+          platform_files = {
+              "linux-x86_64": "broccoli-stress-test-linux-x86_64",
+              "linux-aarch64": "broccoli-stress-test-linux-aarch64",
               "windows-x86_64": "broccoli-stress-test-windows-x86_64.exe",
-              "macos-universal":"broccoli-stress-test-macos-universal",
+              "macos-universal": "broccoli-stress-test-macos-universal",
           }
-          out = {"version": version, "released_at": released_at, "platforms": {}}
-          for key, fname in platforms.items():
-              path = os.path.join("dist", fname)
-              with open(path, "rb") as f:
-                  data = f.read()
-              out["platforms"][key] = {
-                  "url": f"{base_url}/{fname}",
-                  "sha256": hashlib.sha256(data).hexdigest(),
-                  "size_bytes": len(data),
-              }
-          json.dump(out, sys.stdout, indent=2)
+          files = {}
+          platforms = {}
+          for path in pathlib.Path("dist").glob("*"):
+              if path.is_file() and path.name != "manifest.json":
+                  data = path.read_bytes()
+                  entry = {
+                      "url": f"{base_url}/{path.name}",
+                      "sha256": hashlib.sha256(data).hexdigest(),
+                      "size_bytes": len(data),
+                  }
+                  files[path.name] = entry
+                  for platform, filename in platform_files.items():
+                      if path.name == filename:
+                          platforms[platform] = entry
+          out = {
+              "version": tag.lstrip("v"),
+              "git_sha": os.environ["SHA"],
+              "platforms": platforms,
+              "images": {
+                  "server": f"ghcr.io/{repo}/broccoli-server:{tag}",
+                  "worker_base": f"ghcr.io/{repo}/broccoli-worker:{tag}-base",
+                  "worker_icpc": f"ghcr.io/{repo}/broccoli-worker:{tag}-icpc",
+                  "worker_full": f"ghcr.io/{repo}/broccoli-worker:{tag}-full",
+              },
+              "files": files,
+          }
+          print(json.dumps(out, indent=2))
           PY
           cat dist/manifest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
             dist/broccoli-stress-test-*
+            dist/broccoli-platform-${{ github.ref_name }}.tar.gz
+            dist/broccoli-platform-${{ github.ref_name }}.tar.gz.sha256
             dist/manifest.json

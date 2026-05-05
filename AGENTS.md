@@ -1,0 +1,175 @@
+# AGENTS.md
+
+Canonical guidance for coding agents working in this repository. This is based
+on the current repo layout and tooling, with `CLAUDE.md` used as supporting
+project context rather than copied wholesale.
+
+## Non-negotiables
+
+- Never run `git stash`, `git reset --hard`, or other destructive commands
+  unless the user explicitly asks for them.
+- Preserve unrelated local changes.
+- Prefer small, targeted edits over broad refactors.
+- Validate with the smallest relevant command before finishing.
+
+## Current Repo Shape
+
+Broccoli is a mixed Rust + pnpm monorepo for an online judge with a WASM plugin
+system.
+
+### Rust workspace members
+
+- `packages/common`
+- `packages/mq`
+- `packages/plugin-core`
+- `packages/server`
+- `packages/worker`
+- `packages/cli`
+
+Also present but not part of the main Rust workspace members list:
+
+- `packages/server-sdk`
+- plugin crates under `plugins/`
+- additional plugin-related work under `packages/plugins/`
+
+### JavaScript workspaces
+
+- `packages/sdk`
+- `packages/web`
+
+## Commands That Actually Exist
+
+Use `just` recipes when convenient; they map cleanly to the real commands.
+
+### Rust
+
+```bash
+cargo build
+cargo test --workspace
+cargo test -p server
+cargo test -p plugin-core
+cargo clippy --workspace
+cargo run -p server
+cargo run -p worker
+```
+
+### JavaScript / frontend
+
+```bash
+pnpm install
+pnpm build
+pnpm dev
+pnpm lint
+pnpm format
+pnpm format:check
+pnpm --filter @broccoli/sdk build
+pnpm --filter @broccoli/web dev
+```
+
+### Justfile shortcuts
+
+```bash
+just build
+just test
+just clippy
+just server
+just worker
+just build-js
+just dev-web
+just build-plugins
+just build-plugins-release
+just up
+just down
+```
+
+### Infrastructure
+
+```bash
+docker compose up -d
+```
+
+Current `docker-compose.yaml` services:
+
+- Postgres 18 on `127.0.0.1:5433`
+- Redis 7 on `6379`
+- SeaweedFS on `9333` and `8333`
+
+The checked-in Docker Postgres credentials are:
+`postgres://postgres:broccoli_pg_secret@localhost:5433/broccoli`
+
+## Architecture Notes From The Current Tree
+
+### Backend
+
+- `packages/server` is the main axum server.
+- `packages/worker` consumes MQ tasks and operation tasks in a reconnect loop.
+- `packages/plugin-core` contains shared plugin abstractions: `config`, `error`,
+  `hook`, `host`, `http`, `i18n`, `manager`, `manifest`, `registry`, and
+  `traits`.
+- `packages/cli` builds the `broccoli` binary and includes plugin build and
+  related utility flows.
+- `packages/server-sdk` exists as a separate Rust crate and should not be
+  forgotten when changing public server-facing APIs.
+
+### Frontend
+
+- `packages/web` uses React 19, React Router 7, Vite via `rolldown-vite`,
+  Tailwind, TanStack Query, Monaco, Radix UI, and Recharts.
+- Routing is file-system based through `@react-router/fs-routes`, with
+  `packages/web/src/routes.ts` adding an explicit catch-all extension route.
+- `packages/sdk` is a published TypeScript package built with `tsup`.
+
+### Plugins
+
+- Root `plugins/` currently contains plugin crates such as `batch-evaluator`,
+  `cooldown`, `ioi`, `standard-checkers`, and `submission-limit`, plus manifest
+  only plugins such as `broccoli-zh-cn`.
+- Plugin work also exists under `packages/plugins/`; do not assume everything
+  plugin-related lives under the root `plugins/` folder.
+
+## Working Rules
+
+### Backend changes
+
+- Keep handler flow consistent: docs, tracing, auth, validation, DB/business
+  logic, response.
+- Use the project’s structured error patterns and treat error `code` values as
+  API contracts.
+- Prefer permission helpers instead of checking roles directly.
+- Think about transaction boundaries before editing write paths.
+- When changing plugin execution behavior, check both manifest-level permissions
+  and host-side registration/resolution.
+
+### Frontend changes
+
+- Keep changes aligned with the existing React Router 7 file-based structure.
+- Do not describe the frontend as “plain Vite React” in docs or code comments;
+  this package is using React Router’s framework tooling on top of Vite.
+- Preserve the existing Tailwind/Radix/component patterns already in
+  `packages/web`.
+
+### SDK / API surface changes
+
+- If you change server request/response shapes, check whether
+  `packages/server-sdk` and `packages/sdk` need to move with them.
+- Be careful with exported package entrypoints in `packages/sdk`, since its
+  `package.json` exposes multiple subpaths.
+
+## Testing Guidance
+
+- Prefer the narrowest relevant command first.
+- For backend changes, start with crate-scoped tests such as
+  `cargo test -p server`.
+- For frontend changes, at minimum run the affected package build or lint step.
+- If you touch plugin build flows, consider using the CLI-backed plugin build
+  recipes from the `justfile`.
+
+## Practical Advice For Agents
+
+- Read the owning crate or package before editing.
+- Do not assume `CLAUDE.md` is fully up to date; verify against manifests and
+  entrypoints when details matter.
+- Check `Cargo.toml`, package manifests, and `justfile` before writing docs or
+  instructions.
+- When the repo and the guidance diverge, trust the repo and update the
+  guidance.

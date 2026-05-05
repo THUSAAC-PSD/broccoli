@@ -3,10 +3,17 @@ use std::time::Duration;
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbErr};
 
 pub async fn init_db(db_url: &str) -> Result<DatabaseConnection, DbErr> {
+    init_db_with_max_connections(db_url, 100).await
+}
+
+pub async fn init_db_with_max_connections(
+    db_url: &str,
+    max_connections: u32,
+) -> Result<DatabaseConnection, DbErr> {
     let mut opt = ConnectOptions::new(db_url.to_owned());
 
-    opt.max_connections(100)
-        .min_connections(5)
+    opt.max_connections(max_connections)
+        .min_connections(max_connections.min(5))
         .connect_timeout(Duration::from_secs(30))
         .acquire_timeout(Duration::from_secs(30))
         .idle_timeout(Duration::from_secs(600))

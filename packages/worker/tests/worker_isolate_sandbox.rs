@@ -111,6 +111,7 @@ async fn execute_operation_with_isolate(
         executor_name: "operation".to_string(),
         payload: serde_json::to_value(operation).unwrap(),
         result_queue: "test_results".into(),
+        reply_queue: None,
         priority: None,
         trace_context: None,
     };
