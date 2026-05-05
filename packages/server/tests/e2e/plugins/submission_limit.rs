@@ -12,7 +12,6 @@ async fn limit_rejects_after_max_submissions() {
     let contestant = app.create_authenticated_user("sl_user1", "password").await;
 
     let problem_id = app.create_problem(&admin, "Limit Problem 1").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Limit Contest 1", "icpc", true, true)
@@ -83,7 +82,6 @@ async fn limit_zero_means_unlimited() {
     let contestant = app.create_authenticated_user("sl_user2", "password").await;
 
     let problem_id = app.create_problem(&admin, "Limit Problem 2").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Limit Contest 2", "icpc", true, true)
@@ -125,7 +123,6 @@ async fn limit_status_endpoint_shows_remaining() {
     let contestant = app.create_authenticated_user("sl_user3", "password").await;
 
     let problem_id = app.create_problem(&admin, "Limit Problem 3").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Limit Contest 3", "icpc", true, true)
@@ -179,9 +176,7 @@ async fn different_problems_have_independent_limits() {
     let contestant = app.create_authenticated_user("sl_user4", "password").await;
 
     let prob_a = app.create_problem(&admin, "Limit ProbA 4").await;
-    app.create_test_case(prob_a, &admin).await;
     let prob_b = app.create_problem(&admin, "Limit ProbB 4").await;
-    app.create_test_case(prob_b, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Limit Contest 4", "icpc", true, true)
@@ -249,7 +244,6 @@ async fn different_users_have_independent_limits() {
     let user_b = app.create_authenticated_user("sl_userB5", "password").await;
 
     let problem_id = app.create_problem(&admin, "Limit Problem 5").await;
-    app.create_test_case(problem_id, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "Limit Contest 5", "icpc", true, true)
