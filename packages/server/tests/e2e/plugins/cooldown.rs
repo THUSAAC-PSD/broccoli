@@ -1,6 +1,44 @@
+use chrono::Utc;
+use common::{SubmissionStatus, Verdict};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::json;
+use server::entity::{submission, user};
 
 use crate::common::E2eTestApp;
+
+async fn seed_recent_submission(
+    app: &E2eTestApp,
+    username: &str,
+    problem_id: i32,
+    contest_id: Option<i32>,
+) -> i32 {
+    let user_model = user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&app.db)
+        .await
+        .expect("query user")
+        .expect("user should exist");
+    let now = Utc::now();
+    submission::ActiveModel {
+        files: Set(json!([{ "filename": "main.cpp", "content": "int main() { return 0; }" }])),
+        language: Set("cpp".into()),
+        user_id: Set(user_model.id),
+        problem_id: Set(problem_id),
+        contest_id: Set(contest_id),
+        contest_type: Set("icpc".into()),
+        status: Set(SubmissionStatus::Judged),
+        verdict: Set(Some(Verdict::Accepted)),
+        score: Set(Some(0.0)),
+        judge_epoch: Set(1),
+        created_at: Set(now),
+        judged_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert recent submission")
+    .id
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cooldown_rejects_rapid_contest_submissions() {
@@ -35,15 +73,7 @@ async fn cooldown_rejects_rapid_contest_submissions() {
         put_res.text
     );
 
-    let sub1 = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
+    let sub1 = seed_recent_submission(&app, "cd_user1", problem_id, Some(contest_id)).await;
     assert!(sub1 > 0, "First submission should succeed");
 
     let sub2_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
@@ -96,16 +126,8 @@ async fn cooldown_allows_submission_when_disabled() {
     )
     .await;
 
-    let _sub1 = app
-        .create_contest_submission(
-            contest_id,
-            problem_id,
-            &contestant,
-            "cpp",
-            "int main() { return 0; }",
-        )
-        .await;
-    let _sub2 = app
+    seed_recent_submission(&app, "cd_user2", problem_id, Some(contest_id)).await;
+    let _sub = app
         .create_contest_submission(
             contest_id,
             problem_id,
@@ -143,14 +165,7 @@ async fn cooldown_status_endpoint_returns_data() {
     )
     .await;
 
-    app.create_contest_submission(
-        contest_id,
-        problem_id,
-        &contestant,
-        "cpp",
-        "int main() { return 0; }",
-    )
-    .await;
+    seed_recent_submission(&app, "cd_user3", problem_id, Some(contest_id)).await;
 
     let status_path = format!(
         "/api/v1/p/cooldown/api/plugins/cooldown/contests/{contest_id}/problems/{problem_id}/status"
@@ -195,9 +210,7 @@ async fn cooldown_config_at_problem_scope() {
         put_res.text
     );
 
-    let _sub1 = app
-        .create_submission(problem_id, &user, "cpp", "int main() { return 0; }")
-        .await;
+    seed_recent_submission(&app, "cd_user4", problem_id, None).await;
 
     let sub2_path = format!("/api/v1/problems/{problem_id}/submissions");
     let sub2_res = app
@@ -246,14 +259,7 @@ async fn different_users_have_independent_cooldowns() {
     )
     .await;
 
-    app.create_contest_submission(
-        contest_id,
-        problem_id,
-        &user_a,
-        "cpp",
-        "int main() { return 0; }",
-    )
-    .await;
+    seed_recent_submission(&app, "cd_userA5", problem_id, Some(contest_id)).await;
 
     let _sub_b = app
         .create_contest_submission(
