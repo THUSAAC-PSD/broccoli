@@ -41,7 +41,7 @@ import { Link, useLocation } from 'react-router';
 
 import { useContest } from '@/features/contest/contexts/contest-context';
 
-import logo from '../../resources/logo.png';
+import logo from '../../resources/Logo.png';
 import { LocaleSelector } from './LocaleSelector';
 import { ThemeToggle } from './ThemeSwitcher';
 
