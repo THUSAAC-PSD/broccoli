@@ -493,7 +493,7 @@ impl TestApp {
 
         let db_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/{db_name}");
         let mut opts = ConnectOptions::new(&db_url);
-        opts.max_connections(1)
+        opts.max_connections(2)
             .min_connections(0)
             .idle_timeout(std::time::Duration::from_secs(2));
         let db = Database::connect(opts)
@@ -519,7 +519,7 @@ impl TestApp {
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
-                max_connections: 1,
+                max_connections: 2,
             },
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),
