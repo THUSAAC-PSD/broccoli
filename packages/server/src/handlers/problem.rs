@@ -1222,6 +1222,7 @@ fn parse_zip_test_cases(
 
         if let Some(label) = label_as_input {
             let key = label.to_string();
+            validate_label(&key)?;
             if in_files.contains_key(&key) {
                 return Err(AppError::Validation(format!(
                     "Duplicate input file for test case label '{key}'"
@@ -1233,6 +1234,7 @@ fn parse_zip_test_cases(
 
         if let Some(label) = label_as_output {
             let key = label.to_string();
+            validate_label(&key)?;
             if ans_files.contains_key(&key) {
                 return Err(AppError::Validation(format!(
                     "Duplicate output file for test case label '{key}'"
