@@ -5,6 +5,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use plugin_core::config::PluginConfig;
+use plugin_core::error::PluginError;
+use plugin_core::host::HostFunctionRegistry;
+use plugin_core::i18n::I18nRegistry;
+use plugin_core::manifest::PluginManifest;
+use plugin_core::registry::PluginRegistry;
+use plugin_core::traits::PluginManager;
 use reqwest::Client;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
@@ -46,6 +52,46 @@ static CREATE_DB_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 /// onto it via `Handle::spawn`, the pool outlives every individual test.
 static ADMIN_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static SHARED_ADMIN_CONN: OnceLock<DatabaseConnection> = OnceLock::new();
+
+struct TestPluginManager {
+    inner: Arc<ServerManager>,
+}
+
+#[async_trait::async_trait]
+impl PluginManager for TestPluginManager {
+    fn get_registry(&self) -> &PluginRegistry {
+        self.inner.get_registry()
+    }
+
+    fn get_config(&self) -> &PluginConfig {
+        self.inner.get_config()
+    }
+
+    fn get_host_functions(&self) -> &HostFunctionRegistry {
+        self.inner.get_host_functions()
+    }
+
+    fn get_i18n_registry(&self) -> &I18nRegistry {
+        self.inner.get_i18n_registry()
+    }
+
+    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+        self.inner.resolve(manifest)
+    }
+
+    async fn call_raw(
+        &self,
+        plugin_id: &str,
+        func_name: &str,
+        input: Vec<u8>,
+    ) -> Result<Vec<u8>, PluginError> {
+        if plugin_id == "__test__" && func_name == "noop" {
+            return Ok(br#"{"success":true,"error_message":null}"#.to_vec());
+        }
+
+        self.inner.call_raw(plugin_id, func_name, input).await
+    }
+}
 
 fn admin_runtime() -> &'static tokio::runtime::Handle {
     ADMIN_RUNTIME
@@ -545,7 +591,7 @@ impl TestApp {
         let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
         let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
 
-        let plugins = ServerManager::new(
+        let server_plugins = ServerManager::new(
             app_config.plugin.clone(),
             db.clone(),
             None,
@@ -559,6 +605,9 @@ impl TestApp {
             app_config.clone(),
         )
         .expect("Failed to initialize plugin manager");
+        let plugins: Arc<dyn PluginManager> = Arc::new(TestPluginManager {
+            inner: server_plugins,
+        });
 
         if !load_plugins {
             evaluator_registry.write().await.insert(
