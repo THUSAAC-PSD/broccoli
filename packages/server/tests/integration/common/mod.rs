@@ -439,7 +439,26 @@ impl Drop for TestApp {
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
         }
+        close_database_pool(self.db.clone());
     }
+}
+
+fn close_database_pool(db: DatabaseConnection) {
+    let Ok(handle) = std::thread::Builder::new()
+        .name("integration-db-close".to_string())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            let _ = runtime.block_on(db.close_by_ref());
+        })
+    else {
+        return;
+    };
+    let _ = handle.join();
 }
 
 fn fixtures_dir() -> PathBuf {
@@ -474,7 +493,7 @@ impl TestApp {
 
         let db_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/{db_name}");
         let mut opts = ConnectOptions::new(&db_url);
-        opts.max_connections(2)
+        opts.max_connections(1)
             .min_connections(0)
             .idle_timeout(std::time::Duration::from_secs(2));
         let db = Database::connect(opts)
@@ -500,7 +519,7 @@ impl TestApp {
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
-                max_connections: 2,
+                max_connections: 1,
             },
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),

@@ -279,7 +279,26 @@ impl Drop for E2eTestApp {
         if let Some(h) = self.result_consumer_handle.take() {
             h.abort();
         }
+        close_database_pool(self.db.clone());
     }
+}
+
+fn close_database_pool(db: DatabaseConnection) {
+    let Ok(handle) = std::thread::Builder::new()
+        .name("e2e-db-close".to_string())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            let _ = runtime.block_on(db.close_by_ref());
+        })
+    else {
+        return;
+    };
+    let _ = handle.join();
 }
 
 #[allow(dead_code)]
