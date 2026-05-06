@@ -284,7 +284,7 @@ impl Drop for E2eTestApp {
 }
 
 fn close_database_pool(db: DatabaseConnection) {
-    let Ok(handle) = std::thread::Builder::new()
+    let _ = std::thread::Builder::new()
         .name("e2e-db-close".to_string())
         .spawn(move || {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -294,11 +294,7 @@ fn close_database_pool(db: DatabaseConnection) {
                 return;
             };
             let _ = runtime.block_on(db.close_by_ref());
-        })
-    else {
-        return;
-    };
-    let _ = handle.join();
+        });
 }
 
 #[allow(dead_code)]

@@ -444,7 +444,7 @@ impl Drop for TestApp {
 }
 
 fn close_database_pool(db: DatabaseConnection) {
-    let Ok(handle) = std::thread::Builder::new()
+    let _ = std::thread::Builder::new()
         .name("integration-db-close".to_string())
         .spawn(move || {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -454,11 +454,7 @@ fn close_database_pool(db: DatabaseConnection) {
                 return;
             };
             let _ = runtime.block_on(db.close_by_ref());
-        })
-    else {
-        return;
-    };
-    let _ = handle.join();
+        });
 }
 
 fn fixtures_dir() -> PathBuf {
