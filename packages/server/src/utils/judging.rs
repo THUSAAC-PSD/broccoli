@@ -61,7 +61,7 @@ pub fn validate_submission_contract(
 
     if !known_languages.is_empty() && !known_languages.contains(language) {
         return Err(AppError::Validation(format!(
-            "Unsupported language: '{}'",
+            "Unsupported language: {}",
             language
         )));
     }
@@ -124,7 +124,7 @@ pub fn validate_run_language(
     let language = language.trim();
     if !known_languages.is_empty() && !known_languages.contains(language) {
         return Err(AppError::Validation(format!(
-            "Unsupported language: '{}'",
+            "Unsupported language: {}",
             language
         )));
     }

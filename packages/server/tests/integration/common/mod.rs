@@ -26,7 +26,7 @@ use server::entity::{user, user_role};
 use server::manager::ServerManager;
 use server::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    LanguageResolverRegistry, OperationBatches, OperationWaiters,
+    LanguageResolverEntry, LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 use server::state::AppState;
 use server::utils::plugin::sync_plugins;
@@ -584,6 +584,30 @@ impl TestApp {
                     filter_submission_fn: None,
                 },
             );
+            let mut languages = language_resolver_registry.write().await;
+            for (id, display_name, default_filename, extensions) in [
+                ("c", "C", "main.c", vec!["c".to_string()]),
+                (
+                    "cpp",
+                    "C++",
+                    "main.cpp",
+                    vec!["cpp".to_string(), "cc".to_string(), "cxx".to_string()],
+                ),
+                ("java", "Java", "Main.java", vec!["java".to_string()]),
+                ("python3", "Python 3", "main.py", vec!["py".to_string()]),
+            ] {
+                languages.insert(
+                    id.to_string(),
+                    LanguageResolverEntry {
+                        plugin_id: "__test__".into(),
+                        function_name: "noop".into(),
+                        display_name: display_name.into(),
+                        default_filename: default_filename.into(),
+                        extensions,
+                        template: String::new(),
+                    },
+                );
+            }
         }
 
         let (test_metrics, test_prom_registry) =
