@@ -96,11 +96,16 @@ fn millis_from_seconds(seconds: f64) -> u64 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TestCaseBodyRef {
-    Inline { text: String },
-    Blob { hash: String },
+    Inline {
+        text: String,
+    },
+    Blob {
+        hash: String,
+    },
+    #[default]
     Missing,
 }
 
@@ -118,17 +123,16 @@ impl TestCaseBodyRef {
     }
 }
 
-impl Default for TestCaseBodyRef {
-    fn default() -> Self {
-        Self::Missing
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum JudgeFile {
-    Inline { text: String },
-    Blob { file: FileRef },
+    Inline {
+        text: String,
+    },
+    Blob {
+        file: FileRef,
+    },
+    #[default]
     Missing,
 }
 
@@ -150,12 +154,6 @@ impl JudgeFile {
             Self::Inline { text } => text,
             Self::Blob { .. } | Self::Missing => "",
         }
-    }
-}
-
-impl Default for JudgeFile {
-    fn default() -> Self {
-        Self::Missing
     }
 }
 
