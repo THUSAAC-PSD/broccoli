@@ -68,7 +68,7 @@ pub async fn read_test_case_body(
 pub fn test_case_body_size(inline_text: &str, stored_size: Option<i64>) -> usize {
     stored_size
         .and_then(|n| usize::try_from(n).ok())
-        .unwrap_or_else(|| inline_text.len())
+        .unwrap_or(inline_text.len())
 }
 
 pub fn test_case_body_preview(inline_text: &str, stored_preview: Option<&str>) -> String {
