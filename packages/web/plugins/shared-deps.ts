@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,6 +172,47 @@ function readClientSharedDepsMap(
   }
 
   return {};
+}
+
+function hoistImportMapInHtml(html: string): string {
+  const importMapRe =
+    /<script\b[^>]*\btype=["']importmap["'][^>]*>[\s\S]*?<\/script>/i;
+  const importMapMatch = importMapRe.exec(html);
+  if (!importMapMatch) return html;
+
+  const headMatch = /<head(\s[^>]*)?>/i.exec(html);
+  if (!headMatch) return html;
+
+  const importMap = importMapMatch[0];
+  const htmlWithoutImportMap =
+    html.slice(0, importMapMatch.index) +
+    html.slice(importMapMatch.index + importMap.length);
+  const modulePreloadMatch =
+    /<link\b(?=[^>]*\brel=["']modulepreload["'])[^>]*>/i.exec(
+      htmlWithoutImportMap,
+    );
+  const insertAt = modulePreloadMatch
+    ? modulePreloadMatch.index
+    : headMatch.index + headMatch[0].length;
+
+  return (
+    htmlWithoutImportMap.slice(0, insertAt) +
+    importMap +
+    htmlWithoutImportMap.slice(insertAt)
+  );
+}
+
+function hoistClientIndexImportMap(config: ResolvedConfig): void {
+  const indexPath = resolve(config.root, 'build', 'client', 'index.html');
+  try {
+    const html = readFileSync(indexPath, 'utf-8');
+    const hoisted = hoistImportMapInHtml(html);
+    if (hoisted !== html) {
+      writeFileSync(indexPath, hoisted);
+    }
+  } catch {
+    // Some build modes do not emit the React Router static index.
+  }
 }
 
 /**
@@ -423,6 +464,18 @@ export function sharedDepsPlugin(): Plugin {
         fileName: MANIFEST_FILENAME,
         source: JSON.stringify(imports, null, 2),
       });
+    },
+
+    writeBundle() {
+      if (isDev || config.build.ssr) return;
+
+      hoistClientIndexImportMap(config);
+    },
+
+    closeBundle() {
+      if (isDev) return;
+
+      hoistClientIndexImportMap(config);
     },
   };
 }
