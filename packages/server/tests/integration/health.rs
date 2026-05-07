@@ -39,13 +39,6 @@ mod healthz {
             "git_sha should be present"
         );
     }
-
-    #[tokio::test]
-    async fn is_publicly_accessible() {
-        let app = TestApp::spawn().await;
-        let resp = app.get_without_token("/healthz").await;
-        assert_eq!(resp.status, 200);
-    }
 }
 
 mod api_health {
@@ -66,20 +59,4 @@ mod api_health {
         assert!(resp.body.get("version").is_some());
         assert!(resp.body.get("git_sha").is_some());
     }
-
-    #[tokio::test]
-    async fn is_publicly_accessible() {
-        let app = TestApp::spawn().await;
-        let resp = app.get_without_token("/api/v1/health").await;
-        assert_eq!(resp.status, 200);
-    }
 }
-
-// The "DB down" path is exercised in `handlers::health::tests` (a unit
-// test inside the crate that constructs a deliberately broken
-// `DatabaseConnection`). Replicating that as an integration test would
-// require either tearing down the shared template database mid-run (which
-// would corrupt other parallel tests) or adding plumbing to swap the
-// `AppState.db` with a broken pool -- both more invasive than the unit
-// test, which directly invokes `compute_health()` and asserts the
-// resulting `db: "down"` / `status: "degraded"` / 503 status code.

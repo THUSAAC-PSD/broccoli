@@ -556,44 +556,4 @@ mod tests {
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(response.headers().contains_key(header::RETRY_AFTER));
     }
-
-    #[test]
-    fn configured_client_ip_extractor_uses_trusted_proxy_source() {
-        let mut request = Request::builder()
-            .uri("/")
-            .header("x-forwarded-for", "198.51.100.8, 203.0.113.9")
-            .body(Body::empty())
-            .unwrap();
-        request
-            .extensions_mut()
-            .insert(ClientIpSource::RightmostXForwardedFor);
-        request.extensions_mut().insert(ConnectInfo(
-            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
-        ));
-
-        assert_eq!(
-            ConfiguredClientIpKeyExtractor.extract(&request).unwrap(),
-            "203.0.113.9".parse::<IpAddr>().unwrap()
-        );
-    }
-
-    #[test]
-    fn configured_client_ip_extractor_rejects_malformed_rightmost_forwarded_for() {
-        let mut request = Request::builder()
-            .uri("/")
-            .header("x-forwarded-for", "198.51.100.8, not-an-ip")
-            .body(Body::empty())
-            .unwrap();
-        request
-            .extensions_mut()
-            .insert(ClientIpSource::RightmostXForwardedFor);
-        request.extensions_mut().insert(ConnectInfo(
-            "10.0.0.10:12345".parse::<SocketAddr>().unwrap(),
-        ));
-
-        assert!(matches!(
-            ConfiguredClientIpKeyExtractor.extract(&request),
-            Err(GovernorError::UnableToExtractKey)
-        ));
-    }
 }

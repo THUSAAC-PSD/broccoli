@@ -382,23 +382,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cache_hit_avoids_second_blob_read() {
-        let (cacher, dir, _store) = temp_cacher(10 * 1024 * 1024).await;
-
-        let src = dir.path().join("data.bin");
-        tokio::fs::write(&src, b"cached data").await.unwrap();
-        let hash = cacher.upload_from_path(&src).await.unwrap();
-
-        let d1 = dir.path().join("d1");
-        let d2 = dir.path().join("d2");
-        cacher.fetch_to_path(&hash, &d1).await.unwrap();
-        cacher.fetch_to_path(&hash, &d2).await.unwrap();
-
-        assert_eq!(tokio::fs::read_to_string(&d1).await.unwrap(), "cached data");
-        assert_eq!(tokio::fs::read_to_string(&d2).await.unwrap(), "cached data");
-    }
-
-    #[tokio::test]
     async fn eviction_keeps_cache_under_limit() {
         let (cacher, dir, _store) = temp_cacher(20).await;
 

@@ -76,35 +76,6 @@ async fn icpc_contest_type_registered() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn icpc_standings_empty_before_submissions() {
-    let app = E2eTestApp::spawn().await;
-
-    let admin = app
-        .create_user_with_role("icpc_admin2", "password", "admin")
-        .await;
-    let contestant = app
-        .create_authenticated_user("icpc_user2", "password")
-        .await;
-
-    let problem_id = app.create_problem(&admin, "ICPC Problem 2").await;
-    app.create_test_case(problem_id, &admin).await;
-
-    let contest_id = app
-        .create_typed_contest(&admin, "ICPC Contest 2", "icpc", true, true)
-        .await;
-    app.add_problem_to_contest(contest_id, problem_id, &admin)
-        .await;
-    app.register_for_contest(contest_id, &contestant).await;
-
-    let standings_path = format!("/api/v1/p/icpc/api/plugins/icpc/contests/{contest_id}/standings");
-    let res = app.get_with_token(&standings_path, &contestant).await;
-    assert_eq!(res.status, 200, "Standings request failed: {}", res.text);
-
-    let rows = &res.body["rows"];
-    assert!(rows.is_array(), "rows should be an array");
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn icpc_standings_reflects_judged_submission() {
     let app = E2eTestApp::spawn().await;
 

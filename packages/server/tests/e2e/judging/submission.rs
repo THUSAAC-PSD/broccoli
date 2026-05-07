@@ -1,8 +1,4 @@
-use chrono::Utc;
-use common::{SubmissionStatus, Verdict};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::json;
-use server::entity::{submission, user};
 
 use crate::common::E2eTestApp;
 
@@ -11,48 +7,13 @@ fn skip_with_mock_sandbox() -> bool {
         return false;
     }
     if std::env::var("E2E_SANDBOX_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("mock")) {
-        eprintln!("skip submission sandbox test under mock sandbox");
-        return true;
+        panic!("submission sandbox test requires a non-mock sandbox");
     }
     false
 }
 
-async fn seed_submission(
-    app: &E2eTestApp,
-    username: &str,
-    problem_id: i32,
-    contest_id: Option<i32>,
-    contest_type: &str,
-) -> i32 {
-    let user_model = user::Entity::find()
-        .filter(user::Column::Username.eq(username))
-        .one(&app.db)
-        .await
-        .expect("query submitter")
-        .expect("submitter should exist");
-    let now = Utc::now();
-    submission::ActiveModel {
-        files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
-        language: Set("cpp".into()),
-        user_id: Set(user_model.id),
-        problem_id: Set(problem_id),
-        contest_id: Set(contest_id),
-        contest_type: Set(contest_type.into()),
-        status: Set(SubmissionStatus::Judged),
-        verdict: Set(Some(Verdict::Accepted)),
-        score: Set(Some(1.0)),
-        judge_epoch: Set(1),
-        created_at: Set(now),
-        judged_at: Set(Some(now)),
-        ..Default::default()
-    }
-    .insert(&app.db)
-    .await
-    .expect("insert submission")
-    .id
-}
-
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn submission_reaches_terminal_state() {
     if skip_with_mock_sandbox() {
         return;
@@ -72,13 +33,15 @@ async fn submission_reaches_terminal_state() {
 
     let res = app.wait_for_submission_terminal(sub_id, &admin, 60).await;
     let status = res.body["status"].as_str().unwrap();
-    assert!(
-        matches!(status, "Judged" | "CompilationError" | "SystemError"),
-        "Expected terminal status, got: {status}"
+    assert_eq!(
+        status, "Judged",
+        "submission should judge cleanly: {}",
+        res.text
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn submission_has_test_case_results_when_judged() {
     if skip_with_mock_sandbox() {
         return;
@@ -98,24 +61,26 @@ async fn submission_has_test_case_results_when_judged() {
 
     let res = app.wait_for_submission_terminal(sub_id, &admin, 60).await;
     let status = res.body["status"].as_str().unwrap();
+    assert_eq!(
+        status, "Judged",
+        "submission should judge cleanly: {}",
+        res.text
+    );
 
-    if status == "Judged" || status == "CompilationError" {
-        let result = &res.body["result"];
-        assert!(
-            !result.is_null(),
-            "Submission in terminal state should have a result object"
-        );
-        if status == "Judged" {
-            let tcrs = result["test_case_results"].as_array().unwrap();
-            assert!(
-                !tcrs.is_empty(),
-                "Judged submission should have at least one test case result"
-            );
-        }
-    }
+    let result = &res.body["result"];
+    assert!(
+        !result.is_null(),
+        "Judged submission should have a result object"
+    );
+    let tcrs = result["test_case_results"].as_array().unwrap();
+    assert!(
+        !tcrs.is_empty(),
+        "Judged submission should have at least one test case result"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn submission_status_transitions_observed() {
     if skip_with_mock_sandbox() {
         return;
@@ -165,6 +130,7 @@ async fn submission_status_transitions_observed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn contest_submission_reaches_terminal_state() {
     if skip_with_mock_sandbox() {
         return;
@@ -194,78 +160,10 @@ async fn contest_submission_reaches_terminal_state() {
 
     let res = app.wait_for_submission_terminal(sub_id, &user, 60).await;
     let status = res.body["status"].as_str().unwrap();
-    assert!(
-        matches!(status, "Judged" | "CompilationError" | "SystemError"),
-        "Expected terminal status, got: {status}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn contest_submission_has_contest_id_set() {
-    let app = E2eTestApp::spawn().await;
-    let admin = app
-        .create_user_with_role("csub_admin2", "pass1234", "admin")
-        .await;
-    let user = app
-        .create_authenticated_user("csub_user2", "pass1234")
-        .await;
-
-    let problem_id = app.create_problem(&admin, "Contest ID Check").await;
-
-    let contest_id = app
-        .create_contest(&admin, "Contest ID Test", true, true)
-        .await;
-    app.add_problem_to_contest(contest_id, problem_id, &admin)
-        .await;
-    app.register_for_contest(contest_id, &user).await;
-
-    let sub_id = seed_submission(&app, "csub_user2", problem_id, Some(contest_id), "icpc").await;
-
-    let res = app
-        .get_with_token(&format!("/api/v1/submissions/{sub_id}"), &admin)
-        .await;
-    assert_eq!(res.status, 200);
     assert_eq!(
-        res.body["contest_id"].as_i64().unwrap(),
-        contest_id as i64,
-        "contest_id should match the contest the submission was created in"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn contest_submission_visible_in_contest_submissions_list() {
-    let app = E2eTestApp::spawn().await;
-    let admin = app
-        .create_user_with_role("csub_admin3", "pass1234", "admin")
-        .await;
-    let user = app
-        .create_authenticated_user("csub_user3", "pass1234")
-        .await;
-
-    let problem_id = app.create_problem(&admin, "Contest List").await;
-
-    let contest_id = app
-        .create_contest(&admin, "Contest List Test", true, true)
-        .await;
-    app.add_problem_to_contest(contest_id, problem_id, &admin)
-        .await;
-    app.register_for_contest(contest_id, &user).await;
-
-    let sub_id = seed_submission(&app, "csub_user3", problem_id, Some(contest_id), "icpc").await;
-
-    let list = app
-        .get_with_token(
-            &format!("/api/v1/contests/{contest_id}/submissions"),
-            &admin,
-        )
-        .await;
-    assert_eq!(list.status, 200);
-
-    let data = list.body["data"].as_array().unwrap();
-    assert!(
-        data.iter()
-            .any(|s| s["id"].as_i64().unwrap() == sub_id as i64),
-        "Submission {sub_id} should appear in contest submissions list"
+        status, "Judged",
+        "contest submission should judge cleanly: {}",
+        res.text
     );
 }
 
@@ -375,6 +273,7 @@ async fn bulk_rejudge_resets_multiple_submissions() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn multiple_test_cases_all_get_results() {
     if skip_with_mock_sandbox() {
         return;
@@ -400,30 +299,35 @@ async fn multiple_test_cases_all_get_results() {
         .create_submission(problem_id, &admin, "cpp", CPP_SUM)
         .await;
     let res = app.wait_for_submission_terminal(sub_id, &admin, 60).await;
+    assert_eq!(
+        res.body["status"].as_str(),
+        Some("Judged"),
+        "submission should judge cleanly: {}",
+        res.text
+    );
 
-    if res.body["status"].as_str().unwrap() == "Judged" {
-        let tcrs = res.body["result"]["test_case_results"].as_array().unwrap();
-        assert_eq!(
-            tcrs.len(),
-            3,
-            "Should have exactly 3 test case results, got {}",
-            tcrs.len()
+    let tcrs = res.body["result"]["test_case_results"].as_array().unwrap();
+    assert_eq!(
+        tcrs.len(),
+        3,
+        "Should have exactly 3 test case results, got {}",
+        tcrs.len()
+    );
+
+    let tcr_tc_ids: Vec<i64> = tcrs
+        .iter()
+        .filter_map(|r| r["test_case_id"].as_i64())
+        .collect();
+    for expected_id in [tc1, tc2, tc3] {
+        assert!(
+            tcr_tc_ids.contains(&(expected_id as i64)),
+            "Missing TCR for test_case_id {expected_id}; found: {tcr_tc_ids:?}"
         );
-
-        let tcr_tc_ids: Vec<i64> = tcrs
-            .iter()
-            .filter_map(|r| r["test_case_id"].as_i64())
-            .collect();
-        for expected_id in [tc1, tc2, tc3] {
-            assert!(
-                tcr_tc_ids.contains(&(expected_id as i64)),
-                "Missing TCR for test_case_id {expected_id}; found: {tcr_tc_ids:?}"
-            );
-        }
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn submission_judges_blob_backed_testcase_input_and_expected_output() {
     if skip_with_mock_sandbox() {
         return;

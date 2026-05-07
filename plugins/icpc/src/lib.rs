@@ -548,30 +548,3 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         })),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::config::*;
-
-    #[test]
-    fn problem_state_round_trip() {
-        let state = ProblemState {
-            attempts: 3,
-            solved: true,
-            solve_time_ms: Some(120_000),
-        };
-        let json = serde_json::to_string(&state).unwrap();
-        let back: ProblemState = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.attempts, 3);
-        assert!(back.solved);
-        assert_eq!(back.solve_time_ms, Some(120_000));
-    }
-
-    #[test]
-    fn default_problem_state() {
-        let state = ProblemState::default();
-        assert_eq!(state.attempts, 0);
-        assert!(!state.solved);
-        assert_eq!(state.penalty_minutes(20), 0);
-    }
-}

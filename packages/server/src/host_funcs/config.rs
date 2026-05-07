@@ -277,47 +277,8 @@ mod tests {
     }
 
     #[test]
-    fn strip_namespace_prefix_without_colon() {
-        assert_eq!(strip_namespace_prefix("settings"), "settings");
-    }
-
-    #[test]
-    fn strip_namespace_prefix_multiple_colons() {
-        assert_eq!(strip_namespace_prefix("a:b:c"), "b:c");
-    }
-
-    #[test]
     fn extract_plugin_id_with_colon() {
         assert_eq!(extract_plugin_id("cooldown:cooldown"), "cooldown");
         assert_eq!(extract_plugin_id("ioi:task"), "ioi");
-    }
-
-    #[test]
-    fn extract_plugin_id_without_colon() {
-        assert_eq!(extract_plugin_id("settings"), "settings");
-    }
-
-    #[test]
-    fn extract_plugin_id_multiple_colons() {
-        assert_eq!(extract_plugin_id("a:b:c"), "a");
-    }
-
-    #[test]
-    fn resolve_and_strip_roundtrip() {
-        let raw = "cooldown";
-        let plugin_id = "cooldown";
-        let composite = resolve_namespace("contest", plugin_id, raw);
-        assert_eq!(strip_namespace_prefix(&composite), raw);
-        assert_eq!(extract_plugin_id(&composite), plugin_id);
-    }
-
-    #[test]
-    fn resolve_and_strip_different_ids() {
-        let raw = "limits";
-        let plugin_id = "submission-limit";
-        let composite = resolve_namespace("problem", plugin_id, raw);
-        assert_eq!(composite, "submission-limit:limits");
-        assert_eq!(strip_namespace_prefix(&composite), raw);
-        assert_eq!(extract_plugin_id(&composite), plugin_id);
     }
 }

@@ -476,9 +476,11 @@ mod tests {
     use crate::client::{AuthCreds, Client};
     use crate::scenarios::SCENARIOS;
     use serde_json::{Value, json};
-    use std::collections::HashMap;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
     fn login_body(token: &str) -> Value {
         json!({
@@ -576,45 +578,140 @@ mod tests {
         }
     }
 
-    async fn mount_per_scenario_mocks(
+    #[derive(Clone)]
+    struct MockFinalSubmission {
+        status: &'static str,
+        verdict: Option<&'static str>,
+        fails_on_get: bool,
+    }
+
+    struct MockSubmissionStore {
+        next_id: AtomicI32,
+        final_by_id: StdMutex<HashMap<i32, MockFinalSubmission>>,
+        submitted_ids: StdMutex<Vec<i32>>,
+        polled_ids: StdMutex<Vec<i32>>,
+    }
+
+    impl MockSubmissionStore {
+        fn new(first_id: i32) -> Self {
+            Self {
+                next_id: AtomicI32::new(first_id),
+                final_by_id: StdMutex::new(HashMap::new()),
+                submitted_ids: StdMutex::new(Vec::new()),
+                polled_ids: StdMutex::new(Vec::new()),
+            }
+        }
+
+        fn submitted_ids(&self) -> Vec<i32> {
+            self.submitted_ids.lock().unwrap().clone()
+        }
+
+        fn polled_ids(&self) -> Vec<i32> {
+            self.polled_ids.lock().unwrap().clone()
+        }
+    }
+
+    fn with_delay(template: ResponseTemplate, delay: Duration) -> ResponseTemplate {
+        if delay.is_zero() {
+            template
+        } else {
+            template.set_delay(delay)
+        }
+    }
+
+    fn submission_id_from_request(request: &Request) -> Option<i32> {
+        request.url.path().rsplit('/').next()?.parse().ok()
+    }
+
+    fn assert_distinct_submission_ids(ids: &[i32]) {
+        let unique: HashSet<_> = ids.iter().copied().collect();
+        assert_eq!(unique.len(), ids.len(), "submission ids must be distinct");
+    }
+
+    async fn mount_distinct_submission_mocks(
         server: &MockServer,
         state: &BootstrapState,
         outcomes: &HashMap<&'static str, (SubmissionStatus, Option<Verdict>)>,
-    ) {
-        for (idx, scenario) in SCENARIOS.iter().enumerate() {
+        get_delay: Duration,
+        failing_get_scenarios: &[&'static str],
+    ) -> StdArc<MockSubmissionStore> {
+        let store = StdArc::new(MockSubmissionStore::new(1000));
+
+        for scenario in SCENARIOS {
             let problem_id = state.problem_ids_by_scenario[scenario.id];
-            let submission_id = 1000 + idx as i32;
             let post_path = format!(
                 "/api/v1/contests/{}/problems/{}/submissions",
                 TEST_CONTEST_ID, problem_id
             );
-            let get_path = format!("/api/v1/submissions/{}", submission_id);
-
-            Mock::given(method("POST"))
-                .and(path(post_path.clone()))
-                .respond_with(ResponseTemplate::new(201).set_body_json(submission_json(
-                    submission_id,
-                    "Pending",
-                    None,
-                )))
-                .mount(server)
-                .await;
-
             let (status, verdict) = outcomes
                 .get(scenario.id)
                 .cloned()
                 .unwrap_or_else(|| (scenario.expected_status, scenario.expected_verdict.clone()));
-            let v_wire = verdict.as_ref().map(verdict_wire);
-            Mock::given(method("GET"))
-                .and(path(get_path))
-                .respond_with(ResponseTemplate::new(200).set_body_json(submission_json(
-                    submission_id,
-                    submission_status_wire(status),
-                    v_wire,
-                )))
+            let final_submission = MockFinalSubmission {
+                status: submission_status_wire(status),
+                verdict: verdict.as_ref().map(verdict_wire),
+                fails_on_get: failing_get_scenarios.contains(&scenario.id),
+            };
+            let store_for_post = store.clone();
+
+            Mock::given(method("POST"))
+                .and(path(post_path))
+                .respond_with(move |_request: &Request| {
+                    let submission_id = store_for_post.next_id.fetch_add(1, Ordering::SeqCst);
+                    store_for_post
+                        .final_by_id
+                        .lock()
+                        .unwrap()
+                        .insert(submission_id, final_submission.clone());
+                    store_for_post
+                        .submitted_ids
+                        .lock()
+                        .unwrap()
+                        .push(submission_id);
+                    ResponseTemplate::new(201).set_body_json(submission_json(
+                        submission_id,
+                        "Pending",
+                        None,
+                    ))
+                })
                 .mount(server)
                 .await;
         }
+
+        let store_for_get = store.clone();
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/api/v1/submissions/\d+$"))
+            .respond_with(move |request: &Request| {
+                let Some(submission_id) = submission_id_from_request(request) else {
+                    return ResponseTemplate::new(400).set_body_string("invalid submission id");
+                };
+                store_for_get.polled_ids.lock().unwrap().push(submission_id);
+                let final_submission = store_for_get
+                    .final_by_id
+                    .lock()
+                    .unwrap()
+                    .get(&submission_id)
+                    .cloned();
+                match final_submission {
+                    Some(final_submission) if final_submission.fails_on_get => with_delay(
+                        ResponseTemplate::new(500).set_body_string("kaboom"),
+                        get_delay,
+                    ),
+                    Some(final_submission) => with_delay(
+                        ResponseTemplate::new(200).set_body_json(submission_json(
+                            submission_id,
+                            final_submission.status,
+                            final_submission.verdict,
+                        )),
+                        get_delay,
+                    ),
+                    None => ResponseTemplate::new(404).set_body_string("unknown submission id"),
+                }
+            })
+            .mount(server)
+            .await;
+
+        store
     }
 
     fn drain(rx: &mut mpsc::UnboundedReceiver<Event>) -> Vec<Event> {
@@ -632,7 +729,8 @@ mod tests {
         let state = make_state();
 
         let outcomes = HashMap::new();
-        mount_per_scenario_mocks(&server, &state, &outcomes).await;
+        let submissions =
+            mount_distinct_submission_mocks(&server, &state, &outcomes, Duration::ZERO, &[]).await;
 
         let cfg = LoadConfig {
             total: 20,
@@ -664,6 +762,12 @@ mod tests {
             .count();
         assert_eq!(submitted, 20);
         assert_eq!(completed, 20);
+        let submitted_ids = submissions.submitted_ids();
+        let polled_ids = submissions.polled_ids();
+        assert_eq!(submitted_ids.len(), 20);
+        assert_eq!(polled_ids.len(), 20);
+        assert_distinct_submission_ids(&submitted_ids);
+        assert_distinct_submission_ids(&polled_ids);
 
         assert!(matches!(
             events.first().unwrap(),
@@ -730,40 +834,15 @@ mod tests {
         let client = build_client_with_login(&server, "tok").await;
         let state = make_state();
 
-        for (idx, scenario) in SCENARIOS.iter().enumerate() {
-            let problem_id = state.problem_ids_by_scenario[scenario.id];
-            let submission_id = 1000 + idx as i32;
-            let post_path = format!(
-                "/api/v1/contests/{}/problems/{}/submissions",
-                TEST_CONTEST_ID, problem_id
-            );
-            let get_path = format!("/api/v1/submissions/{}", submission_id);
-
-            Mock::given(method("POST"))
-                .and(path(post_path))
-                .respond_with(ResponseTemplate::new(201).set_body_json(submission_json(
-                    submission_id,
-                    "Pending",
-                    None,
-                )))
-                .mount(&server)
-                .await;
-
-            let v_wire = scenario.expected_verdict.as_ref().map(verdict_wire);
-            Mock::given(method("GET"))
-                .and(path(get_path))
-                .respond_with(
-                    ResponseTemplate::new(200)
-                        .set_delay(Duration::from_millis(100))
-                        .set_body_json(submission_json(
-                            submission_id,
-                            submission_status_wire(scenario.expected_status),
-                            v_wire,
-                        )),
-                )
-                .mount(&server)
-                .await;
-        }
+        let outcomes = HashMap::new();
+        let submissions = mount_distinct_submission_mocks(
+            &server,
+            &state,
+            &outcomes,
+            Duration::from_millis(100),
+            &[],
+        )
+        .await;
 
         let cfg = LoadConfig {
             total: 20,
@@ -780,6 +859,9 @@ mod tests {
 
         assert_eq!(outcome.completed, 20);
         assert_eq!(outcome.passed, 20);
+        let submitted_ids = submissions.submitted_ids();
+        assert_eq!(submitted_ids.len(), 20);
+        assert_distinct_submission_ids(&submitted_ids);
 
         let events = drain(&mut rx);
         let mut in_flight: i64 = 0;
@@ -810,40 +892,15 @@ mod tests {
         let client = build_client_with_login(&server, "tok").await;
         let state = make_state();
 
-        for (idx, scenario) in SCENARIOS.iter().enumerate() {
-            let problem_id = state.problem_ids_by_scenario[scenario.id];
-            let submission_id = 1000 + idx as i32;
-            let post_path = format!(
-                "/api/v1/contests/{}/problems/{}/submissions",
-                TEST_CONTEST_ID, problem_id
-            );
-            let get_path = format!("/api/v1/submissions/{}", submission_id);
-
-            Mock::given(method("POST"))
-                .and(path(post_path))
-                .respond_with(ResponseTemplate::new(201).set_body_json(submission_json(
-                    submission_id,
-                    "Pending",
-                    None,
-                )))
-                .mount(&server)
-                .await;
-
-            let v_wire = scenario.expected_verdict.as_ref().map(verdict_wire);
-            Mock::given(method("GET"))
-                .and(path(get_path))
-                .respond_with(
-                    ResponseTemplate::new(200)
-                        .set_delay(Duration::from_millis(200))
-                        .set_body_json(submission_json(
-                            submission_id,
-                            submission_status_wire(scenario.expected_status),
-                            v_wire,
-                        )),
-                )
-                .mount(&server)
-                .await;
-        }
+        let outcomes = HashMap::new();
+        let submissions = mount_distinct_submission_mocks(
+            &server,
+            &state,
+            &outcomes,
+            Duration::from_millis(200),
+            &[],
+        )
+        .await;
 
         let cfg = LoadConfig {
             total: 10,
@@ -861,6 +918,9 @@ mod tests {
 
         assert_eq!(outcome.completed, 10);
         assert_eq!(outcome.passed, 10, "verdicts still correct");
+        let submitted_ids = submissions.submitted_ids();
+        assert_eq!(submitted_ids.len(), 10);
+        assert_distinct_submission_ids(&submitted_ids);
         assert!(
             !outcome.passed_budget,
             "p95 must exceed 50ms budget; histogram p95 = {}",
@@ -878,44 +938,15 @@ mod tests {
         let client = build_client_with_login(&server, "tok").await;
         let state = make_state();
 
-        for (idx, scenario) in SCENARIOS.iter().enumerate() {
-            let problem_id = state.problem_ids_by_scenario[scenario.id];
-            let submission_id = 1000 + idx as i32;
-            let post_path = format!(
-                "/api/v1/contests/{}/problems/{}/submissions",
-                TEST_CONTEST_ID, problem_id
-            );
-            let get_path = format!("/api/v1/submissions/{}", submission_id);
-
-            Mock::given(method("POST"))
-                .and(path(post_path))
-                .respond_with(ResponseTemplate::new(201).set_body_json(submission_json(
-                    submission_id,
-                    "Pending",
-                    None,
-                )))
-                .mount(&server)
-                .await;
-
-            if scenario.id == "ab-cpp-wa" {
-                Mock::given(method("GET"))
-                    .and(path(get_path))
-                    .respond_with(ResponseTemplate::new(500).set_body_string("kaboom"))
-                    .mount(&server)
-                    .await;
-            } else {
-                let v_wire = scenario.expected_verdict.as_ref().map(verdict_wire);
-                Mock::given(method("GET"))
-                    .and(path(get_path))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(submission_json(
-                        submission_id,
-                        submission_status_wire(scenario.expected_status),
-                        v_wire,
-                    )))
-                    .mount(&server)
-                    .await;
-            }
-        }
+        let outcomes = HashMap::new();
+        let submissions = mount_distinct_submission_mocks(
+            &server,
+            &state,
+            &outcomes,
+            Duration::ZERO,
+            &["ab-cpp-wa"],
+        )
+        .await;
 
         let cfg = LoadConfig {
             total: 200,
@@ -939,6 +970,9 @@ mod tests {
             !outcome.passed_overall,
             "passed_overall must be false when errors present",
         );
+        let submitted_ids = submissions.submitted_ids();
+        assert_eq!(submitted_ids.len(), 200);
+        assert_distinct_submission_ids(&submitted_ids);
         assert!(
             outcome.errors.iter().any(|(_, m)| m.contains("ab-cpp-wa")),
             "errors should mention the failing scenario; got {:?}",

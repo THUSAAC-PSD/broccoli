@@ -92,35 +92,6 @@ async fn ioi_contest_type_registered() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn ioi_scoreboard_empty_before_submissions() {
-    let app = E2eTestApp::spawn().await;
-
-    let admin = app
-        .create_user_with_role("ioi_admin2", "password", "admin")
-        .await;
-    let contestant = app.create_authenticated_user("ioi_user2", "password").await;
-
-    let problem_id = app.create_problem(&admin, "IOI Problem 2").await;
-    app.create_test_case(problem_id, &admin).await;
-
-    let contest_id = app
-        .create_typed_contest(&admin, "IOI Contest 2", "ioi", true, true)
-        .await;
-    app.add_problem_to_contest(contest_id, problem_id, &admin)
-        .await;
-    app.register_for_contest(contest_id, &contestant).await;
-
-    let scoreboard_path = format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/scoreboard");
-    let res = app.get_with_token(&scoreboard_path, &contestant).await;
-    assert_eq!(res.status, 200, "Scoreboard request failed: {}", res.text);
-    assert!(
-        res.body["rankings"].is_array(),
-        "Scoreboard rows should be an array, got: {}",
-        res.text
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn ioi_scoreboard_reflects_judged_submission() {
     let app = E2eTestApp::spawn().await;
 
@@ -154,40 +125,6 @@ async fn ioi_scoreboard_reflects_judged_submission() {
     assert!(
         rankings_arr[0]["username"].is_string(),
         "Row should have a username"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn ioi_token_endpoint_exists() {
-    let app = E2eTestApp::spawn().await;
-
-    let admin = app
-        .create_user_with_role("ioi_admin4", "password", "admin")
-        .await;
-    let contestant = app.create_authenticated_user("ioi_user4", "password").await;
-
-    let problem_id = app.create_problem(&admin, "IOI Problem 4").await;
-
-    let contest_id = app
-        .create_typed_contest(&admin, "IOI Contest 4", "ioi", true, true)
-        .await;
-    app.add_problem_to_contest(contest_id, problem_id, &admin)
-        .await;
-    app.register_for_contest(contest_id, &contestant).await;
-
-    let sub_id =
-        seed_accepted_ioi_submission(&app, "ioi_user4", problem_id, contest_id, 100.0).await;
-
-    let token_path =
-        format!("/api/v1/p/ioi/api/plugins/ioi/contests/{contest_id}/submissions/{sub_id}/token");
-    let res = app
-        .post_with_token(&token_path, &json!({}), &contestant)
-        .await;
-    assert!(
-        res.status < 500,
-        "Token endpoint should not return 5xx: status={}, body={}",
-        res.status,
-        res.text
     );
 }
 

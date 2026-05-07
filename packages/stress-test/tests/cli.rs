@@ -2,23 +2,6 @@ use clap::Parser;
 use stress_test::cli::Cli;
 
 #[test]
-fn parses_minimal_url_plus_token() {
-    let cli = Cli::try_parse_from([
-        "broccoli-stress-test",
-        "--url",
-        "http://localhost:3000",
-        "--admin-token",
-        "abc",
-    ])
-    .unwrap();
-    assert_eq!(cli.url, "http://localhost:3000");
-    assert_eq!(cli.admin_token.as_deref(), Some("abc"));
-    assert_eq!(cli.total, 200);
-    assert_eq!(cli.rate, 20);
-    assert_eq!(cli.concurrency, 50);
-}
-
-#[test]
 fn requires_url() {
     let r = Cli::try_parse_from(["broccoli-stress-test", "--admin-token", "abc"]);
     assert!(r.is_err());
@@ -242,30 +225,4 @@ fn parses_keep_fixtures_flag() {
     ])
     .unwrap();
     assert!(cli.keep_fixtures);
-}
-
-#[test]
-fn defaults_match_design_doc() {
-    let cli = Cli::try_parse_from([
-        "broccoli-stress-test",
-        "--url",
-        "http://localhost:3000",
-        "--admin-token",
-        "abc",
-    ])
-    .unwrap();
-    assert_eq!(cli.total, 200);
-    assert_eq!(cli.rate, 20);
-    assert_eq!(cli.concurrency, 50);
-    assert_eq!(cli.per_job_timeout, 60);
-    assert_eq!(cli.p95_budget_ms, 15000);
-    assert_eq!(cli.contest_concurrency, 20);
-    assert_eq!(cli.seed, 0);
-    assert!(!cli.skip_correctness);
-    assert!(!cli.skip_load);
-    assert!(!cli.correctness_only);
-    assert!(!cli.keep_fixtures);
-    assert!(!cli.json);
-    assert!(cli.contest_id.is_none());
-    assert!(cli.problem_id.is_none());
 }

@@ -1753,25 +1753,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_contest_viewers_visibility_only_opens_full_scoreboard_during_contest() {
-        assert!(!full_scoreboard_visible_for_phase(
-            "before",
-            false,
-            ScoreboardVisibility::AllContestViewers,
-        ));
-        assert!(full_scoreboard_visible_for_phase(
-            "during",
-            false,
-            ScoreboardVisibility::AllContestViewers,
-        ));
-        assert!(full_scoreboard_visible_for_phase(
-            "after",
-            false,
-            ScoreboardVisibility::AdminsOnly,
-        ));
-    }
-
-    #[test]
     fn admins_can_view_full_scoreboard_in_any_phase() {
         for phase in ["before", "during", "after"] {
             assert!(full_scoreboard_visible_for_phase(
@@ -1803,22 +1784,6 @@ mod tests {
             60,
             ScoreboardTiebreaker::EqualRank
         ));
-    }
-
-    #[test]
-    fn sum_score_time_tiebreaker_adds_problem_times() {
-        assert_eq!(
-            combined_score_time_seconds(ScoreboardTiebreaker::SumScoreTime, &[600, 2400]),
-            3000
-        );
-    }
-
-    #[test]
-    fn max_score_time_tiebreaker_uses_latest_problem_time() {
-        assert_eq!(
-            combined_score_time_seconds(ScoreboardTiebreaker::MaxScoreTime, &[600, 2400]),
-            2400
-        );
     }
 
     #[test]

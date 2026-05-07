@@ -147,7 +147,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "requires a live local Redis instance on redis://localhost:6379"]
     async fn claim_and_release() {
         let dedup =
             RedisTaskDedup::new("redis://localhost:6379", 60, "test-worker".into()).unwrap();

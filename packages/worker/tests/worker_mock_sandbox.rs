@@ -196,11 +196,9 @@ async fn execute_operation_task_failure_with_mock_sandbox() {
 }
 
 #[tokio::test]
+#[ignore = "requires a C++17 compiler available on PATH"]
 async fn execute_cpp_oi_pipeline_with_io_redirection() {
-    let Some(compiler) = cpp_compiler() else {
-        eprintln!("skip test: no C++ compiler found");
-        return;
-    };
+    let compiler = cpp_compiler().expect("no C++ compiler found");
 
     let prepare_script = r#"
 cat > main.cpp <<'CPP'
@@ -323,11 +321,9 @@ printf '2 40\n' > input.txt
 }
 
 #[tokio::test]
+#[ignore = "requires a C++17 compiler available on PATH"]
 async fn execute_cpp_compile_error_and_skip_dependent_step() {
-    let Some(compiler) = cpp_compiler() else {
-        eprintln!("skip test: no C++ compiler found");
-        return;
-    };
+    let compiler = cpp_compiler().expect("no C++ compiler found");
 
     let bad_cpp_script = r#"
 cat > bad.cpp <<'CPP'
@@ -582,11 +578,11 @@ async fn try_object_storage_store_for_test() -> Option<Arc<dyn BlobStore>> {
 }
 
 #[tokio::test]
+#[ignore = "requires configured object storage reachable through WORKER_OBJECT_STORAGE_* env vars"]
 async fn execute_operation_with_file_pulled_from_object_storage() {
-    let Some(store) = try_object_storage_store_for_test().await else {
-        eprintln!("skip object storage worker test: backend unavailable");
-        return;
-    };
+    let store = try_object_storage_store_for_test()
+        .await
+        .expect("object storage worker test backend unavailable");
 
     let hash = store
         .put(b"40 2\n")

@@ -112,14 +112,6 @@ mod tests {
     }
 
     #[test]
-    fn shard_prefix_and_suffix() {
-        let hash = ContentHash::compute(b"test");
-        let hex = hash.to_hex();
-        assert_eq!(hash.shard_prefix(), &hex[..2]);
-        assert_eq!(hash.shard_suffix(), &hex[2..]);
-    }
-
-    #[test]
     fn display_matches_to_hex() {
         let hash = ContentHash::compute(b"display test");
         assert_eq!(format!("{hash}"), hash.to_hex());

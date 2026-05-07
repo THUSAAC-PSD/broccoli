@@ -1,3 +1,6 @@
+# Root plugin frontend packages are intentionally not workspace members because
+# root plugins may become submodules. Use explicit root package scripts for
+# opt-in plugin frontend builds.
 packages:
   - packages/*
 

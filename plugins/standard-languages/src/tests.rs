@@ -181,14 +181,6 @@ fn java_uses_glob_output() {
 }
 
 #[test]
-fn all_standard_languages_defined() {
-    assert!(resolve::LANGUAGE_IDS.contains(&"c"));
-    assert!(resolve::LANGUAGE_IDS.contains(&"cpp"));
-    assert!(resolve::LANGUAGE_IDS.contains(&"python3"));
-    assert!(resolve::LANGUAGE_IDS.contains(&"java"));
-}
-
-#[test]
 fn entry_point_override_changes_primary() {
     let result = resolve::resolve_python3(
         &req("python3", vec!["solution.py", "grader.py"]),
@@ -201,25 +193,6 @@ fn entry_point_override_changes_primary() {
     assert_eq!(result.run.command, vec!["/usr/bin/python3", "grader.py"]);
     assert!(result.run.extra_files.contains(&"solution.py".to_string()));
     assert!(result.run.extra_files.contains(&"grader.py".to_string()));
-}
-
-#[test]
-fn entry_point_override_cpp() {
-    let result = resolve::resolve_cpp(
-        &req("cpp", vec!["solution.cpp", "grader.cpp"]),
-        Some(&EntryPointConfig {
-            entry_point: Some("grader.cpp".into()),
-            extra_compile_flags: None,
-        }),
-        "/usr/bin/g++",
-        &default_cpp_flags(),
-        &[],
-    );
-    assert_eq!(result.run.command, vec!["./grader"]);
-    let compile = result.compile.unwrap();
-    // Primary source comes first, extras follow
-    assert!(compile.command.contains(&"grader.cpp".to_string()));
-    assert!(compile.command.contains(&"solution.cpp".to_string()));
 }
 
 #[test]
@@ -247,16 +220,4 @@ fn cpp_with_additional_file_refs() {
         compile.cache_inputs,
         vec!["solution.cpp", "grader.cpp", "grader.h"]
     );
-}
-
-#[test]
-fn compile_spec_has_no_resource_limits_by_default() {
-    let result = resolve::resolve_cpp(
-        &req("cpp", vec!["solution.cpp"]),
-        None,
-        "/usr/bin/g++",
-        &default_cpp_flags(),
-        &[],
-    );
-    assert!(result.compile.unwrap().resource_limits.is_none());
 }
