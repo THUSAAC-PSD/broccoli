@@ -28,7 +28,7 @@ fn default_dlq_max_delay_ms() -> u64 {
     60_000
 }
 fn default_dlq_stuck_job_timeout_secs() -> u64 {
-    900
+    7200
 }
 fn default_dlq_stuck_job_scan_interval_secs() -> u64 {
     60
@@ -37,7 +37,7 @@ fn default_dlq_retry_cleanup_interval_secs() -> u64 {
     300
 }
 fn default_dlq_retry_max_age_secs() -> u64 {
-    600
+    7200
 }
 
 impl Default for DlqConfig {

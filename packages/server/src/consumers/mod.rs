@@ -2,7 +2,7 @@ pub mod operation_dlq;
 pub mod operation_result;
 
 pub use operation_dlq::consume_operation_dlq;
-pub use operation_result::{consume_legacy_operation_results, consume_operation_results};
+pub use operation_result::consume_operation_results;
 
 use broccoli_server_sdk::types::sanitize_text_field;
 use common::SubmissionStatus;

@@ -27,7 +27,7 @@ impl Default for DatabaseConfig {
 }
 
 fn default_database_max_connections() -> u32 {
-    100
+    20
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -181,7 +181,7 @@ pub struct AppConfig {
 }
 
 fn default_batch_max_age_secs() -> u64 {
-    600
+    7200
 }
 
 /// Returns true if `id` is a safe queue-suffix (alphanumeric + `-_.`,
@@ -282,7 +282,7 @@ impl AppConfig {
                 "database.url",
                 "postgres://postgres:password@localhost:5432/broccoli",
             )?
-            .set_default("database.max_connections", 100_i64)?
+            .set_default("database.max_connections", 20_i64)?
             .set_default("bootstrap.admin_username", "")?
             .set_default("bootstrap.admin_password", "")?
             .set_default("auth.secure_cookies", true)?

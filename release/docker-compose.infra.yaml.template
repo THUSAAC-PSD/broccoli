@@ -8,6 +8,39 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Tuned for contest-scale concurrency. The default max_connections=100 was the
+    # confirmed proximate cause of the 2026-05-07 production wedge: 3 servers x
+    # default_pool + 7 workers + DLQ + admin overhead saturated the connection slots
+    # and Postgres returned "FATAL: too many clients already".
+    #
+    # Sizing assumptions (override via env vars if your fleet is bigger):
+    #   3 servers x 50 = 150
+    #   7 workers x 5  =  35
+    #   admin/DLQ/hooks ~ 20
+    #   heartbeat refreshers (Phase 1b) ~ 10
+    #   Total client demand ~ 215; max_connections=400 leaves ~85% headroom.
+    #
+    # If you increase fleet size, raise POSTGRES_MAX_CONNECTIONS proportionally.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}"
+      - "-c"
+      - "shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}"
+      - "-c"
+      - "effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-2GB}"
+      - "-c"
+      - "work_mem=${POSTGRES_WORK_MEM:-8MB}"
+      - "-c"
+      - "maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "log_lock_waits=on"
+      - "-c"
+      - "log_min_duration_statement=2000"
+      - "-c"
+      - "idle_in_transaction_session_timeout=60000"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -19,7 +52,41 @@ services:
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # Tuned for Broccoli's MQ + heartbeat + (planned) observability streams.
+    #
+    # CRITICAL: maxmemory-policy MUST be noeviction. Every key Broccoli writes is
+    # correctness-bearing — MQ payloads are queued submissions, heartbeats drive
+    # worker dedup steal logic, dedup keys carry claim invariants, observability
+    # streams hold live SSE state. allkeys-lru would silently lose all of these.
+    # When Redis is full under noeviction, writes return OOM and the API surfaces
+    # 503 / workers retry — fail-loud beats fail-silent.
+    #
+    # Sizing rationale (override via REDIS_MAXMEMORY):
+    #   ~300 MB op envelopes pending under 1000-spike (capped after Phase 2 windowing)
+    #   ~3 GB op result reply queues at peak (worst-instant; drains as servers consume)
+    #   ~600 MB observability streams at 1000 active subs (MAXLEN-bounded by §4.4 of
+    #         docs/plans/2026-05-07-observability-expansion-design.md)
+    #   ~30% AOF rewrite working memory headroom
+    #   ~safety margin
+    # Default 6 GB. Single-host: 2 GB. Large/national: 12 GB.
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD}"
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--maxmemory"
+      - "${REDIS_MAXMEMORY:-6gb}"
+      - "--maxmemory-policy"
+      - "noeviction"
+      - "--tcp-keepalive"
+      - "60"
+      - "--timeout"
+      - "0"
+      - "--save"
+      - ""
     ports:
       - "${REDIS_BIND:-0.0.0.0:6379}:6379"
     volumes:
@@ -34,6 +101,13 @@ services:
     image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.15}
     restart: unless-stopped
     entrypoint: ["sh", "-ec"]
+    # Tuned for testcase-blob workloads. Defaults assume 50 MB-class testcase
+    # inputs/outputs and a single-volume node; raise -volume.max if you observe
+    # frequent volume rotation in the master logs.
+    #
+    #   -volume.max=8                   # allow up to 8 concurrent volumes
+    #   -master.volumeSizeLimitMB=2048  # rotate sooner under heavy small-write traffic
+    #   -volume.compactionMBps=50       # cap compaction I/O so it can't starve reads
     command:
       - |
         cat > /tmp/seaweedfs-s3.json <<EOF
@@ -52,7 +126,14 @@ services:
           ]
         }
         EOF
-        exec weed server -dir=/data -s3 -s3.config=/tmp/seaweedfs-s3.json -ip=seaweedfs
+        exec weed server \
+          -dir=/data \
+          -s3 \
+          -s3.config=/tmp/seaweedfs-s3.json \
+          -ip=seaweedfs \
+          -volume.max=${SEAWEEDFS_VOLUME_MAX:-8} \
+          -master.volumeSizeLimitMB=${SEAWEEDFS_VOLUME_SIZE_LIMIT_MB:-2048} \
+          -volume.compactionMBps=${SEAWEEDFS_COMPACTION_MBPS:-50}
     ports:
       - "${SEAWEEDFS_MASTER_BIND:-127.0.0.1:9333}:9333"
       - "${SEAWEEDFS_S3_BIND:-0.0.0.0:8333}:8333"

@@ -7,6 +7,7 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, TransactionTrait,
 };
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::consumers::{mark_code_run_system_error, mark_submission_system_error};
 use crate::entity::{code_run, dead_letter_message, submission};
@@ -151,7 +152,7 @@ async fn handle_stuck_submission(
 
     let dlq = DlqService::new(&txn);
     dlq.create_entry(
-        format!("stuck-submission-{}", submission.id),
+        format!("stuck-submission-{}-{}", submission.id, Uuid::new_v4()),
         DlqMessageType::StuckSubmission,
         Some(submission.id),
         payload,
