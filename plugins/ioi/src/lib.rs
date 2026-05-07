@@ -14,8 +14,8 @@ use extism_pdk::{FnResult, plugin_fn};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    ContestConfig, FeedbackLevel, ScoreboardVisibility, ScoringMode, SubtaskDef, TaskConfig,
-    TokenMode, resolve_tc_label, round_score,
+    ContestConfig, FeedbackLevel, ScoreboardTiebreaker, ScoreboardVisibility, ScoringMode,
+    SubtaskDef, TaskConfig, TokenMode, resolve_tc_label, round_score,
 };
 use crate::judge::{JudgeContext, judge_with_context};
 use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
@@ -93,6 +93,51 @@ fn full_scoreboard_visible_for_phase(
         || (phase == "during" && scoreboard_visibility == ScoreboardVisibility::AllContestViewers)
 }
 
+fn combined_score_time_seconds(tiebreaker: ScoreboardTiebreaker, times: &[i64]) -> i64 {
+    match tiebreaker {
+        ScoreboardTiebreaker::EqualRank => 0,
+        ScoreboardTiebreaker::SumScoreTime => times.iter().copied().sum(),
+        ScoreboardTiebreaker::MaxScoreTime => times.iter().copied().max().unwrap_or(0),
+    }
+}
+
+fn compare_scoreboard_entries(
+    a_score: f64,
+    a_time: i64,
+    a_username: &str,
+    b_score: f64,
+    b_time: i64,
+    b_username: &str,
+    tiebreaker: ScoreboardTiebreaker,
+) -> std::cmp::Ordering {
+    b_score
+        .partial_cmp(&a_score)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| match tiebreaker {
+            ScoreboardTiebreaker::EqualRank => std::cmp::Ordering::Equal,
+            ScoreboardTiebreaker::SumScoreTime | ScoreboardTiebreaker::MaxScoreTime => {
+                a_time.cmp(&b_time)
+            }
+        })
+        .then_with(|| a_username.cmp(b_username))
+}
+
+fn scoreboard_entries_tied(
+    a_score: f64,
+    a_time: i64,
+    b_score: f64,
+    b_time: i64,
+    tiebreaker: ScoreboardTiebreaker,
+) -> bool {
+    (a_score - b_score).abs() < SCORE_EPSILON
+        && match tiebreaker {
+            ScoreboardTiebreaker::EqualRank => true,
+            ScoreboardTiebreaker::SumScoreTime | ScoreboardTiebreaker::MaxScoreTime => {
+                a_time == b_time
+            }
+        }
+}
+
 #[derive(Deserialize)]
 struct ElapsedMinutes {
     elapsed_minutes: Option<f64>,
@@ -116,6 +161,14 @@ struct TcResultRow {
     score: f64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+struct SubtaskScoreDetail {
+    name: String,
+    scoring_method: crate::config::SubtaskScoringMethod,
+    score: f64,
+    max_score: f64,
+}
+
 #[derive(Deserialize)]
 struct TcMaxScore {
     #[allow(dead_code)]
@@ -131,19 +184,35 @@ struct SubmissionScore {
 }
 
 #[derive(Deserialize)]
-struct ScoreTimeRow {
-    elapsed_seconds: Option<i64>,
+struct MaxSubmissionScoreboardRow {
+    user_id: i32,
+    problem_id: i32,
+    score: f64,
+    score_time_seconds: i64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ScoreboardCell {
+    score: f64,
+    score_time_seconds: i64,
 }
 
 #[derive(Deserialize)]
-struct SubmissionElapsedRow {
-    id: i32,
+struct ScoreboardSubmissionRow {
+    user_id: i32,
+    problem_id: i32,
+    score: f64,
     elapsed_seconds: i64,
 }
 
 #[derive(Deserialize)]
-struct StoredSubtaskScore {
+struct ScoreboardTcScoreRow {
+    user_id: i32,
+    problem_id: i32,
+    submission_id: i32,
+    test_case_id: i32,
     score: f64,
+    elapsed_seconds: i64,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -154,6 +223,43 @@ fn can_view_privileged_submission_feedback(req: &PluginHttpRequest) -> bool {
 #[cfg(target_arch = "wasm32")]
 fn tokens_enabled(config: &ContestConfig) -> bool {
     config.tokens.mode != TokenMode::None
+}
+
+fn score_submission_subtask_details(
+    test_cases: &[TestCaseRow],
+    subtask_defs: &[SubtaskDef],
+    tc_results: &[TcResultRow],
+) -> Vec<SubtaskScoreDetail> {
+    let max_map: HashMap<i32, f64> = test_cases.iter().map(|tc| (tc.id, tc.score)).collect();
+    let id_to_label: HashMap<i32, String> = test_cases
+        .iter()
+        .map(|tc| (tc.id, resolve_tc_label(tc)))
+        .collect();
+
+    let mut tc_scores = HashMap::new();
+    for row in tc_results {
+        let Some(label) = id_to_label.get(&row.test_case_id) else {
+            continue;
+        };
+        let tc_max = max_map.get(&row.test_case_id).copied().unwrap_or(0.0);
+        let raw_score = if tc_max > 0.0 {
+            row.score / tc_max
+        } else {
+            0.0
+        };
+        tc_scores.insert(label.clone(), raw_score);
+    }
+
+    score_all_subtasks(subtask_defs, test_cases, &tc_scores)
+        .into_iter()
+        .zip(subtask_defs.iter())
+        .map(|(score, def)| SubtaskScoreDetail {
+            name: score.name,
+            scoring_method: def.scoring_method,
+            score: round_score(score.score),
+            max_score: score.max_score,
+        })
+        .collect()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -183,6 +289,28 @@ fn load_effective_subtasks(
 }
 
 #[cfg(target_arch = "wasm32")]
+fn load_current_submission_test_case_results(
+    host: &Host,
+    contest_id: i32,
+    submission_id: i32,
+) -> Result<Vec<TcResultRow>, SdkError> {
+    let mut p = Params::new();
+    let sql = format!(
+        "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
+         FROM test_case_result tcr \
+         JOIN submission s ON s.id = tcr.submission_id \
+         LEFT JOIN submission_judgement sj ON sj.id = tcr.judgement_id \
+         WHERE tcr.submission_id = {} \
+           AND s.contest_id = {} \
+           AND tcr.test_case_id IS NOT NULL \
+           AND (tcr.judgement_id IS NULL OR (sj.is_current = TRUE AND sj.is_finalized = TRUE))",
+        p.bind(submission_id),
+        p.bind(contest_id)
+    );
+    host.db.query_with_args(&sql, &p.into_args())
+}
+
+#[cfg(target_arch = "wasm32")]
 fn viewer_has_token_feedback_for_submission(
     host: &Host,
     req: &PluginHttpRequest,
@@ -195,15 +323,6 @@ fn viewer_has_token_feedback_for_submission(
 
     let token_state = load_token_state(host, contest_id, user_id)?;
     Ok(token_state.tokened_submission_ids.contains(&submission_id))
-}
-
-#[cfg(target_arch = "wasm32")]
-fn should_include_in_contest_aggregations(
-    host: &Host,
-    contest_id: i32,
-    user_id: i32,
-) -> Result<bool, SdkError> {
-    contest::is_participant(host, contest_id, user_id)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -417,67 +536,7 @@ fn run_judge(
 
     let result = judge_with_context(host, req, &ctx)?;
 
-    if let Some(ref subtask_scores) = result.subtask_scores {
-        let subtask_data: Vec<serde_json::Value> = ctx
-            .subtask_defs
-            .iter()
-            .zip(subtask_scores.iter())
-            .map(|(def, &score)| {
-                serde_json::json!({
-                    "name": def.name,
-                    "scoring_method": def.scoring_method,
-                    "score": round_score(score),
-                    "max_score": def.max_score,
-                })
-            })
-            .collect();
-        let key = format!("subtask_scores:{}:{}", req.submission_id, req.problem_id);
-        let val = serde_json::to_string(&subtask_data)?;
-        host.storage.set(&[(&key, &val)])?;
-    }
-
-    if result.submission_score.is_some() {
-        update_task_score(
-            host,
-            &contest_config,
-            contest_id,
-            req.problem_id,
-            req.user_id,
-            &ctx,
-        )?;
-    }
-
     Ok(result.output)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn update_task_score(
-    host: &Host,
-    config: &ContestConfig,
-    contest_id: i32,
-    problem_id: i32,
-    user_id: i32,
-    ctx: &JudgeContext,
-) -> Result<(), SdkError> {
-    if !should_include_in_contest_aggregations(host, contest_id, user_id)? {
-        return Ok(());
-    }
-
-    let task_score = compute_official_task_score(
-        host,
-        config,
-        contest_id,
-        problem_id,
-        user_id,
-        Some(&ctx.test_cases),
-        Some(&ctx.subtask_defs),
-    )?;
-
-    let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-    let val = round_score(task_score).to_string();
-    host.storage.set(&[(&key, val.as_str())])?;
-
-    Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -494,8 +553,10 @@ fn recompute_sum_best_subtask(
         "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
+         LEFT JOIN submission_judgement sj ON sj.id = tcr.judgement_id \
          WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
-         AND tcr.test_case_id IS NOT NULL",
+         AND tcr.test_case_id IS NOT NULL \
+         AND (tcr.judgement_id IS NULL OR (sj.is_current = TRUE AND sj.is_finalized = TRUE))",
         p.bind(user_id),
         p.bind(problem_id),
         p.bind(contest_id)
@@ -539,7 +600,7 @@ fn recompute_sum_best_subtask(
 
     let mut all_subtask_scores: Vec<Vec<f64>> = Vec::new();
     for tc_scores in by_submission.values() {
-        let results = score_all_subtasks(subtask_defs, tc_scores);
+        let results = score_all_subtasks(subtask_defs, test_cases, tc_scores);
         all_subtask_scores.push(results.iter().map(|r| r.score).collect());
     }
 
@@ -560,8 +621,11 @@ fn compute_official_task_score(
         ScoringMode::MaxSubmission => {
             let mut p = Params::new();
             let sql = format!(
-                "SELECT MAX(score) as max_score FROM submission \
-                 WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
+                "SELECT MAX(COALESCE(sj.score, s.score)) as max_score \
+                 FROM submission s \
+                 LEFT JOIN submission_judgement sj \
+                   ON sj.submission_id = s.id AND sj.is_current = TRUE \
+                 WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {}",
                 p.bind(user_id),
                 p.bind(problem_id),
                 p.bind(contest_id)
@@ -604,8 +668,11 @@ fn compute_official_task_score(
                     .map(|id| p.bind(*id))
                     .collect();
                 let sql = format!(
-                    "SELECT MAX(score) as max_score FROM submission \
-                     WHERE id IN ({}) AND problem_id = {}",
+                    "SELECT MAX(COALESCE(sj.score, s.score)) as max_score \
+                     FROM submission s \
+                     LEFT JOIN submission_judgement sj \
+                       ON sj.submission_id = s.id AND sj.is_current = TRUE \
+                     WHERE s.id IN ({}) AND s.problem_id = {}",
                     ids_sql.join(","),
                     p.bind(problem_id)
                 );
@@ -617,9 +684,12 @@ fn compute_official_task_score(
 
             let mut p = Params::new();
             let sql = format!(
-                "SELECT id, score FROM submission \
-                 WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-                 ORDER BY created_at DESC LIMIT 1",
+                "SELECT s.id, COALESCE(sj.score, s.score, 0.0) as score \
+                 FROM submission s \
+                 LEFT JOIN submission_judgement sj \
+                   ON sj.submission_id = s.id AND sj.is_current = TRUE \
+                 WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
+                 ORDER BY s.created_at DESC LIMIT 1",
                 p.bind(user_id),
                 p.bind(problem_id),
                 p.bind(contest_id)
@@ -645,190 +715,356 @@ fn load_token_state(host: &Host, contest_id: i32, user_id: i32) -> Result<TokenS
 }
 
 #[cfg(target_arch = "wasm32")]
-fn earliest_submission_reaching_score_seconds(
+fn load_max_submission_scoreboard_cells(
     host: &Host,
     contest_id: i32,
-    problem_id: i32,
-    user_id: i32,
-    score: f64,
-    allowed_submission_ids: Option<&[i32]>,
-) -> Result<i64, SdkError> {
-    if score <= 0.0 {
-        return Ok(0);
-    }
-    if matches!(allowed_submission_ids, Some(ids) if ids.is_empty()) {
-        return Ok(0);
+    user_ids: &[i32],
+    problem_ids: &[i32],
+) -> Result<HashMap<(i32, i32), ScoreboardCell>, SdkError> {
+    if user_ids.is_empty() || problem_ids.is_empty() {
+        return Ok(HashMap::new());
     }
 
     let mut p = Params::new();
-    let id_filter = allowed_submission_ids
-        .map(|ids| {
-            ids.iter()
-                .map(|id| p.bind(*id))
-                .collect::<Vec<_>>()
-                .join(",")
-        })
-        .map(|ids| format!(" AND s.id IN ({ids})"))
-        .unwrap_or_default();
+    let contest_placeholder = p.bind(contest_id);
+    let user_placeholders: Vec<String> = user_ids.iter().map(|id| p.bind(*id)).collect();
+    let problem_placeholders: Vec<String> = problem_ids.iter().map(|id| p.bind(*id)).collect();
+    let score_epsilon_placeholder = p.bind(SCORE_EPSILON);
     let sql = format!(
-        "SELECT GREATEST(EXTRACT(EPOCH FROM (MIN(s.created_at) - c.start_time))::bigint, 0) \
-         as elapsed_seconds \
-         FROM submission s \
-         JOIN contest c ON c.id = s.contest_id \
-         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
-         AND s.score IS NOT NULL AND s.score >= {}{} \
-         GROUP BY c.start_time",
-        p.bind(user_id),
-        p.bind(problem_id),
-        p.bind(contest_id),
-        p.bind(score - SCORE_EPSILON),
-        id_filter,
+        "WITH scored AS ( \
+             SELECT s.user_id, s.problem_id, COALESCE(sj.score, s.score) as score, \
+                    GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
+                      as elapsed_seconds \
+             FROM submission s \
+             JOIN contest c ON c.id = s.contest_id \
+             LEFT JOIN submission_judgement sj \
+               ON sj.submission_id = s.id AND sj.is_current = TRUE \
+             WHERE s.contest_id = {} \
+               AND s.user_id IN ({}) \
+               AND s.problem_id IN ({}) \
+               AND COALESCE(sj.score, s.score) IS NOT NULL \
+         ), maxes AS ( \
+             SELECT user_id, problem_id, MAX(score) as score \
+             FROM scored \
+             GROUP BY user_id, problem_id \
+         ) \
+         SELECT m.user_id, m.problem_id, m.score, \
+                COALESCE(MIN(s.elapsed_seconds) FILTER \
+                    (WHERE m.score > 0.0 AND s.score >= m.score - {}), 0) \
+                    as score_time_seconds \
+         FROM maxes m \
+         JOIN scored s ON s.user_id = m.user_id AND s.problem_id = m.problem_id \
+         GROUP BY m.user_id, m.problem_id, m.score",
+        contest_placeholder,
+        user_placeholders.join(","),
+        problem_placeholders.join(","),
+        score_epsilon_placeholder,
     );
-
-    Ok(host
-        .db
-        .query_one_with_args::<ScoreTimeRow>(&sql, &p.into_args())?
-        .and_then(|r| r.elapsed_seconds)
-        .unwrap_or(0))
+    let rows: Vec<MaxSubmissionScoreboardRow> = host.db.query_with_args(&sql, &p.into_args())?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            (
+                (r.user_id, r.problem_id),
+                ScoreboardCell {
+                    score: r.score,
+                    score_time_seconds: r.score_time_seconds,
+                },
+            )
+        })
+        .collect())
 }
 
 #[cfg(target_arch = "wasm32")]
-fn sum_best_subtask_score_time_seconds(
+fn load_best_tokened_or_last_scoreboard_cells(
     host: &Host,
     contest_id: i32,
-    problem_id: i32,
-    user_id: i32,
-    score: f64,
-) -> Result<i64, SdkError> {
-    let mut p = Params::new();
-    let sql = format!(
-        "SELECT s.id, GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
-         as elapsed_seconds \
-         FROM submission s \
-         JOIN contest c ON c.id = s.contest_id \
-         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
-         AND s.score IS NOT NULL \
-         ORDER BY s.created_at ASC",
-        p.bind(user_id),
-        p.bind(problem_id),
-        p.bind(contest_id),
-    );
-    let submissions: Vec<SubmissionElapsedRow> = host.db.query_with_args(&sql, &p.into_args())?;
-    if submissions.is_empty() {
-        return Ok(0);
+    user_ids: &[i32],
+    problem_ids: &[i32],
+) -> Result<HashMap<(i32, i32), ScoreboardCell>, SdkError> {
+    if user_ids.is_empty() || problem_ids.is_empty() {
+        return Ok(HashMap::new());
     }
 
-    let keys: Vec<String> = submissions
+    let token_keys: Vec<String> = user_ids
         .iter()
-        .map(|s| format!("subtask_scores:{}:{problem_id}", s.id))
+        .map(|user_id| format!("tokens:{contest_id}:{user_id}"))
         .collect();
-    let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-    let stored = host.storage.get(&key_refs)?;
+    let token_key_refs: Vec<&str> = token_keys.iter().map(|key| key.as_str()).collect();
+    let raw_token_states = host.storage.get(&token_key_refs)?;
+    let mut tokened_submission_ids = Vec::new();
+    for key in &token_keys {
+        if let Some(raw) = raw_token_states.get(key) {
+            let state: TokenState = serde_json::from_str(raw).unwrap_or_default();
+            tokened_submission_ids.extend(state.tokened_submission_ids);
+        }
+    }
+    tokened_submission_ids.sort_unstable();
+    tokened_submission_ids.dedup();
 
-    let mut best_by_subtask: Vec<(f64, Option<i64>)> = Vec::new();
-    for submission in &submissions {
-        let key = format!("subtask_scores:{}:{problem_id}", submission.id);
-        let Some(raw) = stored.get(&key) else {
+    let mut p = Params::new();
+    let contest_placeholder = p.bind(contest_id);
+    let user_placeholders: Vec<String> = user_ids.iter().map(|id| p.bind(*id)).collect();
+    let problem_placeholders: Vec<String> = problem_ids.iter().map(|id| p.bind(*id)).collect();
+    let sql = format!(
+        "SELECT DISTINCT ON (s.user_id, s.problem_id) \
+                s.user_id, s.problem_id, \
+                COALESCE(sj.score, s.score, 0.0) as score, \
+                GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
+                  as elapsed_seconds \
+         FROM submission s \
+         JOIN contest c ON c.id = s.contest_id \
+         LEFT JOIN submission_judgement sj \
+           ON sj.submission_id = s.id AND sj.is_current = TRUE \
+         WHERE s.contest_id = {} \
+           AND s.user_id IN ({}) \
+           AND s.problem_id IN ({}) \
+         ORDER BY s.user_id, s.problem_id, s.created_at DESC",
+        contest_placeholder,
+        user_placeholders.join(","),
+        problem_placeholders.join(","),
+    );
+    let last_rows: Vec<ScoreboardSubmissionRow> = host.db.query_with_args(&sql, &p.into_args())?;
+
+    let tokened_rows = if tokened_submission_ids.is_empty() {
+        Vec::new()
+    } else {
+        let mut p = Params::new();
+        let contest_placeholder = p.bind(contest_id);
+        let user_placeholders: Vec<String> = user_ids.iter().map(|id| p.bind(*id)).collect();
+        let problem_placeholders: Vec<String> = problem_ids.iter().map(|id| p.bind(*id)).collect();
+        let tokened_placeholders: Vec<String> = tokened_submission_ids
+            .iter()
+            .map(|id| p.bind(*id))
+            .collect();
+        let sql = format!(
+            "SELECT s.user_id, s.problem_id, \
+                    COALESCE(sj.score, s.score, 0.0) as score, \
+                    GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
+                      as elapsed_seconds \
+             FROM submission s \
+             JOIN contest c ON c.id = s.contest_id \
+             LEFT JOIN submission_judgement sj \
+               ON sj.submission_id = s.id AND sj.is_current = TRUE \
+             WHERE s.contest_id = {} \
+               AND s.user_id IN ({}) \
+               AND s.problem_id IN ({}) \
+               AND s.id IN ({})",
+            contest_placeholder,
+            user_placeholders.join(","),
+            problem_placeholders.join(","),
+            tokened_placeholders.join(","),
+        );
+        host.db
+            .query_with_args::<ScoreboardSubmissionRow>(&sql, &p.into_args())?
+    };
+
+    let mut last_by_cell: HashMap<(i32, i32), ScoreboardSubmissionRow> = HashMap::new();
+    for row in last_rows {
+        last_by_cell.insert((row.user_id, row.problem_id), row);
+    }
+
+    let mut tokened_by_cell: HashMap<(i32, i32), Vec<ScoreboardSubmissionRow>> = HashMap::new();
+    for row in tokened_rows {
+        tokened_by_cell
+            .entry((row.user_id, row.problem_id))
+            .or_default()
+            .push(row);
+    }
+
+    let mut cells = HashMap::new();
+    for &user_id in user_ids {
+        for &problem_id in problem_ids {
+            let key = (user_id, problem_id);
+            let tokened_best = tokened_by_cell
+                .get(&key)
+                .and_then(|rows| rows.iter().map(|row| row.score).reduce(f64::max))
+                .unwrap_or(0.0);
+            let last_score = last_by_cell.get(&key).map(|row| row.score).unwrap_or(0.0);
+            let score = score_best_tokened_or_last(tokened_best, last_score);
+            let mut score_time_seconds = 0;
+            if score > 0.0 {
+                let mut eligible_times = Vec::new();
+                if let Some(rows) = tokened_by_cell.get(&key) {
+                    eligible_times.extend(
+                        rows.iter()
+                            .filter(|row| row.score >= score - SCORE_EPSILON)
+                            .map(|row| row.elapsed_seconds),
+                    );
+                }
+                if let Some(row) = last_by_cell.get(&key)
+                    && row.score >= score - SCORE_EPSILON
+                {
+                    eligible_times.push(row.elapsed_seconds);
+                }
+                score_time_seconds = eligible_times.into_iter().min().unwrap_or(0);
+            }
+            cells.insert(
+                key,
+                ScoreboardCell {
+                    score,
+                    score_time_seconds,
+                },
+            );
+        }
+    }
+
+    Ok(cells)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn load_sum_best_subtask_scoreboard_cells(
+    host: &Host,
+    contest_id: i32,
+    user_ids: &[i32],
+    problem_ids: &[i32],
+) -> Result<HashMap<(i32, i32), ScoreboardCell>, SdkError> {
+    if user_ids.is_empty() || problem_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut problem_subtasks: HashMap<i32, (Vec<TestCaseRow>, Vec<SubtaskDef>)> = HashMap::new();
+    let mut test_case_meta: HashMap<(i32, i32), (String, f64)> = HashMap::new();
+    for &problem_id in problem_ids {
+        let task_config = load_task_config(host, contest_id, problem_id)?;
+        let (test_cases, subtask_defs) = load_effective_subtasks(host, problem_id, &task_config)?;
+        for test_case in &test_cases {
+            test_case_meta.insert(
+                (problem_id, test_case.id),
+                (resolve_tc_label(test_case), test_case.score),
+            );
+        }
+        problem_subtasks.insert(problem_id, (test_cases, subtask_defs));
+    }
+
+    let mut p = Params::new();
+    let contest_placeholder = p.bind(contest_id);
+    let user_placeholders: Vec<String> = user_ids.iter().map(|id| p.bind(*id)).collect();
+    let problem_placeholders: Vec<String> = problem_ids.iter().map(|id| p.bind(*id)).collect();
+    let sql = format!(
+        "SELECT s.user_id, s.problem_id, s.id as submission_id, \
+                tcr.test_case_id, tcr.score, \
+                GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
+                  as elapsed_seconds \
+         FROM submission s \
+         JOIN contest c ON c.id = s.contest_id \
+         JOIN test_case_result tcr ON tcr.submission_id = s.id \
+         LEFT JOIN submission_judgement sj ON sj.id = tcr.judgement_id \
+         WHERE s.contest_id = {} \
+           AND s.user_id IN ({}) \
+           AND s.problem_id IN ({}) \
+           AND tcr.test_case_id IS NOT NULL \
+           AND (tcr.judgement_id IS NULL OR (sj.is_current = TRUE AND sj.is_finalized = TRUE)) \
+         ORDER BY s.created_at ASC",
+        contest_placeholder,
+        user_placeholders.join(","),
+        problem_placeholders.join(","),
+    );
+    let rows: Vec<ScoreboardTcScoreRow> = host.db.query_with_args(&sql, &p.into_args())?;
+
+    let mut by_submission: HashMap<(i32, i32, i32), (i64, HashMap<String, f64>)> = HashMap::new();
+    for row in rows {
+        let Some((label, max_score)) = test_case_meta.get(&(row.problem_id, row.test_case_id))
+        else {
             continue;
         };
-        let scores: Vec<StoredSubtaskScore> = serde_json::from_str(raw).unwrap_or_default();
-        for (idx, subtask) in scores.iter().enumerate() {
-            if best_by_subtask.len() <= idx {
-                best_by_subtask.resize(idx + 1, (0.0, None));
+        let raw_score = if *max_score > 0.0 {
+            row.score / *max_score
+        } else {
+            0.0
+        };
+        let (elapsed, scores) = by_submission
+            .entry((row.user_id, row.problem_id, row.submission_id))
+            .or_insert_with(|| (row.elapsed_seconds, HashMap::new()));
+        *elapsed = (*elapsed).min(row.elapsed_seconds);
+        scores.insert(label.clone(), raw_score);
+    }
+
+    let mut submissions_by_cell: HashMap<(i32, i32), Vec<(i64, HashMap<String, f64>)>> =
+        HashMap::new();
+    for ((user_id, problem_id, _submission_id), submission_scores) in by_submission {
+        submissions_by_cell
+            .entry((user_id, problem_id))
+            .or_default()
+            .push(submission_scores);
+    }
+
+    let mut cells = HashMap::new();
+    for &user_id in user_ids {
+        for &problem_id in problem_ids {
+            let Some((test_cases, subtask_defs)) = problem_subtasks.get(&problem_id) else {
+                continue;
+            };
+            let submissions = submissions_by_cell
+                .get(&(user_id, problem_id))
+                .cloned()
+                .unwrap_or_default();
+            let mut all_subtask_scores = Vec::new();
+            let mut best_by_subtask: Vec<(f64, Option<i64>)> = Vec::new();
+
+            for (elapsed_seconds, tc_scores) in submissions {
+                let subtask_scores = score_all_subtasks(subtask_defs, test_cases, &tc_scores);
+                all_subtask_scores.push(subtask_scores.iter().map(|r| r.score).collect::<Vec<_>>());
+                for (idx, subtask) in subtask_scores.iter().enumerate() {
+                    if best_by_subtask.len() <= idx {
+                        best_by_subtask.resize(idx + 1, (0.0, None));
+                    }
+                    let (best_score, best_time) = &mut best_by_subtask[idx];
+                    if subtask.score > *best_score + SCORE_EPSILON {
+                        *best_score = subtask.score;
+                        *best_time = Some(elapsed_seconds);
+                    } else if (subtask.score - *best_score).abs() < SCORE_EPSILON
+                        && subtask.score > 0.0
+                        && best_time
+                            .map(|elapsed| elapsed_seconds < elapsed)
+                            .unwrap_or(true)
+                    {
+                        *best_time = Some(elapsed_seconds);
+                    }
+                }
             }
-            let (best_score, best_time) = &mut best_by_subtask[idx];
-            if subtask.score > *best_score + SCORE_EPSILON {
-                *best_score = subtask.score;
-                *best_time = Some(submission.elapsed_seconds);
-            } else if (subtask.score - *best_score).abs() < SCORE_EPSILON
-                && subtask.score > 0.0
-                && best_time
-                    .map(|elapsed| submission.elapsed_seconds < elapsed)
-                    .unwrap_or(true)
-            {
-                *best_time = Some(submission.elapsed_seconds);
-            }
+
+            let score = score_sum_best_subtask(&all_subtask_scores);
+            let score_time_seconds = if score > 0.0 {
+                best_by_subtask
+                    .iter()
+                    .filter(|(score, _)| *score > 0.0)
+                    .filter_map(|(_, elapsed)| *elapsed)
+                    .max()
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            cells.insert(
+                (user_id, problem_id),
+                ScoreboardCell {
+                    score,
+                    score_time_seconds,
+                },
+            );
         }
     }
 
-    let total = best_by_subtask
-        .iter()
-        .filter(|(score, _)| *score > 0.0)
-        .filter_map(|(_, elapsed)| *elapsed)
-        .max()
-        .unwrap_or(0);
-    if total > 0 {
-        Ok(total)
-    } else {
-        earliest_submission_reaching_score_seconds(
-            host, contest_id, problem_id, user_id, score, None,
-        )
-    }
+    Ok(cells)
 }
 
 #[cfg(target_arch = "wasm32")]
-fn best_tokened_or_last_score_time_seconds(
-    host: &Host,
-    contest_id: i32,
-    problem_id: i32,
-    user_id: i32,
-    score: f64,
-) -> Result<i64, SdkError> {
-    if score <= 0.0 {
-        return Ok(0);
-    }
-
-    let token_state = load_token_state(host, contest_id, user_id)?;
-    let mut eligible_ids = token_state.tokened_submission_ids;
-
-    let mut p = Params::new();
-    let sql = format!(
-        "SELECT id, score FROM submission \
-         WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-         ORDER BY created_at DESC LIMIT 1",
-        p.bind(user_id),
-        p.bind(problem_id),
-        p.bind(contest_id)
-    );
-    if let Some(last) = host
-        .db
-        .query_one_with_args::<SubmissionScore>(&sql, &p.into_args())?
-    {
-        if last.score >= score - SCORE_EPSILON {
-            eligible_ids.push(last.id);
-        }
-    }
-    eligible_ids.sort_unstable();
-    eligible_ids.dedup();
-
-    earliest_submission_reaching_score_seconds(
-        host,
-        contest_id,
-        problem_id,
-        user_id,
-        score,
-        Some(&eligible_ids),
-    )
-}
-
-#[cfg(target_arch = "wasm32")]
-fn official_score_time_seconds(
+fn load_scoreboard_cells(
     host: &Host,
     config: &ContestConfig,
     contest_id: i32,
-    problem_id: i32,
-    user_id: i32,
-    score: f64,
-) -> Result<i64, SdkError> {
+    user_ids: &[i32],
+    problem_ids: &[i32],
+) -> Result<HashMap<(i32, i32), ScoreboardCell>, SdkError> {
     match config.scoring_mode {
-        ScoringMode::MaxSubmission => earliest_submission_reaching_score_seconds(
-            host, contest_id, problem_id, user_id, score, None,
-        ),
+        ScoringMode::MaxSubmission => {
+            load_max_submission_scoreboard_cells(host, contest_id, user_ids, problem_ids)
+        }
         ScoringMode::SumBestSubtask => {
-            sum_best_subtask_score_time_seconds(host, contest_id, problem_id, user_id, score)
+            load_sum_best_subtask_scoreboard_cells(host, contest_id, user_ids, problem_ids)
         }
         ScoringMode::BestTokenedOrLast => {
-            best_tokened_or_last_score_time_seconds(host, contest_id, problem_id, user_id, score)
+            load_best_tokened_or_last_scoreboard_cells(host, contest_id, user_ids, problem_ids)
         }
     }
 }
@@ -937,12 +1173,6 @@ fn handle_use_token(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         None,
     )?;
 
-    if should_include_in_contest_aggregations(host, contest_id, user_id)? {
-        let key = format!("task_score:{contest_id}:{problem_id}:{user_id}");
-        let val = round_score(task_score).to_string();
-        host.storage.set(&[(&key, val.as_str())])?;
-    }
-
     let remaining = available_tokens(&contest_config.tokens, &token_state, elapsed_min);
 
     Ok(PluginHttpResponse {
@@ -979,6 +1209,7 @@ fn handle_contest_info(
             "scoring_mode": contest_config.scoring_mode,
             "feedback_level": contest_config.feedback_level,
             "scoreboard_visibility": contest_config.scoreboard_visibility,
+            "scoreboard_tiebreaker": contest_config.scoreboard_tiebreaker,
             "token_mode": contest_config.tokens.mode,
         })),
     })
@@ -1335,43 +1566,36 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
         .iter()
         .filter(|p| full_scoreboard_visible || req.user_id() == Some(p.user_id))
         .collect();
-
-    let all_keys: Vec<String> = visible_participants
-        .iter()
-        .flat_map(|p| {
-            problem_ids
-                .iter()
-                .map(move |&pid| format!("task_score:{contest_id}:{pid}:{}", p.user_id))
-        })
-        .collect();
-    let key_refs: Vec<&str> = all_keys.iter().map(|s| s.as_str()).collect();
-    let all_scores = host.storage.get(&key_refs)?;
+    let visible_user_ids: Vec<i32> = visible_participants.iter().map(|p| p.user_id).collect();
+    let scoreboard_cells = load_scoreboard_cells(
+        host,
+        &contest_config,
+        contest_id,
+        &visible_user_ids,
+        &problem_ids,
+    )?;
 
     for participant in &visible_participants {
         let mut total = 0.0;
-        let mut total_time_seconds = 0;
+        let mut problem_score_times = Vec::with_capacity(problem_ids.len());
         let mut prob_scores = Vec::new();
 
         for &pid in &problem_ids {
-            let key = format!("task_score:{contest_id}:{pid}:{}", participant.user_id);
-            let score = all_scores
-                .get(&key)
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.0);
+            let cell = scoreboard_cells
+                .get(&(participant.user_id, pid))
+                .copied()
+                .unwrap_or_default();
+            let score = cell.score;
+            let score_time_seconds = cell.score_time_seconds;
             total += score;
-            total_time_seconds += official_score_time_seconds(
-                host,
-                &contest_config,
-                contest_id,
-                pid,
-                participant.user_id,
-                score,
-            )?;
+            problem_score_times.push(score_time_seconds);
             prob_scores.push(ProblemScore {
                 problem_id: pid,
                 score: round_score(score),
             });
         }
+        let total_time_seconds =
+            combined_score_time_seconds(contest_config.scoreboard_tiebreaker, &problem_score_times);
 
         let problems = match contest_config.feedback_level {
             FeedbackLevel::None | FeedbackLevel::TotalOnly => None,
@@ -1388,19 +1612,28 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
         });
     }
 
-    // Sort: total desc, then faster accumulated score time, then username asc.
+    // Sort: total desc, optional configured score-time tiebreaker, then username asc.
     entries.sort_by(|a, b| {
-        b.total_score
-            .partial_cmp(&a.total_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.total_time_seconds.cmp(&b.total_time_seconds))
-            .then_with(|| a.username.cmp(&b.username))
+        compare_scoreboard_entries(
+            a.total_score,
+            a.total_time_seconds,
+            &a.username,
+            b.total_score,
+            b.total_time_seconds,
+            &b.username,
+            contest_config.scoreboard_tiebreaker,
+        )
     });
 
     for i in 0..entries.len() {
         if i > 0
-            && (entries[i].total_score - entries[i - 1].total_score).abs() < SCORE_EPSILON
-            && entries[i].total_time_seconds == entries[i - 1].total_time_seconds
+            && scoreboard_entries_tied(
+                entries[i].total_score,
+                entries[i].total_time_seconds,
+                entries[i - 1].total_score,
+                entries[i - 1].total_time_seconds,
+                contest_config.scoreboard_tiebreaker,
+            )
         {
             entries[i].rank = entries[i - 1].rank;
         } else {
@@ -1416,6 +1649,7 @@ fn handle_scoreboard(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpR
             "scoring_mode": contest_config.scoring_mode,
             "feedback_level": contest_config.feedback_level,
             "scoreboard_visibility": contest_config.scoreboard_visibility,
+            "scoreboard_tiebreaker": contest_config.scoreboard_tiebreaker,
             "max_scores": max_scores,
             "rankings": entries,
         })),
@@ -1476,13 +1710,6 @@ fn handle_submission_subtask_scores(
         }
     }
 
-    let key = format!("subtask_scores:{}:{}", submission_id, problem_id);
-    let subtasks: serde_json::Value = host
-        .storage
-        .get_one(&key)?
-        .map(|json| serde_json::from_str(&json).unwrap_or(serde_json::Value::Null))
-        .unwrap_or(serde_json::Value::Null);
-
     let can_view_full_feedback = can_view_all_submissions
         || phase == "after"
         || (tokens_enabled(&contest_config)
@@ -1494,15 +1721,29 @@ fn handle_submission_subtask_scores(
             FeedbackLevel::Full | FeedbackLevel::SubtaskScores
         );
 
+    let subtasks = if can_view_subtask_scores {
+        let task_config = load_task_config(host, contest_id, problem_id)?;
+        let (test_cases, subtask_defs) = load_effective_subtasks(host, problem_id, &task_config)?;
+        let tc_results =
+            load_current_submission_test_case_results(host, contest_id, submission_id)?;
+        if tc_results.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::to_value(score_submission_subtask_details(
+                &test_cases,
+                &subtask_defs,
+                &tc_results,
+            ))?
+        }
+    } else {
+        serde_json::Value::Null
+    };
+
     Ok(PluginHttpResponse {
         status: 200,
         headers: None,
         body: Some(serde_json::json!({
-            "subtasks": if can_view_subtask_scores {
-                subtasks
-            } else {
-                serde_json::Value::Null
-            }
+            "subtasks": subtasks
         })),
     })
 }
@@ -1539,6 +1780,169 @@ mod tests {
                 ScoreboardVisibility::AdminsOnly,
             ));
         }
+    }
+
+    #[test]
+    fn equal_rank_tiebreaker_ignores_score_time() {
+        assert_eq!(
+            compare_scoreboard_entries(
+                100.0,
+                600,
+                "slow",
+                100.0,
+                60,
+                "fast",
+                ScoreboardTiebreaker::EqualRank
+            ),
+            std::cmp::Ordering::Greater
+        );
+        assert!(scoreboard_entries_tied(
+            100.0,
+            600,
+            100.0,
+            60,
+            ScoreboardTiebreaker::EqualRank
+        ));
+    }
+
+    #[test]
+    fn sum_score_time_tiebreaker_adds_problem_times() {
+        assert_eq!(
+            combined_score_time_seconds(ScoreboardTiebreaker::SumScoreTime, &[600, 2400]),
+            3000
+        );
+    }
+
+    #[test]
+    fn max_score_time_tiebreaker_uses_latest_problem_time() {
+        assert_eq!(
+            combined_score_time_seconds(ScoreboardTiebreaker::MaxScoreTime, &[600, 2400]),
+            2400
+        );
+    }
+
+    #[test]
+    fn time_tiebreakers_rank_faster_total_first() {
+        assert_eq!(
+            compare_scoreboard_entries(
+                100.0,
+                60,
+                "fast",
+                100.0,
+                600,
+                "slow",
+                ScoreboardTiebreaker::MaxScoreTime
+            ),
+            std::cmp::Ordering::Less
+        );
+        assert!(!scoreboard_entries_tied(
+            100.0,
+            60,
+            100.0,
+            600,
+            ScoreboardTiebreaker::MaxScoreTime
+        ));
+    }
+
+    #[test]
+    fn subtask_detail_scores_are_derived_from_current_test_case_results() {
+        let test_cases = vec![
+            TestCaseRow {
+                id: 11,
+                score: 50.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("a".into()),
+                input: TestCaseBodyRef::inline(""),
+                expected_output: TestCaseBodyRef::inline(""),
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 12,
+                score: 50.0,
+                is_sample: false,
+                position: 2,
+                description: None,
+                label: Some("b".into()),
+                input: TestCaseBodyRef::inline(""),
+                expected_output: TestCaseBodyRef::inline(""),
+                is_custom: false,
+            },
+        ];
+        let subtasks = vec![SubtaskDef {
+            name: "Current".into(),
+            scoring_method: crate::config::SubtaskScoringMethod::Sum,
+            max_score: 100.0,
+            test_cases: vec!["a".into(), "b".into()],
+        }];
+        let current_rows = vec![
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 11,
+                score: 50.0,
+            },
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 12,
+                score: 0.0,
+            },
+        ];
+
+        let scores = score_submission_subtask_details(&test_cases, &subtasks, &current_rows);
+
+        assert_eq!(scores.len(), 1);
+        assert_eq!(scores[0].name, "Current");
+        assert_eq!(scores[0].score, 50.0);
+        assert_eq!(scores[0].max_score, 100.0);
+    }
+
+    #[test]
+    fn default_subtask_detail_scores_use_test_case_weights() {
+        let test_cases = vec![
+            TestCaseRow {
+                id: 11,
+                score: 10.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("small".into()),
+                input: TestCaseBodyRef::inline(""),
+                expected_output: TestCaseBodyRef::inline(""),
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 12,
+                score: 90.0,
+                is_sample: false,
+                position: 2,
+                description: None,
+                label: Some("large".into()),
+                input: TestCaseBodyRef::inline(""),
+                expected_output: TestCaseBodyRef::inline(""),
+                is_custom: false,
+            },
+        ];
+        let subtasks = build_default_subtasks(&test_cases);
+        let current_rows = vec![
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 11,
+                score: 10.0,
+            },
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 12,
+                score: 0.0,
+            },
+        ];
+
+        let scores = score_submission_subtask_details(&test_cases, &subtasks, &current_rows);
+
+        assert_eq!(scores.len(), 1);
+        assert_eq!(scores[0].name, "All Tests");
+        assert_eq!(scores[0].score, 10.0);
+        assert_eq!(scores[0].max_score, 100.0);
     }
 
     #[test]

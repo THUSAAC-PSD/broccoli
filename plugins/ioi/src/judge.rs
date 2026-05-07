@@ -98,7 +98,7 @@ pub fn judge_with_context(
         })
         .collect();
 
-    let subtask_results = score_all_subtasks(&ctx.subtask_defs, &tc_scores);
+    let subtask_results = score_all_subtasks(&ctx.subtask_defs, &ctx.test_cases, &tc_scores);
     let subtask_scores: Vec<f64> = subtask_results.iter().map(|r| r.score).collect();
 
     let submission_score = round_score(subtask_scores.iter().sum());
@@ -162,6 +162,20 @@ mod tests {
         }
     }
 
+    fn explicit_subtask_ctx(
+        test_cases: Vec<TestCaseRow>,
+        subtask_defs: Vec<SubtaskDef>,
+    ) -> JudgeContext {
+        JudgeContext {
+            task_config: TaskConfig {
+                subtasks: subtask_defs.clone(),
+                ..TaskConfig::default()
+            },
+            subtask_defs,
+            ..default_ctx(test_cases)
+        }
+    }
+
     #[test]
     fn all_accepted_flat_scoring() {
         let host = Host::mock();
@@ -178,8 +192,8 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -189,8 +203,8 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
         ];
@@ -212,6 +226,85 @@ mod tests {
     }
 
     #[test]
+    fn no_config_sample_does_not_contribute_to_score() {
+        let host = Host::mock();
+        host.submission.add_test_case(1, 0.0);
+        host.submission.add_test_case(2, 100.0);
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
+
+        let tcs = vec![
+            TestCaseRow {
+                id: 1,
+                score: 0.0,
+                is_sample: true,
+                position: 0,
+                description: None,
+                label: Some("sample_01".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 2,
+                score: 100.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("tc_01".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+        ];
+        let ctx = default_ctx(tcs);
+        let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
+
+        assert_eq!(result.submission_score, Some(0.0));
+        assert_eq!(host.submission.last_update().score, Some(0.0));
+    }
+
+    #[test]
+    fn no_config_default_scoring_uses_test_case_scores_as_weights() {
+        let host = Host::mock();
+        host.submission.add_test_case(1, 10.0);
+        host.submission.add_test_case(2, 90.0);
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
+
+        let tcs = vec![
+            TestCaseRow {
+                id: 1,
+                score: 10.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("small".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 2,
+                score: 90.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("large".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+        ];
+        let ctx = default_ctx(tcs);
+        let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
+
+        assert_eq!(result.submission_score, Some(10.0));
+        assert_eq!(result.subtask_scores, Some(vec![10.0]));
+        assert_eq!(host.submission.last_update().score, Some(10.0));
+    }
+
+    #[test]
     fn partial_with_subtasks() {
         let host = Host::mock();
         host.submission.add_test_case(1, 30.0);
@@ -229,8 +322,8 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -240,8 +333,8 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -251,15 +344,16 @@ mod tests {
                 position: 2,
                 description: None,
                 label: Some("3".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
         ];
 
         // Two subtasks: GroupMin for first 2 TCs, GroupMin for TC 3
-        let ctx = JudgeContext {
-            subtask_defs: vec![
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![
                 SubtaskDef {
                     name: "Subtask 1".into(),
                     scoring_method: SubtaskScoringMethod::GroupMin,
@@ -273,8 +367,7 @@ mod tests {
                     test_cases: vec!["3".into()],
                 },
             ],
-            ..default_ctx(tcs)
-        };
+        );
 
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
 
@@ -297,8 +390,8 @@ mod tests {
             position: 0,
             description: None,
             label: Some("1".into()),
-            inline_input: None,
-            inline_expected_output: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
             is_custom: false,
         }];
         let ctx = default_ctx(tcs);
@@ -339,8 +432,8 @@ mod tests {
             position: 0,
             description: None,
             label: Some("1".into()),
-            inline_input: None,
-            inline_expected_output: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
             is_custom: false,
         }];
         let ctx = default_ctx(tcs);
@@ -369,8 +462,8 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -380,8 +473,8 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
         ];
@@ -436,8 +529,8 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -447,20 +540,20 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
         ];
-        let ctx = JudgeContext {
-            subtask_defs: vec![SubtaskDef {
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![SubtaskDef {
                 name: "All".into(),
                 scoring_method: SubtaskScoringMethod::GroupMin,
                 max_score: 100.0,
                 test_cases: vec!["1".into(), "2".into()],
             }],
-            ..default_ctx(tcs)
-        };
+        );
 
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
         // GroupMin: TC 2 has score 0.8, not 1.0 -> subtask = 0
@@ -501,8 +594,8 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -512,24 +605,72 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
         ];
-        let ctx = JudgeContext {
-            subtask_defs: vec![SubtaskDef {
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![SubtaskDef {
                 name: "All".into(),
                 scoring_method: SubtaskScoringMethod::GroupMul,
                 max_score: 100.0,
                 test_cases: vec!["1".into(), "2".into()],
             }],
-            ..default_ctx(tcs)
-        };
+        );
 
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
         // GroupMul: 100 * 0.8 * 0.5 = 40.0
         assert_eq!(result.submission_score, Some(40.0));
+    }
+
+    #[test]
+    fn explicit_sum_subtask_uses_test_case_scores_as_weights() {
+        let host = Host::mock();
+        host.submission.add_test_case(1, 10.0);
+        host.submission.add_test_case(2, 90.0);
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
+
+        let tcs = vec![
+            TestCaseRow {
+                id: 1,
+                score: 10.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("small".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 2,
+                score: 90.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("large".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+        ];
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![SubtaskDef {
+                name: "Weighted".into(),
+                scoring_method: SubtaskScoringMethod::Sum,
+                max_score: 100.0,
+                test_cases: vec!["small".into(), "large".into()],
+            }],
+        );
+
+        let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
+
+        assert_eq!(result.submission_score, Some(10.0));
+        assert_eq!(result.subtask_scores, Some(vec![10.0]));
     }
 
     #[test]
@@ -546,8 +687,8 @@ mod tests {
             position: 0,
             description: None,
             label: Some("1".into()),
-            inline_input: None,
-            inline_expected_output: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
             is_custom: false,
         }];
         let ctx = default_ctx(tcs);
@@ -588,8 +729,8 @@ mod tests {
                 position: 0,
                 description: None,
                 label: Some("1".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
             TestCaseRow {
@@ -599,23 +740,23 @@ mod tests {
                 position: 1,
                 description: None,
                 label: Some("2".into()),
-                inline_input: None,
-                inline_expected_output: None,
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
                 is_custom: false,
             },
         ];
-        let ctx = JudgeContext {
-            subtask_defs: vec![SubtaskDef {
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![SubtaskDef {
                 name: "All".into(),
                 scoring_method: SubtaskScoringMethod::Sum,
                 max_score: 100.0,
                 test_cases: vec!["1".into(), "2".into()],
             }],
-            ..default_ctx(tcs)
-        };
+        );
 
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
-        // Sum: 100 * (0.5 + 1.0) / 2 = 75.0
-        assert_eq!(result.submission_score, Some(75.0));
+        // Sum weights by testcase score: 100 * ((0.5 * 30) + (1.0 * 70)) / 100 = 85.0
+        assert_eq!(result.submission_score, Some(85.0));
     }
 }

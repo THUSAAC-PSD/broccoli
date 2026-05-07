@@ -586,13 +586,17 @@ async fn ioi_scoreboard_uses_time_taken_as_score_tiebreaker() {
         .create_authenticated_user("ioi_time_z_fast", "password")
         .await;
 
-    let problem_id = app.create_problem(&admin, "IOI Time Tie Problem").await;
+    let problem_id = app.create_problem(&admin, "IOI Time Tie Problem A").await;
+    let problem_id_b = app.create_problem(&admin, "IOI Time Tie Problem B").await;
     app.create_test_case(problem_id, &admin).await;
+    app.create_test_case(problem_id_b, &admin).await;
 
     let contest_id = app
         .create_typed_contest(&admin, "IOI Time Tie Contest", "ioi", true, true)
         .await;
     app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id_b, &admin)
         .await;
     app.register_for_contest(contest_id, &slow_token).await;
     app.register_for_contest(contest_id, &fast_token).await;
@@ -611,9 +615,27 @@ async fn ioi_scoreboard_uses_time_taken_as_score_tiebreaker() {
         .expect("fast user should exist");
 
     let contest_start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-    for (user_id, created_at) in [
-        (slow_user.id, contest_start + Duration::minutes(60)),
-        (fast_user.id, contest_start + Duration::minutes(10)),
+    for (user_id, problem_id, created_at) in [
+        (
+            slow_user.id,
+            problem_id,
+            contest_start + Duration::minutes(60),
+        ),
+        (
+            slow_user.id,
+            problem_id_b,
+            contest_start + Duration::minutes(5),
+        ),
+        (
+            fast_user.id,
+            problem_id,
+            contest_start + Duration::minutes(40),
+        ),
+        (
+            fast_user.id,
+            problem_id_b,
+            contest_start + Duration::minutes(40),
+        ),
     ] {
         let submission = submission::ActiveModel {
             files: Set(json!([{ "filename": "main.cpp", "content": CPP_SUM }])),
@@ -683,7 +705,7 @@ async fn ioi_scoreboard_uses_time_taken_as_score_tiebreaker() {
         .expect("slow row should be present");
     assert_eq!(first["rank"].as_u64(), Some(1), "fast row: {first}");
     assert_eq!(second["rank"].as_u64(), Some(2), "slow row: {second}");
-    assert_eq!(first["total_time_seconds"].as_i64(), Some(600), "{first}");
+    assert_eq!(first["total_time_seconds"].as_i64(), Some(2400), "{first}");
     assert_eq!(
         second["total_time_seconds"].as_i64(),
         Some(3600),

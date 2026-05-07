@@ -43,8 +43,9 @@ pub fn evaluate_all(
                 time_limit_ms: req.time_limit_ms,
                 memory_limit_kb: req.memory_limit_kb,
                 contest_id: req.contest_id,
-                inline_input: tc.inline_input.clone(),
-                inline_expected_output: tc.inline_expected_output.clone(),
+                input: tc.input.clone(),
+                expected_output: tc.expected_output.clone(),
+                is_custom: tc.is_custom,
                 target_worker_id: req.target_worker_id.clone(),
             })
             .collect(),
@@ -106,9 +107,10 @@ pub fn evaluate_all(
 
     let mut collected = 0;
     let mut timed_out = false;
+    let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
-        match host.eval.next_result(&batch_id, 120_000) {
+        match host.eval.next_result(&batch_id, result_timeout_ms) {
             Ok(Some(verdict)) => {
                 let normalized = if verdict.score.is_finite() {
                     verdict.score.clamp(0.0, 1.0)
@@ -239,5 +241,5 @@ fn insert_tc_result(
 }
 
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
-    value.map(|s| sanitize_text_field(s).into_owned())
+    value.map(|s| sanitize_result_text_field(s).into_owned())
 }

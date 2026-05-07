@@ -2,6 +2,7 @@ export interface ContestInfoResponse {
   scoring_mode: ScoringMode;
   feedback_level: FeedbackLevel;
   scoreboard_visibility: ScoreboardVisibility;
+  scoreboard_tiebreaker: ScoreboardTiebreaker;
   token_mode: TokenMode;
 }
 
@@ -67,6 +68,7 @@ export interface ScoreboardResponse {
   scoring_mode: ScoringMode;
   feedback_level: FeedbackLevel;
   scoreboard_visibility: ScoreboardVisibility;
+  scoreboard_tiebreaker: ScoreboardTiebreaker;
   max_scores: Record<string, number>;
   rankings: ScoreboardEntry[];
 }
@@ -82,5 +84,9 @@ export type ScoringMode =
   | 'best_tokened_or_last';
 export type FeedbackLevel = 'full' | 'subtask_scores' | 'total_only' | 'none';
 export type ScoreboardVisibility = 'admins_only' | 'all_contest_viewers';
+export type ScoreboardTiebreaker =
+  | 'equal_rank'
+  | 'sum_score_time'
+  | 'max_score_time';
 export type TokenMode = 'none' | 'fixed_budget' | 'regenerating';
 export type SubtaskScoringMethod = 'group_min' | 'sum' | 'group_mul';
