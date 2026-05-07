@@ -5,8 +5,6 @@ pub mod testlib;
 pub mod tokens;
 pub mod tokens_case;
 pub mod tokens_float;
-pub mod unordered_lines;
-pub mod unordered_tokens;
 
 #[cfg(test)]
 use broccoli_server_sdk::types::*;
@@ -14,11 +12,11 @@ use broccoli_server_sdk::types::*;
 #[cfg(test)]
 pub fn input(stdout: &str, expected: &str) -> CheckerParseInput {
     CheckerParseInput {
-        stdout: stdout.into(),
+        stdout: JudgeFile::inline(stdout),
         stderr: String::new(),
         exit_code: 0,
-        expected_output: expected.into(),
-        test_input: String::new(),
+        expected_output: JudgeFile::inline(expected),
+        test_input: JudgeFile::Missing,
         checker_source: None,
         config: None,
     }
@@ -31,11 +29,11 @@ pub fn input_with_config(
     config: serde_json::Value,
 ) -> CheckerParseInput {
     CheckerParseInput {
-        stdout: stdout.into(),
+        stdout: JudgeFile::inline(stdout),
         stderr: String::new(),
         exit_code: 0,
-        expected_output: expected.into(),
-        test_input: String::new(),
+        expected_output: JudgeFile::inline(expected),
+        test_input: JudgeFile::Missing,
         checker_source: None,
         config: Some(config),
     }

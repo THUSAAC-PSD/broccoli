@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect, Schema, Set};
+use sea_orm::{
+    ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect, Schema, Set, Statement,
+};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -144,6 +146,45 @@ impl BlobStore for DatabaseBlobStore {
         let model = model.ok_or(StorageError::NotFound(hash_hex))?;
 
         Ok(Box::new(Cursor::new(model.data)))
+    }
+
+    async fn get_range(
+        &self,
+        hash: &ContentHash,
+        offset: u64,
+        len: usize,
+    ) -> Result<(Vec<u8>, bool), StorageError> {
+        let hash_hex = hash.to_hex();
+        let start = i64::try_from(offset.saturating_add(1))
+            .map_err(|_| StorageError::Backend(format!("range offset overflow: {offset}")))?;
+        let len_i64 = i64::try_from(len)
+            .map_err(|_| StorageError::Backend(format!("range length overflow: {len}")))?;
+
+        let stmt = Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            r#"SELECT substr(data, $1, $2) AS chunk, size FROM blob_data WHERE content_hash = $3"#,
+            [start.into(), len_i64.into(), hash_hex.clone().into()],
+        );
+        let row = self
+            .db
+            .query_one_raw(stmt)
+            .await
+            .map_err(|e| StorageError::Backend(format!("get_range query failed: {e}")))?;
+        let row = row.ok_or(StorageError::NotFound(hash_hex))?;
+
+        let bytes: Vec<u8> = row
+            .try_get("", "chunk")
+            .map_err(|e| StorageError::Backend(format!("get_range chunk decode failed: {e}")))?;
+        let size: i64 = row
+            .try_get("", "size")
+            .map_err(|e| StorageError::Backend(format!("get_range size decode failed: {e}")))?;
+        if size < 0 {
+            return Err(StorageError::Backend(format!(
+                "size decode failed: negative size {size}"
+            )));
+        }
+
+        Ok((bytes, offset + len as u64 >= size as u64))
     }
 
     async fn exists(&self, hash: &ContentHash) -> Result<bool, StorageError> {

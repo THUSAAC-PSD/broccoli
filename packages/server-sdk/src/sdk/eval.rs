@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
@@ -55,6 +57,7 @@ pub(super) struct EvalMock {
     start_errors: RefCell<VecDeque<SdkError>>,
     result_errors: RefCell<VecDeque<SdkError>>,
     batch_inputs: RefCell<Vec<StartEvaluateBatchInput>>,
+    result_timeouts: RefCell<Vec<u64>>,
     cancels: RefCell<Vec<String>>,
 }
 
@@ -66,6 +69,7 @@ impl EvalMock {
             start_errors: RefCell::new(VecDeque::new()),
             result_errors: RefCell::new(VecDeque::new()),
             batch_inputs: RefCell::new(Vec::new()),
+            result_timeouts: RefCell::new(Vec::new()),
             cancels: RefCell::new(Vec::new()),
         }
     }
@@ -87,8 +91,9 @@ impl Eval {
     pub fn next_result(
         &self,
         _batch_id: &str,
-        _timeout_ms: u64,
+        timeout_ms: u64,
     ) -> Result<Option<TestCaseVerdict>, SdkError> {
+        self.inner.result_timeouts.borrow_mut().push(timeout_ms);
         if let Some(err) = self.inner.result_errors.borrow_mut().pop_front() {
             return Err(err);
         }
@@ -114,6 +119,10 @@ impl Eval {
 
     pub fn batch_inputs(&self) -> Vec<StartEvaluateBatchInput> {
         self.inner.batch_inputs.borrow().clone()
+    }
+
+    pub fn result_timeouts(&self) -> Vec<u64> {
+        self.inner.result_timeouts.borrow().clone()
     }
 
     pub fn was_cancelled(&self) -> bool {

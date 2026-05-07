@@ -602,6 +602,7 @@ impl TestApp {
             checker_format_registry.clone(),
             language_resolver_registry.clone(),
             evaluate_batches.clone(),
+            blob_store.clone(),
             app_config.clone(),
         )
         .expect("Failed to initialize plugin manager");

@@ -1,5 +1,6 @@
 use crate::registry::{BatchState, OperationBatches, OperationWaiters};
-use broccoli_server_sdk::types::OperationTask;
+use broccoli_server_sdk::types::{OperationTask, SessionFile};
+use common::storage::BlobStore;
 use common::worker::{Task, TaskResult};
 use extism::{Function, UserData, Val, ValType};
 use mq::MqQueue;
@@ -9,6 +10,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+const INLINE_FILE_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 
 #[derive(Deserialize)]
 struct GetNextResultInput {
@@ -29,6 +32,7 @@ struct ResultResponse {
 struct DispatchContext {
     plugin_id: String,
     mq: Option<Arc<MqQueue>>,
+    blob_store: Arc<dyn BlobStore>,
     batches: OperationBatches,
     waiters: OperationWaiters,
     operation_queue_name: String,
@@ -49,6 +53,7 @@ fn is_valid_worker_id(id: &str) -> bool {
 pub fn create_dispatch_functions(
     plugin_id: String,
     mq: Option<Arc<MqQueue>>,
+    blob_store: Arc<dyn BlobStore>,
     operation_batches: OperationBatches,
     operation_waiters: OperationWaiters,
     operation_queue_name: String,
@@ -57,6 +62,7 @@ pub fn create_dispatch_functions(
     let user_data: UserData<DispatchUserData> = UserData::new(DispatchContext {
         plugin_id,
         mq,
+        blob_store,
         batches: operation_batches,
         waiters: operation_waiters,
         operation_queue_name,
@@ -98,7 +104,7 @@ fn start_operation_batch_fn(
     let operations: Vec<OperationTask> = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize operations: {}", e)))?;
 
-    let (plugin_id, mq, batches, waiters, queue_name, result_queue_name) = {
+    let (plugin_id, mq, blob_store, batches, waiters, queue_name, result_queue_name) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
@@ -106,6 +112,7 @@ fn start_operation_batch_fn(
         (
             guard.plugin_id.clone(),
             guard.mq.clone(),
+            guard.blob_store.clone(),
             guard.batches.clone(),
             guard.waiters.clone(),
             guard.operation_queue_name.clone(),
@@ -189,6 +196,20 @@ fn start_operation_batch_fn(
             None => queue_name.clone(),
         };
 
+        let op = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(externalize_large_inline_files(op, blob_store.clone()))
+        })
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                batch_id = %batch_id,
+                correlation_id = %correlation_id,
+                "Failed to externalize large operation files"
+            );
+            extism::Error::msg(format!("Blob store error: {}", e))
+        })?;
+
         let task = Task {
             id: correlation_id.clone(),
             task_type: "operation".to_string(),
@@ -243,6 +264,42 @@ fn start_operation_batch_fn(
     outputs[0] = Val::I64(offset.offset() as i64);
 
     Ok(())
+}
+
+async fn externalize_large_inline_files(
+    mut op: OperationTask,
+    blob_store: Arc<dyn BlobStore>,
+) -> Result<OperationTask, common::storage::StorageError> {
+    let mut replaced = 0usize;
+    let mut replaced_bytes = 0usize;
+
+    for env in &mut op.environments {
+        for (_path, file) in &mut env.files_in {
+            let SessionFile::Content { content } = file else {
+                continue;
+            };
+            if content.len() < INLINE_FILE_BLOB_THRESHOLD_BYTES {
+                continue;
+            }
+
+            let hash = blob_store.put(content.as_bytes()).await?;
+            replaced += 1;
+            replaced_bytes += content.len();
+            *file = SessionFile::Blob {
+                hash: hash.to_hex(),
+            };
+        }
+    }
+
+    if replaced > 0 {
+        tracing::info!(
+            replaced,
+            replaced_bytes,
+            "Externalized large inline operation files to blob storage"
+        );
+    }
+
+    Ok(op)
 }
 
 fn get_next_operation_result_fn(

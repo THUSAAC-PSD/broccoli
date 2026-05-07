@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask, OutputSpec,
-    ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig,
+    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, JudgeFile, OperationTask,
+    OutputSpec, ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig,
 };
 
 use crate::config::{CommConfig, CommunicationMode, ManagerSourceEntry, SandboxConfig};
@@ -59,9 +59,7 @@ pub fn build_operation(
         .collect();
     manager_files_in.push((
         "input.txt".to_string(),
-        SessionFile::Content {
-            content: req.test_input.clone(),
-        },
+        session_file_from_judge_file(&req.test_input),
     ));
 
     environments.push(Environment {
@@ -292,6 +290,20 @@ pub fn build_operation(
     }])
 }
 
+fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
+    match file {
+        JudgeFile::Blob { file } => SessionFile::Blob {
+            hash: file.blob_hash.clone(),
+        },
+        JudgeFile::Inline { text } => SessionFile::Content {
+            content: text.clone(),
+        },
+        JudgeFile::Missing => SessionFile::Content {
+            content: String::new(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,8 +321,8 @@ mod tests {
             time_limit_ms: 2000,
             memory_limit_kb: 262144,
             contest_id: None,
-            test_input: "5\n1 2 3 4 5\n".to_string(),
-            expected_output: String::new(),
+            test_input: JudgeFile::inline("5\n1 2 3 4 5\n"),
+            expected_output: JudgeFile::Missing,
             checker_format: None,
             checker_config: None,
             checker_source: None,

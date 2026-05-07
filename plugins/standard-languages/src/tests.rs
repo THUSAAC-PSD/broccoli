@@ -229,10 +229,14 @@ fn cpp_with_additional_file_refs() {
         FileRef {
             filename: "grader.cpp".into(),
             content_type: Some("text/x-c++src".into()),
+            blob_hash: "grader-cpp-hash".into(),
+            read_token: None,
         },
         FileRef {
             filename: "grader.h".into(),
             content_type: Some("text/x-c".into()),
+            blob_hash: "grader-h-hash".into(),
+            read_token: None,
         },
     ];
     let result = resolve::resolve_cpp(&input, None, "/usr/bin/g++", &default_cpp_flags(), &[]);

@@ -21,6 +21,7 @@ use crate::models::plugin_config::{PluginConfigResponse, UpsertPluginConfigReque
 use crate::state::AppState;
 use crate::utils::contest::{find_contest, find_contest_problem};
 use crate::utils::problem::find_problem;
+use crate::utils::text::sanitize_db_json;
 
 fn validate_namespace(ns: &str) -> Result<(), AppError> {
     if ns.is_empty() || ns.len() > 128 {
@@ -189,6 +190,7 @@ async fn upsert_config_inner<C: ConnectionTrait>(
 ) -> Result<Json<PluginConfigResponse>, AppError> {
     let now = Utc::now();
     let namespace_str = namespace.to_string();
+    let config = sanitize_db_json(config);
 
     let active = plugin_config::ActiveModel {
         scope: Set(scope.to_string()),

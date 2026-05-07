@@ -1,7 +1,9 @@
 use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
+use common::storage::{BlobStore, ContentHash};
 use common::submission_dispatch::{
-    BuildEvalOpsInput, FileRef, SdkVerdict, SourceFile, StartEvaluateBatchInput, TestCaseVerdict,
+    BuildEvalOpsInput, FileRef, JudgeFile, SdkVerdict, SourceFile, StartEvaluateBatchInput,
+    TestCaseBodyRef, TestCaseVerdict,
 };
 use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
@@ -13,6 +15,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 
 #[derive(Deserialize)]
 struct GetNextEvaluateResultInput {
@@ -31,6 +35,7 @@ struct EvaluateContext {
     evaluator_registry: EvaluatorRegistry,
     evaluate_batches: EvaluateBatches,
     evaluator_slots: Arc<Semaphore>,
+    blob_store: Arc<dyn BlobStore>,
     db: DatabaseConnection,
 }
 
@@ -42,6 +47,7 @@ pub fn create_evaluate_functions(
     evaluator_registry: EvaluatorRegistry,
     evaluate_batches: EvaluateBatches,
     evaluator_slots: Arc<Semaphore>,
+    blob_store: Arc<dyn BlobStore>,
     db: DatabaseConnection,
 ) -> Vec<Function> {
     let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext {
@@ -50,6 +56,7 @@ pub fn create_evaluate_functions(
         evaluator_registry,
         evaluate_batches,
         evaluator_slots,
+        blob_store,
         db,
     });
 
@@ -94,6 +101,7 @@ fn start_evaluate_batch_fn(
         evaluator_registry,
         evaluate_batches,
         evaluator_slots,
+        blob_store,
         db,
     ) = {
         let user_data_guard = user_data.get()?;
@@ -106,6 +114,7 @@ fn start_evaluate_batch_fn(
             guard.evaluator_registry.clone(),
             guard.evaluate_batches.clone(),
             guard.evaluator_slots.clone(),
+            guard.blob_store.clone(),
             guard.db.clone(),
         )
     };
@@ -128,12 +137,6 @@ fn start_evaluate_batch_fn(
     let resolved_inputs = if input.test_cases.is_empty() {
         Vec::new()
     } else {
-        let tc_ids: Vec<i32> = input
-            .test_cases
-            .iter()
-            .filter(|tc| tc.inline_input.is_none())
-            .map(|tc| tc.test_case_id)
-            .collect();
         let problem_id = input.test_cases[0].problem_id;
 
         if input
@@ -146,146 +149,176 @@ fn start_evaluate_batch_fn(
             ));
         }
 
-        let solution_language = &input.test_cases[0].solution_language;
+        let solution_language = input.test_cases[0].solution_language.clone();
         if input
             .test_cases
             .iter()
-            .any(|tc| tc.solution_language != *solution_language)
+            .any(|tc| tc.solution_language != solution_language)
         {
             return Err(extism::Error::msg(
                 "All test cases in a batch must use the same solution_language",
             ));
         }
 
-        let (tc_data_map, problem_model, checker_config_model, additional_file_refs) =
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    let tc_models = if tc_ids.is_empty() {
-                        Vec::new()
-                    } else {
-                        test_case::Entity::find()
-                            .filter(test_case::Column::Id.is_in(tc_ids))
-                            .all(&db)
-                            .await
-                            .map_err(|e| {
-                                extism::Error::msg(format!("Failed to query test case data: {}", e))
-                            })?
-                    };
-
-                    let tc_data: HashMap<i32, (String, String)> = tc_models
-                        .into_iter()
-                        .map(|m| (m.id, (m.input, m.expected_output)))
-                        .collect();
-
-                    let problem_model = problem::Entity::find_by_id(problem_id)
-                        .one(&db)
-                        .await
-                        .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query problem: {}", e))
-                        })?;
-
-                    let checker_ns = format!("{}:checker", caller_plugin_id);
-                    let checker_config = plugin_config::Entity::find_by_id((
-                        "problem".to_string(),
-                        problem_id.to_string(),
-                        checker_ns,
-                    ))
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let problem_model = problem::Entity::find_by_id(problem_id)
                     .one(&db)
                     .await
-                    .map_err(|e| {
-                        extism::Error::msg(format!("Failed to query checker config: {}", e))
+                    .map_err(|e| extism::Error::msg(format!("Failed to query problem: {}", e)))?
+                    .ok_or_else(|| {
+                        extism::Error::msg(format!("Problem {} not found", problem_id))
                     })?;
 
-                    let af_models = additional_file::Entity::find()
-                        .filter(additional_file::Column::ProblemId.eq(problem_id))
-                        .filter(additional_file::Column::Language.eq(solution_language.as_str()))
+                let checker_ns = format!("{}:checker", caller_plugin_id);
+                let checker_config_model = plugin_config::Entity::find_by_id((
+                    "problem".to_string(),
+                    problem_id.to_string(),
+                    checker_ns,
+                ))
+                .one(&db)
+                .await
+                .map_err(|e| {
+                    extism::Error::msg(format!("Failed to query checker config: {}", e))
+                })?;
+
+                let af_models = additional_file::Entity::find()
+                    .filter(additional_file::Column::ProblemId.eq(problem_id))
+                    .filter(additional_file::Column::Language.eq(solution_language.as_str()))
+                    .all(&db)
+                    .await
+                    .map_err(|e| {
+                        extism::Error::msg(format!("Failed to query additional_files: {}", e))
+                    })?;
+
+                let additional_file_refs: Vec<FileRef> = af_models
+                    .into_iter()
+                    .map(|r| FileRef {
+                        filename: r.path,
+                        content_type: r.content_type,
+                        blob_hash: r.content_hash,
+                        read_token: None,
+                    })
+                    .collect();
+
+                let checker_format = Some(problem_model.checker_format.clone());
+                let parsed_checker_source: Option<Vec<SourceFile>> =
+                    problem_model.checker_source.as_ref().and_then(
+                        |v| match serde_json::from_value::<Vec<SourceFile>>(v.clone()) {
+                            Ok(parsed) => Some(parsed),
+                            Err(e) => {
+                                tracing::warn!(
+                                    problem_id,
+                                    error = %e,
+                                    "Failed to parse checker_source JSON"
+                                );
+                                None
+                            }
+                        },
+                    );
+
+                let checker_config_value: Option<serde_json::Value> =
+                    checker_config_model.map(|pc| pc.config);
+
+                let test_cases = input.test_cases;
+                let db_needed_ids: Vec<i32> = test_cases
+                    .iter()
+                    .filter(|tc| {
+                        !tc.is_custom && (tc.input.is_missing() || tc.expected_output.is_missing())
+                    })
+                    .map(|tc| tc.test_case_id)
+                    .collect();
+                let mut db_case_map: HashMap<i32, test_case::Model> = if db_needed_ids.is_empty() {
+                    HashMap::new()
+                } else {
+                    test_case::Entity::find()
+                        .filter(test_case::Column::ProblemId.eq(problem_id))
+                        .filter(test_case::Column::Id.is_in(db_needed_ids))
                         .all(&db)
                         .await
                         .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query additional_files: {}", e))
-                        })?;
-
-                    let additional_file_refs: Vec<FileRef> = af_models
+                            extism::Error::msg(format!("Failed to query test case data: {}", e))
+                        })?
                         .into_iter()
-                        .map(|r| FileRef {
-                            filename: r.path,
-                            content_type: r.content_type,
-                            blob_hash: r.content_hash,
-                        })
-                        .collect();
+                        .map(|tc| (tc.id, tc))
+                        .collect()
+                };
 
-                    Ok::<_, extism::Error>((
-                        tc_data,
-                        problem_model,
-                        checker_config,
-                        additional_file_refs,
-                    ))
-                })
-            })?;
-
-        let problem_model = problem_model
-            .ok_or_else(|| extism::Error::msg(format!("Problem {} not found", problem_id)))?;
-
-        let checker_format = Some(problem_model.checker_format.clone());
-        let parsed_checker_source: Option<Vec<SourceFile>> =
-            problem_model.checker_source.as_ref().and_then(|v| {
-                match serde_json::from_value::<Vec<SourceFile>>(v.clone()) {
-                    Ok(parsed) => Some(parsed),
-                    Err(e) => {
-                        tracing::warn!(
-                            problem_id,
-                            error = %e,
-                            "Failed to parse checker_source JSON"
-                        );
-                        None
-                    }
-                }
-            });
-
-        let checker_config_value: Option<serde_json::Value> =
-            checker_config_model.map(|pc| pc.config);
-
-        input
-            .test_cases
-            .into_iter()
-            .map(|tc| {
-                let (test_input, expected_output, tc_checker_format) =
-                    if let Some(ref inline) = tc.inline_input {
-                        let expected = tc.inline_expected_output.clone().unwrap_or_default();
-                        let fmt = if tc.inline_expected_output.is_none() {
-                            Some("none".to_string())
-                        } else {
-                            checker_format.clone()
-                        };
-                        (inline.clone(), expected, fmt)
-                    } else {
-                        let (ti, eo) = tc_data_map.get(&tc.test_case_id).ok_or_else(|| {
+                let mut resolved = Vec::with_capacity(test_cases.len());
+                for tc in test_cases {
+                    let db_case = if !tc.is_custom
+                        && (tc.input.is_missing() || tc.expected_output.is_missing())
+                    {
+                        Some(db_case_map.remove(&tc.test_case_id).ok_or_else(|| {
                             extism::Error::msg(format!(
                                 "Test case {} not found in database",
                                 tc.test_case_id
                             ))
-                        })?;
-                        (ti.clone(), eo.clone(), checker_format.clone())
+                        })?)
+                    } else {
+                        None
                     };
 
-                Ok::<_, extism::Error>(BuildEvalOpsInput {
-                    problem_id: tc.problem_id,
-                    test_case_id: tc.test_case_id,
-                    solution_source: tc.solution_source,
-                    solution_language: tc.solution_language,
-                    time_limit_ms: tc.time_limit_ms,
-                    memory_limit_kb: tc.memory_limit_kb,
-                    contest_id: tc.contest_id,
-                    test_input,
-                    expected_output,
-                    checker_format: tc_checker_format,
-                    checker_config: checker_config_value.clone(),
-                    checker_source: parsed_checker_source.clone(),
-                    additional_file_refs: additional_file_refs.clone(),
-                    target_worker_id: tc.target_worker_id,
-                })
+                    let (
+                        db_input,
+                        db_input_blob_hash,
+                        db_expected_output,
+                        db_expected_output_blob_hash,
+                    ) = match db_case {
+                        Some(tc) => (
+                            Some(tc.input),
+                            tc.input_blob_hash,
+                            Some(tc.expected_output),
+                            tc.expected_output_blob_hash,
+                        ),
+                        None => (None, None, None, None),
+                    };
+
+                    let test_input = resolve_evaluate_body(
+                        tc.input,
+                        db_input,
+                        db_input_blob_hash,
+                        "input.txt",
+                        "evaluate input",
+                        blob_store.clone(),
+                    )
+                    .await?;
+                    let expected_output = resolve_evaluate_body(
+                        tc.expected_output,
+                        db_expected_output,
+                        db_expected_output_blob_hash,
+                        "answer.txt",
+                        "evaluate answer",
+                        blob_store.clone(),
+                    )
+                    .await?;
+                    let tc_checker_format = if expected_output.present {
+                        checker_format.clone()
+                    } else {
+                        Some("none".to_string())
+                    };
+
+                    resolved.push(BuildEvalOpsInput {
+                        problem_id: tc.problem_id,
+                        test_case_id: tc.test_case_id,
+                        solution_source: tc.solution_source,
+                        solution_language: tc.solution_language,
+                        time_limit_ms: tc.time_limit_ms,
+                        memory_limit_kb: tc.memory_limit_kb,
+                        contest_id: tc.contest_id,
+                        test_input: test_input.file,
+                        expected_output: expected_output.file,
+                        checker_format: tc_checker_format,
+                        checker_config: checker_config_value.clone(),
+                        checker_source: parsed_checker_source.clone(),
+                        additional_file_refs: additional_file_refs.clone(),
+                        target_worker_id: tc.target_worker_id,
+                    });
+                }
+
+                Ok::<_, extism::Error>(resolved)
             })
-            .collect::<Result<Vec<_>, _>>()?
+        })?
     };
 
     let test_case_count = resolved_inputs.len();
@@ -411,6 +444,96 @@ fn start_evaluate_batch_fn(
     outputs[0] = Val::I64(offset.offset() as i64);
 
     Ok(())
+}
+
+struct ResolvedEvaluateBody {
+    file: JudgeFile,
+    present: bool,
+}
+
+async fn resolve_evaluate_body(
+    body: TestCaseBodyRef,
+    db_inline: Option<String>,
+    db_blob_hash: Option<String>,
+    filename: &str,
+    log_label: &str,
+    blob_store: Arc<dyn BlobStore>,
+) -> Result<ResolvedEvaluateBody, extism::Error> {
+    let content = match body {
+        TestCaseBodyRef::Blob { hash } => {
+            return Ok(ResolvedEvaluateBody {
+                file: JudgeFile::blob(file_ref(filename, hash)),
+                present: true,
+            });
+        }
+        TestCaseBodyRef::Inline { text } => text,
+        TestCaseBodyRef::Missing => {
+            if let Some(hash) = db_blob_hash {
+                return Ok(ResolvedEvaluateBody {
+                    file: JudgeFile::blob(file_ref(filename, hash)),
+                    present: true,
+                });
+            }
+            let Some(content) = db_inline else {
+                return Ok(ResolvedEvaluateBody {
+                    file: JudgeFile::Missing,
+                    present: false,
+                });
+            };
+            content
+        }
+    };
+
+    let (inline, reference) =
+        maybe_externalize_text_file(content, filename, log_label, blob_store).await?;
+    Ok(ResolvedEvaluateBody {
+        file: reference
+            .map(JudgeFile::blob)
+            .unwrap_or_else(|| JudgeFile::inline(inline)),
+        present: true,
+    })
+}
+
+async fn maybe_externalize_text_file(
+    content: String,
+    filename: &str,
+    log_label: &str,
+    blob_store: Arc<dyn BlobStore>,
+) -> Result<(String, Option<FileRef>), extism::Error> {
+    if content.len() < INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES {
+        return Ok((content, None));
+    }
+
+    let content_len = content.len();
+    let hash = ContentHash::compute(content.as_bytes());
+    let exists = blob_store
+        .exists(&hash)
+        .await
+        .map_err(|e| extism::Error::msg(format!("Failed to check evaluate blob: {}", e)))?;
+    if !exists {
+        blob_store
+            .put(content.as_bytes())
+            .await
+            .map_err(|e| extism::Error::msg(format!("Failed to store evaluate blob: {}", e)))?;
+    }
+
+    tracing::info!(
+        content_bytes = content_len,
+        blob_hash = %hash.to_hex(),
+        label = log_label,
+        "Externalized large evaluate file to blob storage"
+    );
+
+    Ok((String::new(), Some(file_ref(filename, hash.to_hex()))))
+}
+
+fn file_ref(filename: &str, blob_hash: String) -> FileRef {
+    FileRef {
+        filename: filename.to_string(),
+        content_type: Some("text/plain".to_string()),
+        blob_hash,
+        read_token: None,
+    }
 }
 
 fn get_next_evaluate_result_fn(

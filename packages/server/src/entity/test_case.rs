@@ -12,6 +12,16 @@ pub struct Model {
     pub input: String,
     #[sea_orm(column_type = "Text")]
     pub expected_output: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub input_blob_hash: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub expected_output_blob_hash: Option<String>,
+    pub input_size: Option<i64>,
+    pub expected_output_size: Option<i64>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub input_preview: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub expected_output_preview: Option<String>,
     pub score: i32,
 
     #[sea_orm(column_type = "Text", nullable)]

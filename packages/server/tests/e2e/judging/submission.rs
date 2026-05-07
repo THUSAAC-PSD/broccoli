@@ -424,6 +424,43 @@ async fn multiple_test_cases_all_get_results() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn submission_judges_blob_backed_testcase_input_and_expected_output() {
+    if skip_with_mock_sandbox() {
+        return;
+    }
+
+    let app = E2eTestApp::spawn().await;
+    let admin = app
+        .create_user_with_role("blob_tc_admin1", "pass1234", "admin")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "Blob Backed Judging").await;
+    let large_body = "a".repeat(1_048_576 + 64);
+    app.create_test_case_with(problem_id, &large_body, &large_body, 10, false, &admin)
+        .await;
+
+    let echo_source = r#"
+#include <iostream>
+int main() {
+    std::cout << std::cin.rdbuf();
+    return 0;
+}
+"#;
+    let sub_id = app
+        .create_submission(problem_id, &admin, "cpp", echo_source)
+        .await;
+    let res = app.wait_for_submission_terminal(sub_id, &admin, 120).await;
+
+    assert_eq!(
+        res.body["status"].as_str(),
+        Some("Judged"),
+        "blob-backed testcase submission should judge successfully: {}",
+        res.text
+    );
+    assert_eq!(res.body["verdict"].as_str(), Some("Accepted"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn concurrent_submissions_all_complete() {
     let app = E2eTestApp::spawn().await;
     let admin = app

@@ -35,6 +35,7 @@ impl ServerManager {
         checker_format_registry: CheckerFormatRegistry,
         language_resolver_registry: LanguageResolverRegistry,
         evaluate_batches: EvaluateBatches,
+        blob_store: Arc<dyn common::storage::BlobStore>,
         app_config: AppConfig,
     ) -> Result<Arc<Self>, anyhow::Error> {
         let manager = Arc::new(Self {
@@ -54,6 +55,7 @@ impl ServerManager {
             language_resolver_registry,
             evaluate_batches,
             manager.clone() as Arc<dyn PluginManager>,
+            blob_store,
             app_config,
         );
 

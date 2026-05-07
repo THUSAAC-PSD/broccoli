@@ -104,6 +104,18 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
     )
     .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
+    let compile_units = u32::from(manager_lang.compile.is_some())
+        + if contestant_lang.compile.is_some() {
+            comm_config.num_processes
+        } else {
+            0
+        };
+    let result_timeout_ms = sandbox_config.result_timeout_ms_for(
+        req.time_limit_ms,
+        compile_units,
+        comm_config.manager_time_limit_s,
+    );
+
     let batch_id = host
         .operations
         .start_batch(&operations)
@@ -111,7 +123,7 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
 
     let result = host
         .operations
-        .next_result(&batch_id, sandbox_config.result_timeout_ms)
+        .next_result(&batch_id, result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let memory_limit_kb = u32::try_from(req.memory_limit_kb).unwrap_or(u32::MAX);

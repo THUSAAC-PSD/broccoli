@@ -695,7 +695,7 @@ mod test_case_creation {
         let pid = app
             .create_problem(&token, "Large Single Test Case Problem")
             .await;
-        let large_input = String::from_utf8(vec![b'x'; 33 * 1024 * 1024])
+        let large_input = String::from_utf8(vec![b'x'; 1_048_576 + 123])
             .expect("ASCII input should be valid UTF-8");
 
         let res = app
@@ -714,6 +714,24 @@ mod test_case_creation {
 
         assert_eq!(res.status, 201, "response body: {}", res.body);
         assert_eq!(res.body["label"], "large_input");
+        assert_eq!(res.body["input"], large_input);
+        assert_eq!(res.body["input_size"], large_input.len());
+        assert_eq!(res.body["input_preview"].as_str().unwrap().len(), 103);
+
+        let tc_id = res.id();
+        let get_res = app
+            .get_with_token(&routes::test_case(pid, tc_id), &token)
+            .await;
+        assert_eq!(get_res.status, 200, "get body: {}", get_res.body);
+        assert_eq!(get_res.body["input"], large_input);
+        assert_eq!(get_res.body["expected_output"], "ok");
+
+        let list_res = app.get_with_token(&routes::test_cases(pid), &token).await;
+        assert_eq!(list_res.status, 200, "list body: {}", list_res.body);
+        assert_eq!(
+            list_res.body[0]["input_preview"].as_str().unwrap().len(),
+            103
+        );
     }
 
     #[tokio::test]
@@ -1164,6 +1182,40 @@ mod test_case_update {
         assert_eq!(res.status, 200);
         assert_eq!(res.body["score"], 20);
         assert_eq!(res.body["is_sample"], true);
+    }
+
+    #[tokio::test]
+    async fn can_patch_large_expected_output_and_round_trip_full_body() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_large_expected_patch", "password123", "admin")
+            .await;
+
+        let pid = app
+            .create_problem(&token, "Large Expected Patch Problem")
+            .await;
+        let tc_id = app.create_test_case(pid, &token).await;
+        let large_output = String::from_utf8(vec![b'7'; 1_048_576 + 321])
+            .expect("ASCII output should be valid UTF-8");
+
+        let res = app
+            .patch_with_token(
+                &routes::test_case(pid, tc_id),
+                &json!({ "expected_output": large_output }),
+                &token,
+            )
+            .await;
+
+        assert_eq!(res.status, 200, "patch body: {}", res.body);
+        assert_eq!(res.body["expected_output"], large_output);
+        assert_eq!(res.body["output_size"], large_output.len());
+        assert_eq!(res.body["output_preview"].as_str().unwrap().len(), 103);
+
+        let get_res = app
+            .get_with_token(&routes::test_case(pid, tc_id), &token)
+            .await;
+        assert_eq!(get_res.status, 200, "get body: {}", get_res.body);
+        assert_eq!(get_res.body["expected_output"], large_output);
     }
 
     #[tokio::test]

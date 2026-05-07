@@ -13,6 +13,7 @@ use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
+use common::storage::BlobStore;
 use extism::{Function, UserData, ValType};
 use mq::MqQueue;
 use plugin_core::host::HostFunctionRegistry;
@@ -34,9 +35,11 @@ pub fn init_host_functions(
     language_resolver_registry: LanguageResolverRegistry,
     evaluate_batches: EvaluateBatches,
     plugin_manager: Arc<dyn PluginManager>,
+    blob_store: Arc<dyn BlobStore>,
     config: AppConfig,
 ) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
+    let blob_read_grants: storage::BlobReadGrants = Arc::new(dashmap::DashMap::new());
 
     hr.register("logger", |plugin_id| {
         Function::new(
@@ -89,6 +92,22 @@ pub fn init_host_functions(
             [],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             storage::store_delete,
+        )
+    });
+
+    let blob_store_for_storage = blob_store.clone();
+    let blob_read_grants_for_storage = blob_read_grants.clone();
+    hr.register("blob:read", move |plugin_id| {
+        Function::new(
+            "blob_read_range",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((
+                plugin_id.to_string(),
+                blob_store_for_storage.clone(),
+                blob_read_grants_for_storage.clone(),
+            )),
+            storage::blob_read_range,
         )
     });
 
@@ -219,6 +238,7 @@ pub fn init_host_functions(
         .max(1);
     let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
     let db_for_eval = db.clone();
+    let blob_store_for_eval = blob_store.clone();
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(
             plugin_id.to_string(),
@@ -226,11 +246,13 @@ pub fn init_host_functions(
             eval_reg.clone(),
             eval_batches.clone(),
             evaluator_slots.clone(),
+            blob_store_for_eval.clone(),
             db_for_eval.clone(),
         )
     });
 
     let mq_clone = mq;
+    let blob_store_for_dispatch = blob_store;
     let batches = operation_batches;
     let waiters = operation_waiters;
     let op_queue = config.mq.operation_queue_name.clone();
@@ -239,6 +261,7 @@ pub fn init_host_functions(
         dispatch::create_dispatch_functions(
             plugin_id.to_string(),
             mq_clone.clone(),
+            blob_store_for_dispatch.clone(),
             batches.clone(),
             waiters.clone(),
             op_queue.clone(),
@@ -248,8 +271,14 @@ pub fn init_host_functions(
 
     let checker_reg = checker_format_registry;
     let pm = plugin_manager.clone();
+    let blob_read_grants_for_checker = blob_read_grants;
     hr.register("checker:run", move |plugin_id| {
-        checker::create_checker_function(plugin_id.to_string(), pm.clone(), checker_reg.clone())
+        checker::create_checker_function(
+            plugin_id.to_string(),
+            pm.clone(),
+            checker_reg.clone(),
+            blob_read_grants_for_checker.clone(),
+        )
     });
 
     let lang_reg = language_resolver_registry;

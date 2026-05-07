@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use worker::models::operation::executor::OperationTaskExecutor;
-use worker::models::operation::file_cacher::BlobStoreFileCacher;
+use worker::models::operation::file_cacher::{BlobStoreFileCacher, UnavailableFileCacher};
 use worker::models::operation::handler::OperationHandler;
 use worker::models::operation::models::{
     Channel, Environment, IOConfig, IOTarget, OperationResult, OperationTask, SessionFile, Step,
@@ -66,7 +66,7 @@ fn build_operation_task(command: &str) -> OperationTask {
 
 async fn build_worker_with_mock_sandbox() -> Worker {
     let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
-    let worker = Worker::new(metrics.clone()).await;
+    let worker = Worker::with_no_executors();
     worker.register_executor(
         "operation",
         Arc::new(OperationTaskExecutor::new_with_sandbox_manager(
@@ -138,6 +138,49 @@ async fn execute_operation_task_successfully_with_mock_sandbox() {
     assert!(step_result.success);
     assert_eq!(step_result.sandbox_result.exit_code, Some(0));
     assert!(step_result.sandbox_result.stdout.contains("mock-ok"));
+}
+
+#[tokio::test]
+async fn large_stdout_is_returned_as_capped_preview() {
+    let command = "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"a\" }'";
+    let (_result, operation_result) =
+        execute_operation_with_mock("task-large-stdout", build_operation_task(command)).await;
+
+    let step_result = operation_result.task_results.get("step-1").unwrap();
+    assert!(step_result.success);
+    assert!(step_result.sandbox_result.stdout.len() < 70_000);
+    assert!(
+        step_result
+            .sandbox_result
+            .stdout
+            .contains("... (truncated)")
+    );
+}
+
+#[tokio::test]
+async fn blob_input_fails_when_blob_storage_is_unavailable() {
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
+    let handler = OperationHandler::new(
+        Box::new(MockSandboxManager::new(unique_mock_base_dir())),
+        Box::new(UnavailableFileCacher::new("test storage unavailable")),
+        Box::new(NoopTaskCacheStore),
+        String::new(),
+        metrics,
+    );
+
+    let mut operation = build_operation_task("cat input.txt");
+    operation.environments[0].files_in.push((
+        "input.txt".to_string(),
+        SessionFile::Blob {
+            hash: "a".repeat(64),
+        },
+    ));
+
+    let err = handler
+        .execute(&operation)
+        .await
+        .expect_err("blob-backed operation input must fail when storage is unavailable");
+    assert!(format!("{err:?}").contains("blob storage is unavailable"));
 }
 
 #[tokio::test]

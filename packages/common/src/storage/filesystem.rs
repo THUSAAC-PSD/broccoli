@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use tokio::fs;
-use tokio::io::{AsyncReadExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
 
 use super::error::StorageError;
 use super::hash::ContentHash;
@@ -133,6 +133,40 @@ impl BlobStore for FilesystemBlobStore {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    async fn get_range(
+        &self,
+        hash: &ContentHash,
+        offset: u64,
+        len: usize,
+    ) -> Result<(Vec<u8>, bool), StorageError> {
+        let blob_path = self.blob_path(hash);
+        let mut file = match fs::File::open(&blob_path).await {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(StorageError::NotFound(hash.to_hex()));
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let size = file.metadata().await?.len();
+        if offset >= size {
+            return Ok((Vec::new(), true));
+        }
+
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+        let want = len.min((size - offset) as usize);
+        let mut bytes = vec![0u8; want];
+        let mut filled = 0usize;
+        while filled < want {
+            let n = file.read(&mut bytes[filled..]).await?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        bytes.truncate(filled);
+        Ok((bytes, offset + filled as u64 >= size))
     }
 
     async fn exists(&self, hash: &ContentHash) -> Result<bool, StorageError> {

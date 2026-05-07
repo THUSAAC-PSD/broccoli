@@ -26,6 +26,37 @@ pub trait BlobStore: Send + Sync {
 
     async fn get_stream(&self, hash: &ContentHash) -> Result<BoxReader, StorageError>;
 
+    async fn get_range(
+        &self,
+        hash: &ContentHash,
+        offset: u64,
+        len: usize,
+    ) -> Result<(Vec<u8>, bool), StorageError> {
+        let mut reader = self.get_stream(hash).await?;
+        let mut remaining_skip = offset;
+        let mut discard = [0u8; 64 * 1024];
+        while remaining_skip > 0 {
+            let want = remaining_skip.min(discard.len() as u64) as usize;
+            let n = reader.read(&mut discard[..want]).await?;
+            if n == 0 {
+                return Ok((Vec::new(), true));
+            }
+            remaining_skip -= n as u64;
+        }
+
+        let mut bytes = vec![0u8; len];
+        let mut filled = 0usize;
+        while filled < len {
+            let n = reader.read(&mut bytes[filled..]).await?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        bytes.truncate(filled);
+        Ok((bytes, filled < len))
+    }
+
     async fn exists(&self, hash: &ContentHash) -> Result<bool, StorageError>;
 
     async fn delete(&self, hash: &ContentHash) -> Result<bool, StorageError>;

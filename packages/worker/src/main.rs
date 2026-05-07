@@ -86,7 +86,11 @@ async fn main() -> anyhow::Result<()> {
     let op_dlq_queue = config.mq.operation_dlq_queue_name.clone();
     let dlq_config = config.mq.dlq.clone();
     let mq_for_handler = Arc::clone(&mq);
-    let worker = Arc::new(Worker::new(metrics.clone()).await);
+    let worker = Arc::new(
+        Worker::from_config(&config, metrics.clone())
+            .await
+            .context("Failed to initialize worker executors")?,
+    );
 
     let in_flight = InFlightCounter::new();
     let system_info = SystemInfo::detect();

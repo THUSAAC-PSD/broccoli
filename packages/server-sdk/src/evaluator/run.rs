@@ -50,8 +50,9 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
                 time_limit_ms: req.time_limit_ms,
                 memory_limit_kb: req.memory_limit_kb,
                 contest_id: req.contest_id,
-                inline_input: tc.inline_input.clone(),
-                inline_expected_output: tc.inline_expected_output.clone(),
+                input: tc.input.clone(),
+                expected_output: tc.expected_output.clone(),
+                is_custom: tc.is_custom,
                 // Code-run flow does not currently support worker pinning.
                 target_worker_id: None,
             })
@@ -85,9 +86,10 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
 
     let mut collected = 0;
     let mut timed_out = false;
+    let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
-        match host.eval.next_result(&batch_id, 120_000) {
+        match host.eval.next_result(&batch_id, result_timeout_ms) {
             Ok(Some(verdict)) => {
                 let r = TcResult::from_verdict(&verdict);
                 if r.verdict == Verdict::CompileError {

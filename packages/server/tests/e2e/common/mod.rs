@@ -462,6 +462,7 @@ impl E2eTestApp {
             checker_format_registry.clone(),
             language_resolver_registry.clone(),
             evaluate_batches.clone(),
+            blob_store.clone(),
             app_config.clone(),
         )
         .expect("Failed to initialize ServerManager");
@@ -848,6 +849,16 @@ impl E2eTestApp {
     }
 
     pub async fn create_problem(&self, token: &str, title: &str) -> i32 {
+        self.create_problem_with_checker_format(token, title, "exact")
+            .await
+    }
+
+    pub async fn create_problem_with_checker_format(
+        &self,
+        token: &str,
+        title: &str,
+        checker_format: &str,
+    ) -> i32 {
         let res = self
             .post_with_token(
                 "/api/v1/problems",
@@ -857,7 +868,7 @@ impl E2eTestApp {
                     "time_limit": 2000,
                     "memory_limit": 262144,
                     "problem_type": "batch",
-                    "checker_format": "exact",
+                    "checker_format": checker_format,
                 }),
                 token,
             )

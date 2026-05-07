@@ -7,8 +7,8 @@ use crate::util::{token_count_msg, token_mismatch_msg, tokenize};
 /// Uses Unicode case folding (`str::to_lowercase`) so that non-ASCII
 /// letters (e.g. "Ü" vs "ü") are compared correctly.
 pub fn check(req: &CheckerParseInput) -> Result<CheckerVerdict, String> {
-    let expected = tokenize(&req.expected_output);
-    let actual = tokenize(&req.stdout);
+    let expected = tokenize(req.expected_output.inline_text());
+    let actual = tokenize(req.stdout.inline_text());
 
     if expected.len() != actual.len() {
         return Ok(CheckerVerdict {

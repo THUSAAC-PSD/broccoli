@@ -6,8 +6,8 @@ use crate::util::{line_count_msg, line_mismatch_msg, split_lines_trimmed};
 ///
 /// Trailing empty lines are ignored from both sides.
 pub fn check(req: &CheckerParseInput) -> Result<CheckerVerdict, String> {
-    let expected = split_lines_trimmed(&req.expected_output);
-    let actual = split_lines_trimmed(&req.stdout);
+    let expected = split_lines_trimmed(req.expected_output.inline_text());
+    let actual = split_lines_trimmed(req.stdout.inline_text());
 
     if expected.len() != actual.len() {
         return Ok(CheckerVerdict {

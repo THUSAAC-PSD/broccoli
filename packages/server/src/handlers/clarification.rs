@@ -14,6 +14,7 @@ use crate::extractors::path::AppPath;
 use crate::models::clarification::*;
 use crate::state::AppState;
 use crate::utils::contest::{check_contest_access, find_contest};
+use crate::utils::text::sanitize_db_text;
 
 async fn resolve_usernames(
     db: &DatabaseConnection,
@@ -251,7 +252,7 @@ pub async fn create_clarification(
     let new = clarification::ActiveModel {
         contest_id: Set(contest_id),
         author_id: Set(auth_user.user_id),
-        content: Set(payload.content.trim().to_string()),
+        content: Set(sanitize_db_text(payload.content.trim())),
         clarification_type: Set(payload.clarification_type.clone()),
         recipient_id: Set(payload.recipient_id),
         is_public: Set(is_public),
@@ -341,7 +342,7 @@ pub async fn reply_clarification(
     let new_reply = clarification_reply::ActiveModel {
         clarification_id: Set(clarification_id),
         author_id: Set(auth_user.user_id),
-        content: Set(payload.content.trim().to_string()),
+        content: Set(sanitize_db_text(payload.content.trim())),
         is_public: Set(false),
         created_at: Set(now),
         ..Default::default()
@@ -349,7 +350,7 @@ pub async fn reply_clarification(
     new_reply.insert(&txn).await?;
 
     let mut active: clarification::ActiveModel = existing.into();
-    active.reply_content = Set(Some(payload.content.trim().to_string()));
+    active.reply_content = Set(Some(sanitize_db_text(payload.content.trim())));
     active.reply_author_id = Set(Some(auth_user.user_id));
     active.reply_is_public = Set(false);
     active.replied_at = Set(Some(now));

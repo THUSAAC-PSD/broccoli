@@ -20,17 +20,15 @@ pub struct OperationTaskExecutor {
 }
 
 impl OperationTaskExecutor {
-    pub async fn from_config(metrics: common::metrics::Metrics) -> Self {
-        let config = WorkerAppConfig::load()
-            .inspect_err(|e| warn!(error = %e, "Failed to load config, using defaults"))
-            .ok();
-
+    pub async fn from_app_config(
+        config: &WorkerAppConfig,
+        metrics: common::metrics::Metrics,
+    ) -> Result<Self> {
         let fingerprint = String::new();
+        let sandbox_manager = Self::sandbox_manager_from_config(Some(config));
+        let (file_cacher, task_cache) = Self::caching_from_config(config).await?;
 
-        let sandbox_manager = Self::sandbox_manager_from_config(config.as_ref());
-        let (file_cacher, task_cache) = Self::caching_from_config(config.as_ref()).await;
-
-        Self {
+        Ok(Self {
             operation_executor: OperationHandler::new(
                 sandbox_manager,
                 file_cacher,
@@ -38,7 +36,7 @@ impl OperationTaskExecutor {
                 fingerprint,
                 metrics,
             ),
-        }
+        })
     }
 
     #[allow(dead_code)]
@@ -87,24 +85,13 @@ impl OperationTaskExecutor {
     }
 
     async fn caching_from_config(
-        config: Option<&WorkerAppConfig>,
-    ) -> (Box<dyn FileCacher>, Box<dyn TaskCacheStore>) {
-        let noop = || -> (Box<dyn FileCacher>, Box<dyn TaskCacheStore>) {
-            (Box::new(NoopFileCacher), Box::new(NoopTaskCacheStore))
-        };
+        config: &WorkerAppConfig,
+    ) -> Result<(Box<dyn FileCacher>, Box<dyn TaskCacheStore>)> {
+        let blob_store_config = config.storage.blob_store.clone();
+        let cache_dir = config.storage.cache_dir.clone();
+        let max_cache_size = config.storage.max_cache_size;
 
-        let storage_config = config.map(|c| &c.storage);
-        let blob_store_config = storage_config
-            .map(|s| s.blob_store.clone())
-            .unwrap_or_default();
-        let cache_dir = storage_config
-            .map(|s| s.cache_dir.clone())
-            .unwrap_or_else(|| "./data/cache".into());
-        let max_cache_size = storage_config
-            .map(|s| s.max_cache_size)
-            .unwrap_or(512 * 1024 * 1024);
-
-        let database_config = config.map(|c| c.database.clone()).unwrap_or_default();
+        let database_config = config.database.clone();
         let mut connect_options = sea_orm::ConnectOptions::new(database_config.url.clone());
         connect_options
             .max_connections(database_config.max_connections)
@@ -119,9 +106,9 @@ impl OperationTaskExecutor {
             Err(e) => {
                 error!(
                     error = %e,
-                    "Failed to connect to database, falling back to Noop cachers"
+                    "Failed to connect to database"
                 );
-                return noop();
+                return Err(e.into());
             }
         };
 
@@ -138,8 +125,8 @@ impl OperationTaskExecutor {
                 store
             }
             Err(e) => {
-                error!(error = %e, "Failed to initialize blob store, falling back to Noop cachers");
-                return noop();
+                error!(error = %e, "Failed to initialize blob store");
+                return Err(e.into());
             }
         };
 
@@ -151,9 +138,9 @@ impl OperationTaskExecutor {
                 Err(e) => {
                     error!(
                         error = %e,
-                        "Failed to initialize BlobStoreFileCacher, falling back to Noop cachers"
+                        "Failed to initialize BlobStoreFileCacher"
                     );
-                    return noop();
+                    return Err(anyhow::anyhow!(e));
                 }
             };
 
@@ -172,7 +159,7 @@ impl OperationTaskExecutor {
             }
         };
 
-        (file_cacher, task_cache)
+        Ok((file_cacher, task_cache))
     }
 }
 

@@ -1,3 +1,6 @@
+# Keep evaluate/operation batch state long enough for large queued judging jobs.
+batch_max_age_secs = 7200
+
 [server]
 host = "127.0.0.1"
 port = 3000
@@ -34,10 +37,10 @@ operation_dlq_queue_name = "operation_tasks_dlq"
 max_retries = 3
 base_delay_ms = 1000
 max_delay_ms = 60000
-stuck_job_timeout_secs = 900
+stuck_job_timeout_secs = 7200
 stuck_job_scan_interval_secs = 60
 retry_cleanup_interval_secs = 300
-retry_max_age_secs = 600
+retry_max_age_secs = 7200
 
 [auth]
 jwt_secret = "generate-a-long-random-string-here"

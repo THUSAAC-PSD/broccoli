@@ -2,12 +2,25 @@ use std::borrow::Cow;
 
 use super::verdict::Verdict;
 
+pub const RESULT_TEXT_DB_LIMIT_CHARS: usize = 64 * 1024;
+
 pub fn sanitize_text_field(s: &str) -> Cow<'_, str> {
     if s.contains('\0') {
         Cow::Owned(s.replace('\0', "\u{FFFD}"))
     } else {
         Cow::Borrowed(s)
     }
+}
+
+pub fn sanitize_result_text_field(s: &str) -> Cow<'_, str> {
+    let sanitized = sanitize_text_field(s);
+    if sanitized.chars().count() <= RESULT_TEXT_DB_LIMIT_CHARS {
+        return sanitized;
+    }
+
+    let mut truncated: String = sanitized.chars().take(RESULT_TEXT_DB_LIMIT_CHARS).collect();
+    truncated.push_str("\n... (truncated)");
+    Cow::Owned(truncated)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,5 +157,19 @@ mod tests {
         assert_eq!(sanitize_text_field(""), "");
         assert_eq!(sanitize_text_field("\0"), "\u{FFFD}");
         assert_eq!(sanitize_text_field("\0\0\0"), "\u{FFFD}\u{FFFD}\u{FFFD}");
+    }
+
+    #[test]
+    fn sanitize_result_text_field_truncates_large_values() {
+        let input = "a".repeat(RESULT_TEXT_DB_LIMIT_CHARS + 10);
+        let out = sanitize_result_text_field(&input);
+        assert!(matches!(out, Cow::Owned(_)));
+        assert_eq!(
+            out.as_ref(),
+            format!(
+                "{}\n... (truncated)",
+                "a".repeat(RESULT_TEXT_DB_LIMIT_CHARS)
+            )
+        );
     }
 }

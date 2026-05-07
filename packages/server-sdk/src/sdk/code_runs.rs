@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
@@ -45,7 +47,7 @@ impl CodeRuns {
 
     pub fn insert_results(&self, results: &[CodeRunResultRow]) -> Result<(), SdkError> {
         use crate::db::Params;
-        use crate::types::sanitize_text_field;
+        use crate::types::sanitize_result_text_field;
         use serde_json::json;
 
         if results.is_empty() {
@@ -57,9 +59,9 @@ impl CodeRuns {
 
         for r in results {
             let score_val = if r.score.is_finite() { r.score } else { 0.0 };
-            let message = r.message.as_deref().map(sanitize_text_field);
-            let stdout = r.stdout.as_deref().map(sanitize_text_field);
-            let stderr = r.stderr.as_deref().map(sanitize_text_field);
+            let message = r.message.as_deref().map(sanitize_result_text_field);
+            let stdout = r.stdout.as_deref().map(sanitize_result_text_field);
+            let stderr = r.stderr.as_deref().map(sanitize_result_text_field);
             rows.push(format!(
                 "({}, {}, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.code_run_id),

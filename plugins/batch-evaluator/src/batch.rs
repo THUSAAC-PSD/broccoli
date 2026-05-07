@@ -1,6 +1,7 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Environment, IOConfig, IOTarget, OperationTask, OutputSpec,
-    ResolveLanguageOutput, ResourceLimits, RunOptions, SessionFile, Step, StepCacheConfig,
+    BuildEvalOpsInput, Environment, EvaluationTimeoutBudget, IOConfig, IOTarget, JudgeFile,
+    OperationTask, OutputSpec, ResolveLanguageOutput, ResourceLimits, RunOptions, SessionFile,
+    Step, StepCacheConfig, seconds_from_ms,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -44,7 +45,8 @@ impl Default for SandboxConfig {
             exec_open_files_limit: 64,
             exec_file_size_limit_kb: 65_536, // 64 MB
             exec_wall_time_multiplier: 3.0,
-            result_timeout_ms: 120_000, // 120s
+            result_timeout_ms: EvaluationTimeoutBudget::default_for_time_limit_ms(0)
+                .minimum_timeout_ms,
         }
     }
 }
@@ -86,6 +88,28 @@ impl SandboxConfig {
             file_size_limit: Some(self.exec_file_size_limit_kb),
             ..Default::default()
         }
+    }
+
+    pub fn result_timeout_ms_for(&self, time_limit_ms: i32, compile_units: u32) -> u64 {
+        EvaluationTimeoutBudget {
+            compile_units,
+            compile_time_limit_s: self.compile_time_limit_s,
+            compile_wall_time_multiplier: self.compile_wall_time_multiplier,
+            compile_extra_time_s: self.compile_extra_time_s,
+            exec_time_limit_s: seconds_from_ms(time_limit_ms),
+            exec_wall_time_multiplier: self.exec_wall_time_multiplier,
+            exec_extra_time_s: self.exec_extra_time_s,
+            minimum_timeout_ms: self.result_timeout_ms.max(
+                EvaluationTimeoutBudget::default_for_time_limit_ms(time_limit_ms)
+                    .minimum_timeout_ms,
+            ),
+            maximum_timeout_ms: self.result_timeout_ms.max(
+                EvaluationTimeoutBudget::default_for_time_limit_ms(time_limit_ms)
+                    .maximum_timeout_ms,
+            ),
+            ..EvaluationTimeoutBudget::default_for_time_limit_ms(time_limit_ms)
+        }
+        .timeout_ms()
     }
 }
 
@@ -132,9 +156,7 @@ pub fn build_operation(
 
     files_in.push((
         "input.txt".to_string(),
-        SessionFile::Content {
-            content: req.test_input.clone(),
-        },
+        session_file_from_judge_file(&req.test_input),
     ));
 
     let env = Environment {
@@ -239,10 +261,24 @@ pub fn build_operation(
     Ok(vec![op])
 }
 
+fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
+    match file {
+        JudgeFile::Blob { file } => SessionFile::Blob {
+            hash: file.blob_hash.clone(),
+        },
+        JudgeFile::Inline { text } => SessionFile::Content {
+            content: text.clone(),
+        },
+        JudgeFile::Missing => SessionFile::Content {
+            content: String::new(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::{CompileSpec, RunSpec, SourceFile};
+    use broccoli_server_sdk::types::{CompileSpec, FileRef, JudgeFile, RunSpec, SourceFile};
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -256,8 +292,8 @@ mod tests {
             time_limit_ms: 1000,
             memory_limit_kb: 262144,
             contest_id: None,
-            test_input: "hello\n".to_string(),
-            expected_output: "world\n".to_string(),
+            test_input: JudgeFile::inline("hello\n"),
+            expected_output: JudgeFile::inline("world\n"),
             checker_format: Some("exact".to_string()),
             checker_config: None,
             checker_source: None,
@@ -339,6 +375,32 @@ mod tests {
                 assert_eq!(content, "hello\n");
             }
             _ => panic!("expected inline content for input.txt"),
+        }
+    }
+
+    #[test]
+    fn test_input_blob_ref_wired_to_environment_files() {
+        let mut req = make_req();
+        req.test_input = JudgeFile::blob(FileRef {
+            filename: "input.txt".to_string(),
+            content_type: Some("text/plain".to_string()),
+            blob_hash: "abc123".to_string(),
+            read_token: None,
+        });
+
+        let ops = build_operation(&req, &compiled_lang(), &default_config()).unwrap();
+
+        let env = &ops[0].environments[0];
+        let input_file = env
+            .files_in
+            .iter()
+            .find(|(name, _)| name == "input.txt")
+            .expect("input.txt not found in environment");
+        match &input_file.1 {
+            SessionFile::Blob { hash } => {
+                assert_eq!(hash, "abc123");
+            }
+            _ => panic!("expected blob ref for input.txt"),
         }
     }
 
@@ -516,7 +578,7 @@ mod tests {
         assert_eq!(config.exec_wall_time_multiplier, 3.0);
         assert_eq!(config.compile_stack_limit_kb, 0);
         assert_eq!(config.exec_stack_limit_kb, 0);
-        assert_eq!(config.result_timeout_ms, 120_000);
+        assert_eq!(config.result_timeout_ms, 900_000);
     }
 
     #[test]
@@ -598,5 +660,27 @@ mod tests {
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.extra_time, Some(2.5));
+    }
+
+    #[test]
+    fn result_timeout_uses_configured_value_as_floor() {
+        let config = SandboxConfig {
+            result_timeout_ms: 1_200_000,
+            ..SandboxConfig::default()
+        };
+
+        assert_eq!(config.result_timeout_ms_for(1000, 1), 1_200_000);
+    }
+
+    #[test]
+    fn result_timeout_scales_with_worst_case_wall_budget() {
+        let config = SandboxConfig {
+            compile_time_limit_s: 120.0,
+            compile_wall_time_multiplier: 3.0,
+            exec_wall_time_multiplier: 5.0,
+            ..SandboxConfig::default()
+        };
+
+        assert!(config.result_timeout_ms_for(300_000, 1) > config.result_timeout_ms);
     }
 }

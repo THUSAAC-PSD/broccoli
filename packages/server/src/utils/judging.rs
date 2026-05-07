@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::error::AppError;
 use crate::models::submission::{SubmissionFile, SubmissionFileDto};
 use crate::utils::filename::validate_flat_filename;
+use crate::utils::text::sanitize_db_text;
 
 pub fn validate_code_payload(
     files: &[SubmissionFileDto],
@@ -102,8 +103,8 @@ pub fn files_to_json(files: &[SubmissionFileDto]) -> serde_json::Value {
     let submission_files: Vec<SubmissionFile> = files
         .iter()
         .map(|f| SubmissionFile {
-            filename: f.filename.trim().to_string(),
-            content: f.content.clone(),
+            filename: sanitize_db_text(f.filename.trim()),
+            content: sanitize_db_text(&f.content),
         })
         .collect();
     serde_json::to_value(&submission_files).unwrap_or(serde_json::Value::Array(vec![]))
@@ -246,6 +247,19 @@ mod tests {
         let json = files_to_json(&files);
         let parsed_files = files_from_json(&json);
         assert_eq!(files, parsed_files);
+    }
+
+    #[test]
+    fn test_files_to_json_replaces_nul_bytes() {
+        let files = vec![SubmissionFileDto {
+            filename: "main\0.cpp".into(),
+            content: "int main()\0 {}".into(),
+        }];
+
+        let json = files_to_json(&files);
+
+        assert_eq!(json[0]["filename"], "main\u{FFFD}.cpp");
+        assert_eq!(json[0]["content"], "int main()\u{FFFD} {}");
     }
 
     #[test]

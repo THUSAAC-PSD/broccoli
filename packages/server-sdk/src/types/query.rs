@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::evaluate::TestCaseBodyRef;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestCaseRow {
     pub id: i32,
@@ -11,9 +13,9 @@ pub struct TestCaseRow {
     #[serde(default)]
     pub label: Option<String>,
     #[serde(default)]
-    pub inline_input: Option<String>,
+    pub input: TestCaseBodyRef,
     #[serde(default)]
-    pub inline_expected_output: Option<String>,
+    pub expected_output: TestCaseBodyRef,
     #[serde(default)]
     pub is_custom: bool,
 }

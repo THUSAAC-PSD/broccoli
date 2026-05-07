@@ -4,7 +4,7 @@ description = "Standard output comparison checkers for Broccoli judge. Depends o
 
 [server]
 entry = "standard_checkers.wasm"
-permissions = ["logger", "plugin:register", "operations:dispatch", "config:read", "language:resolve"]
+permissions = ["logger", "plugin:register", "operations:dispatch", "config:read", "language:resolve", "blob:read"]
 
 [config.testlib]
 description = "Testlib checker compiler and resource limit settings."
@@ -79,4 +79,3 @@ default = 262144
 min = 0
 step = 1024
 unit = "KB"
-

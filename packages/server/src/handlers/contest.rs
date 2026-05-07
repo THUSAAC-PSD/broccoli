@@ -21,6 +21,7 @@ use crate::utils::contest::{
     check_contest_access, find_contest, find_contest_problem, require_contest_started,
 };
 use crate::utils::soft_delete::SoftDeletable;
+use crate::utils::text::sanitize_db_text;
 
 #[utoipa::path(
     post,
@@ -49,8 +50,8 @@ pub async fn create_contest(
 
     let now = chrono::Utc::now();
     let new_contest = contest::ActiveModel {
-        title: Set(payload.title.trim().to_string()),
-        description: Set(payload.description),
+        title: Set(sanitize_db_text(payload.title.trim())),
+        description: Set(sanitize_db_text(payload.description)),
         activate_time: Set(payload.activate_time.unwrap_or(None)),
         start_time: Set(payload.start_time),
         end_time: Set(payload.end_time),
@@ -304,10 +305,10 @@ pub async fn update_contest(
     let mut active: contest::ActiveModel = existing.into();
 
     if let Some(ref title) = payload.title {
-        active.title = Set(title.trim().to_string());
+        active.title = Set(sanitize_db_text(title.trim()));
     }
     if let Some(description) = payload.description {
-        active.description = Set(description);
+        active.description = Set(sanitize_db_text(description));
     }
     if let Some(activate_time) = payload.activate_time {
         active.activate_time = Set(activate_time);
