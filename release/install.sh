@@ -234,6 +234,7 @@ single_host_storage_backend_from_env_file() {
 
 single_host_plans_object_storage() {
   [ "${BROCCOLI__STORAGE__BACKEND:-}" = "object_storage" ] && return 0
+  [ -z "${BROCCOLI__STORAGE__BACKEND:-}" ] && [ ! -f "$ENV_FILE" ] && return 0
   [ "$(single_host_storage_backend_from_env_file)" = "object_storage" ]
 }
 
@@ -334,20 +335,23 @@ choose_storage_backend_interactive() {
 
   cat >&2 <<'EOF'
 Choose blob storage backend:
-  1) database       store uploads/results in PostgreSQL (recommended for simple LAN contests)
-  2) object_storage SeaweedFS S3-compatible storage
+  1) object_storage SeaweedFS S3-compatible storage (recommended for any contest;
+                    keeps testcase blob traffic off the Postgres connection pool)
+  2) database       store uploads/results in PostgreSQL (only for tiny demos with no
+                    S3 available; cannot survive contest-scale concurrency because
+                    every blob fetch holds a DB connection for the entire stream)
 EOF
   printf "Storage backend [1]: " >&2
   read -r answer
   case "${answer:-1}" in
-    1|database|db) BROCCOLI__STORAGE__BACKEND=database ;;
-    2|object_storage|object|s3|seaweedfs) BROCCOLI__STORAGE__BACKEND=object_storage ;;
+    1|object_storage|object|s3|seaweedfs) BROCCOLI__STORAGE__BACKEND=object_storage ;;
+    2|database|db) BROCCOLI__STORAGE__BACKEND=database ;;
     *) die "unknown storage backend selection '$answer'" ;;
   esac
 }
 
 storage_backend() {
-  printf '%s\n' "${BROCCOLI__STORAGE__BACKEND:-database}"
+  printf '%s\n' "${BROCCOLI__STORAGE__BACKEND:-object_storage}"
 }
 
 using_object_storage() {
@@ -661,7 +665,7 @@ write_env_file() {
   case "$ROLE" in
     infra|server|worker|single-host)
       choose_storage_backend_interactive
-      BROCCOLI__STORAGE__BACKEND="${BROCCOLI__STORAGE__BACKEND:-database}"
+      BROCCOLI__STORAGE__BACKEND="${BROCCOLI__STORAGE__BACKEND:-object_storage}"
       ;;
   esac
   server_image="${loaded_server_image:-${BROCCOLI_SERVER_IMAGE:-ghcr.io/thusaac-psd/broccoli/broccoli-server:$version}}"

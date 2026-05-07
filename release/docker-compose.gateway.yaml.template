@@ -6,8 +6,9 @@ services:
       - "${BROCCOLI_GATEWAY_HTTP_BIND:-0.0.0.0:80}:80"
     environment:
       BROCCOLI_UPSTREAMS: "${BROCCOLI_UPSTREAMS}"
+    command: ["caddy", "run", "--config", "/etc/broccoli-caddy/Caddyfile.gateway", "--adapter", "caddyfile"]
     volumes:
-      - ./examples/Caddyfile.gateway:/etc/caddy/Caddyfile:ro
+      - ./examples:/etc/broccoli-caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     healthcheck:
