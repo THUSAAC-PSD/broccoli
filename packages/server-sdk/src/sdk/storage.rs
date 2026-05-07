@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+#[cfg(target_arch = "wasm32")]
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::de::DeserializeOwned;
 
 use crate::error::SdkError;
@@ -7,6 +9,11 @@ use crate::error::SdkError;
 pub struct Storage {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) inner: StorageMock,
+}
+
+pub struct BlobRange {
+    pub bytes: Vec<u8>,
+    pub eof: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -55,6 +62,30 @@ impl Storage {
         let input = serde_json::json!({ "keys": keys });
         unsafe { crate::host::raw::store_delete(serde_json::to_string(&input)?)? };
         Ok(())
+    }
+
+    pub fn read_blob_range(
+        &self,
+        token: &str,
+        hash: &str,
+        offset: u64,
+        len: usize,
+    ) -> Result<BlobRange, SdkError> {
+        let input = serde_json::json!({
+            "hash": hash,
+            "token": token,
+            "offset": offset,
+            "len": len,
+        });
+        let result_json =
+            unsafe { crate::host::raw::blob_read_range(serde_json::to_string(&input)?)? };
+        let result: serde_json::Value = serde_json::from_str(&result_json)?;
+        let encoded = result.get("bytes").and_then(|v| v.as_str()).unwrap_or("");
+        let bytes = BASE64
+            .decode(encoded)
+            .map_err(|e| SdkError::Serialization(format!("Invalid blob range base64: {e}")))?;
+        let eof = result.get("eof").and_then(|v| v.as_bool()).unwrap_or(true);
+        Ok(BlobRange { bytes, eof })
     }
 
     pub fn compare_and_set(
@@ -137,6 +168,18 @@ impl Storage {
             data.remove(*key);
         }
         Ok(())
+    }
+
+    pub fn read_blob_range(
+        &self,
+        _token: &str,
+        _hash: &str,
+        _offset: u64,
+        _len: usize,
+    ) -> Result<BlobRange, SdkError> {
+        Err(SdkError::Other(
+            "blob range reads are not available in StorageMock".into(),
+        ))
     }
 
     pub fn compare_and_set(

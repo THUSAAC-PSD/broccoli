@@ -1,5 +1,9 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use common::storage::{BlobStore, ContentHash};
+use dashmap::DashMap;
 use extism::host_fn;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
@@ -11,8 +15,119 @@ use serde_json::Value;
 use tracing::error;
 
 use crate::entity::plugin_storage;
+use crate::utils::text::sanitize_db_text;
 
 const DEFAULT_COLLECTION: &str = "default";
+
+#[derive(Deserialize)]
+struct BlobReadRangeInput {
+    hash: String,
+    token: String,
+    offset: u64,
+    len: usize,
+}
+
+#[derive(Clone)]
+pub struct BlobReadGrant {
+    pub plugin_id: String,
+    pub hash: String,
+}
+
+pub type BlobReadGrants = Arc<DashMap<String, BlobReadGrant>>;
+
+pub fn issue_blob_read_token(grants: &BlobReadGrants, plugin_id: &str, hash: &str) -> String {
+    let token = uuid::Uuid::new_v4().to_string();
+    grants.insert(
+        token.clone(),
+        BlobReadGrant {
+            plugin_id: plugin_id.to_string(),
+            hash: hash.to_string(),
+        },
+    );
+    token
+}
+
+struct BlobRange {
+    bytes: Vec<u8>,
+    eof: bool,
+}
+
+host_fn!(pub blob_read_range(user_data: (String, Arc<dyn BlobStore>, BlobReadGrants); input: String) -> String {
+    let (plugin_id, blob_store, grants) = {
+        let guard = user_data.get()?;
+        guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?.clone()
+    };
+
+    let parsed: BlobReadRangeInput = serde_json::from_str(&input)
+        .map_err(|e| extism::Error::msg(format!("Invalid blob_read_range input: {e}")))?;
+    if parsed.len == 0 || parsed.len > 4 * 1024 * 1024 {
+        return Err(extism::Error::msg("blob_read_range len must be between 1 and 4194304"));
+    }
+    let grant = grants
+        .get(&parsed.token)
+        .ok_or_else(|| extism::Error::msg("blob_read_range token is missing or expired"))?;
+    if grant.plugin_id != plugin_id || grant.hash != parsed.hash {
+        return Err(extism::Error::msg("blob_read_range token does not grant access to this blob"));
+    }
+
+    let range = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            read_blob_range(&blob_store, &parsed.hash, parsed.offset, parsed.len).await
+        })
+    })
+    .map_err(extism::Error::msg)?;
+
+    Ok(serde_json::json!({
+        "bytes": BASE64.encode(&range.bytes),
+        "len": range.bytes.len(),
+        "eof": range.eof,
+    })
+    .to_string())
+});
+
+async fn read_blob_range(
+    blob_store: &Arc<dyn BlobStore>,
+    hash: &str,
+    offset: u64,
+    len: usize,
+) -> Result<BlobRange, String> {
+    let hash = ContentHash::from_hex(hash).map_err(|e| format!("Invalid blob hash: {e}"))?;
+    let (bytes, eof) = blob_store
+        .get_range(&hash, offset, len)
+        .await
+        .map_err(|e| format!("Blob range read error: {e}"))?;
+
+    Ok(BlobRange { bytes, eof })
+}
+
+#[cfg(test)]
+mod blob_range_tests {
+    use std::sync::Arc;
+
+    use common::storage::filesystem::FilesystemBlobStore;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn blob_range_reads_requested_slice_and_eof() {
+        let dir = tempfile::tempdir().unwrap();
+        let store: Arc<dyn BlobStore> = Arc::new(
+            FilesystemBlobStore::new(dir.path().join("blobs"), 1024 * 1024)
+                .await
+                .unwrap(),
+        );
+        let hash = store.put(b"abcdef").await.unwrap();
+
+        let range = read_blob_range(&store, &hash.to_hex(), 2, 3).await.unwrap();
+
+        assert_eq!(range.bytes, b"cde");
+        assert!(!range.eof);
+
+        let range = read_blob_range(&store, &hash.to_hex(), 5, 3).await.unwrap();
+        assert_eq!(range.bytes, b"f");
+        assert!(range.eof);
+    }
+}
 
 fn extract_str(data: &Value) -> String {
     match data {
@@ -31,8 +146,9 @@ host_fn!(pub store_get(user_data: (String, DatabaseConnection); input: String) -
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
 
-    let parsed: StoreGetInput = serde_json::from_str(&input)
+    let mut parsed: StoreGetInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_get input: {e}")))?;
+    parsed.keys = parsed.keys.into_iter().map(sanitize_db_text).collect();
 
     if parsed.keys.is_empty() {
         return Ok(serde_json::json!({ "values": {} }).to_string());
@@ -77,8 +193,12 @@ host_fn!(pub store_set(user_data: (String, DatabaseConnection); input: String) -
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
 
-    let parsed: StoreSetInput = serde_json::from_str(&input)
+    let mut parsed: StoreSetInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_set input: {e}")))?;
+    for entry in &mut parsed.entries {
+        entry.key = sanitize_db_text(&entry.key);
+        entry.value = sanitize_db_text(&entry.value);
+    }
 
     if parsed.entries.is_empty() {
         return Ok(());
@@ -133,8 +253,9 @@ host_fn!(pub store_delete(user_data: (String, DatabaseConnection); input: String
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
 
-    let parsed: StoreDeleteInput = serde_json::from_str(&input)
+    let mut parsed: StoreDeleteInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_delete input: {e}")))?;
+    parsed.keys = parsed.keys.into_iter().map(sanitize_db_text).collect();
 
     if parsed.keys.is_empty() {
         return Ok(());
@@ -170,8 +291,11 @@ host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); inpu
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
 
-    let parsed: StoreCasInput = serde_json::from_str(&input)
+    let mut parsed: StoreCasInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_compare_and_set input: {e}")))?;
+    parsed.key = sanitize_db_text(&parsed.key);
+    parsed.expected = parsed.expected.map(sanitize_db_text);
+    parsed.new = sanitize_db_text(&parsed.new);
 
     let swapped = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {

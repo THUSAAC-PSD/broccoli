@@ -1,14 +1,21 @@
+use common::storage::BlobStore;
 use sea_orm::*;
 use sea_query::{Expr, Index, PostgresQueryBuilder};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::entity::{
-    additional_file, clarification, dead_letter_message, problem_attachment, role, role_permission,
-    submission, submission_judgement, test_case_result, user, user_role,
+    additional_file, clarification, dead_letter_message, plugin_storage, problem_attachment, role,
+    role_permission, submission, submission_judgement, test_case, test_case_result, user,
+    user_role,
 };
 use crate::utils::hash;
+use crate::utils::test_case_body::{INLINE_TEST_CASE_BODY_THRESHOLD_BYTES, prepare_test_case_body};
 
 const DEFAULT_ROLES: &[&str] = &["admin", "problem_setter", "contestant"];
+const SERVER_MIGRATION_PLUGIN_ID: &str = "__server_migration";
+const SERVER_MIGRATION_COLLECTION: &str = "default";
+const LARGE_TEST_CASE_BODY_BACKFILL_KEY: &str = "large_test_case_body_backfill_v1";
+const LARGE_TEST_CASE_BODY_BACKFILL_BATCH_SIZE: u64 = 2;
 
 const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
     ("admin", "submission:submit"),
@@ -441,4 +448,132 @@ pub async fn backfill_submission_judgements(db: &DatabaseConnection) -> Result<(
 
     info!("Backfill of submission_judgement complete");
     Ok(())
+}
+
+pub async fn backfill_large_test_case_bodies(
+    db: &DatabaseConnection,
+    blob_store: std::sync::Arc<dyn BlobStore>,
+) -> Result<(), DbErr> {
+    if plugin_storage::Entity::find_by_id((
+        SERVER_MIGRATION_PLUGIN_ID.to_string(),
+        SERVER_MIGRATION_COLLECTION.to_string(),
+        LARGE_TEST_CASE_BODY_BACKFILL_KEY.to_string(),
+    ))
+    .one(db)
+    .await?
+    .is_some()
+    {
+        return Ok(());
+    }
+
+    let mut backfilled = 0usize;
+
+    loop {
+        let rows = test_case::Entity::find()
+            .filter(
+                Condition::any()
+                    .add(
+                        Condition::all()
+                            .add(test_case::Column::InputBlobHash.is_null())
+                            .add(Expr::cust(format!(
+                                "octet_length(\"input\") >= {INLINE_TEST_CASE_BODY_THRESHOLD_BYTES}"
+                            ))),
+                    )
+                    .add(
+                        Condition::all()
+                            .add(test_case::Column::ExpectedOutputBlobHash.is_null())
+                            .add(Expr::cust(format!(
+                                "octet_length(\"expected_output\") >= {INLINE_TEST_CASE_BODY_THRESHOLD_BYTES}"
+                            ))),
+                    ),
+            )
+            .limit(LARGE_TEST_CASE_BODY_BACKFILL_BATCH_SIZE)
+            .all(db)
+            .await?;
+
+        if rows.is_empty() {
+            break;
+        }
+
+        for row in rows {
+            let mut active: test_case::ActiveModel = row.clone().into();
+            let mut changed = false;
+
+            if row.input_blob_hash.is_none()
+                && row.input.len() >= INLINE_TEST_CASE_BODY_THRESHOLD_BYTES
+            {
+                let body = prepare_test_case_body(row.input.clone(), blob_store.clone())
+                    .await
+                    .map_err(|e| DbErr::Custom(format!("failed to backfill input blob: {e:?}")))?;
+                active.input = Set(body.inline_text);
+                active.input_blob_hash = Set(body.blob_hash);
+                active.input_size = Set(Some(body.size));
+                active.input_preview = Set(Some(body.preview));
+                changed = true;
+            }
+
+            if row.expected_output_blob_hash.is_none()
+                && row.expected_output.len() >= INLINE_TEST_CASE_BODY_THRESHOLD_BYTES
+            {
+                let body = prepare_test_case_body(row.expected_output.clone(), blob_store.clone())
+                    .await
+                    .map_err(|e| DbErr::Custom(format!("failed to backfill output blob: {e:?}")))?;
+                active.expected_output = Set(body.inline_text);
+                active.expected_output_blob_hash = Set(body.blob_hash);
+                active.expected_output_size = Set(Some(body.size));
+                active.expected_output_preview = Set(Some(body.preview));
+                changed = true;
+            }
+
+            if changed {
+                active.update(db).await?;
+                backfilled += 1;
+            }
+        }
+    }
+
+    if backfilled > 0 {
+        info!(
+            rows = backfilled,
+            "Backfilled large test case bodies to blob storage"
+        );
+    }
+
+    plugin_storage::Entity::insert(plugin_storage::ActiveModel {
+        plugin_id: Set(SERVER_MIGRATION_PLUGIN_ID.to_string()),
+        collection: Set(SERVER_MIGRATION_COLLECTION.to_string()),
+        key: Set(LARGE_TEST_CASE_BODY_BACKFILL_KEY.to_string()),
+        data: Set(serde_json::json!({
+            "completed_at": chrono::Utc::now(),
+            "rows": backfilled,
+        })),
+        created_at: Set(chrono::Utc::now()),
+    })
+    .on_conflict(
+        sea_query::OnConflict::columns([
+            plugin_storage::Column::PluginId,
+            plugin_storage::Column::Collection,
+            plugin_storage::Column::Key,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .exec_without_returning(db)
+    .await?;
+
+    Ok(())
+}
+
+pub fn spawn_large_test_case_body_backfill(
+    db: DatabaseConnection,
+    blob_store: std::sync::Arc<dyn BlobStore>,
+) {
+    tokio::spawn(async move {
+        if let Err(e) = backfill_large_test_case_bodies(&db, blob_store).await {
+            error!(
+                error = %e,
+                "Background large test case body backfill failed"
+            );
+        }
+    });
 }

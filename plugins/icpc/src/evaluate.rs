@@ -52,8 +52,9 @@ pub fn evaluate_short_circuit(
                 time_limit_ms: req.time_limit_ms,
                 memory_limit_kb: req.memory_limit_kb,
                 contest_id: req.contest_id,
-                inline_input: tc.inline_input.clone(),
-                inline_expected_output: tc.inline_expected_output.clone(),
+                input: tc.input.clone(),
+                expected_output: tc.expected_output.clone(),
+                is_custom: tc.is_custom,
                 target_worker_id: req.target_worker_id.clone(),
             })
             .collect(),
@@ -114,9 +115,10 @@ pub fn evaluate_short_circuit(
     let mut collected = 0;
     let mut is_compile_error = false;
     let mut short_circuited = false;
+    let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
-        match host.eval.next_result(&batch_id, 120_000) {
+        match host.eval.next_result(&batch_id, result_timeout_ms) {
             Ok(Some(verdict)) => {
                 let outcome = EvalOutcome {
                     test_case_id: verdict.test_case_id,
@@ -272,8 +274,8 @@ fn test_case(id: i32) -> TestCaseRow {
         position: id,
         description: None,
         label: None,
-        inline_input: None,
-        inline_expected_output: None,
+        input: TestCaseBodyRef::Missing,
+        expected_output: TestCaseBodyRef::Missing,
         is_custom: false,
     }
 }
@@ -314,7 +316,7 @@ fn insert_tc_result(
 }
 
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
-    value.map(|s| sanitize_text_field(s).into_owned())
+    value.map(|s| sanitize_result_text_field(s).into_owned())
 }
 
 #[cfg(test)]
@@ -422,5 +424,21 @@ mod tests {
         assert_eq!(result.outcomes.len(), 2);
         assert_eq!(result.outcomes[0].verdict, Verdict::Accepted);
         assert_eq!(result.outcomes[1].verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn passes_derived_timeout_to_evaluation_result_polling() {
+        let host = Host::mock();
+        let tcs = vec![test_case(1)];
+        let mut req = test_submission(tcs.clone());
+        req.time_limit_ms = 300_000;
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+
+        evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
+
+        assert_eq!(
+            host.eval.result_timeouts(),
+            vec![default_evaluation_result_timeout_ms(req.time_limit_ms)]
+        );
     }
 }

@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::AppError;
 use crate::utils::filename::validate_flat_filename;
+use crate::utils::test_case_body::{test_case_body_preview, test_case_body_size};
 
 pub use super::shared::{Pagination, escape_like};
 use super::shared::{
@@ -225,6 +226,14 @@ pub struct TestCaseResponse {
     pub input: String,
     #[schema(example = "0 1")]
     pub expected_output: String,
+    #[schema(example = 12)]
+    pub input_size: usize,
+    #[schema(example = 4)]
+    pub output_size: usize,
+    #[schema(example = "4\n2 7 11 15\n9")]
+    pub input_preview: String,
+    #[schema(example = "0 1")]
+    pub output_preview: String,
     #[schema(example = 10)]
     pub score: i32,
     #[schema(example = "Basic case")]
@@ -302,6 +311,13 @@ impl From<crate::entity::test_case::Model> for TestCaseResponse {
     fn from(m: crate::entity::test_case::Model) -> Self {
         Self {
             id: m.id,
+            input_size: test_case_body_size(&m.input, m.input_size),
+            output_size: test_case_body_size(&m.expected_output, m.expected_output_size),
+            input_preview: test_case_body_preview(&m.input, m.input_preview.as_deref()),
+            output_preview: test_case_body_preview(
+                &m.expected_output,
+                m.expected_output_preview.as_deref(),
+            ),
             input: m.input,
             expected_output: m.expected_output,
             score: m.score,

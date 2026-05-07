@@ -12,10 +12,35 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs;
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 use tracing::{debug, warn};
+
+const INLINE_OUTPUT_PREVIEW_BYTES: usize = 64 * 1024;
+
+fn text_preview_from_bytes(mut bytes: Vec<u8>, truncated: bool) -> String {
+    let was_truncated = truncated || bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES;
+    if bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES {
+        bytes.truncate(INLINE_OUTPUT_PREVIEW_BYTES);
+    }
+
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if was_truncated {
+        text.push_str("\n... (truncated)");
+    }
+    text
+}
+
+async fn read_text_preview(path: &Path) -> Result<String, std::io::Error> {
+    let file = tokio::fs::File::open(path).await?;
+    let mut bytes = Vec::with_capacity(INLINE_OUTPUT_PREVIEW_BYTES + 1);
+    let mut limited = file.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
+    limited.read_to_end(&mut bytes).await?;
+    let truncated = bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES;
+    Ok(text_preview_from_bytes(bytes, truncated))
+}
 
 #[derive(Debug, Clone)]
 pub struct MockSandboxManager {
@@ -139,6 +164,18 @@ impl MockSandboxManager {
             }
         }
         Ok(resolved)
+    }
+
+    fn resolve_runtime_path(sandbox_path: &Path, path: &Path) -> PathBuf {
+        if let Ok(stripped) = path.strip_prefix("/channels") {
+            sandbox_path.join("channels").join(stripped)
+        } else if let Ok(stripped) = path.strip_prefix("/box") {
+            sandbox_path.join(stripped)
+        } else if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            sandbox_path.join(path)
+        }
     }
 
     async fn remove_existing_target(path: &Path) -> Result<(), SandboxError> {
@@ -343,14 +380,16 @@ impl SandboxManager for MockSandboxManager {
         command.args(rewritten_argv.iter().skip(1));
         command.current_dir(&sandbox_path);
 
+        Self::apply_directory_rules(&sandbox_path, &run_options.directory_rules).await?;
+
         if let Some(stdin_path) = &run_options.stdin {
-            let stdin_path = sandbox_path.join(stdin_path);
+            let stdin_path = Self::resolve_runtime_path(&sandbox_path, stdin_path);
             let stdin_file = Self::open_stdin(&stdin_path)?;
             command.stdin(Stdio::from(stdin_file));
         }
 
         if let Some(stdout_path) = &run_options.stdout {
-            let stdout_path = sandbox_path.join(stdout_path);
+            let stdout_path = Self::resolve_runtime_path(&sandbox_path, stdout_path);
             if let Some(parent) = stdout_path.parent() {
                 tokio::fs::create_dir_all(parent).await.map_err(|err| {
                     SandboxError::Execution(format!(
@@ -366,7 +405,7 @@ impl SandboxManager for MockSandboxManager {
         }
 
         if let Some(stderr_path) = &run_options.stderr {
-            let stderr_path = sandbox_path.join(stderr_path);
+            let stderr_path = Self::resolve_runtime_path(&sandbox_path, stderr_path);
             if let Some(parent) = stderr_path.parent() {
                 tokio::fs::create_dir_all(parent).await.map_err(|err| {
                     SandboxError::Execution(format!(
@@ -381,27 +420,27 @@ impl SandboxManager for MockSandboxManager {
             command.stderr(Stdio::piped());
         }
 
-        Self::apply_directory_rules(&sandbox_path, &run_options.directory_rules).await?;
         let start = Instant::now();
         let mut child = command.spawn().map_err(|err| {
             SandboxError::Execution(format!("failed to spawn mock sandbox process: {err}"))
         })?;
 
-        use tokio::io::AsyncReadExt;
         let piped_stdout_handle = child.stdout.take();
         let piped_stderr_handle = child.stderr.take();
 
-        let stdout_task = piped_stdout_handle.map(|mut s| {
+        let stdout_task = piped_stdout_handle.map(|s| {
             tokio::spawn(async move {
                 let mut buf = Vec::new();
-                let _ = s.read_to_end(&mut buf).await;
+                let mut limited = s.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
+                let _ = limited.read_to_end(&mut buf).await;
                 buf
             })
         });
-        let stderr_task = piped_stderr_handle.map(|mut s| {
+        let stderr_task = piped_stderr_handle.map(|s| {
             tokio::spawn(async move {
                 let mut buf = Vec::new();
-                let _ = s.read_to_end(&mut buf).await;
+                let mut limited = s.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
+                let _ = limited.read_to_end(&mut buf).await;
                 buf
             })
         });
@@ -449,29 +488,29 @@ impl SandboxManager for MockSandboxManager {
         };
 
         let stdout = if let Some(path) = &run_options.stdout {
-            let resolved = sandbox_path.join(path);
+            let resolved = Self::resolve_runtime_path(&sandbox_path, path);
             if Self::is_fifo(&resolved) {
                 String::new()
             } else {
-                tokio::fs::read_to_string(&resolved)
+                read_text_preview(&resolved)
                     .await
                     .unwrap_or_else(|_| String::new())
             }
         } else {
-            String::from_utf8_lossy(&piped_stdout_bytes).to_string()
+            text_preview_from_bytes(piped_stdout_bytes, false)
         };
 
         let stderr = if let Some(path) = &run_options.stderr {
-            let resolved = sandbox_path.join(path);
+            let resolved = Self::resolve_runtime_path(&sandbox_path, path);
             if Self::is_fifo(&resolved) {
                 String::new()
             } else {
-                tokio::fs::read_to_string(&resolved)
+                read_text_preview(&resolved)
                     .await
                     .unwrap_or_else(|_| String::new())
             }
         } else {
-            String::from_utf8_lossy(&piped_stderr_bytes).to_string()
+            text_preview_from_bytes(piped_stderr_bytes, false)
         };
 
         let exit_code = if timed_out { None } else { exit_status.code() };

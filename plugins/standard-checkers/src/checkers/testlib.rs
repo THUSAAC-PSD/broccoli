@@ -198,9 +198,6 @@ impl EmptyStringExt for String {
 /// Dispatch testlib checker.
 #[cfg(target_arch = "wasm32")]
 pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> CheckerVerdict {
-    let test_input = req.test_input.as_str();
-    let expected_output = req.expected_output.as_str();
-
     let checker_source = match req.checker_source.as_ref() {
         Some(files) => files,
         None => {
@@ -274,21 +271,15 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
     }
     files_in.push((
         "input.txt".to_string(),
-        SessionFile::Content {
-            content: test_input.to_string(),
-        },
+        session_file_from_judge_file(&req.test_input),
     ));
     files_in.push((
         "output.txt".to_string(),
-        SessionFile::Content {
-            content: req.stdout.clone(),
-        },
+        session_file_from_judge_file(&req.stdout),
     ));
     files_in.push((
         "answer.txt".to_string(),
-        SessionFile::Content {
-            content: expected_output.to_string(),
-        },
+        session_file_from_judge_file(&req.expected_output),
     ));
 
     let mut steps = Vec::new();
@@ -451,6 +442,21 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
             verdict: Verdict::SystemError,
             score: 0.0,
             message: Some("Checker operation completed but no check result found".into()),
+        },
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
+    match file {
+        JudgeFile::Blob { file } => SessionFile::Blob {
+            hash: file.blob_hash.clone(),
+        },
+        JudgeFile::Inline { text } => SessionFile::Content {
+            content: text.clone(),
+        },
+        JudgeFile::Missing => SessionFile::Content {
+            content: String::new(),
         },
     }
 }

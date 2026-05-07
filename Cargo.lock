@@ -816,6 +816,7 @@ dependencies = [
 name = "broccoli-server-sdk"
 version = "0.1.1"
 dependencies = [
+ "base64 0.22.1",
  "extism-pdk",
  "serde",
  "serde_json",
@@ -5997,6 +5998,7 @@ dependencies = [
  "axum-client-ip",
  "axum-extra",
  "axum_typed_multipart",
+ "base64 0.22.1",
  "broccoli-server-sdk",
  "chrono",
  "common",

@@ -1,4 +1,4 @@
-use broccoli_server_sdk::types::ResourceLimits;
+use broccoli_server_sdk::types::{EvaluationTimeoutBudget, ResourceLimits, seconds_from_ms};
 use serde::{Deserialize, Deserializer, de};
 
 fn default_num_processes() -> u32 {
@@ -66,6 +66,38 @@ impl Default for CommConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_default_result_timeout_is_generous_floor() {
+        assert_eq!(SandboxConfig::default().result_timeout_ms, 900_000);
+    }
+
+    #[test]
+    fn result_timeout_accounts_for_compile_run_and_manager_budget() {
+        let config = SandboxConfig {
+            compile_time_limit_s: 120.0,
+            compile_wall_time_multiplier: 3.0,
+            exec_wall_time_multiplier: 5.0,
+            ..SandboxConfig::default()
+        };
+
+        assert!(config.result_timeout_ms_for(300_000, 3, 120.0) > config.result_timeout_ms);
+    }
+
+    #[test]
+    fn result_timeout_uses_configured_value_as_floor() {
+        let config = SandboxConfig {
+            result_timeout_ms: 1_500_000,
+            ..SandboxConfig::default()
+        };
+
+        assert_eq!(config.result_timeout_ms_for(1000, 1, 30.0), 1_500_000);
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CommunicationMode {
@@ -113,7 +145,8 @@ impl Default for SandboxConfig {
             exec_process_limit: 1,
             exec_open_files_limit: 64,
             exec_file_size_limit_kb: 65_536,
-            result_timeout_ms: 120_000,
+            result_timeout_ms: EvaluationTimeoutBudget::default_for_time_limit_ms(0)
+                .minimum_timeout_ms,
         }
     }
 }
@@ -171,5 +204,35 @@ impl SandboxConfig {
             file_size_limit: Some(self.exec_file_size_limit_kb),
             ..Default::default()
         }
+    }
+
+    pub fn result_timeout_ms_for(
+        &self,
+        time_limit_ms: i32,
+        compile_units: u32,
+        manager_time_limit_s: f64,
+    ) -> u64 {
+        EvaluationTimeoutBudget {
+            compile_units,
+            compile_time_limit_s: self.compile_time_limit_s,
+            compile_wall_time_multiplier: self.compile_wall_time_multiplier,
+            compile_extra_time_s: self.compile_extra_time_s,
+            exec_time_limit_s: seconds_from_ms(time_limit_ms),
+            exec_wall_time_multiplier: self.exec_wall_time_multiplier,
+            exec_extra_time_s: self.exec_extra_time_s,
+            manager_time_limit_s,
+            manager_wall_time_multiplier: self.exec_wall_time_multiplier,
+            manager_extra_time_s: self.exec_extra_time_s,
+            minimum_timeout_ms: self.result_timeout_ms.max(
+                EvaluationTimeoutBudget::default_for_time_limit_ms(time_limit_ms)
+                    .minimum_timeout_ms,
+            ),
+            maximum_timeout_ms: self.result_timeout_ms.max(
+                EvaluationTimeoutBudget::default_for_time_limit_ms(time_limit_ms)
+                    .maximum_timeout_ms,
+            ),
+            ..EvaluationTimeoutBudget::default_for_time_limit_ms(time_limit_ms)
+        }
+        .timeout_ms()
     }
 }

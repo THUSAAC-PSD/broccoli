@@ -9,6 +9,9 @@ use axum::response::IntoResponse;
 use broccoli_server_sdk::types::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent};
 use chrono::Utc;
 use common::SubmissionStatus;
+use common::storage::BlobStore;
+use common::submission_dispatch::TestCaseBodyRef;
+use sea_orm::prelude::Expr;
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use serde::Deserialize;
@@ -37,6 +40,7 @@ use crate::utils::judging::{
 use crate::utils::problem::find_problem;
 use crate::utils::query::validate_sorting_params;
 use crate::utils::rate_limit::check_rate_limit;
+use crate::utils::test_case_body::read_test_case_body;
 async fn dispatch_before_submission_hooks(
     state: &AppState,
     event: &BeforeSubmissionEvent,
@@ -420,7 +424,27 @@ pub(crate) async fn dispatch_to_plugin_with_judgement(
     let resolved_test_cases = {
         let db_tcs = match test_case::Entity::find()
             .filter(test_case::Column::ProblemId.eq(submission.problem_id))
+            .select_only()
+            .column(test_case::Column::Id)
+            .column(test_case::Column::Score)
+            .column(test_case::Column::IsSample)
+            .column(test_case::Column::Position)
+            .column(test_case::Column::Description)
+            .column(test_case::Column::Label)
+            .column(test_case::Column::InputBlobHash)
+            .column(test_case::Column::ExpectedOutputBlobHash)
+            .column_as(
+                Expr::cust("CASE WHEN \"input_blob_hash\" IS NULL THEN \"input\" ELSE '' END"),
+                "input",
+            )
+            .column_as(
+                Expr::cust(
+                    "CASE WHEN \"expected_output_blob_hash\" IS NULL THEN \"expected_output\" ELSE '' END",
+                ),
+                "expected_output",
+            )
             .order_by_asc(test_case::Column::Position)
+            .into_model::<SubmissionDispatchTestCaseRow>()
             .all(&state.db)
             .await
         {
@@ -448,8 +472,8 @@ pub(crate) async fn dispatch_to_plugin_with_judgement(
                 position: tc.position,
                 description: tc.description,
                 label: Some(tc.label),
-                inline_input: None,
-                inline_expected_output: None,
+                input: body_ref(tc.input, tc.input_blob_hash),
+                expected_output: body_ref(tc.expected_output, tc.expected_output_blob_hash),
                 is_custom: false,
             })
             .collect()
@@ -644,10 +668,83 @@ struct TestCaseIoData {
     id: i32,
     input: String,
     expected_output: String,
+    input_blob_hash: Option<String>,
+    expected_output_blob_hash: Option<String>,
+}
+
+#[derive(FromQueryResult)]
+struct SubmissionDispatchTestCaseRow {
+    id: i32,
+    score: i32,
+    is_sample: bool,
+    position: i32,
+    description: Option<String>,
+    label: String,
+    input: String,
+    expected_output: String,
+    input_blob_hash: Option<String>,
+    expected_output_blob_hash: Option<String>,
+}
+
+fn body_ref(inline: String, blob_hash: Option<String>) -> TestCaseBodyRef {
+    match blob_hash {
+        Some(hash) => TestCaseBodyRef::blob(hash),
+        None => TestCaseBodyRef::inline(inline),
+    }
+}
+
+#[derive(Clone)]
+struct MaterializedTestCaseIoData {
+    input: String,
+    expected_output: String,
+}
+
+async fn load_test_case_io_data(
+    db: &DatabaseConnection,
+    io_ids: Vec<i32>,
+    blob_store: &dyn BlobStore,
+) -> Result<HashMap<i32, MaterializedTestCaseIoData>, AppError> {
+    if io_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = test_case::Entity::find()
+        .filter(test_case::Column::Id.is_in(io_ids))
+        .select_only()
+        .column(test_case::Column::Id)
+        .column(test_case::Column::Input)
+        .column(test_case::Column::ExpectedOutput)
+        .column(test_case::Column::InputBlobHash)
+        .column(test_case::Column::ExpectedOutputBlobHash)
+        .into_model::<TestCaseIoData>()
+        .all(db)
+        .await?;
+
+    let mut out = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let input =
+            read_test_case_body(&row.input, row.input_blob_hash.as_deref(), blob_store).await?;
+        let expected_output = read_test_case_body(
+            &row.expected_output,
+            row.expected_output_blob_hash.as_deref(),
+            blob_store,
+        )
+        .await?;
+        out.insert(
+            row.id,
+            MaterializedTestCaseIoData {
+                input,
+                expected_output,
+            },
+        );
+    }
+
+    Ok(out)
 }
 
 async fn build_submission_response(
     db: &DatabaseConnection,
+    blob_store: &dyn BlobStore,
     sub: submission::Model,
     visibility: Option<VisibilityContext>,
 ) -> Result<SubmissionResponse, AppError> {
@@ -746,22 +843,7 @@ async fn build_submission_response(
                 .map(|m| m.id)
                 .collect()
         };
-        let io_data: HashMap<i32, TestCaseIoData> = if io_ids.is_empty() {
-            HashMap::new()
-        } else {
-            test_case::Entity::find()
-                .filter(test_case::Column::Id.is_in(io_ids))
-                .select_only()
-                .column(test_case::Column::Id)
-                .column(test_case::Column::Input)
-                .column(test_case::Column::ExpectedOutput)
-                .into_model::<TestCaseIoData>()
-                .all(db)
-                .await?
-                .into_iter()
-                .map(|io| (io.id, io))
-                .collect()
-        };
+        let io_data = load_test_case_io_data(db, io_ids, blob_store).await?;
 
         let test_case_results = results_with_pos
             .into_iter()
@@ -884,6 +966,7 @@ async fn require_submission_visible(
 
 async fn build_judgement_response(
     db: &DatabaseConnection,
+    blob_store: &dyn BlobStore,
     judgement: submission_judgement::Model,
     show_compile_output: bool,
     show_test_details: bool,
@@ -932,22 +1015,7 @@ async fn build_judgement_response(
             .map(|m| m.id)
             .collect()
     };
-    let io_data: HashMap<i32, TestCaseIoData> = if io_ids.is_empty() {
-        HashMap::new()
-    } else {
-        test_case::Entity::find()
-            .filter(test_case::Column::Id.is_in(io_ids))
-            .select_only()
-            .column(test_case::Column::Id)
-            .column(test_case::Column::Input)
-            .column(test_case::Column::ExpectedOutput)
-            .into_model::<TestCaseIoData>()
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|io| (io.id, io))
-            .collect()
-    };
+    let io_data = load_test_case_io_data(db, io_ids, blob_store).await?;
 
     let test_case_results = results_with_pos
         .into_iter()
@@ -1338,7 +1406,8 @@ pub async fn create_submission(
         viewer_id: auth_user.user_id,
         has_view_all: auth_user.has_permission("submission:view_all"),
     });
-    let response = build_submission_response(&state.db, model, visibility).await?;
+    let response =
+        build_submission_response(&state.db, &*state.blob_store, model, visibility).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -1504,7 +1573,8 @@ pub async fn get_submission(
     let sub = find_submission(&state.db, id).await?;
 
     let visibility = Some(require_submission_visible(&state.db, &auth_user, &sub).await?);
-    let response = build_submission_response(&state.db, sub, visibility).await?;
+    let response =
+        build_submission_response(&state.db, &*state.blob_store, sub, visibility).await?;
     let response = apply_filter_to_response(&state, response, visibility.as_ref()).await?;
     Ok(Json(response))
 }
@@ -1574,9 +1644,14 @@ pub async fn list_submission_judgements(
 
     let mut responses = Vec::with_capacity(judgements.len());
     for judgement in judgements {
-        let response =
-            build_judgement_response(&state.db, judgement, show_compile_output, show_test_details)
-                .await?;
+        let response = build_judgement_response(
+            &state.db,
+            &*state.blob_store,
+            judgement,
+            show_compile_output,
+            show_test_details,
+        )
+        .await?;
         let response = apply_filter_to_judgement_response(
             &state,
             &sub,
@@ -1681,7 +1756,8 @@ pub async fn apply_submission_judgement(
         viewer_id: auth_user.user_id,
         has_view_all: true,
     });
-    let response = build_submission_response(&state.db, updated, visibility).await?;
+    let response =
+        build_submission_response(&state.db, &*state.blob_store, updated, visibility).await?;
     Ok(Json(response))
 }
 
@@ -1890,7 +1966,8 @@ pub async fn rejudge_submission(
         viewer_id: auth_user.user_id,
         has_view_all: true,
     });
-    let response = build_submission_response(&state.db, updated, visibility).await?;
+    let response =
+        build_submission_response(&state.db, &*state.blob_store, updated, visibility).await?;
     Ok(Json(response))
 }
 
@@ -2020,7 +2097,8 @@ pub async fn create_contest_submission(
         viewer_id: auth_user.user_id,
         has_view_all: auth_user.has_permission("submission:view_all"),
     });
-    let response = build_submission_response(&state.db, model, visibility).await?;
+    let response =
+        build_submission_response(&state.db, &*state.blob_store, model, visibility).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -2427,7 +2505,8 @@ pub async fn admin_fan_out_submission(
             dispatch_to_plugin(dispatch_state, dispatch_model).await;
         });
 
-        let response = build_submission_response(&state.db, model, visibility).await?;
+        let response =
+            build_submission_response(&state.db, &*state.blob_store, model, visibility).await?;
         responses.push(response);
     }
 

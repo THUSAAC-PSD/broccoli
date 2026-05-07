@@ -134,8 +134,8 @@ precision = 1
 [config.sandbox.properties.result_timeout_ms]
 type = "integer"
 title = "Result Timeout"
-description = "Maximum time in milliseconds to wait for the sandbox to return a result"
-default = 30000
+description = "Minimum time in milliseconds to wait for the sandbox to return a result. The evaluator also derives a larger timeout from compile wall time, run wall time, checker slack, and queue slack when needed."
+default = 900000
 min = 1000
 step = 1000
 unit = "ms"

@@ -3,6 +3,7 @@ use common::worker::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::config::WorkerAppConfig;
 use crate::error::WorkerError;
 use crate::models::operation::OperationTaskExecutor;
 
@@ -12,17 +13,24 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub async fn new(metrics: common::metrics::Metrics) -> Self {
-        let worker = Self {
+    pub fn with_no_executors() -> Self {
+        Self {
             executors: Arc::new(Mutex::new(HashMap::new())),
             hook_registry: Arc::new(Mutex::new(HookRegistry::new(()))),
-        };
+        }
+    }
+
+    pub async fn from_config(
+        config: &WorkerAppConfig,
+        metrics: common::metrics::Metrics,
+    ) -> anyhow::Result<Self> {
+        let worker = Self::with_no_executors();
 
         worker.register_executor(
             "operation",
-            Arc::new(OperationTaskExecutor::from_config(metrics).await),
+            Arc::new(OperationTaskExecutor::from_app_config(config, metrics).await?),
         );
-        worker
+        Ok(worker)
     }
 
     pub fn register_executor(&self, name: &str, executor: Arc<dyn Executor>) {

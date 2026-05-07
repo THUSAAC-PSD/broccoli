@@ -39,6 +39,38 @@ impl FileCacher for NoopFileCacher {
     }
 }
 
+#[allow(dead_code)]
+pub struct UnavailableFileCacher {
+    reason: String,
+}
+
+#[allow(dead_code)]
+impl UnavailableFileCacher {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl FileCacher for UnavailableFileCacher {
+    async fn fetch_to_path(&self, content_hash: &str, _dest: &Path) -> Result<(), String> {
+        Err(format!(
+            "blob storage is unavailable; cannot fetch blob {content_hash}: {}",
+            self.reason
+        ))
+    }
+
+    async fn upload_from_path(&self, src: &Path) -> Result<String, String> {
+        Err(format!(
+            "blob storage is unavailable; cannot upload {}: {}",
+            src.display(),
+            self.reason
+        ))
+    }
+}
+
 struct FetchLockCleanup<'a>(&'a BlobStoreFileCacher, String);
 
 impl Drop for FetchLockCleanup<'_> {
@@ -319,6 +351,19 @@ mod tests {
         );
         let h = c.upload_from_path(Path::new("/dev/null")).await.unwrap();
         assert_eq!(h.len(), 64);
+    }
+
+    #[tokio::test]
+    async fn unavailable_cacher_fails_blob_materialization() {
+        let c = UnavailableFileCacher::new("storage init failed");
+        let dest = std::env::temp_dir().join("unavailable_test");
+        let err = c
+            .fetch_to_path("a".repeat(64).as_str(), &dest)
+            .await
+            .expect_err("fetching a blob with unavailable storage must fail");
+
+        assert!(err.contains("blob storage is unavailable"));
+        assert!(err.contains("storage init failed"));
     }
 
     #[tokio::test]

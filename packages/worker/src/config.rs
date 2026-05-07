@@ -16,7 +16,7 @@ fn default_database_url() -> String {
     "postgres://localhost/broccoli".into()
 }
 fn default_database_max_connections() -> u32 {
-    5
+    3
 }
 
 impl Default for DatabaseConfig {
@@ -125,7 +125,7 @@ impl WorkerAppConfig {
             .set_default("observability.log_filter", "info")?
             .set_default("observability.otlp.service_name", "broccoli-worker")?
             .set_default("database.url", "postgres://localhost/broccoli")?
-            .set_default("database.max_connections", 5_i64)?
+            .set_default("database.max_connections", 3_i64)?
             .set_default("storage.backend", "database")?
             .set_default("storage.data_dir", "./data")?
             .set_default("storage.max_blob_size", DEFAULT_MAX_BLOB_SIZE_BYTES as i64)?

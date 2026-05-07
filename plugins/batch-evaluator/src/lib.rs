@@ -60,6 +60,9 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
     let operations = batch::build_operation(&req, &resolved, &sandbox_config)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
+    let result_timeout_ms = sandbox_config
+        .result_timeout_ms_for(req.time_limit_ms, u32::from(resolved.compile.is_some()));
+
     let batch_id = host
         .operations
         .start_batch(&operations)
@@ -67,12 +70,12 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
 
     let result = host
         .operations
-        .next_result(&batch_id, sandbox_config.result_timeout_ms)
+        .next_result(&batch_id, result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
 
     let checker_format = req.checker_format.as_deref().unwrap_or("exact");
     let checker_input = CheckerParseInput {
-        stdout: String::new(),
+        stdout: JudgeFile::Missing,
         stderr: String::new(),
         exit_code: 0,
         expected_output: req.expected_output.clone(),

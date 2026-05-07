@@ -152,7 +152,18 @@ pub fn interpret_sandbox_result(
     };
 
     let mut input = checker_input.clone();
-    input.stdout = exec_result.sandbox_result.stdout.clone();
+    input.stdout = exec_result
+        .collected_outputs
+        .get("output.txt")
+        .map(|blob_hash| {
+            JudgeFile::blob(FileRef {
+                filename: "output.txt".to_string(),
+                content_type: Some("text/plain".to_string()),
+                blob_hash: blob_hash.clone(),
+                read_token: None,
+            })
+        })
+        .unwrap_or_else(|| JudgeFile::inline(exec_result.sandbox_result.stdout.clone()));
     input.stderr = exec_result.sandbox_result.stderr.clone();
     input.exit_code = exec_result.sandbox_result.exit_code.unwrap_or(-1);
 

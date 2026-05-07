@@ -1,9 +1,13 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
 #[cfg(target_arch = "wasm32")]
 use crate::types::SubmissionStatus;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::types::TestCaseBodyRef;
 use crate::types::{SubmissionUpdate, TestCaseResultRow, TestCaseRow};
 
 pub struct Submissions {
@@ -115,7 +119,7 @@ impl Submissions {
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
         use crate::db::Params;
-        use crate::types::sanitize_text_field;
+        use crate::types::sanitize_result_text_field;
         use serde_json::json;
 
         if results.is_empty() {
@@ -127,9 +131,9 @@ impl Submissions {
 
         for r in results {
             let score_val = if r.score.is_finite() { r.score } else { 0.0 };
-            let message = r.message.as_deref().map(sanitize_text_field);
-            let stdout = r.stdout.as_deref().map(sanitize_text_field);
-            let stderr = r.stderr.as_deref().map(sanitize_text_field);
+            let message = r.message.as_deref().map(sanitize_result_text_field);
+            let stdout = r.stdout.as_deref().map(sanitize_result_text_field);
+            let stderr = r.stderr.as_deref().map(sanitize_result_text_field);
             let judgement_param = if r.judgement_id > 0 {
                 json!(r.judgement_id)
             } else {
@@ -256,8 +260,8 @@ impl Submissions {
             position: pos,
             description: None,
             label: Some(id.to_string()),
-            inline_input: None,
-            inline_expected_output: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
             is_custom: false,
         });
     }

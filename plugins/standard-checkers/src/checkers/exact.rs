@@ -4,7 +4,10 @@ use crate::util::diff_preview;
 
 /// True byte-exact comparison.
 pub fn check(req: &CheckerParseInput) -> Result<CheckerVerdict, String> {
-    if req.stdout == req.expected_output {
+    let actual = req.stdout.inline_text();
+    let expected = req.expected_output.inline_text();
+
+    if actual == expected {
         Ok(CheckerVerdict {
             verdict: Verdict::Accepted,
             score: 1.0,
@@ -14,7 +17,7 @@ pub fn check(req: &CheckerParseInput) -> Result<CheckerVerdict, String> {
         Ok(CheckerVerdict {
             verdict: Verdict::WrongAnswer,
             score: 0.0,
-            message: Some(diff_preview(&req.expected_output, &req.stdout, 200)),
+            message: Some(diff_preview(expected, actual, 200)),
         })
     }
 }

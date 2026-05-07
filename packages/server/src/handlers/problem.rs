@@ -28,6 +28,10 @@ use crate::utils::contest::require_problem_read_access;
 use crate::utils::filename::{is_sample_directory, split_dir_filename};
 use crate::utils::problem::find_problem;
 use crate::utils::soft_delete::SoftDeletable;
+use crate::utils::test_case_body::{
+    prepare_test_case_body, read_test_case_body, test_case_body_preview, test_case_body_size,
+};
+use crate::utils::text::{sanitize_db_json, sanitize_db_text, sanitize_db_text_opt};
 
 #[utoipa::path(
     post,
@@ -89,10 +93,10 @@ pub async fn create_problem(
     let now = chrono::Utc::now();
     let submission_format_json = payload
         .submission_format
-        .map(|sf| serde_json::to_value(sf).unwrap_or(serde_json::Value::Null));
+        .map(|sf| sanitize_db_json(serde_json::to_value(sf).unwrap_or(serde_json::Value::Null)));
     let new_problem = problem::ActiveModel {
-        title: Set(payload.title.trim().to_string()),
-        content: Set(payload.content),
+        title: Set(sanitize_db_text(payload.title.trim())),
+        content: Set(sanitize_db_text(payload.content)),
         time_limit: Set(payload.time_limit),
         memory_limit: Set(payload.memory_limit),
         problem_type: Set(problem_type),
@@ -291,10 +295,10 @@ pub async fn update_problem(
     let mut active: problem::ActiveModel = existing.into();
 
     if let Some(ref title) = payload.title {
-        active.title = Set(title.trim().to_string());
+        active.title = Set(sanitize_db_text(title.trim()));
     }
     if let Some(content) = payload.content {
-        active.content = Set(content);
+        active.content = Set(sanitize_db_text(content));
     }
     if let Some(tl) = payload.time_limit {
         active.time_limit = Set(tl);
@@ -316,9 +320,9 @@ pub async fn update_problem(
     }
     match payload.submission_format {
         Some(Some(sf)) => {
-            active.submission_format = Set(Some(
+            active.submission_format = Set(Some(sanitize_db_json(
                 serde_json::to_value(sf).unwrap_or(serde_json::Value::Null),
-            ));
+            )));
         }
         Some(None) => {
             active.submission_format = Set(None);
@@ -441,15 +445,26 @@ pub async fn create_test_case(
         .label
         .as_deref()
         .map(str::trim)
-        .map(str::to_string)
+        .map(sanitize_db_text)
         .unwrap_or_else(|| position.to_string());
     ensure_test_case_label_available(&txn, problem_id, &label, None).await?;
+    let input_body = prepare_test_case_body(payload.input, state.blob_store.clone()).await?;
+    let output_body =
+        prepare_test_case_body(payload.expected_output, state.blob_store.clone()).await?;
     let new_tc = test_case::ActiveModel {
-        input: Set(payload.input),
-        expected_output: Set(payload.expected_output),
+        input: Set(input_body.inline_text),
+        expected_output: Set(output_body.inline_text),
+        input_blob_hash: Set(input_body.blob_hash),
+        expected_output_blob_hash: Set(output_body.blob_hash),
+        input_size: Set(Some(input_body.size)),
+        expected_output_size: Set(Some(output_body.size)),
+        input_preview: Set(Some(input_body.preview)),
+        expected_output_preview: Set(Some(output_body.preview)),
         score: Set(payload.score),
-        description: Set(payload.description.map(|d| d.trim().to_string())),
-        label: Set(label),
+        description: Set(sanitize_db_text_opt(
+            payload.description.map(|d| d.trim().to_string()),
+        )),
+        label: Set(sanitize_db_text(label)),
         is_sample: Set(payload.is_sample),
         position: Set(position),
         problem_id: Set(problem_id),
@@ -460,7 +475,10 @@ pub async fn create_test_case(
     let model = new_tc.insert(&txn).await?;
     txn.commit().await?;
 
-    Ok((StatusCode::CREATED, Json(TestCaseResponse::from(model))))
+    Ok((
+        StatusCode::CREATED,
+        Json(test_case_response_from_model(model, &*state.blob_store).await?),
+    ))
 }
 
 #[utoipa::path(
@@ -501,11 +519,15 @@ pub async fn list_test_cases(
         .column(test_case::Column::IsSample)
         .column(test_case::Column::Position)
         .column_as(
-            Expr::cust(format!("left(\"input\", {preview_end_index})")),
+            Expr::cust(format!(
+                "COALESCE(\"input_preview\", left(\"input\", {preview_end_index}))"
+            )),
             "input_preview",
         )
         .column_as(
-            Expr::cust(format!("left(\"expected_output\", {preview_end_index})")),
+            Expr::cust(format!(
+                "COALESCE(\"expected_output_preview\", left(\"expected_output\", {preview_end_index}))"
+            )),
             "output_preview",
         )
         .column(test_case::Column::ProblemId)
@@ -561,7 +583,9 @@ pub async fn get_test_case(
         }
     }
 
-    Ok(Json(tc.into()))
+    Ok(Json(
+        test_case_response_from_model(tc, &*state.blob_store).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -598,7 +622,9 @@ pub async fn update_test_case(
 
     if payload == UpdateTestCaseRequest::default() {
         let existing = find_test_case_for_problem(&state.db, problem_id, tc_id).await?;
-        return Ok(Json(existing.into()));
+        return Ok(Json(
+            test_case_response_from_model(existing, &*state.blob_store).await?,
+        ));
     }
 
     let txn = state.db.begin().await?;
@@ -606,10 +632,18 @@ pub async fn update_test_case(
     let mut active: test_case::ActiveModel = existing.into();
 
     if let Some(input) = payload.input {
-        active.input = Set(input);
+        let body = prepare_test_case_body(input, state.blob_store.clone()).await?;
+        active.input = Set(body.inline_text);
+        active.input_blob_hash = Set(body.blob_hash);
+        active.input_size = Set(Some(body.size));
+        active.input_preview = Set(Some(body.preview));
     }
     if let Some(expected_output) = payload.expected_output {
-        active.expected_output = Set(expected_output);
+        let body = prepare_test_case_body(expected_output, state.blob_store.clone()).await?;
+        active.expected_output = Set(body.inline_text);
+        active.expected_output_blob_hash = Set(body.blob_hash);
+        active.expected_output_size = Set(Some(body.size));
+        active.expected_output_preview = Set(Some(body.preview));
     }
     if let Some(score) = payload.score {
         active.score = Set(score);
@@ -621,12 +655,12 @@ pub async fn update_test_case(
         active.position = Set(position);
     }
     if let Some(label) = payload.label {
-        let label = label.trim().to_string();
+        let label = sanitize_db_text(label.trim());
         ensure_test_case_label_available(&txn, problem_id, &label, Some(tc_id)).await?;
         active.label = Set(label);
     }
     match payload.description {
-        Some(Some(desc)) => active.description = Set(Some(desc.trim().to_string())),
+        Some(Some(desc)) => active.description = Set(Some(sanitize_db_text(desc.trim()))),
         Some(None) => active.description = Set(None),
         None => {}
     }
@@ -634,7 +668,9 @@ pub async fn update_test_case(
     let model = active.update(&txn).await?;
     txn.commit().await?;
 
-    Ok(Json(model.into()))
+    Ok(Json(
+        test_case_response_from_model(model, &*state.blob_store).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -761,6 +797,9 @@ pub async fn upload_test_cases(
 
     for entry in entries {
         let score = auto_score_for_uploaded_entry(&entry, &auto_scores);
+        let input_body = prepare_test_case_body(entry.input, state.blob_store.clone()).await?;
+        let output_body =
+            prepare_test_case_body(entry.expected_output, state.blob_store.clone()).await?;
         if let Some(existing) = existing_cases.remove(&entry.label) {
             match data.strategy {
                 UploadTestCasesMergeStrategy::Abort => {
@@ -772,9 +811,15 @@ pub async fn upload_test_cases(
                 UploadTestCasesMergeStrategy::Skip => continue,
                 UploadTestCasesMergeStrategy::Overwrite => {
                     let mut active: test_case::ActiveModel = existing.into();
-                    active.input = Set(entry.input);
-                    active.expected_output = Set(entry.expected_output);
-                    active.label = Set(entry.label);
+                    active.input = Set(input_body.inline_text);
+                    active.expected_output = Set(output_body.inline_text);
+                    active.input_blob_hash = Set(input_body.blob_hash);
+                    active.expected_output_blob_hash = Set(output_body.blob_hash);
+                    active.input_size = Set(Some(input_body.size));
+                    active.expected_output_size = Set(Some(output_body.size));
+                    active.input_preview = Set(Some(input_body.preview));
+                    active.expected_output_preview = Set(Some(output_body.preview));
+                    active.label = Set(sanitize_db_text(entry.label));
                     active.score = Set(score);
                     active.is_sample = Set(entry.is_sample);
                     let model = active.update(&txn).await?;
@@ -789,10 +834,16 @@ pub async fn upload_test_cases(
         }
 
         let new_tc = test_case::ActiveModel {
-            input: Set(entry.input),
-            expected_output: Set(entry.expected_output),
+            input: Set(input_body.inline_text),
+            expected_output: Set(output_body.inline_text),
+            input_blob_hash: Set(input_body.blob_hash),
+            expected_output_blob_hash: Set(output_body.blob_hash),
+            input_size: Set(Some(input_body.size)),
+            expected_output_size: Set(Some(output_body.size)),
+            input_preview: Set(Some(input_body.preview)),
+            expected_output_preview: Set(Some(output_body.preview)),
             score: Set(score),
-            label: Set(entry.label),
+            label: Set(sanitize_db_text(entry.label)),
             description: Set(None),
             is_sample: Set(entry.is_sample),
             position: Set(start_pos),
@@ -1003,8 +1054,8 @@ async fn load_sample_test_cases<C: ConnectionTrait>(
         .into_iter()
         .map(|tc| SampleTestCaseMeta {
             id: tc.id,
-            input_size: tc.input.len(),
-            output_size: tc.expected_output.len(),
+            input_size: test_case_body_size(&tc.input, tc.input_size),
+            output_size: test_case_body_size(&tc.expected_output, tc.expected_output_size),
             description: tc.description,
         })
         .collect())
@@ -1081,8 +1132,14 @@ async fn ensure_test_case_label_available<C: ConnectionTrait>(
 }
 
 fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
-    let input_preview = truncate_preview(&m.input);
-    let output_preview = truncate_preview(&m.expected_output);
+    let input_preview = truncate_preview(&test_case_body_preview(
+        &m.input,
+        m.input_preview.as_deref(),
+    ));
+    let output_preview = truncate_preview(&test_case_body_preview(
+        &m.expected_output,
+        m.expected_output_preview.as_deref(),
+    ));
     TestCaseListItem {
         id: m.id,
         score: m.score,
@@ -1095,6 +1152,42 @@ fn tc_to_list_item(m: test_case::Model) -> TestCaseListItem {
         problem_id: m.problem_id,
         created_at: m.created_at,
     }
+}
+
+async fn test_case_response_from_model(
+    m: test_case::Model,
+    blob_store: &dyn common::storage::BlobStore,
+) -> Result<TestCaseResponse, AppError> {
+    let input = read_test_case_body(&m.input, m.input_blob_hash.as_deref(), blob_store).await?;
+    let expected_output = read_test_case_body(
+        &m.expected_output,
+        m.expected_output_blob_hash.as_deref(),
+        blob_store,
+    )
+    .await?;
+
+    Ok(TestCaseResponse {
+        id: m.id,
+        input_size: test_case_body_size(&m.input, m.input_size),
+        output_size: test_case_body_size(&m.expected_output, m.expected_output_size),
+        input_preview: truncate_preview(&test_case_body_preview(
+            &m.input,
+            m.input_preview.as_deref(),
+        )),
+        output_preview: truncate_preview(&test_case_body_preview(
+            &m.expected_output,
+            m.expected_output_preview.as_deref(),
+        )),
+        input,
+        expected_output,
+        score: m.score,
+        description: m.description,
+        label: m.label,
+        is_sample: m.is_sample,
+        position: m.position,
+        problem_id: m.problem_id,
+        created_at: m.created_at,
+    })
 }
 
 struct ZipTestEntry {
@@ -1219,9 +1312,10 @@ fn parse_zip_test_cases(
 
         let content = String::from_utf8(buf)
             .map_err(|_| AppError::Validation(format!("File '{name}' is not valid UTF-8")))?;
+        let content = sanitize_db_text(content);
 
         if let Some(label) = label_as_input {
-            let key = label.to_string();
+            let key = sanitize_db_text(label);
             validate_label(&key)?;
             if in_files.contains_key(&key) {
                 return Err(AppError::Validation(format!(
@@ -1233,7 +1327,7 @@ fn parse_zip_test_cases(
         }
 
         if let Some(label) = label_as_output {
-            let key = label.to_string();
+            let key = sanitize_db_text(label);
             validate_label(&key)?;
             if ans_files.contains_key(&key) {
                 return Err(AppError::Validation(format!(
@@ -1316,15 +1410,19 @@ pub async fn upload_checker_source(
     validate_checker_source(&payload)?;
 
     let existing = find_problem(&state.db, id).await?;
+    let checker_source = sanitize_db_json(
+        serde_json::to_value(&payload.files)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize checker source: {e}")))?,
+    );
+    let response_files = serde_json::from_value(checker_source.clone())
+        .map_err(|e| AppError::Internal(format!("Failed to deserialize checker source: {e}")))?;
     let mut active: problem::ActiveModel = existing.into();
-    active.checker_source = Set(Some(serde_json::to_value(&payload.files).map_err(|e| {
-        AppError::Internal(format!("Failed to serialize checker source: {e}"))
-    })?));
+    active.checker_source = Set(Some(checker_source));
     active.updated_at = Set(chrono::Utc::now());
     active.update(&state.db).await?;
 
     Ok(Json(CheckerSourceResponse {
-        files: Some(payload.files),
+        files: Some(response_files),
     }))
 }
 

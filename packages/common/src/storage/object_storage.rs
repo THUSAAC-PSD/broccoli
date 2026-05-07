@@ -166,6 +166,42 @@ impl BlobStore for ObjectStorageBlobStore {
         Ok(Box::new(response))
     }
 
+    async fn get_range(
+        &self,
+        hash: &ContentHash,
+        offset: u64,
+        len: usize,
+    ) -> Result<(Vec<u8>, bool), StorageError> {
+        if len == 0 {
+            return Ok((Vec::new(), false));
+        }
+
+        let key = Self::object_key(hash);
+        let end = offset.saturating_add(len as u64).saturating_sub(1);
+        let response = self
+            .bucket
+            .get_object_range(&key, offset, Some(end))
+            .await
+            .map_err(|e| StorageError::Backend(format!("get_object_range failed: {e}")))?;
+
+        if response.status_code() == 404 {
+            return Err(StorageError::NotFound(hash.to_hex()));
+        }
+        if response.status_code() == 416 {
+            return Ok((Vec::new(), true));
+        }
+        if !(200..300).contains(&response.status_code()) {
+            return Err(StorageError::Backend(format!(
+                "S3 range get returned status {}",
+                response.status_code()
+            )));
+        }
+
+        let bytes = response.to_vec();
+        let eof = bytes.len() < len;
+        Ok((bytes, eof))
+    }
+
     async fn exists(&self, hash: &ContentHash) -> Result<bool, StorageError> {
         let key = Self::object_key(hash);
 

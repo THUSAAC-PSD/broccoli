@@ -5,6 +5,8 @@ use plugin_core::registry::PluginRegistry;
 use sea_orm::{DatabaseConnection, EntityTrait, Set, sea_query::OnConflict};
 use serde::Deserialize;
 
+use crate::utils::text::sanitize_db_json;
+
 type ConfigGetUserData = (String, DatabaseConnection, PluginRegistry);
 type ConfigSetUserData = (String, DatabaseConnection);
 
@@ -213,7 +215,7 @@ fn config_set_fn(
                 scope: Set(input.scope),
                 ref_id: Set(ref_id),
                 namespace: Set(namespace),
-                config: Set(input.config),
+                config: Set(sanitize_db_json(input.config)),
                 enabled: Set(None),
                 position: Set(0),
                 updated_at: Set(Utc::now()),

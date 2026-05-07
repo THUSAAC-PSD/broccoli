@@ -45,8 +45,8 @@ pub fn check(req: &CheckerParseInput) -> Result<CheckerVerdict, String> {
         .map_err(|e| format!("Invalid checker config: {e}"))?
         .unwrap_or_default();
 
-    let expected = tokenize(&req.expected_output);
-    let actual = tokenize(&req.stdout);
+    let expected = tokenize(req.expected_output.inline_text());
+    let actual = tokenize(req.stdout.inline_text());
 
     if expected.len() != actual.len() {
         return Ok(CheckerVerdict {
