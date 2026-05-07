@@ -77,6 +77,13 @@ description = "Who can see the full scoreboard before the contest ends"
 enum = ["admins_only", "all_contest_viewers"]
 default = "admins_only"
 
+[config.contest.properties.scoreboard_tiebreaker]
+type = "string"
+title = "Scoreboard Tiebreaker"
+description = "How tied total scores are ranked on the scoreboard"
+enum = ["equal_rank", "sum_score_time", "max_score_time"]
+default = "max_score_time"
+
 [config.contest.properties.tokens]
 type = "object"
 title = "Token Configuration"
@@ -165,6 +172,7 @@ css = ["styles.css"]
 ScoringModeSelector = "ScoringModeSelector"
 FeedbackLevelSelector = "FeedbackLevelSelector"
 ScoreboardVisibilitySelector = "ScoreboardVisibilitySelector"
+ScoreboardTiebreakerSelector = "ScoreboardTiebreakerSelector"
 SubtaskEditor = "SubtaskEditor"
 TokenConfigPanel = "TokenConfigPanel"
 IoiScoreboard = "IoiScoreboard"
@@ -199,6 +207,11 @@ component = "FeedbackLevelSelector"
 name = "config.field.ioi.contest.scoreboard_visibility"
 position = "replace"
 component = "ScoreboardVisibilitySelector"
+
+[[web.slots]]
+name = "config.field.ioi.contest.scoreboard_tiebreaker"
+position = "replace"
+component = "ScoreboardTiebreakerSelector"
 
 [[web.slots]]
 name = "config.field.ioi.contest.tokens"

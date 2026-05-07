@@ -232,6 +232,7 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
   }
 
   const { phase, rankings } = scoreboard;
+  const showTimeTiebreaker = scoreboard.scoreboard_tiebreaker !== 'equal_rank';
 
   // Determine problem labels from the first entry that has problems
   const sampleEntry = rankings.find(
@@ -328,12 +329,14 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
                     {label}
                   </th>
                 ))}
-                <th
-                  className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
-                  style={{ width: 90 }}
-                >
-                  {t('ioi.scoreboard.header.time')}
-                </th>
+                {showTimeTiebreaker && (
+                  <th
+                    className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
+                    style={{ width: 90 }}
+                  >
+                    {t('ioi.scoreboard.header.time')}
+                  </th>
+                )}
                 <th
                   className="py-2 px-3 text-center font-semibold text-xs uppercase tracking-wide text-muted-foreground border-b-2 border-border bg-muted whitespace-nowrap"
                   style={{ width: 90 }}
@@ -350,6 +353,7 @@ export function IoiScoreboard({ contestId, children }: IoiScoreboardProps) {
                   problemIds={problemIds}
                   maxPerProblem={maxPerProblem}
                   maxTotal={maxTotal}
+                  showTimeTiebreaker={showTimeTiebreaker}
                 />
               ))}
             </tbody>
@@ -365,11 +369,13 @@ function RankRow({
   problemIds,
   maxPerProblem,
   maxTotal,
+  showTimeTiebreaker,
 }: {
   entry: ScoreboardEntry;
   problemIds: number[];
   maxPerProblem: Record<number, number>;
   maxTotal: number;
+  showTimeTiebreaker: boolean;
 }) {
   const problemScoreMap: Record<number, number> = {};
   if (entry.problems) {
@@ -397,9 +403,11 @@ function RankRow({
         const max = maxPerProblem[pid] ?? 100;
         return <ScoreCell key={pid} score={score} max={max} />;
       })}
-      <td className="py-1.5 px-3 text-center font-mono tabular-nums text-[13px] border-b border-border text-muted-foreground whitespace-nowrap">
-        {formatElapsedTime(entry.total_time_seconds)}
-      </td>
+      {showTimeTiebreaker && (
+        <td className="py-1.5 px-3 text-center font-mono tabular-nums text-[13px] border-b border-border text-muted-foreground whitespace-nowrap">
+          {formatElapsedTime(entry.total_time_seconds)}
+        </td>
+      )}
       <td
         className="py-1.5 px-3 text-center font-bold font-mono tabular-nums border-b border-border"
         style={{ background: scoreColor(entry.total_score, maxTotal) }}

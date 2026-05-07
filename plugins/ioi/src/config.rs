@@ -1,3 +1,5 @@
+#[cfg(test)]
+use broccoli_server_sdk::types::TestCaseBodyRef;
 use broccoli_server_sdk::types::TestCaseRow;
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +42,20 @@ pub enum ScoreboardVisibility {
 impl Default for ScoreboardVisibility {
     fn default() -> Self {
         Self::AdminsOnly
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreboardTiebreaker {
+    EqualRank,
+    SumScoreTime,
+    MaxScoreTime,
+}
+
+impl Default for ScoreboardTiebreaker {
+    fn default() -> Self {
+        Self::MaxScoreTime
     }
 }
 
@@ -92,6 +108,8 @@ pub struct ContestConfig {
     #[serde(default)]
     pub scoreboard_visibility: ScoreboardVisibility,
     #[serde(default)]
+    pub scoreboard_tiebreaker: ScoreboardTiebreaker,
+    #[serde(default)]
     pub tokens: TokenConfig,
 }
 
@@ -141,6 +159,10 @@ mod tests {
             config.scoreboard_visibility,
             ScoreboardVisibility::AdminsOnly
         );
+        assert_eq!(
+            config.scoreboard_tiebreaker,
+            ScoreboardTiebreaker::MaxScoreTime
+        );
     }
 
     #[test]
@@ -157,6 +179,16 @@ mod tests {
         assert_eq!(
             config.scoreboard_visibility,
             ScoreboardVisibility::AllContestViewers
+        );
+    }
+
+    #[test]
+    fn deserialize_scoreboard_tiebreaker() {
+        let config: ContestConfig =
+            serde_json::from_str(r#"{"scoreboard_tiebreaker": "sum_score_time"}"#).unwrap();
+        assert_eq!(
+            config.scoreboard_tiebreaker,
+            ScoreboardTiebreaker::SumScoreTime
         );
     }
 
@@ -184,8 +216,8 @@ mod tests {
             position: 0,
             description: None,
             label: Some("sample_01".into()),
-            inline_input: None,
-            inline_expected_output: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
             is_custom: false,
         };
         assert_eq!(resolve_tc_label(&tc), "sample_01");
@@ -200,8 +232,8 @@ mod tests {
             position: 0,
             description: None,
             label: None,
-            inline_input: None,
-            inline_expected_output: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
             is_custom: false,
         };
         assert_eq!(resolve_tc_label(&tc), "42");
