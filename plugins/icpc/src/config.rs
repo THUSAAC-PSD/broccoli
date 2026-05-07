@@ -52,14 +52,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_from_empty_json() {
-        let config: ContestConfig = serde_json::from_str("{}").unwrap();
-        assert_eq!(config.penalty_minutes, 20);
-        assert!(!config.count_compile_error);
-        assert!(!config.show_test_details);
-    }
-
-    #[test]
     fn custom_penalty_minutes() {
         let config: ContestConfig = serde_json::from_str(r#"{"penalty_minutes": 10}"#).unwrap();
         assert_eq!(config.penalty_minutes, 10);

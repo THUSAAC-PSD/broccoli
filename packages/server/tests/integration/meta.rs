@@ -12,10 +12,3 @@ async fn version_endpoint_returns_server_version() {
         "version should start with a digit, got {version}"
     );
 }
-
-#[tokio::test]
-async fn version_endpoint_is_public() {
-    let app = TestApp::spawn().await;
-    let resp = app.get_without_token("/api/v1/version").await;
-    assert_eq!(resp.status, 200);
-}

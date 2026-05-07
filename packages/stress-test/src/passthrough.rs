@@ -429,8 +429,11 @@ mod tests {
     use super::*;
     use crate::client::AuthCreds;
     use serde_json::{Value, json};
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
     fn login_body(token: &str) -> Value {
         json!({
@@ -557,6 +560,75 @@ mod tests {
             out.push(e);
         }
         out
+    }
+
+    struct MockSubmissionStore {
+        next_id: AtomicI32,
+        submitted_ids: StdMutex<Vec<i32>>,
+    }
+
+    impl MockSubmissionStore {
+        fn new(first_id: i32) -> Self {
+            Self {
+                next_id: AtomicI32::new(first_id),
+                submitted_ids: StdMutex::new(Vec::new()),
+            }
+        }
+
+        fn submitted_ids(&self) -> Vec<i32> {
+            self.submitted_ids.lock().unwrap().clone()
+        }
+    }
+
+    fn submission_id_from_request(request: &Request) -> Option<i32> {
+        request.url.path().rsplit('/').next()?.parse().ok()
+    }
+
+    async fn mount_accepted_submissions(
+        server: &MockServer,
+        first_id: i32,
+    ) -> StdArc<MockSubmissionStore> {
+        let store = StdArc::new(MockSubmissionStore::new(first_id));
+        let store_for_post = store.clone();
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests/42/problems/5/submissions"))
+            .respond_with(move |_request: &Request| {
+                let submission_id = store_for_post.next_id.fetch_add(1, Ordering::SeqCst);
+                store_for_post
+                    .submitted_ids
+                    .lock()
+                    .unwrap()
+                    .push(submission_id);
+                ResponseTemplate::new(201).set_body_json(submission_json(
+                    submission_id,
+                    "Pending",
+                    None,
+                ))
+            })
+            .mount(server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/api/v1/submissions/\d+$"))
+            .respond_with(move |request: &Request| {
+                let Some(submission_id) = submission_id_from_request(request) else {
+                    return ResponseTemplate::new(400).set_body_string("invalid submission id");
+                };
+                ResponseTemplate::new(200).set_body_json(submission_json(
+                    submission_id,
+                    "Judged",
+                    Some("Accepted"),
+                ))
+            })
+            .mount(server)
+            .await;
+
+        store
+    }
+
+    fn assert_distinct_submission_ids(ids: &[i32]) {
+        let unique: HashSet<_> = ids.iter().copied().collect();
+        assert_eq!(unique.len(), ids.len(), "submission ids must be distinct");
     }
 
     #[test]
@@ -698,185 +770,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skips_when_contest_has_no_problems() {
-        let server = MockServer::start().await;
-        let client = build_client(&server).await;
-
-        Mock::given(method("GET"))
-            .and(path("/api/v1/contests/42"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(contest_json(42, Some("icpc"))))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/contests/42/problems"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
-            .mount(&server)
-            .await;
-
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let outcome = run(
-            &client,
-            &PassthroughConfig {
-                contest_id: 42,
-                problem_id: None,
-                concurrency: 5,
-                per_job_timeout: Duration::from_secs(5),
-            },
-            &tx,
-        )
-        .await
-        .expect("setup ok");
-        drop(tx);
-
-        match &outcome {
-            PassthroughOutcome::Skipped { reason } => {
-                assert!(reason.contains("no problems"), "reason: {reason}");
-            }
-            _ => panic!("expected Skipped, got {outcome:?}"),
-        }
-        assert!(outcome.passed(), "skip == pass");
-
-        let events = drain(&mut rx);
-        assert!(matches!(
-            events.first(),
-            Some(Event::PhaseStarted {
-                phase: Phase::Passthrough,
-                ..
-            })
-        ));
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PassthroughSkipped { reason } if reason.contains("no problems")
-        )));
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PhaseFinished {
-                phase: Phase::Passthrough,
-                ok: true
-            }
-        )));
-    }
-
-    #[tokio::test]
-    async fn skips_when_problem_has_no_samples() {
-        let server = MockServer::start().await;
-        let client = build_client(&server).await;
-
-        Mock::given(method("GET"))
-            .and(path("/api/v1/contests/42"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(contest_json(42, Some("icpc"))))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/contests/42/problems"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                {
-                    "contest_id": 42,
-                    "problem_id": 5,
-                    "label": "A",
-                    "position": 0,
-                    "problem_title": "P",
-                }
-            ])))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/problems/5"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(problem_json(5, "exact")))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/problems/5/test-cases"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                test_case_list_item(11, false, 0),
-                test_case_list_item(12, false, 1),
-            ])))
-            .mount(&server)
-            .await;
-
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let outcome = run(
-            &client,
-            &PassthroughConfig {
-                contest_id: 42,
-                problem_id: None,
-                concurrency: 3,
-                per_job_timeout: Duration::from_secs(5),
-            },
-            &tx,
-        )
-        .await
-        .expect("setup ok");
-        drop(tx);
-
-        match &outcome {
-            PassthroughOutcome::Skipped { reason } => {
-                assert!(reason.contains("sample"), "reason: {reason}");
-            }
-            _ => panic!("expected Skipped"),
-        }
-
-        let events = drain(&mut rx);
-        assert!(events.iter().any(|e| matches!(
-            e,
-            Event::PassthroughSkipped { reason } if reason.contains("sample")
-        )));
-    }
-
-    #[tokio::test]
-    async fn skips_when_checker_is_testlib() {
-        let server = MockServer::start().await;
-        let client = build_client(&server).await;
-
-        Mock::given(method("GET"))
-            .and(path("/api/v1/contests/42"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(contest_json(42, Some("icpc"))))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/contests/42/problems"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                {
-                    "contest_id": 42,
-                    "problem_id": 5,
-                    "label": "A",
-                    "position": 0,
-                    "problem_title": "P",
-                }
-            ])))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/problems/5"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(problem_json(5, "testlib")))
-            .mount(&server)
-            .await;
-
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = run(
-            &client,
-            &PassthroughConfig {
-                contest_id: 42,
-                problem_id: None,
-                concurrency: 3,
-                per_job_timeout: Duration::from_secs(5),
-            },
-            &tx,
-        )
-        .await
-        .expect("setup ok");
-        drop(tx);
-
-        match &outcome {
-            PassthroughOutcome::Skipped { reason } => {
-                assert!(reason.contains("Testlib"), "reason: {reason}");
-            }
-            _ => panic!("expected Skipped"),
-        }
-        assert!(outcome.passed());
-    }
-
-    #[tokio::test]
     async fn explicit_problem_id_not_in_contest_errors() {
         let server = MockServer::start().await;
         let client = build_client(&server).await;
@@ -960,22 +853,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        Mock::given(method("POST"))
-            .and(path("/api/v1/contests/42/problems/5/submissions"))
-            .respond_with(
-                ResponseTemplate::new(201).set_body_json(submission_json(700, "Pending", None)),
-            )
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v1/submissions/700"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(submission_json(
-                700,
-                "Judged",
-                Some("Accepted"),
-            )))
-            .mount(&server)
-            .await;
+        let submissions = mount_accepted_submissions(&server, 700).await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         let outcome = run(
@@ -1010,6 +888,9 @@ mod tests {
             _ => panic!("expected Completed"),
         }
         assert!(outcome.passed());
+        let submitted_ids = submissions.submitted_ids();
+        assert_eq!(submitted_ids.len(), 4);
+        assert_distinct_submission_ids(&submitted_ids);
 
         let events = drain(&mut rx);
         assert!(

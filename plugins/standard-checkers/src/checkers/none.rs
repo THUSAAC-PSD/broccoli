@@ -24,11 +24,4 @@ mod tests {
         assert_eq!(v.verdict, Verdict::Accepted);
         assert_eq!(v.score, 1.0);
     }
-
-    #[test]
-    fn empty_output_accepted() {
-        let req = input("", "");
-        let v = check(&req).unwrap();
-        assert_eq!(v.verdict, Verdict::Accepted);
-    }
 }

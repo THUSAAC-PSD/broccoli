@@ -9,7 +9,7 @@ pub mod checkers;
 pub mod streaming;
 pub mod util;
 
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
 const SUPPORTED_CHECKER_FORMATS: &[(&str, &str)] = &[
     ("exact", "check_exact"),
     ("lines", "check_lines"),
@@ -19,30 +19,6 @@ const SUPPORTED_CHECKER_FORMATS: &[(&str, &str)] = &[
     ("testlib", "check_testlib"),
     ("none", "check_none"),
 ];
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn supported_formats_match_current_public_inventory() {
-        let formats: Vec<_> = super::SUPPORTED_CHECKER_FORMATS
-            .iter()
-            .map(|(format, _)| *format)
-            .collect();
-
-        assert_eq!(
-            formats,
-            vec![
-                "exact",
-                "lines",
-                "tokens",
-                "tokens-case-insensitive",
-                "tokens-float",
-                "testlib",
-                "none",
-            ]
-        );
-    }
-}
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]

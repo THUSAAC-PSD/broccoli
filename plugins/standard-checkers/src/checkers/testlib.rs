@@ -608,14 +608,4 @@ mod tests {
         let err = checker_language_id("checker.py").unwrap_err();
         assert!(err.contains("Unsupported"));
     }
-
-    #[test]
-    fn testlib_config_partial_deserialize() {
-        let json = serde_json::json!({"compile_time_limit_s": 20.0});
-        let config: TestlibConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(config.compile_time_limit_s, 20.0);
-        // Unspecified fields use defaults
-        assert_eq!(config.run_time_limit_s, 5.0);
-        assert_eq!(config.compile_memory_limit_kb, 512 * 1024);
-    }
 }

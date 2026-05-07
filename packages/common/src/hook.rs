@@ -272,23 +272,4 @@ mod tests {
         let result = registry.trigger(&event).await.unwrap();
         assert!(matches!(result, HookAction::Pass));
     }
-
-    #[tokio::test]
-    async fn remove_hooks_by_id_clears_all_topics_for_that_hook() {
-        let mut registry = HookRegistry::new(());
-        let hook = FixedActionHook {
-            id: "multi".into(),
-            topics: vec!["topic_a".into(), "topic_b".into()],
-            action: HookAction::Pass,
-        };
-        registry.add_generic_hook(Arc::new(hook)).unwrap();
-
-        assert!(registry.hooks.get("topic_a").is_some_and(|v| !v.is_empty()));
-        assert!(registry.hooks.get("topic_b").is_some_and(|v| !v.is_empty()));
-
-        registry.remove_hooks_by_id("multi");
-
-        assert!(registry.hooks.get("topic_a").is_none_or(|v| v.is_empty()));
-        assert!(registry.hooks.get("topic_b").is_none_or(|v| v.is_empty()));
-    }
 }

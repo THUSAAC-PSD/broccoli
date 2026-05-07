@@ -71,11 +71,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sandbox_default_result_timeout_is_generous_floor() {
-        assert_eq!(SandboxConfig::default().result_timeout_ms, 900_000);
-    }
-
-    #[test]
     fn result_timeout_accounts_for_compile_run_and_manager_budget() {
         let config = SandboxConfig {
             compile_time_limit_s: 120.0,

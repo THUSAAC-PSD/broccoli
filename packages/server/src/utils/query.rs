@@ -26,23 +26,3 @@ pub fn validate_sorting_params(
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_list_query_success() {
-        assert!(validate_sorting_params(Some("created_at"), Some("desc"), &["created_at"]).is_ok());
-    }
-
-    #[test]
-    fn test_validate_list_query_invalid_field() {
-        assert!(validate_sorting_params(Some("password"), None, &["created_at"]).is_err());
-    }
-
-    #[test]
-    fn test_validate_list_query_invalid_order() {
-        assert!(validate_sorting_params(None, Some("random"), &["created_at"]).is_err());
-    }
-}

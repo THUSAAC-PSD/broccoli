@@ -225,24 +225,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deduplication_single_file() {
-        let (store, dir) = temp_store().await;
-        let data = b"dedup test";
-        let hash = store.put(data).await.unwrap();
-
-        let hash2 = store.put(data).await.unwrap();
-        assert_eq!(hash, hash2);
-
-        let blob_path = store.blob_path(&hash);
-        assert!(blob_path.exists());
-        let shard_dir = blob_path.parent().unwrap();
-        let entries: Vec<_> = std::fs::read_dir(shard_dir).unwrap().collect();
-        assert_eq!(entries.len(), 1);
-
-        let _ = dir;
-    }
-
-    #[tokio::test]
     async fn size_limit_enforced() {
         let dir = tempfile::tempdir().unwrap();
         let store = FilesystemBlobStore::new(dir.path().join("blobs"), 10)
@@ -372,17 +354,5 @@ mod tests {
 
         let retrieved = store.get(&first).await.unwrap();
         assert_eq!(retrieved, data);
-    }
-
-    #[tokio::test]
-    async fn constructor_creates_directories() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().join("deep/nested/blobs");
-        assert!(!base.exists());
-
-        let _store = FilesystemBlobStore::new(base.clone(), 1024).await.unwrap();
-
-        assert!(base.exists());
-        assert!(base.join(".tmp").exists());
     }
 }

@@ -7,13 +7,13 @@ fn skip_with_mock_sandbox() -> bool {
         return false;
     }
     if std::env::var("E2E_SANDBOX_BACKEND").is_ok_and(|v| v.eq_ignore_ascii_case("mock")) {
-        eprintln!("skip code-run sandbox test under mock sandbox");
-        return true;
+        panic!("code-run sandbox test requires a non-mock sandbox");
     }
     false
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn code_run_reaches_terminal_state() {
     if skip_with_mock_sandbox() {
         return;
@@ -44,13 +44,15 @@ async fn code_run_reaches_terminal_state() {
 
     let terminal = app.wait_for_code_run_terminal(cr_id, &admin, 60).await;
     let status = terminal.body["status"].as_str().unwrap();
-    assert!(
-        matches!(status, "Judged" | "CompilationError" | "SystemError"),
-        "Expected terminal status, got: {status}"
+    assert_eq!(
+        status, "Judged",
+        "code run should judge cleanly: {}",
+        terminal.text
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn code_run_with_multiple_custom_test_cases() {
     if skip_with_mock_sandbox() {
         return;
@@ -83,22 +85,26 @@ async fn code_run_with_multiple_custom_test_cases() {
 
     let terminal = app.wait_for_code_run_terminal(cr_id, &admin, 60).await;
     let status = terminal.body["status"].as_str().unwrap();
+    assert_eq!(
+        status, "Judged",
+        "code run should judge cleanly: {}",
+        terminal.text
+    );
 
-    if status == "Judged" {
-        let result = &terminal.body["result"];
-        assert!(!result.is_null(), "Judged code run should have a result");
+    let result = &terminal.body["result"];
+    assert!(!result.is_null(), "Judged code run should have a result");
 
-        let tcrs = result["test_case_results"].as_array().unwrap();
-        assert_eq!(
-            tcrs.len(),
-            3,
-            "Should have 3 test case results for 3 custom TCs, got {}",
-            tcrs.len()
-        );
-    }
+    let tcrs = result["test_case_results"].as_array().unwrap();
+    assert_eq!(
+        tcrs.len(),
+        3,
+        "Should have 3 test case results for 3 custom TCs, got {}",
+        tcrs.len()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn contest_code_run_reaches_terminal_state() {
     if skip_with_mock_sandbox() {
         return;
@@ -139,9 +145,10 @@ async fn contest_code_run_reaches_terminal_state() {
 
     let terminal = app.wait_for_code_run_terminal(cr_id, &user, 60).await;
     let status = terminal.body["status"].as_str().unwrap();
-    assert!(
-        matches!(status, "Judged" | "CompilationError" | "SystemError"),
-        "Expected terminal status, got: {status}"
+    assert_eq!(
+        status, "Judged",
+        "contest code run should judge cleanly: {}",
+        terminal.text
     );
 
     assert_eq!(
@@ -152,6 +159,7 @@ async fn contest_code_run_reaches_terminal_state() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a non-mock judge sandbox and C++ toolchain"]
 async fn code_run_does_not_appear_in_submissions() {
     if skip_with_mock_sandbox() {
         return;
@@ -197,12 +205,11 @@ async fn code_run_does_not_appear_in_submissions() {
     let sub_res = app
         .get_with_token(&format!("/api/v1/submissions/{cr_id}"), &admin)
         .await;
-    if sub_res.status == 200 {
-        let cr_detail = app
-            .get_with_token(&format!("/api/v1/code-runs/{cr_id}"), &admin)
-            .await;
-        assert_eq!(cr_detail.status, 200);
-    }
+    assert_eq!(
+        sub_res.status, 404,
+        "code run id must not resolve through submission detail: {}",
+        sub_res.text
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

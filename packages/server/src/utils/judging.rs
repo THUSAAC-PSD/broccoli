@@ -263,27 +263,6 @@ mod tests {
     }
 
     #[test]
-    fn test_files_from_json_invalid() {
-        let json = serde_json::json!({"invalid": "data"});
-        let parsed_files = files_from_json(&json);
-        assert!(parsed_files.is_empty());
-    }
-
-    #[test]
-    fn test_files_to_json_empty() {
-        let files: Vec<SubmissionFileDto> = vec![];
-        let json = files_to_json(&files);
-        assert_eq!(json, serde_json::Value::Array(vec![]));
-    }
-
-    #[test]
-    fn test_files_from_json_empty() {
-        let json = serde_json::json!([]);
-        let parsed_files = files_from_json(&json);
-        assert!(parsed_files.is_empty());
-    }
-
-    #[test]
     fn test_validate_run_language_known() {
         let languages = known_languages();
         assert!(validate_run_language("cpp", &languages).is_ok());

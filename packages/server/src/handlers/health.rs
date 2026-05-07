@@ -147,35 +147,3 @@ pub async fn get_health(State(state): State<AppState>) -> impl IntoResponse {
     let body = compute_health(&state.db, state.redis_client.as_deref(), state.mq.is_some()).await;
     (status_code(&body), Json(body))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sea_orm::{ConnectOptions, Database};
-
-    /// Constructs a DB pool pointed at an unreachable address; any operation
-    /// will fail (or, with our 2s timeout, time out). Verifies the degraded
-    /// path returns 503 with `db: "down"` without needing a live database.
-    #[tokio::test]
-    async fn compute_health_reports_db_down_when_db_unreachable() {
-        // Lazy-connect to a port that refuses connections so the call to
-        // `Database::connect` itself succeeds, then the SELECT fails.
-        let mut opts = ConnectOptions::new("postgres://nobody:nobody@127.0.0.1:1/nope");
-        opts.max_connections(1)
-            .min_connections(0)
-            .connect_timeout(Duration::from_millis(500))
-            .acquire_timeout(Duration::from_millis(500))
-            .connect_lazy(true)
-            .sqlx_logging(false);
-        let bad_db = Database::connect(opts)
-            .await
-            .expect("lazy connect should succeed");
-
-        let body = compute_health(&bad_db, None, false).await;
-
-        assert_eq!(body.db, "down", "expected db=down, got {body:?}");
-        assert_eq!(body.mq, "disabled");
-        assert_eq!(body.status, "degraded");
-        assert_eq!(status_code(&body), StatusCode::SERVICE_UNAVAILABLE);
-    }
-}

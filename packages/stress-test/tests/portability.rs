@@ -3,10 +3,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn portability_enabled() -> bool {
-    std::env::var("STRESS_TEST_PORTABILITY").is_ok()
-}
-
 fn workspace_root() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest
@@ -38,10 +34,10 @@ fn assert_file_static(binary: &Path) {
 }
 
 fn assert_ldd_static(binary: &Path) {
-    let out = Command::new("ldd").arg(binary).output();
-    let Ok(out) = out else {
-        return;
-    };
+    let out = Command::new("ldd")
+        .arg(binary)
+        .output()
+        .expect("`ldd` not in PATH");
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -80,10 +76,8 @@ fn alpine_help_smoke(binary: &Path, platform: &str) {
 }
 
 #[test]
+#[ignore = "requires prebuilt musl binary and Docker; opt in with --ignored"]
 fn musl_x86_64_binary_is_static() {
-    if !portability_enabled() {
-        return;
-    }
     let binary = musl_binary("x86_64-unknown-linux-musl");
     assert!(
         binary.exists(),
@@ -96,10 +90,8 @@ fn musl_x86_64_binary_is_static() {
 }
 
 #[test]
+#[ignore = "requires prebuilt musl binary and Docker; opt in with --ignored"]
 fn musl_aarch64_binary_is_static() {
-    if !portability_enabled() {
-        return;
-    }
     let binary = musl_binary("aarch64-unknown-linux-musl");
     assert!(
         binary.exists(),

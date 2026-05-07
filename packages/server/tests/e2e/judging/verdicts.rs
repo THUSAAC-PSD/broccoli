@@ -21,12 +21,8 @@ fn isolate_available() -> bool {
 }
 
 fn skip_without_real_sandbox() -> bool {
-    if is_real_sandbox() {
-        false
-    } else {
-        eprintln!("skip test: real sandbox is not available");
-        true
-    }
+    assert!(is_real_sandbox(), "real sandbox is not available");
+    false
 }
 
 const CPP_ACCEPTED: &str = r#"
@@ -115,6 +111,7 @@ mod cpp_verdicts {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn correct_cpp_gets_accepted() {
         if skip_without_real_sandbox() {
             return;
@@ -154,6 +151,7 @@ mod cpp_verdicts {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn wrong_output_gets_wrong_answer() {
         if skip_without_real_sandbox() {
             return;
@@ -182,6 +180,7 @@ mod cpp_verdicts {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn infinite_loop_gets_time_limit_exceeded() {
         if skip_without_real_sandbox() {
             return;
@@ -210,6 +209,7 @@ mod cpp_verdicts {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn memory_hog_gets_memory_limit_exceeded() {
         if skip_without_real_sandbox() {
             return;
@@ -239,6 +239,7 @@ mod cpp_verdicts {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn segfault_gets_runtime_error() {
         if skip_without_real_sandbox() {
             return;
@@ -267,6 +268,7 @@ mod cpp_verdicts {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn invalid_syntax_gets_compilation_error() {
         if skip_without_real_sandbox() {
             return;
@@ -298,6 +300,7 @@ mod multi_language {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and Python toolchain"]
     async fn python_correct_gets_accepted() {
         if skip_without_real_sandbox() {
             return;
@@ -326,6 +329,7 @@ mod multi_language {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and Python toolchain"]
     async fn python_wrong_gets_wrong_answer() {
         if skip_without_real_sandbox() {
             return;
@@ -350,6 +354,7 @@ mod multi_language {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and Python toolchain"]
     async fn python_tle_gets_time_limit_exceeded() {
         if skip_without_real_sandbox() {
             return;
@@ -374,6 +379,7 @@ mod multi_language {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and Java toolchain"]
     async fn java_correct_gets_accepted() {
         if skip_without_real_sandbox() {
             return;
@@ -406,6 +412,7 @@ mod stress {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn twenty_parallel_submissions_all_complete() {
         if skip_without_real_sandbox() {
             return;
@@ -493,6 +500,7 @@ mod stress {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires a real judge sandbox and language toolchains"]
     async fn mixed_languages_parallel() {
         if skip_without_real_sandbox() {
             return;

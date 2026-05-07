@@ -191,9 +191,7 @@ the expected `(SubmissionStatus, Option<Verdict>)` pair. To add one:
 1. Drop the source file under `fixtures/solutions/` (or `fixtures/multi-file/`).
 2. Add the corresponding `pub const X: &str = include_str!(...)` in
    [`src/fixtures.rs`](src/fixtures.rs).
-3. Add a `Scenario { ... }` entry in `SCENARIOS`. Update the
-   `scenarios_cover_design_doc_table` test if you want the new ID to be
-   asserted.
+3. Add a `Scenario { ... }` entry in `SCENARIOS`.
 4. Optional: tweak the load-phase mix in `src/load.rs` if the new scenario
    should appear in the workload.
 

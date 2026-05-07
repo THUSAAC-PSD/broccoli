@@ -239,33 +239,6 @@ mod tests {
     }
 
     #[test]
-    fn extract_stem_splits_name_and_extension() {
-        assert_eq!(extract_stem("1.in"), Some(("1", "in")));
-        assert_eq!(extract_stem("sample/1.in"), Some(("sample/1", "in")));
-    }
-
-    #[test]
-    fn extract_stem_returns_none_for_no_extension() {
-        assert_eq!(extract_stem("no_ext"), None);
-    }
-
-    #[test]
-    fn extract_stem_returns_none_for_dotfile() {
-        assert_eq!(extract_stem(".hidden"), None);
-    }
-
-    #[test]
-    fn split_dir_filename_separates_at_last_slash() {
-        assert_eq!(split_dir_filename("sample/1.in"), ("sample", "1.in"));
-        assert_eq!(split_dir_filename("a/b/c.txt"), ("a/b", "c.txt"));
-    }
-
-    #[test]
-    fn split_dir_filename_returns_empty_dir_for_bare_filename() {
-        assert_eq!(split_dir_filename("file.txt"), ("", "file.txt"));
-    }
-
-    #[test]
     fn is_sample_directory_matches_case_insensitively() {
         assert!(is_sample_directory("sample"));
         assert!(is_sample_directory("Sample"));

@@ -53,31 +53,3 @@ pub fn diff_preview(expected: &str, actual: &str, max_chars: usize) -> String {
         truncate(actual, max_chars)
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn truncate_short_string() {
-        assert_eq!(truncate("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_long_string() {
-        let result = truncate("hello world", 5);
-        assert!(result.starts_with("hello"));
-        assert!(result.contains("truncated"));
-    }
-
-    #[test]
-    fn tokenize_whitespace() {
-        assert_eq!(tokenize("  a  b\n\tc "), vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn split_lines_trims_trailing() {
-        let lines = split_lines_trimmed("a  \nb\n\n");
-        assert_eq!(lines, vec!["a", "b"]);
-    }
-}

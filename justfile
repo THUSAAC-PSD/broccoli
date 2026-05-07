@@ -6,13 +6,42 @@ default:
 build:
     cargo build
 
-# Run all Rust tests
+# Run baseline Rust workspace tests.
+# This excludes root plugins (they are intentionally not workspace members) and
+# the stress-test harness. Use test-plugins/test-stress for those opt-in suites.
 test:
+    cargo test --workspace --exclude stress-test
+
+# Run every Rust workspace test, including the stress-test harness
+test-workspace-all:
     cargo test --workspace
 
 # Test a single crate (e.g., just test-crate plugin-core)
 test-crate crate:
     cargo test -p {{crate}}
+
+# Test a root plugin crate by manifest path (e.g., just test-plugin plugins/ioi)
+test-plugin path:
+    cargo test --manifest-path {{path}}/Cargo.toml
+
+# Test all root plugin crates explicitly; root plugins stay out of Cargo workspace
+test-plugins:
+    cargo test --manifest-path plugins/batch-evaluator/Cargo.toml
+    cargo test --manifest-path plugins/communication-evaluator/Cargo.toml
+    cargo test --manifest-path plugins/cooldown/Cargo.toml
+    cargo test --manifest-path plugins/icpc/Cargo.toml
+    cargo test --manifest-path plugins/ioi/Cargo.toml
+    cargo test --manifest-path plugins/standard-checkers/Cargo.toml
+    cargo test --manifest-path plugins/standard-languages/Cargo.toml
+    cargo test --manifest-path plugins/submission-limit/Cargo.toml
+
+# Run server tests that require opt-in bundled-stress-test feature
+test-server-bundled-downloads:
+    cargo test -p server --features bundled-stress-test routes::downloads
+
+# Run stress-test harness tests explicitly
+test-stress:
+    cargo test -p stress-test
 
 # Run clippy on all workspace crates
 clippy:
@@ -116,7 +145,7 @@ publish-cli-dry:
 publish-cli:
     cargo publish -p broccoli-cli
 
-# Run all checks (clippy + test + lint + format check)
+# Run baseline checks (clippy + baseline Rust tests + JS lint + format check)
 check-all: clippy test lint-js format-check
 
 # ---------------------------------------------------------------------------

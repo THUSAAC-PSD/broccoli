@@ -1,5 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::types::ResolveLanguageInput;
 #[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
@@ -8,8 +9,10 @@ use serde::Deserialize;
 pub mod resolve;
 
 /// Config namespace for compiler paths and flags (cascades at all scopes).
+#[cfg(target_arch = "wasm32")]
 const CONFIG_COMPILATION: &str = "compilation";
 /// Config namespace for per-problem, per-language entry point overrides.
+#[cfg(target_arch = "wasm32")]
 const CONFIG_ENTRY_POINTS: &str = "entry-points";
 
 #[cfg(target_arch = "wasm32")]

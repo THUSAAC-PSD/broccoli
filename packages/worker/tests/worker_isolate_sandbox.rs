@@ -122,12 +122,10 @@ async fn execute_operation_with_isolate(
 }
 
 #[tokio::test]
+#[ignore = "requires Linux isolate sandbox installed and configured"]
 #[serial]
 async fn execute_operation_task_successfully_with_isolate_sandbox() {
-    if !isolate_available() {
-        eprintln!("skip test: isolate is not available");
-        return;
-    }
+    assert!(isolate_available(), "isolate is not available");
 
     let (result, operation_result) =
         execute_operation_with_isolate("task-success", build_operation_task("echo isolate-ok"))
@@ -145,12 +143,10 @@ async fn execute_operation_task_successfully_with_isolate_sandbox() {
 }
 
 #[tokio::test]
+#[ignore = "requires Linux isolate sandbox installed and configured"]
 #[serial]
 async fn execute_operation_task_failure_with_isolate_sandbox() {
-    if !isolate_available() {
-        eprintln!("skip test: isolate is not available");
-        return;
-    }
+    assert!(isolate_available(), "isolate is not available");
 
     let (result, operation_result) =
         execute_operation_with_isolate("task-failure", build_operation_task("exit 17")).await;
@@ -163,17 +159,12 @@ async fn execute_operation_task_failure_with_isolate_sandbox() {
 }
 
 #[tokio::test]
+#[ignore = "requires Linux isolate sandbox and a C++17 compiler"]
 #[serial]
 async fn execute_cpp_oi_pipeline_with_io_redirection_isolate() {
-    if !isolate_available() {
-        eprintln!("skip test: isolate is not available");
-        return;
-    }
+    assert!(isolate_available(), "isolate is not available");
 
-    let Some(_compiler) = cpp_compiler() else {
-        eprintln!("skip test: no C++ compiler found");
-        return;
-    };
+    let compiler = cpp_compiler().expect("no C++ compiler found");
 
     let prepare_script = r#"
 cat > main.cpp <<'CPP'
@@ -222,7 +213,7 @@ printf '2 40\n' > input.txt
                 argv: vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
-                    "g++ -std=c++17 main.cpp -o main".to_string(),
+                    format!("{compiler} -std=c++17 main.cpp -o main"),
                 ],
                 conf: RunOptions {
                     resource_limits: ResourceLimits {
@@ -299,17 +290,12 @@ printf '2 40\n' > input.txt
 }
 
 #[tokio::test]
+#[ignore = "requires Linux isolate sandbox and a C++17 compiler"]
 #[serial]
 async fn execute_cpp_compile_error_and_skip_dependent_step_isolate() {
-    if !isolate_available() {
-        eprintln!("skip test: isolate is not available");
-        return;
-    }
+    assert!(isolate_available(), "isolate is not available");
 
-    let Some(compiler) = cpp_compiler() else {
-        eprintln!("skip test: no C++ compiler found");
-        return;
-    };
+    let compiler = cpp_compiler().expect("no C++ compiler found");
 
     let bad_cpp_script = r#"
 cat > bad.cpp <<'CPP'
@@ -397,12 +383,10 @@ CPP
 }
 
 #[tokio::test]
+#[ignore = "requires Linux isolate sandbox installed and configured"]
 #[serial]
 async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
-    if !isolate_available() {
-        eprintln!("skip test: isolate is not available");
-        return;
-    }
+    assert!(isolate_available(), "isolate is not available");
 
     let operation = OperationTask {
         environments: vec![Environment {
@@ -446,12 +430,10 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
 }
 
 #[tokio::test]
+#[ignore = "requires Linux isolate sandbox installed and configured"]
 #[serial]
 async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate() {
-    if !isolate_available() {
-        eprintln!("skip test: isolate is not available");
-        return;
-    }
+    assert!(isolate_available(), "isolate is not available");
 
     let shared_dir = unique_shared_dir();
     std::fs::create_dir_all(&shared_dir).unwrap();

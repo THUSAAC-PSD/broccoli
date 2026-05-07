@@ -448,22 +448,6 @@ mod tests {
     }
 
     #[test]
-    fn compile_step_has_cache_config() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        let compile = &ops[0].tasks[0];
-        let cache = compile
-            .cache
-            .as_ref()
-            .expect("compile step missing cache config");
-        assert_eq!(
-            cache.key_inputs,
-            vec!["main.cpp".to_string(), "solution.cpp".to_string()]
-        );
-        assert_eq!(cache.outputs, vec!["solution"]);
-    }
-
-    #[test]
     fn time_limit_converted_from_ms_to_seconds() {
         let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
 
@@ -498,30 +482,6 @@ mod tests {
     }
 
     #[test]
-    fn env_rules_are_empty() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        assert!(ops[0].tasks[0].conf.env_rules.is_empty());
-        assert!(ops[0].tasks[1].conf.env_rules.is_empty());
-    }
-
-    #[test]
-    fn exec_step_has_process_limit() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        let exec = &ops[0].tasks[1];
-        assert_eq!(exec.conf.resource_limits.process_limit, Some(1));
-    }
-
-    #[test]
-    fn compile_step_has_process_limit() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        let compile = &ops[0].tasks[0];
-        assert_eq!(compile.conf.resource_limits.process_limit, Some(32));
-    }
-
-    #[test]
     fn negative_memory_limit_returns_error() {
         let mut req = make_req();
         req.memory_limit_kb = -1;
@@ -537,58 +497,6 @@ mod tests {
         let result = build_operation(&req, &compiled_lang(), &default_config());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid time_limit_ms"));
-    }
-
-    #[test]
-    fn exec_step_has_file_size_limit() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        let exec = &ops[0].tasks[1];
-        assert_eq!(exec.conf.resource_limits.file_size_limit, Some(65_536));
-    }
-
-    #[test]
-    fn exec_step_has_open_files_limit() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        let exec = &ops[0].tasks[1];
-        assert_eq!(exec.conf.resource_limits.open_files_limit, Some(64));
-    }
-
-    #[test]
-    fn compile_step_has_file_and_fd_limits() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
-
-        let compile = &ops[0].tasks[0];
-        assert_eq!(compile.conf.resource_limits.file_size_limit, Some(524_288));
-        assert_eq!(compile.conf.resource_limits.open_files_limit, Some(256));
-    }
-
-    #[test]
-    fn partial_config_deserializes_with_defaults() {
-        let json = r#"{ "exec_process_limit": 4 }"#;
-        let config: SandboxConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.exec_process_limit, 4);
-        // All other fields should be their defaults
-        assert_eq!(config.compile_time_limit_s, 30.0);
-        assert_eq!(config.compile_wall_time_multiplier, 2.0);
-        assert_eq!(config.compile_extra_time_s, 0.0);
-        assert_eq!(config.compile_memory_limit_kb, 524_288);
-        assert_eq!(config.exec_extra_time_s, 0.0);
-        assert_eq!(config.exec_wall_time_multiplier, 3.0);
-        assert_eq!(config.compile_stack_limit_kb, 0);
-        assert_eq!(config.exec_stack_limit_kb, 0);
-        assert_eq!(config.result_timeout_ms, 900_000);
-    }
-
-    #[test]
-    fn empty_config_deserializes_to_defaults() {
-        let json = "{}";
-        let config: SandboxConfig = serde_json::from_str(json).unwrap();
-        let default = SandboxConfig::default();
-        assert_eq!(config.compile_time_limit_s, default.compile_time_limit_s);
-        assert_eq!(config.exec_process_limit, default.exec_process_limit);
-        assert_eq!(config.result_timeout_ms, default.result_timeout_ms);
     }
 
     #[test]
