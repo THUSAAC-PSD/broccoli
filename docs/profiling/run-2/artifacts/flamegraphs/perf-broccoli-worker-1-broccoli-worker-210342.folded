@@ -1,0 +1,13 @@
+broccoli-worker;[broccoli-worker] 20202020
+broccoli-worker;syscall;entry_SYSCALL_64_after_hwframe;do_syscall_64 10101010
+broccoli-worker;syscall;entry_SYSCALL_64_after_hwframe;do_syscall_64;x64_sys_call;__x64_sys_futex;do_futex;futex_wait;__futex_wait;futex_wait_queue;schedule;__schedule;finish_task_switch.isra.0 10101010
+tokio-rt-worker;[broccoli-worker] 50505050
+tokio-rt-worker;[broccoli-worker];clock_gettime 10101010
+tokio-rt-worker;[unknown];[broccoli-worker];writev;entry_SYSCALL_64_after_hwframe;do_syscall_64;x64_sys_call;__x64_sys_writev;do_writev;vfs_writev;do_iter_readv_writev;sock_write_iter;inet_sendmsg;tcp_sendmsg;tcp_sendmsg_locked;tcp_push;__tcp_push_pending_frames;tcp_write_xmit;__tcp_transmit_skb;ip_queue_xmit;__ip_queue_xmit;ip_local_out;ip_output;ip_finish_output;__ip_finish_output;ip_finish_output2;neigh_hh_output;__dev_queue_xmit 10101010
+tokio-rt-worker;[unknown];[broccoli-worker];writev;entry_SYSCALL_64_after_hwframe;do_syscall_64;x64_sys_call;__x64_sys_writev;do_writev;vfs_writev;do_iter_readv_writev;sock_write_iter;inet_sendmsg;tcp_sendmsg;tcp_sendmsg_locked;tcp_push;__tcp_push_pending_frames;tcp_write_xmit;tcp_rearm_rto 10101010
+tokio-rt-worker;[unknown];[unknown];[unknown];[broccoli-worker] 10101010
+tokio-rt-worker;epoll_wait;entry_SYSCALL_64_after_hwframe;do_syscall_64;syscall_exit_to_user_mode 10101010
+tokio-rt-worker;epoll_wait;entry_SYSCALL_64_after_hwframe;do_syscall_64;syscall_exit_to_user_mode;__rseq_handle_notify_resume;rseq_ip_fixup;__get_user_8 10101010
+tokio-rt-worker;epoll_wait;entry_SYSCALL_64_after_hwframe;do_syscall_64;x64_sys_call;__x64_sys_epoll_wait;do_epoll_wait;ep_poll;schedule_hrtimeout_range;schedule_hrtimeout_range_clock;schedule;__schedule;finish_task_switch.isra.0 10101010
+tokio-rt-worker;epoll_wait;entry_SYSCALL_64_after_hwframe;do_syscall_64;x64_sys_call;__x64_sys_epoll_wait;fput 10101010
+tokio-rt-worker;epoll_wait;entry_SYSCALL_64_after_hwframe;do_syscall_64;x64_sys_call;__x64_sys_epoll_wait;ktime_get_ts64;kvm_clock_get_cycles;pvclock_clocksource_read_nowd 10101010
