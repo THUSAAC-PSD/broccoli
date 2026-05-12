@@ -1,3 +1,4 @@
+pub mod cancel;
 pub mod config;
 pub mod dedup;
 pub mod error;

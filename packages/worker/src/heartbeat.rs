@@ -17,6 +17,10 @@ const KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const KEY_TTL_SECS: u64 = 15;
 
+fn default_fairness_mode() -> String {
+    "unknown".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatPayload {
     pub id: String,
@@ -24,6 +28,8 @@ pub struct HeartbeatPayload {
     pub last_seen: DateTime<Utc>,
     pub in_flight: u32,
     pub max_concurrency: Option<u32>,
+    #[serde(default = "default_fairness_mode")]
+    pub fairness_mode: String,
     pub sandbox_backend: String,
     pub version: String,
     #[serde(default)]
@@ -77,6 +83,7 @@ pub struct HeartbeatConfig {
     pub worker_id: String,
     pub sandbox_backend: String,
     pub max_concurrency: Option<u32>,
+    pub fairness_mode: String,
     pub system_info: SystemInfo,
 }
 
@@ -123,6 +130,7 @@ pub fn spawn(config: HeartbeatConfig, in_flight: InFlightCounter) -> HeartbeatHa
                         last_seen: Utc::now(),
                         in_flight: in_flight.current(),
                         max_concurrency: config.max_concurrency,
+                        fairness_mode: config.fairness_mode.clone(),
                         sandbox_backend: config.sandbox_backend.clone(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         hostname: config.system_info.hostname.clone(),
@@ -236,6 +244,7 @@ mod tests {
             last_seen: Utc::now(),
             in_flight: 3,
             max_concurrency: Some(8),
+            fairness_mode: "pinned".into(),
             sandbox_backend: "isolate".into(),
             version: "0.1.0".into(),
             hostname: Some("lab-pc-01".into()),
@@ -248,6 +257,8 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"id\":\"worker-test\""));
         assert!(json.contains("\"in_flight\":3"));
+        assert!(json.contains("\"max_concurrency\":8"));
+        assert!(json.contains("\"fairness_mode\":\"pinned\""));
         assert!(json.contains("\"sandbox_backend\":\"isolate\""));
         assert!(json.contains("\"hostname\":\"lab-pc-01\""));
         assert!(json.contains("\"ip_addresses\":[\"192.168.1.10\"]"));
@@ -271,5 +282,6 @@ mod tests {
         assert!(p.ip_addresses.is_empty());
         assert!(p.os.is_none());
         assert!(p.cpu_count.is_none());
+        assert_eq!(p.fairness_mode, "unknown");
     }
 }

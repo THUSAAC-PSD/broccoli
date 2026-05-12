@@ -11,6 +11,8 @@ pub struct Task {
     pub payload: serde_json::Value,
     pub result_queue: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_batch_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_queue: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u8>,
@@ -59,6 +61,24 @@ mod tests {
         .unwrap();
 
         assert_eq!(task.reply_queue_name(), "operation_results.replica-a");
+    }
+
+    #[test]
+    fn operation_batch_id_round_trips_when_present() {
+        let task: Task = serde_json::from_value(serde_json::json!({
+            "id": "task-1",
+            "task_type": "operation",
+            "executor_name": "operation",
+            "payload": {},
+            "result_queue": "operation_results",
+            "operation_batch_id": "batch-1"
+        }))
+        .unwrap();
+
+        assert_eq!(task.operation_batch_id.as_deref(), Some("batch-1"));
+
+        let json = serde_json::to_value(&task).unwrap();
+        assert_eq!(json["operation_batch_id"], "batch-1");
     }
 }
 

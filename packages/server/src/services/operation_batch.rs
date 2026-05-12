@@ -99,6 +99,7 @@ pub async fn start_operation_batch(
             executor_name: "operation".to_string(),
             payload: serde_json::to_value(&op).with_context(|| "Failed to serialize operation")?,
             result_queue: deps.operation_result_queue_name.clone(),
+            operation_batch_id: None,
             reply_queue: Some(deps.operation_result_queue_name.clone()),
             priority: op.priority,
             trace_context: common::observability::inject_trace_context(),

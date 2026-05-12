@@ -92,6 +92,7 @@ impl WorkerRuntime {
                 worker_id: config.worker.id.clone(),
                 sandbox_backend: config.worker.sandbox_backend.clone(),
                 max_concurrency: None,
+                fairness_mode: "unknown".into(),
                 system_info,
             },
             in_flight.clone(),

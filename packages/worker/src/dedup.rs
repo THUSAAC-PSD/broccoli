@@ -3,7 +3,10 @@ use redis::aio::MultiplexedConnection;
 use tokio::sync::Mutex;
 use tracing::warn;
 
+use crate::models::operation::models::OperationTask;
+
 const HEARTBEAT_PREFIX: &str = "broccoli:worker:heartbeat:";
+const OPERATION_DEDUP_SLACK_SECS: u64 = 300;
 
 /// Lua script for atomic, liveness-aware claim.
 ///
@@ -84,7 +87,15 @@ impl RedisTaskDedup {
         *guard = None;
     }
 
+    pub fn fallback_ttl_secs(&self) -> u64 {
+        self.ttl_secs
+    }
+
     pub async fn try_claim(&self, task_id: &str) -> ClaimOutcome {
+        self.try_claim_with_ttl(task_id, self.ttl_secs).await
+    }
+
+    pub async fn try_claim_with_ttl(&self, task_id: &str, ttl_secs: u64) -> ClaimOutcome {
         let key = format!("{}{}", self.prefix, task_id);
         let mut conn = match self.get_conn().await {
             Ok(c) => c,
@@ -99,7 +110,7 @@ impl RedisTaskDedup {
             .arg(1)
             .arg(&key)
             .arg(&self.worker_id)
-            .arg(self.ttl_secs)
+            .arg(ttl_secs.max(1))
             .arg(HEARTBEAT_PREFIX)
             .query_async(&mut conn)
             .await;
@@ -140,6 +151,38 @@ impl RedisTaskDedup {
             self.invalidate_conn().await;
         }
     }
+}
+
+pub fn operation_dedup_ttl_secs(operation: &OperationTask) -> Option<u64> {
+    let mut total_secs = 0.0_f64;
+    let mut saw_explicit_limit = false;
+
+    for step in &operation.tasks {
+        let limits = &step.conf.resource_limits;
+        let base = limits.wall_time_limit.or(limits.time_limit);
+        if let Some(base) = base.filter(|value| value.is_finite() && *value > 0.0) {
+            saw_explicit_limit = true;
+            let extra = limits
+                .extra_time
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(0.0);
+            total_secs += base + extra;
+        }
+    }
+
+    if !saw_explicit_limit {
+        return None;
+    }
+
+    Some(total_secs.ceil() as u64 + OPERATION_DEDUP_SLACK_SECS)
+}
+
+pub fn task_dedup_ttl_secs(task: &common::worker::Task, minimum_ttl_secs: u64) -> u64 {
+    serde_json::from_value::<OperationTask>(task.payload.clone())
+        .ok()
+        .and_then(|operation| operation_dedup_ttl_secs(&operation))
+        .unwrap_or(minimum_ttl_secs)
+        .max(minimum_ttl_secs)
 }
 
 #[cfg(test)]

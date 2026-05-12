@@ -40,6 +40,17 @@ impl SystemInfo {
     }
 }
 
+pub fn is_wsl() -> bool {
+    let proc_version = std::fs::read_to_string("/proc/version").unwrap_or_default();
+    let wsl_env_present =
+        std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSL_INTEROP").is_some();
+    is_wsl_linux(std::env::consts::OS, &proc_version, wsl_env_present)
+}
+
+pub(crate) fn is_wsl_linux(os: &str, proc_version: &str, wsl_env_present: bool) -> bool {
+    os == "linux" && (wsl_env_present || proc_version.to_ascii_lowercase().contains("microsoft"))
+}
+
 fn list_ip_addresses() -> Vec<String> {
     let ifaces = match local_ip_address::list_afinet_netifas() {
         Ok(v) => v,
@@ -125,5 +136,21 @@ mod tests {
         let mut ips = ["fe80::1".to_string(), "192.168.0.1".to_string()];
         ips.sort_by_key(|s| ip_sort_key(s));
         assert_eq!(ips[0], "192.168.0.1");
+    }
+
+    #[test]
+    fn wsl_detection_is_linux_only_and_matches_proc_or_env() {
+        assert!(is_wsl_linux(
+            "linux",
+            "Linux version 5.15.90.1-microsoft-standard-WSL2",
+            false
+        ));
+        assert!(is_wsl_linux("linux", "Linux version 6.6.87", true));
+        assert!(!is_wsl_linux("linux", "Linux version 6.6.87", false));
+        assert!(!is_wsl_linux(
+            "macos",
+            "Linux version 5.15.90.1-microsoft-standard-WSL2",
+            true
+        ));
     }
 }

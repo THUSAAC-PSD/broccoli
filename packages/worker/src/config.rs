@@ -38,6 +38,12 @@ pub struct WorkerConfig {
     pub enable_cgroups: bool,
     #[serde(default = "default_sandbox_backend")]
     pub sandbox_backend: String,
+    #[serde(default = "default_max_concurrency")]
+    pub max_concurrency: u32,
+    #[serde(default = "default_dedup_ttl_secs")]
+    pub dedup_ttl_secs: u64,
+    #[serde(default)]
+    pub fairness_unsafe_allow: bool,
 }
 
 fn default_worker_id() -> String {
@@ -52,6 +58,12 @@ fn default_enable_cgroups() -> bool {
 fn default_sandbox_backend() -> String {
     "isolate".into()
 }
+fn default_max_concurrency() -> u32 {
+    1
+}
+fn default_dedup_ttl_secs() -> u64 {
+    600
+}
 
 impl Default for WorkerConfig {
     fn default() -> Self {
@@ -60,6 +72,9 @@ impl Default for WorkerConfig {
             isolate_bin: default_isolate_bin(),
             enable_cgroups: default_enable_cgroups(),
             sandbox_backend: default_sandbox_backend(),
+            max_concurrency: default_max_concurrency(),
+            dedup_ttl_secs: default_dedup_ttl_secs(),
+            fairness_unsafe_allow: false,
         }
     }
 }
@@ -115,6 +130,9 @@ impl WorkerAppConfig {
             .set_default("worker.isolate_bin", "isolate")?
             .set_default("worker.enable_cgroups", true)?
             .set_default("worker.sandbox_backend", "isolate")?
+            .set_default("worker.max_concurrency", 1_i64)?
+            .set_default("worker.dedup_ttl_secs", 600_i64)?
+            .set_default("worker.fairness_unsafe_allow", false)?
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
             .set_default("mq.pool_size", 5_i64)?
@@ -140,5 +158,37 @@ impl WorkerAppConfig {
             .build()?;
 
         s.try_deserialize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_config_defaults_to_single_safe_slot() {
+        let worker = WorkerConfig::default();
+
+        assert_eq!(worker.max_concurrency, 1);
+        assert!(!worker.fairness_unsafe_allow);
+        assert_eq!(worker.dedup_ttl_secs, 600);
+    }
+
+    #[test]
+    fn worker_config_deserializes_concurrency_and_fairness_override() {
+        let worker: WorkerConfig = toml::from_str(
+            r#"
+            id = "worker-a"
+            max_concurrency = 4
+            fairness_unsafe_allow = true
+            dedup_ttl_secs = 900
+            "#,
+        )
+        .expect("worker config");
+
+        assert_eq!(worker.id, "worker-a");
+        assert_eq!(worker.max_concurrency, 4);
+        assert!(worker.fairness_unsafe_allow);
+        assert_eq!(worker.dedup_ttl_secs, 900);
     }
 }

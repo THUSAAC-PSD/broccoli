@@ -6,6 +6,7 @@ pub struct SubmissionDlqErrorCode;
 
 impl SubmissionDlqErrorCode {
     pub const STUCK_JOB: &'static str = "STUCK_JOB";
+    pub const DISPATCH_RETRY_EXHAUSTED: &'static str = "DISPATCH_RETRY_EXHAUSTED";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,6 +15,7 @@ pub enum DlqErrorCode {
     MaxRetriesExceeded,
     DeserializationError,
     StuckJob,
+    DispatchRetryExhausted,
 }
 
 impl DlqErrorCode {
@@ -22,6 +24,7 @@ impl DlqErrorCode {
             Self::MaxRetriesExceeded => "MAX_RETRIES_EXCEEDED",
             Self::DeserializationError => "DESERIALIZATION_ERROR",
             Self::StuckJob => "STUCK_JOB",
+            Self::DispatchRetryExhausted => "DISPATCH_RETRY_EXHAUSTED",
         }
     }
 }
