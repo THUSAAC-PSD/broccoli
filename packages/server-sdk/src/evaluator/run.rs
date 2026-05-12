@@ -197,7 +197,10 @@ fn finalize_code_run(
     code_run_id: i32,
     results: &[TcResult],
 ) -> Result<OnCodeRunOutput, SdkError> {
-    let non_skipped: Vec<_> = results.iter().filter(|r| !r.verdict.is_skipped()).collect();
+    let non_skipped: Vec<_> = results
+        .iter()
+        .filter(|r| !r.verdict.is_skipped_or_cancelled())
+        .collect();
 
     let verdict = non_skipped
         .iter()

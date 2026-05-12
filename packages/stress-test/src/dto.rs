@@ -296,6 +296,7 @@ pub enum Verdict {
     RuntimeError,
     SystemError,
     Skipped,
+    Cancelled,
     Other(String),
 }
 
@@ -309,6 +310,7 @@ impl Verdict {
             Self::RuntimeError => "RuntimeError",
             Self::SystemError => "SystemError",
             Self::Skipped => "Skipped",
+            Self::Cancelled => "Cancelled",
             Self::Other(s) => s.as_str(),
         }
     }
@@ -322,6 +324,7 @@ impl Verdict {
             "RuntimeError" => Self::RuntimeError,
             "SystemError" => Self::SystemError,
             "Skipped" => Self::Skipped,
+            "Cancelled" => Self::Cancelled,
             other => Self::Other(other.to_string()),
         }
     }
@@ -396,6 +399,7 @@ mod tests {
             (Verdict::RuntimeError, "\"RuntimeError\""),
             (Verdict::SystemError, "\"SystemError\""),
             (Verdict::Skipped, "\"Skipped\""),
+            (Verdict::Cancelled, "\"Cancelled\""),
         ];
         for (variant, expected) in cases {
             let serialised = serde_json::to_string(&variant).unwrap();

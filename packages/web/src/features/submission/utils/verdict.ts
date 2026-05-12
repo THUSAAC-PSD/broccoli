@@ -39,6 +39,8 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
       return t('result.systemError');
     case 'Skipped':
       return t('result.skipped');
+    case 'Cancelled':
+      return t('result.cancelled');
     default:
       return verdictText;
   }
@@ -59,6 +61,7 @@ function getVerdictVariant(verdict: Verdict): BadgeVariant {
       return 'runtimeerror';
     case 'SystemError':
     case 'Skipped':
+    case 'Cancelled':
       return 'secondary';
     default:
       return 'outline-solid';

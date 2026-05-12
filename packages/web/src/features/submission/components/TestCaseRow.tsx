@@ -17,6 +17,7 @@ type VerdictKey =
   | 'runtime_error'
   | 'system_error'
   | 'skipped'
+  | 'cancelled'
   | 'custom'
   | 'pending';
 
@@ -63,6 +64,11 @@ const VERDICT_CONFIG: Record<
     color: 'text-gray-400',
     bgColor: 'bg-gray-400/10',
   },
+  cancelled: {
+    icon: MinusCircle,
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-400/10',
+  },
   custom: {
     icon: AlertCircle,
     color: 'text-blue-500',
@@ -91,6 +97,8 @@ export function getVerdictKey(verdict?: Verdict | null): VerdictKey {
       return 'system_error';
     case 'Skipped':
       return 'skipped';
+    case 'Cancelled':
+      return 'cancelled';
     case null:
     case undefined:
       return 'pending';

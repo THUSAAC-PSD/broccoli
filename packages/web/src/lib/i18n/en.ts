@@ -176,6 +176,7 @@ export const en: Record<string, string> = {
   'result.compilationError': 'Compilation Error',
   'result.systemError': 'System Error',
   'result.skipped': 'Skipped',
+  'result.cancelled': 'Cancelled',
   'result.systemMessage': 'System Message',
   'result.memoryLimit': 'Memory Limit',
   'result.unknownStatus': 'Unknown Status',

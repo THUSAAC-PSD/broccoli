@@ -185,6 +185,24 @@ pub struct OperationResult {
     pub error: Option<String>,
 }
 
+impl OperationResult {
+    pub const CANCELLED_BY_HOST: &'static str = "Cancelled by host";
+
+    pub fn cancelled_by_host() -> Self {
+        Self {
+            success: false,
+            task_results: HashMap::new(),
+            error: Some(Self::CANCELLED_BY_HOST.to_string()),
+        }
+    }
+
+    pub fn is_cancelled_by_host(&self) -> bool {
+        !self.success
+            && self.task_results.is_empty()
+            && self.error.as_deref() == Some(Self::CANCELLED_BY_HOST)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecutionResult {
     pub task_id: String,

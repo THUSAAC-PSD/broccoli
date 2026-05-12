@@ -581,6 +581,7 @@ mod tests {
             Verdict::RuntimeError => "RuntimeError",
             Verdict::SystemError => "SystemError",
             Verdict::Skipped => "Skipped",
+            Verdict::Cancelled => "Cancelled",
             Verdict::Other(_) => "Other",
         }
     }

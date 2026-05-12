@@ -11,6 +11,7 @@ pub enum Verdict {
     SystemError,
     CompileError,
     Skipped,
+    Cancelled,
     Other(String),
 }
 
@@ -19,6 +20,7 @@ impl Verdict {
         match self {
             Self::Accepted => 0,
             Self::Skipped => 0,
+            Self::Cancelled => 0,
             Self::WrongAnswer => 1,
             Self::TimeLimitExceeded => 2,
             Self::MemoryLimitExceeded => 3,
@@ -37,6 +39,7 @@ impl Verdict {
             Self::MemoryLimitExceeded => "MemoryLimitExceeded",
             Self::RuntimeError => "RuntimeError",
             Self::Skipped => "Skipped",
+            Self::Cancelled => "Cancelled",
             Self::SystemError | Self::CompileError => "SystemError",
             Self::Other(custom) => custom.as_str(),
         }
@@ -48,6 +51,14 @@ impl Verdict {
 
     pub fn is_skipped(&self) -> bool {
         matches!(self, Self::Skipped)
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
+
+    pub fn is_skipped_or_cancelled(&self) -> bool {
+        matches!(self, Self::Skipped | Self::Cancelled)
     }
 }
 
@@ -93,6 +104,7 @@ impl FromStr for Verdict {
             "SystemError" => Ok(Self::SystemError),
             "CompileError" => Ok(Self::CompileError),
             "Skipped" => Ok(Self::Skipped),
+            "Cancelled" => Ok(Self::Cancelled),
             _ => {
                 if let Some(custom) = s
                     .strip_prefix("Other(")
@@ -146,6 +158,7 @@ mod tests {
         assert!(Verdict::RuntimeError.severity() < Verdict::SystemError.severity());
         assert!(Verdict::SystemError.severity() < Verdict::CompileError.severity());
         assert_eq!(Verdict::Skipped.severity(), 0);
+        assert_eq!(Verdict::Cancelled.severity(), 0);
         assert_eq!(Verdict::Other("PluginStatus".into()).severity(), 5);
     }
 
@@ -153,6 +166,7 @@ mod tests {
     fn to_db_str_maps_correctly() {
         assert_eq!(Verdict::CompileError.to_db_str(), "SystemError");
         assert_eq!(Verdict::Skipped.to_db_str(), "Skipped");
+        assert_eq!(Verdict::Cancelled.to_db_str(), "Cancelled");
         assert_eq!(Verdict::Accepted.to_db_str(), "Accepted");
         assert_eq!(
             Verdict::Other("PluginStatus".into()).to_db_str(),
@@ -180,6 +194,7 @@ mod tests {
             "SystemError",
             "CompileError",
             "Skipped",
+            "Cancelled",
         ] {
             let json = format!("\"{name}\"");
             let v: Verdict = serde_json::from_str(&json).unwrap();
@@ -210,5 +225,10 @@ mod tests {
         assert!(!Verdict::WrongAnswer.is_accepted());
         assert!(Verdict::Skipped.is_skipped());
         assert!(!Verdict::Accepted.is_skipped());
+        assert!(Verdict::Cancelled.is_cancelled());
+        assert!(!Verdict::Skipped.is_cancelled());
+        assert!(Verdict::Skipped.is_skipped_or_cancelled());
+        assert!(Verdict::Cancelled.is_skipped_or_cancelled());
+        assert!(!Verdict::Accepted.is_skipped_or_cancelled());
     }
 }

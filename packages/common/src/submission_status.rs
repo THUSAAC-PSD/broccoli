@@ -120,6 +120,7 @@ pub enum Verdict {
     #[default]
     SystemError,
     Skipped,
+    Cancelled,
     Other(String),
 }
 
@@ -132,6 +133,14 @@ impl Verdict {
         matches!(self, Self::Skipped)
     }
 
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
+
+    pub fn is_skipped_or_cancelled(&self) -> bool {
+        matches!(self, Self::Skipped | Self::Cancelled)
+    }
+
     pub const ALL: &'static [Verdict] = &[
         Self::Accepted,
         Self::WrongAnswer,
@@ -140,6 +149,7 @@ impl Verdict {
         Self::RuntimeError,
         Self::SystemError,
         Self::Skipped,
+        Self::Cancelled,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -151,6 +161,7 @@ impl Verdict {
             Self::RuntimeError => "RuntimeError",
             Self::SystemError => "SystemError",
             Self::Skipped => "Skipped",
+            Self::Cancelled => "Cancelled",
             Self::Other(custom) => custom.as_str(),
         }
     }
@@ -159,6 +170,7 @@ impl Verdict {
         match self {
             Self::Accepted => 0,
             Self::Skipped => 0,
+            Self::Cancelled => 0,
             Self::WrongAnswer => 1,
             Self::TimeLimitExceeded => 2,
             Self::MemoryLimitExceeded => 3,
@@ -216,6 +228,7 @@ impl FromStr for Verdict {
             "RuntimeError" => Ok(Self::RuntimeError),
             "SystemError" => Ok(Self::SystemError),
             "Skipped" => Ok(Self::Skipped),
+            "Cancelled" => Ok(Self::Cancelled),
             _ => {
                 if let Some(custom) = s
                     .strip_prefix("Other(")
@@ -261,6 +274,7 @@ impl From<broccoli_server_sdk::types::Verdict> for Verdict {
             Sdk::RuntimeError => Self::RuntimeError,
             Sdk::SystemError | Sdk::CompileError => Self::SystemError,
             Sdk::Skipped => Self::Skipped,
+            Sdk::Cancelled => Self::Cancelled,
             Sdk::Other(custom) => Self::Other(custom),
         }
     }
@@ -301,5 +315,20 @@ mod tests {
         let verdict: Verdict =
             serde_json::from_str("\"PluginStatus\"").expect("deserialize verdict");
         assert_eq!(verdict, Verdict::Other("PluginStatus".to_string()));
+    }
+
+    #[test]
+    fn cancelled_verdict_round_trip_and_predicates() {
+        let raw = serde_json::to_string(&Verdict::Cancelled).expect("serialize verdict");
+        assert_eq!(raw, "\"Cancelled\"");
+        let parsed: Verdict = serde_json::from_str(&raw).expect("deserialize verdict");
+        assert_eq!(parsed, Verdict::Cancelled);
+        assert_eq!(parsed.as_str(), "Cancelled");
+        assert_eq!(parsed.severity(), 0);
+        assert!(parsed.is_cancelled());
+        assert!(parsed.is_skipped_or_cancelled());
+        assert!(!Verdict::Skipped.is_cancelled());
+        assert!(Verdict::Skipped.is_skipped_or_cancelled());
+        assert!(!Verdict::Accepted.is_skipped_or_cancelled());
     }
 }
