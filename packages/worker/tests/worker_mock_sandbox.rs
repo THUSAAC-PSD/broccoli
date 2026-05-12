@@ -10,6 +10,7 @@ use worker::models::operation::file_cacher::{BlobStoreFileCacher, UnavailableFil
 use worker::models::operation::handler::OperationHandler;
 use worker::models::operation::models::{
     Channel, Environment, IOConfig, IOTarget, OperationResult, OperationTask, SessionFile, Step,
+    StepKind,
 };
 use worker::models::operation::sandbox::mock::MockSandboxManager;
 use worker::models::operation::sandbox::{DirectoryOptions, DirectoryRule, RunOptions};
@@ -50,6 +51,7 @@ fn build_operation_task(command: &str) -> OperationTask {
         }],
         tasks: vec![Step {
             id: "step-1".to_string(),
+            kind: StepKind::Generic,
             env_ref: "env-1".to_string(),
             argv: vec!["/bin/sh".to_string(), "-c".to_string(), command.to_string()],
             conf: RunOptions::default(),
@@ -91,6 +93,7 @@ async fn execute_operation_with_mock(
         reply_queue: None,
         priority: None,
         trace_context: None,
+        enqueued_at_unix_ms: None,
     };
 
     let result = worker.execute_task(task).await.unwrap();
@@ -231,6 +234,7 @@ printf '2 40\n' > input.txt
         tasks: vec![
             Step {
                 id: "prepare".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -245,6 +249,7 @@ printf '2 40\n' > input.txt
             },
             Step {
                 id: "compile".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     compiler,
@@ -262,6 +267,7 @@ printf '2 40\n' > input.txt
             },
             Step {
                 id: "run".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec!["./main".to_string()],
                 conf: RunOptions::default(),
@@ -276,6 +282,7 @@ printf '2 40\n' > input.txt
             },
             Step {
                 id: "verify".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -343,6 +350,7 @@ CPP
         tasks: vec![
             Step {
                 id: "prepare-bad".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -357,6 +365,7 @@ CPP
             },
             Step {
                 id: "compile-bad".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     compiler,
@@ -373,6 +382,7 @@ CPP
             },
             Step {
                 id: "run-should-skip".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -419,6 +429,7 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail() {
         }],
         tasks: vec![Step {
             id: "pipe-invalid".to_string(),
+            kind: StepKind::Generic,
             env_ref: "env-1".to_string(),
             argv: vec![
                 "/bin/sh".to_string(),
@@ -480,6 +491,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
         tasks: vec![
             Step {
                 id: "producer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-a".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -497,6 +509,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping() {
             },
             Step {
                 id: "consumer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-b".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -615,6 +628,7 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
         tasks: vec![
             Step {
                 id: "run".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -629,6 +643,7 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
             },
             Step {
                 id: "verify".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -681,6 +696,7 @@ async fn shared_channel_fifo_between_two_environments() {
         tasks: vec![
             Step {
                 id: "writer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "writer-env".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -695,6 +711,7 @@ async fn shared_channel_fifo_between_two_environments() {
             },
             Step {
                 id: "reader".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "reader-env".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -750,6 +767,7 @@ async fn channel_pipe_io_redirect_between_environments() {
         tasks: vec![
             Step {
                 id: "producer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "producer-env".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -770,6 +788,7 @@ async fn channel_pipe_io_redirect_between_environments() {
             },
             Step {
                 id: "consumer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "consumer-env".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -822,6 +841,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
         tasks: vec![
             Step {
                 id: "writer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -842,6 +862,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
             },
             Step {
                 id: "reader".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),

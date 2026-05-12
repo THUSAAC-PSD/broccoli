@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use worker::WorkerAppConfig;
 use worker::models::operation::executor::OperationTaskExecutor;
 use worker::models::operation::models::{
-    Environment, IOConfig, IOTarget, OperationResult, OperationTask, Step,
+    Environment, IOConfig, IOTarget, OperationResult, OperationTask, Step, StepKind,
 };
 use worker::models::operation::sandbox::isolate::IsolateSandboxManager;
 use worker::models::operation::sandbox::{
@@ -73,6 +73,7 @@ fn build_operation_task(command: &str) -> OperationTask {
         }],
         tasks: vec![Step {
             id: "step-1".to_string(),
+            kind: StepKind::Generic,
             env_ref: "env-1".to_string(),
             argv: vec!["/bin/sh".to_string(), "-c".to_string(), command.to_string()],
             conf: RunOptions::default(),
@@ -114,6 +115,7 @@ async fn execute_operation_with_isolate(
         reply_queue: None,
         priority: None,
         trace_context: None,
+        enqueued_at_unix_ms: None,
     };
 
     let result = worker.execute_task(task).await.unwrap();
@@ -189,6 +191,7 @@ printf '2 40\n' > input.txt
         tasks: vec![
             Step {
                 id: "prepare".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -209,6 +212,7 @@ printf '2 40\n' > input.txt
             },
             Step {
                 id: "compile".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -229,6 +233,7 @@ printf '2 40\n' > input.txt
             },
             Step {
                 id: "run".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec!["./main".to_string()],
                 conf: RunOptions::default(),
@@ -249,6 +254,7 @@ printf '2 40\n' > input.txt
             },
             Step {
                 id: "verify".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -315,6 +321,7 @@ CPP
         tasks: vec![
             Step {
                 id: "prepare-bad".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -329,6 +336,7 @@ CPP
             },
             Step {
                 id: "compile-bad".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     compiler,
@@ -345,6 +353,7 @@ CPP
             },
             Step {
                 id: "run-should-skip".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -395,6 +404,7 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
         }],
         tasks: vec![Step {
             id: "pipe-invalid".to_string(),
+            kind: StepKind::Generic,
             env_ref: "env-1".to_string(),
             argv: vec![
                 "/bin/sh".to_string(),
@@ -463,6 +473,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
         tasks: vec![
             Step {
                 id: "producer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-a".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -480,6 +491,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
             },
             Step {
                 id: "consumer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-b".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),

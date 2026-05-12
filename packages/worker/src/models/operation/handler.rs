@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{Instrument, debug, error, info, instrument, warn};
 
 fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
     let mut resolved = base.to_path_buf();
@@ -33,6 +33,16 @@ fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
 
 static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
 
+struct StepMetricRecord {
+    start: std::time::Instant,
+    step_kind: &'static str,
+    outcome: &'static str,
+    sandbox_status: String,
+    exit_kind: &'static str,
+    killed: bool,
+    cg_oom_killed: bool,
+}
+
 fn validate_pipe_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(anyhow!("Pipe/channel name cannot be empty"));
@@ -53,6 +63,99 @@ fn validate_pipe_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+fn sandbox_status_label(result: &ExecutionResult) -> String {
+    if result.status.trim().is_empty() {
+        "UNKNOWN".to_string()
+    } else {
+        result.status.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExecutionResult, sandbox_exit_kind, sandbox_status_label, step_kind};
+    use crate::models::operation::models::{IOConfig, RunOptions, Step, StepKind};
+
+    #[test]
+    fn classifies_sandbox_exit_kind_for_metrics() {
+        let mut result = ExecutionResult {
+            exit_code: Some(0),
+            ..ExecutionResult::default()
+        };
+        assert_eq!(sandbox_exit_kind(&result), "zero");
+
+        result.exit_code = Some(17);
+        assert_eq!(sandbox_exit_kind(&result), "nonzero");
+
+        result.signal = Some(9);
+        assert_eq!(sandbox_exit_kind(&result), "signal");
+
+        result.signal = None;
+        result.exit_code = None;
+        assert_eq!(sandbox_exit_kind(&result), "none");
+    }
+
+    #[test]
+    fn normalizes_empty_sandbox_status_for_metrics() {
+        let mut result = ExecutionResult {
+            status: "  ".to_string(),
+            ..ExecutionResult::default()
+        };
+        assert_eq!(sandbox_status_label(&result), "UNKNOWN");
+
+        result.status = "TO".to_string();
+        assert_eq!(sandbox_status_label(&result), "TO");
+    }
+
+    #[test]
+    fn classifies_step_kind_only_from_canonical_step_ids() {
+        let mut step = Step {
+            id: "custom-build".to_string(),
+            kind: StepKind::Compile,
+            env_ref: "sandbox".to_string(),
+            argv: vec!["custom-build-tool".to_string()],
+            conf: RunOptions::default(),
+            io: IOConfig::default(),
+            collect: vec![],
+            depends_on: vec![],
+            cache: None,
+        };
+        assert_eq!(step_kind(&step), "compile");
+
+        step.id = "run-main".to_string();
+        step.kind = StepKind::Testcase;
+        step.argv = vec!["./solution".to_string()];
+        assert_eq!(step_kind(&step), "testcase");
+
+        step.id = "build-main".to_string();
+        step.kind = StepKind::Generic;
+        step.argv = vec!["g++".to_string(), "main.cpp".to_string()];
+        assert_eq!(step_kind(&step), "step");
+
+        step.id = "build-checker".to_string();
+        step.kind = StepKind::CheckerCompile;
+        step.argv = vec!["custom-build-tool".to_string()];
+        assert_eq!(step_kind(&step), "checker_compile");
+
+        step.id = "run-custom-checker".to_string();
+        step.kind = StepKind::Checker;
+        step.argv = vec!["custom-checker".to_string()];
+        assert_eq!(step_kind(&step), "checker");
+    }
+}
+
+fn sandbox_exit_kind(result: &ExecutionResult) -> &'static str {
+    if result.signal.is_some() {
+        "signal"
+    } else if result.exit_code == Some(0) {
+        "zero"
+    } else if result.exit_code.is_some() {
+        "nonzero"
+    } else {
+        "none"
+    }
+}
+
 fn allocate_box_id() -> String {
     let id = NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed) % 1000;
     id.to_string()
@@ -71,6 +174,24 @@ impl EnvironmentList {
             box_id,
             working_dir,
         }
+    }
+}
+
+fn session_file_kind(source: &SessionFile) -> &'static str {
+    match source {
+        SessionFile::Path { .. } => "path",
+        SessionFile::Content { .. } => "content",
+        SessionFile::Blob { .. } => "blob",
+    }
+}
+
+fn step_kind(step: &Step) -> &'static str {
+    match step.kind {
+        StepKind::Compile => "compile",
+        StepKind::Testcase => "testcase",
+        StepKind::CheckerCompile => "checker_compile",
+        StepKind::Checker => "checker",
+        StepKind::Generic => "step",
     }
 }
 
@@ -289,12 +410,15 @@ impl OperationHandler {
         Ok(sandbox_path)
     }
 
+    #[instrument(skip(self, files), fields(file_count = files.len()))]
     async fn load_environment_files(
         &self,
         working_dir: &Path,
         files: &[(String, SessionFile)],
     ) -> Result<()> {
         for (target_path, source) in files {
+            let start = std::time::Instant::now();
+            let source_kind = session_file_kind(source);
             let dest = safe_join(working_dir, target_path)?;
             if let Some(parent) = dest.parent() {
                 tokio::fs::create_dir_all(parent)
@@ -303,20 +427,32 @@ impl OperationHandler {
             }
             match source {
                 SessionFile::Path { path: src } => {
-                    tokio::fs::copy(src, &dest).await.with_context(|| {
+                    let bytes = tokio::fs::copy(src, &dest).await.with_context(|| {
                         format!("Failed to copy file {} -> {}", src, dest.display())
                     })?;
+                    self.record_file_materialization(start, source_kind, "success", bytes);
                 }
                 SessionFile::Content { content } => {
                     tokio::fs::write(&dest, content).await.with_context(|| {
                         format!("Failed to write content to {}", dest.display())
                     })?;
+                    self.record_file_materialization(
+                        start,
+                        source_kind,
+                        "success",
+                        content.len() as u64,
+                    );
                 }
                 SessionFile::Blob { hash: content_hash } => {
                     self.file_cacher
                         .fetch_to_path(content_hash, &dest)
                         .await
                         .map_err(|e| anyhow!("Failed to fetch blob {}: {}", content_hash, e))?;
+                    let bytes = tokio::fs::metadata(&dest)
+                        .await
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    self.record_file_materialization(start, source_kind, "success", bytes);
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
@@ -331,6 +467,27 @@ impl OperationHandler {
             debug!(target = %target_path, dest = %dest.display(), "Loaded environment file");
         }
         Ok(())
+    }
+
+    fn record_file_materialization(
+        &self,
+        start: std::time::Instant,
+        source_kind: &'static str,
+        outcome: &'static str,
+        bytes: u64,
+    ) {
+        use opentelemetry::KeyValue;
+
+        let attrs = [
+            KeyValue::new("source.kind", source_kind),
+            KeyValue::new("outcome", outcome),
+        ];
+        self.metrics
+            .operation_file_materialization_duration
+            .record(start.elapsed().as_secs_f64(), &attrs);
+        self.metrics
+            .operation_file_materialization_bytes
+            .add(bytes, &attrs);
     }
 
     fn build_dependency_graph(&self, operation: &OperationTask) -> HashMap<String, Vec<String>> {
@@ -414,19 +571,19 @@ impl OperationHandler {
         shared_channels_dir: Option<&Path>,
         channel_names: &HashSet<String>,
     ) -> TaskExecutionResult {
-        use opentelemetry::KeyValue;
-
         let start = std::time::Instant::now();
-        let record_metric = |outcome: &'static str| {
-            self.metrics.step_duration.record(
-                start.elapsed().as_secs_f64(),
-                &[KeyValue::new("outcome", outcome)],
-            );
-        };
 
         if !deps_ok {
             warn!(task_id = %step.id, "Skipping task due to dependency failure");
-            record_metric("skipped");
+            self.record_step_metrics(StepMetricRecord {
+                start,
+                step_kind: step_kind(step),
+                outcome: "skipped",
+                sandbox_status: "dependency_failed".to_string(),
+                exit_kind: "none",
+                killed: false,
+                cg_oom_killed: false,
+            });
             return TaskExecutionResult {
                 task_id: step.id.clone(),
                 success: false,
@@ -438,18 +595,40 @@ impl OperationHandler {
         if let Some(cache_spec) = &step.cache
             && let Some(cached) = self.try_cache_hit(step, environments, cache_spec).await
         {
-            record_metric("cache_hit");
+            self.record_step_metrics(StepMetricRecord {
+                start,
+                step_kind: step_kind(step),
+                outcome: "cache_hit",
+                sandbox_status: "cache_hit".to_string(),
+                exit_kind: "none",
+                killed: false,
+                cg_oom_killed: false,
+            });
             return cached;
         }
 
         let result = match self
             .execute_step(step, environments, shared_channels_dir, channel_names)
+            .instrument(tracing::info_span!(
+                "operation_step",
+                step_id = %step.id,
+                step_kind = %step_kind(step),
+                env_ref = %step.env_ref,
+            ))
             .await
         {
             Ok(result) => result,
             Err(e) => {
                 error!(task_id = %step.id, error = %e, "Task execution error");
-                record_metric("failure");
+                self.record_step_metrics(StepMetricRecord {
+                    start,
+                    step_kind: step_kind(step),
+                    outcome: "failure",
+                    sandbox_status: "execution_error".to_string(),
+                    exit_kind: "none",
+                    killed: false,
+                    cg_oom_killed: false,
+                });
                 return TaskExecutionResult {
                     task_id: step.id.clone(),
                     success: false,
@@ -466,8 +645,58 @@ impl OperationHandler {
                 .await;
         }
 
-        record_metric(if result.success { "success" } else { "failure" });
+        self.record_sandbox_metrics(&result.sandbox_result, result.success);
+        self.record_step_metrics(StepMetricRecord {
+            start,
+            step_kind: step_kind(step),
+            outcome: if result.success { "success" } else { "failure" },
+            sandbox_status: sandbox_status_label(&result.sandbox_result),
+            exit_kind: sandbox_exit_kind(&result.sandbox_result),
+            killed: result.sandbox_result.killed,
+            cg_oom_killed: result.sandbox_result.cg_oom_killed,
+        });
         result
+    }
+
+    fn record_step_metrics(&self, record: StepMetricRecord) {
+        use opentelemetry::KeyValue;
+
+        let attrs = [
+            KeyValue::new("step.kind", record.step_kind),
+            KeyValue::new("outcome", record.outcome),
+            KeyValue::new("sandbox.status", record.sandbox_status),
+            KeyValue::new("exit.kind", record.exit_kind),
+            KeyValue::new("killed", record.killed.to_string()),
+            KeyValue::new("cg_oom_killed", record.cg_oom_killed.to_string()),
+        ];
+        self.metrics
+            .step_duration
+            .record(record.start.elapsed().as_secs_f64(), &attrs);
+        self.metrics.step_results_total.add(1, &attrs);
+    }
+
+    fn record_sandbox_metrics(&self, result: &ExecutionResult, success: bool) {
+        use opentelemetry::KeyValue;
+
+        let attrs = [
+            KeyValue::new("outcome", if success { "success" } else { "failure" }),
+            KeyValue::new("sandbox.status", sandbox_status_label(result)),
+            KeyValue::new("exit.kind", sandbox_exit_kind(result)),
+            KeyValue::new("killed", result.killed.to_string()),
+            KeyValue::new("cg_oom_killed", result.cg_oom_killed.to_string()),
+        ];
+        self.metrics.sandbox_executions_total.add(1, &attrs);
+        self.metrics
+            .sandbox_time_used
+            .record(result.time_used.max(0.0), &attrs);
+        self.metrics
+            .sandbox_wall_time_used
+            .record(result.wall_time_used.max(0.0), &attrs);
+        if let Some(memory_used) = result.memory_used {
+            self.metrics
+                .sandbox_memory_used
+                .record(memory_used as f64, &attrs);
+        }
     }
 
     async fn try_cache_hit(
@@ -488,13 +717,19 @@ impl OperationHandler {
             }
         };
 
+        let cache_start = std::time::Instant::now();
         let cached_outputs = match self.task_cache.get(&cache_key).await {
-            Ok(Some(outputs)) => outputs,
+            Ok(Some(outputs)) => {
+                self.record_task_cache_metric(cache_start, "get", "hit");
+                outputs
+            }
             Ok(None) => {
+                self.record_task_cache_metric(cache_start, "get", "miss");
                 debug!(step_id = %step.id, cache_key = %cache_key, "Cache miss");
                 return None;
             }
             Err(e) => {
+                self.record_task_cache_metric(cache_start, "get", "error");
                 warn!(step_id = %step.id, error = %e, "Cache lookup failed, executing normally");
                 return None;
             }
@@ -594,11 +829,32 @@ impl OperationHandler {
             }
         }
 
+        let cache_start = std::time::Instant::now();
         if let Err(e) = self.task_cache.put(&cache_key, output_hashes).await {
+            self.record_task_cache_metric(cache_start, "put", "error");
             warn!(step_id = %step.id, error = %e, "Failed to store task cache entry");
         } else {
+            self.record_task_cache_metric(cache_start, "put", "success");
             info!(step_id = %step.id, cache_key = %cache_key, "Stored step outputs in task cache");
         }
+    }
+
+    fn record_task_cache_metric(
+        &self,
+        start: std::time::Instant,
+        operation: &'static str,
+        outcome: &'static str,
+    ) {
+        use opentelemetry::KeyValue;
+
+        let attrs = [
+            KeyValue::new("operation", operation),
+            KeyValue::new("outcome", outcome),
+        ];
+        self.metrics
+            .task_cache_operation_duration
+            .record(start.elapsed().as_secs_f64(), &attrs);
+        self.metrics.task_cache_operations_total.add(1, &attrs);
     }
 
     async fn build_cache_key(

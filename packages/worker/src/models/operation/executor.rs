@@ -26,7 +26,7 @@ impl OperationTaskExecutor {
     ) -> Result<Self> {
         let fingerprint = String::new();
         let sandbox_manager = Self::sandbox_manager_from_config(Some(config));
-        let (file_cacher, task_cache) = Self::caching_from_config(config).await?;
+        let (file_cacher, task_cache) = Self::caching_from_config(config, metrics.clone()).await?;
 
         Ok(Self {
             operation_executor: OperationHandler::new(
@@ -86,6 +86,7 @@ impl OperationTaskExecutor {
 
     async fn caching_from_config(
         config: &WorkerAppConfig,
+        metrics: common::metrics::Metrics,
     ) -> Result<(Box<dyn FileCacher>, Box<dyn TaskCacheStore>)> {
         let blob_store_config = config.storage.blob_store.clone();
         let cache_dir = config.storage.cache_dir.clone();
@@ -114,21 +115,22 @@ impl OperationTaskExecutor {
 
         let db_for_cache = db.clone();
 
-        let blob_store = match create_blob_store(&blob_store_config, db).await {
-            Ok(store) => {
-                info!(
-                    backend = %blob_store_config.backend,
-                    cache_dir = %cache_dir,
-                    max_cache_size,
-                    "Blob store initialized"
-                );
-                store
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to initialize blob store");
-                return Err(e.into());
-            }
-        };
+        let blob_store =
+            match create_blob_store(&blob_store_config, db, Some(metrics.clone())).await {
+                Ok(store) => {
+                    info!(
+                        backend = %blob_store_config.backend,
+                        cache_dir = %cache_dir,
+                        max_cache_size,
+                        "Blob store initialized"
+                    );
+                    store
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to initialize blob store");
+                    return Err(e.into());
+                }
+            };
 
         let file_cacher: Box<dyn FileCacher> =
             match BlobStoreFileCacher::new(blob_store, PathBuf::from(&cache_dir), max_cache_size)
