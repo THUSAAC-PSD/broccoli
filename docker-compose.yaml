@@ -58,6 +58,7 @@ services:
         '-s3',
         '-s3.config=/etc/seaweedfs/s3.json',
         '-ip=seaweedfs',
+        '-metricsPort=9327',
       ]
     ports:
       - '9333:9333'

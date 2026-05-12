@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["seaweedfs:9327"],
+    "labels": {
+      "service": "seaweedfs",
+      "role": "object-storage"
+    }
+  }
+]
