@@ -32,6 +32,10 @@ impl Submissions {
     pub fn update(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
         use crate::db::Params;
 
+        if update.judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+
         let mut p = Params::new();
         let mut sets = Vec::new();
 
@@ -53,68 +57,70 @@ impl Submissions {
         }
 
         // Mirror the same column writes onto submission_judgement so the
-        // versioned row stays in sync with the denormalized cache. Skipped
-        // when judgement_id is unset (legacy caller path); the backfill
-        // job handles those rows on the next server boot.
-        let mut judgement_rows = 0;
-        if update.judgement_id > 0 {
-            let mut jp = Params::new();
-            let mut jsets = Vec::new();
-            super::shared::push_judge_sets(
-                &mut jp,
-                &mut jsets,
-                &update.status,
-                &update.verdict,
-                &update.score,
-                &update.time_used,
-                &update.memory_used,
-                &update.compile_output,
-                &update.error_code,
-                &update.error_message,
-            );
-            if !jsets.is_empty() {
-                let mut judgement_sets: Vec<String> = jsets
-                    .into_iter()
-                    .filter(|set| set != "judged_at = NOW()")
-                    .collect();
-                let is_terminal_marker = match update.status {
-                    Some(SubmissionStatus::Judged) | Some(SubmissionStatus::CompilationError) => {
-                        true
-                    }
-                    _ => false,
-                };
-                if is_terminal_marker {
-                    judgement_sets.push("is_finalized = TRUE".to_string());
-                    judgement_sets.push("finalized_at = NOW()".to_string());
-                }
-                let jsql = format!(
-                    "UPDATE submission_judgement SET {} WHERE id = {} AND judge_epoch = {} \
-                     AND is_finalized = FALSE \
-                     AND (is_current = TRUE OR version = ( \
-                         SELECT MAX(version) FROM submission_judgement WHERE submission_id = {} \
-                     ))",
-                    judgement_sets.join(", "),
-                    jp.bind(update.judgement_id),
-                    jp.bind(update.judge_epoch),
-                    jp.bind(update.submission_id),
-                );
-                judgement_rows = super::shared::raw_execute(&jsql, &jp.into_args())?;
+        // versioned row stays in sync with the denormalized cache.
+        let mut jp = Params::new();
+        let mut jsets = Vec::new();
+        super::shared::push_judge_sets(
+            &mut jp,
+            &mut jsets,
+            &update.status,
+            &update.verdict,
+            &update.score,
+            &update.time_used,
+            &update.memory_used,
+            &update.compile_output,
+            &update.error_code,
+            &update.error_message,
+        );
+        let mut judgement_rows = 1;
+        if !jsets.is_empty() {
+            let mut judgement_sets: Vec<String> = jsets
+                .into_iter()
+                .filter(|set| set != "judged_at = NOW()")
+                .collect();
+            let is_terminal_marker = match update.status {
+                Some(SubmissionStatus::Judged) | Some(SubmissionStatus::CompilationError) => true,
+                _ => false,
+            };
+            if is_terminal_marker {
+                judgement_sets.push("is_finalized = TRUE".to_string());
+                judgement_sets.push("finalized_at = NOW()".to_string());
             }
+            let jsql = format!(
+                "UPDATE submission_judgement SET {} WHERE id = {} AND judge_epoch = {} \
+                 AND is_finalized = FALSE \
+                 AND (is_current = TRUE OR version = ( \
+                     SELECT MAX(version) FROM submission_judgement WHERE submission_id = {} \
+                 ))",
+                judgement_sets.join(", "),
+                jp.bind(update.judgement_id),
+                jp.bind(update.judge_epoch),
+                jp.bind(update.submission_id),
+            );
+            judgement_rows = super::shared::raw_execute(&jsql, &jp.into_args())?;
+        }
+
+        if judgement_rows == 0 {
+            return Ok(0);
         }
 
         let sql = format!(
             "UPDATE submission SET {} WHERE id = {} AND judge_epoch = {} \
-             AND status NOT IN ('Judged', 'CompilationError', 'SystemError')",
+             AND status NOT IN ('Judged', 'CompilationError', 'SystemError') \
+             AND EXISTS ( \
+                 SELECT 1 FROM submission_judgement j \
+                 WHERE j.id = {} \
+                   AND j.submission_id = submission.id \
+                   AND j.judge_epoch = submission.judge_epoch \
+                   AND j.is_current = TRUE \
+             )",
             sets.join(", "),
             p.bind(update.submission_id),
             p.bind(update.judge_epoch),
+            p.bind(update.judgement_id),
         );
-        let submission_rows = super::shared::raw_execute(&sql, &p.into_args())?;
-        if update.judgement_id > 0 {
-            Ok(judgement_rows)
-        } else {
-            Ok(submission_rows)
-        }
+        let _submission_rows = super::shared::raw_execute(&sql, &p.into_args())?;
+        Ok(judgement_rows)
     }
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
@@ -130,19 +136,18 @@ impl Submissions {
         let mut rows = Vec::with_capacity(results.len());
 
         for r in results {
+            if r.judgement_id <= 0 {
+                return Err(SdkError::StaleEpoch);
+            }
             let score_val = if r.score.is_finite() { r.score } else { 0.0 };
             let message = r.message.as_deref().map(sanitize_result_text_field);
             let stdout = r.stdout.as_deref().map(sanitize_result_text_field);
             let stderr = r.stderr.as_deref().map(sanitize_result_text_field);
-            let judgement_param = if r.judgement_id > 0 {
-                json!(r.judgement_id)
-            } else {
-                json!(null)
-            };
             rows.push(format!(
-                "({}, {}::int, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
+                "({}, {}::int, {}, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.submission_id),
-                p.bind(judgement_param),
+                p.bind(json!(r.judgement_id)),
+                p.bind(r.judge_epoch),
                 p.bind(json!(r.test_case_id)),
                 p.bind(json!(r.run_index)),
                 p.bind(r.verdict.to_db_str()),
@@ -157,31 +162,45 @@ impl Submissions {
 
         let sql = format!(
             "INSERT INTO test_case_result \
-             (submission_id, judgement_id, test_case_id, run_index, verdict, score, \
+             (submission_id, judgement_id, judge_epoch, test_case_id, run_index, verdict, score, \
               time_used, memory_used, checker_output, stdout, stderr, created_at) \
-             VALUES {}",
+             SELECT v.submission_id, v.judgement_id, v.judge_epoch, v.test_case_id, v.run_index, \
+                    v.verdict, v.score, v.time_used, v.memory_used, v.checker_output, \
+                    v.stdout, v.stderr, v.created_at \
+             FROM (VALUES {}) AS v( \
+                 submission_id, judgement_id, judge_epoch, test_case_id, run_index, verdict, score, \
+                 time_used, memory_used, checker_output, stdout, stderr, created_at \
+             ) \
+             JOIN submission_judgement j ON j.id = v.judgement_id \
+             WHERE j.submission_id = v.submission_id \
+               AND j.judge_epoch = v.judge_epoch \
+               AND j.is_finalized = FALSE",
             rows.join(", ")
         );
         super::shared::raw_execute(&sql, &p.into_args())?;
         Ok(())
     }
 
-    pub fn delete_results(&self, submission_id: i32, judgement_id: i32) -> Result<(), SdkError> {
+    pub fn delete_results(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<(), SdkError> {
         use crate::db::Params;
 
+        if judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+
         let mut p = Params::new();
-        let sql = if judgement_id > 0 {
-            format!(
-                "DELETE FROM test_case_result WHERE submission_id = {} AND judgement_id = {}",
-                p.bind(submission_id),
-                p.bind(judgement_id),
-            )
-        } else {
-            format!(
-                "DELETE FROM test_case_result WHERE submission_id = {} AND judgement_id IS NULL",
-                p.bind(submission_id),
-            )
-        };
+        let sql = format!(
+            "DELETE FROM test_case_result \
+             WHERE submission_id = {} AND judgement_id = {} AND judge_epoch = {}",
+            p.bind(submission_id),
+            p.bind(judgement_id),
+            p.bind(judge_epoch),
+        );
         super::shared::raw_execute(&sql, &p.into_args())?;
         Ok(())
     }
@@ -221,6 +240,9 @@ impl Submissions {
     }
 
     pub fn update(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
+        if update.judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
         self.inner.updates.borrow_mut().push(update.clone());
         if let Some(result) = self.inner.update_results.borrow_mut().pop_front() {
             return result;
@@ -229,6 +251,9 @@ impl Submissions {
     }
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
+        if results.iter().any(|r| r.judgement_id <= 0) {
+            return Err(SdkError::StaleEpoch);
+        }
         if let Some(err) = self.inner.insert_errors.borrow_mut().pop_front() {
             return Err(err);
         }
@@ -239,11 +264,20 @@ impl Submissions {
         Ok(())
     }
 
-    pub fn delete_results(&self, submission_id: i32, judgement_id: i32) -> Result<(), SdkError> {
-        self.inner
-            .tc_results
-            .borrow_mut()
-            .retain(|r| r.submission_id != submission_id || r.judgement_id != judgement_id);
+    pub fn delete_results(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<(), SdkError> {
+        if judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        self.inner.tc_results.borrow_mut().retain(|r| {
+            r.submission_id != submission_id
+                || r.judgement_id != judgement_id
+                || r.judge_epoch != judge_epoch
+        });
         Ok(())
     }
 

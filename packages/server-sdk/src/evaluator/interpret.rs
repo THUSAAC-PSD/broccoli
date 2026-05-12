@@ -9,6 +9,19 @@ pub fn interpret_sandbox_result(
     checker_format: &str,
     checker_input: &CheckerParseInput,
 ) -> Result<TestCaseVerdict, SdkError> {
+    if result.is_cancelled_by_host() {
+        return Ok(TestCaseVerdict {
+            test_case_id,
+            verdict: Verdict::Cancelled,
+            score: 0.0,
+            time_used_ms: None,
+            memory_used_kb: None,
+            message: result.error.clone(),
+            stdout: None,
+            stderr: None,
+        });
+    }
+
     if !result.success && result.task_results.is_empty() {
         return Ok(TestCaseVerdict {
             test_case_id,

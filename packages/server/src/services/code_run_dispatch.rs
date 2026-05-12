@@ -126,6 +126,7 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
 
     let input = OnCodeRunInput {
         id: code_run.id,
+        judge_epoch: code_run.judge_epoch,
         user_id: code_run.user_id,
         problem_id: code_run.problem_id,
         contest_id: code_run.contest_id,

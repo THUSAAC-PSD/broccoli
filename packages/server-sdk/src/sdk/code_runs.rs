@@ -37,9 +37,11 @@ impl CodeRuns {
         }
 
         let sql = format!(
-            "UPDATE code_run SET {} WHERE id = {}",
+            "UPDATE code_run SET {} WHERE id = {} AND judge_epoch = {} \
+             AND status NOT IN ('Judged', 'CompilationError', 'SystemError')",
             sets.join(", "),
             p.bind(update.code_run_id),
+            p.bind(update.judge_epoch),
         );
         super::shared::raw_execute(&sql, &p.into_args())?;
         Ok(())
@@ -63,8 +65,9 @@ impl CodeRuns {
             let stdout = r.stdout.as_deref().map(sanitize_result_text_field);
             let stderr = r.stderr.as_deref().map(sanitize_result_text_field);
             rows.push(format!(
-                "({}, {}, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
+                "({}, {}, {}, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.code_run_id),
+                p.bind(r.judge_epoch),
                 p.bind(r.run_index),
                 p.bind(r.verdict.to_db_str()),
                 p.bind(score_val),
@@ -78,9 +81,15 @@ impl CodeRuns {
 
         let sql = format!(
             "INSERT INTO code_run_result \
-             (code_run_id, run_index, verdict, score, \
+             (code_run_id, judge_epoch, run_index, verdict, score, \
               time_used, memory_used, checker_output, stdout, stderr, created_at) \
-             VALUES {}",
+             SELECT v.code_run_id, v.judge_epoch, v.run_index, v.verdict, v.score, \
+                    v.time_used, v.memory_used, v.checker_output, v.stdout, v.stderr, v.created_at \
+             FROM (VALUES {}) AS v( \
+                 code_run_id, judge_epoch, run_index, verdict, score, \
+                 time_used, memory_used, checker_output, stdout, stderr, created_at \
+             ) \
+             JOIN code_run cr ON cr.id = v.code_run_id AND cr.judge_epoch = v.judge_epoch",
             rows.join(", ")
         );
         super::shared::raw_execute(&sql, &p.into_args())?;

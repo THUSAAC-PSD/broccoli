@@ -49,9 +49,7 @@ pub struct SubmissionUpdate {
     pub submission_id: i32,
     /// Targeted `submission_judgement` row. The SDK writes the result
     /// fields to this judgement and mirrors the cache columns onto the
-    /// owning submission row in the same statement. A non-positive value
-    /// means the caller is on a legacy path that does not know about
-    /// judgements; the SDK skips the judgement update in that case.
+    /// owning submission row in the same statement. Must be positive.
     pub judgement_id: i32,
     pub judge_epoch: i32,
     pub status: Option<SubmissionStatus>,
@@ -79,11 +77,9 @@ impl SubmissionUpdate {
 pub struct TestCaseResultRow {
     pub submission_id: i32,
     /// Targeted `submission_judgement` row. The SDK writes this onto
-    /// `test_case_result.judgement_id`. Zero or negative means a legacy
-    /// caller that does not know about judgements; the column stays
-    /// NULL until `seed::backfill_submission_judgements` wires it up
-    /// on the next server boot.
+    /// `test_case_result.judgement_id`. Must be positive.
     pub judgement_id: i32,
+    pub judge_epoch: i32,
     pub test_case_id: Option<i32>,
     pub run_index: Option<i32>,
     pub verdict: Verdict,
@@ -98,6 +94,7 @@ pub struct TestCaseResultRow {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CodeRunUpdate {
     pub code_run_id: i32,
+    pub judge_epoch: i32,
     pub status: Option<SubmissionStatus>,
     pub verdict: Option<Option<Verdict>>,
     pub score: Option<f64>,
@@ -120,6 +117,7 @@ impl CodeRunUpdate {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodeRunResultRow {
     pub code_run_id: i32,
+    pub judge_epoch: i32,
     pub run_index: i32,
     pub verdict: Verdict,
     pub score: f64,

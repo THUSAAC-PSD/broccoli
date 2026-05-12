@@ -27,6 +27,19 @@ Then import the prelude:
 use broccoli_server_sdk::prelude::*;
 ```
 
+### Evaluation cancellation
+
+Evaluation plugins can cancel outstanding work through `host.eval`:
+
+- `cancel_batch(batch_id)` cancels every pending testcase in an evaluate batch.
+- `cancel_test_cases(&[test_case_id])` on `WindowedEvalSession` cancels specific
+  active testcases and drops matching queued testcases. It is intended for
+  scoring short-circuits such as IOI `GroupMin` and `GroupMul`.
+
+Operation plugins can cancel outstanding work through `host.operations`:
+
+- `cancel_batch(batch_id)` cancels every pending task in an operation batch.
+
 ## License
 
 MIT

@@ -6,6 +6,7 @@ use super::submission::SourceFile;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnCodeRunInput {
     pub id: i32,
+    pub judge_epoch: i32,
     pub user_id: i32,
     pub problem_id: i32,
     pub contest_id: Option<i32>,
