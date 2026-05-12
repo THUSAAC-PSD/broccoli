@@ -97,8 +97,10 @@ format-check:
 
 # Build all WASM plugins (debug)
 build-plugins *args:
+    cargo run -p broccoli-cli -- plugin build plugins/standard-languages {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/standard-checkers {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/communication-evaluator {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/ioi {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/cooldown {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/submission-limit {{args}}
@@ -106,8 +108,10 @@ build-plugins *args:
 
 # Build all WASM plugins (release)
 build-plugins-release:
+    cargo run -p broccoli-cli -- plugin build plugins/standard-languages --install --release
     cargo run -p broccoli-cli -- plugin build plugins/standard-checkers --install --release
     cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/communication-evaluator --install --release
     cargo run -p broccoli-cli -- plugin build plugins/ioi --install --release
     cargo run -p broccoli-cli -- plugin build plugins/cooldown --install --release
     cargo run -p broccoli-cli -- plugin build plugins/submission-limit --install --release
