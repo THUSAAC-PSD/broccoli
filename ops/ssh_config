@@ -1,0 +1,89 @@
+# Profiling cluster ssh_config (run-2, 2026-05-12).
+# Append/include this from your ~/.ssh/config:
+#   Include ~/path/to/broccoli/ops/ssh_config
+
+Host broccoli-*
+  UserKnownHostsFile ops/known_hosts
+  StrictHostKeyChecking accept-new
+
+Host broccoli-build
+  HostName 209.97.162.248
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-gateway
+  HostName 206.189.84.60
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-loadgen
+  HostName 168.144.101.175
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-observability
+  HostName 165.22.102.240
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+  # Tunnel for local dashboards:
+  #   ssh -L 3001:10.104.0.15:3001 -L 9090:10.104.0.15:9090 -L 16686:10.104.0.15:16686 -L 3100:10.104.0.15:3100 broccoli-observability
+
+Host broccoli-api-1
+  HostName 209.97.170.94
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-api-2
+  HostName 139.59.119.194
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-postgres
+  HostName 159.89.196.18
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+  # Direct SSH to this public IP times out from Tsinghua egress.
+  # Hop through build (same VPC, consistently reachable).
+  ProxyJump broccoli-build
+
+Host broccoli-redis
+  HostName 165.232.174.195
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-storage
+  HostName 68.183.226.122
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-worker-1
+  HostName 168.144.104.193
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60
+
+Host broccoli-worker-2
+  HostName 159.65.137.233
+  Port 22
+  User root
+  IdentityFile ~/.ssh/id_rsa
+  ServerAliveInterval 60

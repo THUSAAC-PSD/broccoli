@@ -1,0 +1,3 @@
+[
+  { "targets": ["10.104.0.17:9187"], "labels": { "service": "postgres-exporter", "role": "postgres" } }
+]

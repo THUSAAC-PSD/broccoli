@@ -1,0 +1,23 @@
+{
+  admin 0.0.0.0:2019
+}
+
+:80 {
+  encode zstd gzip
+
+  reverse_proxy 10.104.0.20:3000 10.104.0.21:3000 {
+    lb_policy round_robin
+    # Healthchecks relaxed because broccoli-server's /healthz is starved under
+    # heavy load (tokio worker threads blocked in `block_in_place` host-fn
+    # bridges). With 2s timeout, the gateway ejects both upstreams the moment
+    # the runtime gets busy. Keep this 30s/30s until the proper architectural
+    # fix lands (judging-reliability phase 2: admission control + windowing).
+    health_uri /healthz
+    health_interval 30s
+    health_timeout 30s
+    fail_duration 0s
+    transport http {
+      response_header_timeout 120s
+    }
+  }
+}

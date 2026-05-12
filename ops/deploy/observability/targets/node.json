@@ -1,0 +1,12 @@
+[
+  { "targets": ["10.104.0.14:9100"],  "labels": { "service": "node", "role": "gateway",       "host": "broccoli-gateway" } },
+  { "targets": ["10.104.0.16:9100"],  "labels": { "service": "node", "role": "loadgen",       "host": "broccoli-loadgen" } },
+  { "targets": ["10.104.0.15:9100"],  "labels": { "service": "node", "role": "observability", "host": "broccoli-observability" } },
+  { "targets": ["10.104.0.20:9100"],  "labels": { "service": "node", "role": "api",           "host": "broccoli-api-1" } },
+  { "targets": ["10.104.0.21:9100"],  "labels": { "service": "node", "role": "api",           "host": "broccoli-api-2" } },
+  { "targets": ["10.104.0.18:9100"],  "labels": { "service": "node", "role": "redis",         "host": "broccoli-redis" } },
+  { "targets": ["10.104.0.19:9100"],  "labels": { "service": "node", "role": "storage",       "host": "broccoli-storage" } },
+  { "targets": ["10.104.0.22:9100"], "labels": { "service": "node", "role": "worker",        "host": "broccoli-worker-1" } },
+  { "targets": ["10.104.0.23:9100"], "labels": { "service": "node", "role": "worker",        "host": "broccoli-worker-2" } },
+  { "targets": ["10.104.0.17:9100"], "labels": { "service": "node", "role": "postgres",      "host": "broccoli-postgres" } }
+]

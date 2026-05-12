@@ -1,0 +1,3 @@
+[
+  { "targets": ["10.104.0.14:2019"], "labels": { "service": "caddy", "role": "gateway" } }
+]

@@ -1,0 +1,3 @@
+[
+  { "targets": ["10.104.0.18:9121"], "labels": { "service": "redis-exporter", "role": "redis" } }
+]

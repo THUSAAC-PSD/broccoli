@@ -1,0 +1,128 @@
+vpc: default-sgp1
+vpc_cidr: 10.104.0.0/20
+region: sgp1
+image: ubuntu-24-04-x64
+ssh_key_fingerprint: "dd:15:68:d9:26:73:e5:aa:fe:da:45:40:4b:6a:bc:fa"
+ssh_user: root
+
+# All droplets are Ubuntu 24.04 LTS, monitoring enabled.
+# Note: broccoli-postgres was downgraded from g-8vcpu-32gb to s-8vcpu-16gb
+# because General Purpose sizes are tier-restricted on this account.
+# File a DO support ticket to unlock GP/Memory-Optimized if 32 GB RAM is needed.
+
+hosts:
+  - role: gateway
+    name: broccoli-gateway
+    id: 570385691
+    size: s-4vcpu-8gb
+    vcpu: 4
+    memory_gb: 8
+    disk_gb: 160
+    public_ip: 178.128.218.138
+    private_ip: 10.104.0.3
+    price_hourly_usd: 0.07143
+
+  - role: loadgen
+    name: broccoli-loadgen
+    id: 570385705
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 168.144.102.17
+    private_ip: 10.104.0.4
+    price_hourly_usd: 0.14286
+
+  - role: observability
+    name: broccoli-observability
+    id: 570385707
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 174.138.18.132
+    private_ip: 10.104.0.5
+    price_hourly_usd: 0.14286
+
+  - role: api
+    name: broccoli-api-1
+    id: 570385713
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 159.65.138.32
+    private_ip: 10.104.0.6
+    price_hourly_usd: 0.14286
+
+  - role: api
+    name: broccoli-api-2
+    id: 570385718
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 178.128.123.6
+    private_ip: 10.104.0.7
+    price_hourly_usd: 0.14286
+
+  - role: postgres
+    name: broccoli-postgres
+    id: 570385802
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 159.223.67.113
+    private_ip: 10.104.0.12
+    price_hourly_usd: 0.14286
+    note: "Downgraded from g-8vcpu-32gb due to account tier restriction."
+
+  - role: redis
+    name: broccoli-redis
+    id: 570385721
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 178.128.103.154
+    private_ip: 10.104.0.8
+    price_hourly_usd: 0.14286
+
+  - role: storage
+    name: broccoli-storage
+    id: 570385725
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 167.99.73.31
+    private_ip: 10.104.0.9
+    price_hourly_usd: 0.14286
+
+  - role: worker
+    name: broccoli-worker-1
+    id: 570385737
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 68.183.233.129
+    private_ip: 10.104.0.10
+    price_hourly_usd: 0.14286
+
+  - role: worker
+    name: broccoli-worker-2
+    id: 570385747
+    size: s-8vcpu-16gb
+    vcpu: 8
+    memory_gb: 16
+    disk_gb: 320
+    public_ip: 167.172.73.105
+    private_ip: 10.104.0.11
+    price_hourly_usd: 0.14286
+
+cost_summary:
+  hourly_usd: 1.357        # 1x 0.07143 + 9x 0.14286
+  daily_usd: 32.57
+  weekly_usd: 228.0

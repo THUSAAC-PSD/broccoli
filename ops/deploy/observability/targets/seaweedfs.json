@@ -1,0 +1,3 @@
+[
+  { "targets": ["10.104.0.19:9327"], "labels": { "service": "seaweedfs", "role": "storage" } }
+]

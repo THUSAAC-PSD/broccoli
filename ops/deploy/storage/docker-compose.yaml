@@ -1,0 +1,56 @@
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.15
+    restart: unless-stopped
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        cat > /tmp/seaweedfs-s3.json <<EOF
+        {
+          "identities": [
+            {
+              "name": "broccoli",
+              "credentials": [
+                {
+                  "accessKey": "${S3_ACCESS_KEY}",
+                  "secretKey": "${S3_SECRET_KEY}"
+                }
+              ],
+              "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+            }
+          ]
+        }
+        EOF
+        exec weed server \
+          -dir=/data \
+          -s3 \
+          -s3.config=/tmp/seaweedfs-s3.json \
+          -ip=10.104.0.19 \
+          -ip.bind=10.104.0.19 \
+          -metricsPort=9327 \
+          -volume.port=18080 \
+          -volume.max=16 \
+          -master.volumeSizeLimitMB=2048 \
+          -volume.compactionMBps=50
+    network_mode: host
+    volumes:
+      - seaweed_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://10.104.0.19:9333/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.15
+    network_mode: host
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      - "printf 's3.bucket.create -name broccoli-blobs\\n' | weed shell -master=10.104.0.19:9333 -filer=10.104.0.19:8888"
+    restart: "no"
+
+volumes:
+  seaweed_data:

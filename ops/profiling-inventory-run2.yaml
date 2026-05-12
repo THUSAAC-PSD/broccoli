@@ -1,0 +1,87 @@
+run_id: signpost-2026-05-12
+vpc: default-sgp1
+vpc_cidr: 10.104.0.0/20
+region: sgp1
+image: ubuntu-24-04-x64
+ssh_key_fingerprint: "dd:15:68:d9:26:73:e5:aa:fe:da:45:40:4b:6a:bc:fa"
+ssh_user: root
+admin_subnet: "59.66.0.0/16"   # Tsinghua campus block (SSH egress; HTTP egress NATs to 43.239.95.25 separately)
+
+# 1 build droplet + 10 deploy droplets.
+hosts:
+  - role: build
+    name: broccoli-build
+    id: 570404180
+    size: s-8vcpu-16gb
+    public_ip: 209.97.162.248
+    private_ip: 10.104.0.13
+
+  - role: gateway
+    name: broccoli-gateway
+    id: 570404183
+    size: s-4vcpu-8gb
+    public_ip: 206.189.84.60
+    private_ip: 10.104.0.14
+
+  - role: observability
+    name: broccoli-observability
+    id: 570404188
+    size: s-8vcpu-16gb
+    public_ip: 165.22.102.240
+    private_ip: 10.104.0.15
+
+  - role: loadgen
+    name: broccoli-loadgen
+    id: 570404197
+    size: s-8vcpu-16gb
+    public_ip: 168.144.101.175
+    private_ip: 10.104.0.16
+
+  - role: postgres
+    name: broccoli-postgres
+    id: 570404201
+    size: s-8vcpu-16gb
+    public_ip: 159.89.196.18
+    private_ip: 10.104.0.17
+
+  - role: redis
+    name: broccoli-redis
+    id: 570404209
+    size: s-8vcpu-16gb
+    public_ip: 165.232.174.195
+    private_ip: 10.104.0.18
+
+  - role: storage
+    name: broccoli-storage
+    id: 570404221
+    size: s-8vcpu-16gb
+    public_ip: 68.183.226.122
+    private_ip: 10.104.0.19
+
+  - role: api
+    name: broccoli-api-1
+    id: 570404223
+    size: s-8vcpu-16gb
+    public_ip: 209.97.170.94
+    private_ip: 10.104.0.20
+
+  - role: api
+    name: broccoli-api-2
+    id: 570404228
+    size: s-8vcpu-16gb
+    public_ip: 139.59.119.194
+    private_ip: 10.104.0.21
+
+  - role: worker
+    name: broccoli-worker-1
+    id: 570404231
+    size: s-8vcpu-16gb
+    public_ip: 168.144.104.193
+    private_ip: 10.104.0.22
+
+  - role: worker
+    name: broccoli-worker-2
+    id: 570404236
+    size: s-8vcpu-16gb
+    public_ip: 159.65.137.233
+    private_ip: 10.104.0.23

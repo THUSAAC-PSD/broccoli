@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["10.104.0.22:9091", "10.104.0.23:9091"],
+    "labels": { "service": "broccoli-worker", "role": "worker" }
+  }
+]
