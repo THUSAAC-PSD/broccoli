@@ -1,7 +1,7 @@
 use broccoli_server_sdk::types::{
     BuildEvalOpsInput, Environment, EvaluationTimeoutBudget, IOConfig, IOTarget, JudgeFile,
     OperationTask, OutputSpec, ResolveLanguageOutput, ResourceLimits, RunOptions, SessionFile,
-    Step, StepCacheConfig, seconds_from_ms,
+    Step, StepCacheConfig, StepKind, seconds_from_ms,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -188,6 +188,7 @@ pub fn build_operation(
 
         let compile_step = Step {
             id: "compile".to_string(),
+            kind: StepKind::Compile,
             env_ref: "sandbox".to_string(),
             argv: compile.command.clone(),
             conf: RunOptions {
@@ -225,6 +226,7 @@ pub fn build_operation(
 
     let exec_step = Step {
         id: "exec".to_string(),
+        kind: StepKind::Testcase,
         env_ref: "sandbox".to_string(),
         argv: lang.run.command.clone(),
         conf: RunOptions {
@@ -278,7 +280,9 @@ fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::{CompileSpec, FileRef, JudgeFile, RunSpec, SourceFile};
+    use broccoli_server_sdk::types::{
+        CompileSpec, FileRef, JudgeFile, RunSpec, SourceFile, StepKind,
+    };
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -345,7 +349,9 @@ mod tests {
         let tasks = &ops[0].tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].id, "compile");
+        assert_eq!(tasks[0].kind, StepKind::Compile);
         assert_eq!(tasks[1].id, "exec");
+        assert_eq!(tasks[1].kind, StepKind::Testcase);
         assert_eq!(tasks[1].depends_on, vec!["compile"]);
     }
 
@@ -357,6 +363,7 @@ mod tests {
         let tasks = &ops[0].tasks;
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "exec");
+        assert_eq!(tasks[0].kind, StepKind::Testcase);
         assert!(tasks[0].depends_on.is_empty());
     }
 

@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
     BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, JudgeFile, OperationTask,
-    OutputSpec, ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig,
+    OutputSpec, ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig, StepKind,
 };
 
 use crate::config::{CommConfig, CommunicationMode, ManagerSourceEntry, SandboxConfig};
@@ -119,6 +119,7 @@ pub fn build_operation(
 
         steps.push(Step {
             id: "compile_manager".to_string(),
+            kind: StepKind::Compile,
             env_ref: "manager_env".to_string(),
             argv: compile.command.clone(),
             conf: RunOptions {
@@ -161,6 +162,7 @@ pub fn build_operation(
 
             steps.push(Step {
                 id: format!("compile_contestant_{i}"),
+                kind: StepKind::Compile,
                 env_ref: format!("contestant_{i}"),
                 argv: compile.command.clone(),
                 conf: RunOptions {
@@ -211,6 +213,7 @@ pub fn build_operation(
 
     steps.push(Step {
         id: "run_manager".to_string(),
+        kind: StepKind::Testcase,
         env_ref: "manager_env".to_string(),
         argv: manager_argv,
         conf: RunOptions {
@@ -266,6 +269,7 @@ pub fn build_operation(
 
         steps.push(Step {
             id: format!("run_contestant_{i}"),
+            kind: StepKind::Testcase,
             env_ref: format!("contestant_{i}"),
             argv,
             conf: RunOptions {
@@ -398,6 +402,27 @@ mod tests {
             &default_sandbox(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn operation_steps_mark_compile_and_runtime_kinds() {
+        let ops = build(&make_req(), &default_comm());
+        let tasks = &ops[0].tasks;
+
+        let compile_manager = tasks.iter().find(|s| s.id == "compile_manager").unwrap();
+        assert_eq!(compile_manager.kind, StepKind::Compile);
+
+        let compile_contestant = tasks
+            .iter()
+            .find(|s| s.id == "compile_contestant_0")
+            .unwrap();
+        assert_eq!(compile_contestant.kind, StepKind::Compile);
+
+        let run_manager = tasks.iter().find(|s| s.id == "run_manager").unwrap();
+        assert_eq!(run_manager.kind, StepKind::Testcase);
+
+        let run_contestant = tasks.iter().find(|s| s.id == "run_contestant_0").unwrap();
+        assert_eq!(run_contestant.kind, StepKind::Testcase);
     }
 
     #[test]

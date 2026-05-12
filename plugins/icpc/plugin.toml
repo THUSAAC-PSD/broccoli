@@ -13,7 +13,6 @@ permissions = [
     "sql",
     "evaluator:evaluate",
     "config:read",
-    "storage",
 ]
 
 [[server.routes]]

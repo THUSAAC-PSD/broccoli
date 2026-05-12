@@ -1,6 +1,42 @@
 pub mod config;
 pub mod evaluate;
 pub mod persist;
+pub mod standings;
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn current_submissions_sql(contest_id_placeholder: &str, user_filter: &str) -> String {
+    format!(
+        "SELECT s.id AS submission_id, s.user_id, s.problem_id, \
+                sj.status::text AS status, sj.verdict::text AS verdict, \
+                EXTRACT(EPOCH FROM (s.created_at - c.start_time)) * 1000 AS elapsed_ms \
+         FROM submission s \
+         JOIN submission_judgement sj ON sj.submission_id = s.id \
+          AND sj.is_current = TRUE AND sj.is_finalized = TRUE \
+         JOIN contest c ON c.id = s.contest_id \
+         JOIN contest_problem cp ON cp.contest_id = s.contest_id \
+          AND cp.problem_id = s.problem_id \
+         WHERE s.contest_id = {contest_id_placeholder}{user_filter}"
+    )
+}
+
+#[cfg(test)]
+mod sql_tests {
+    use super::*;
+
+    #[test]
+    fn current_submission_query_can_be_restricted_to_visible_user_and_contest_problems() {
+        let sql = current_submissions_sql("$1", " AND s.user_id = $2");
+
+        assert!(
+            sql.contains("JOIN contest_problem cp"),
+            "query should join contest_problem to avoid scanning unrelated problem rows: {sql}"
+        );
+        assert!(
+            sql.contains("AND s.user_id = $2"),
+            "query should be restrictable to the visible contestant row: {sql}"
+        );
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
@@ -13,11 +49,13 @@ use extism_pdk::{FnResult, plugin_fn};
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
-use crate::config::{ContestConfig, ProblemState, standings_key};
+use crate::config::{ContestConfig, ProblemState};
 #[cfg(target_arch = "wasm32")]
 use crate::evaluate::evaluate_short_circuit;
 #[cfg(target_arch = "wasm32")]
 use crate::persist::persist_and_track;
+#[cfg(target_arch = "wasm32")]
+use crate::standings::{StandingsSubmission, compute_problem_states};
 
 // ── Plugin entry points ─────────────────────────────────────────────────
 
@@ -47,7 +85,7 @@ pub fn handle_icpc_submission(input: String) -> FnResult<String> {
                 "ICPC: Judging submission {} for problem {} in contest {}",
                 req.submission_id, req.problem_id, contest_id
             ))?;
-            match run_judge(&host, &req, contest_id) {
+            match run_judge(&host, &req) {
                 Ok(out) => out,
                 Err(SdkError::StaleEpoch) => OnSubmissionOutput {
                     success: true,
@@ -75,13 +113,7 @@ pub fn handle_icpc_code_run(input: String) -> FnResult<String> {
 // ── Core judging logic ──────────────────────────────────────────────────
 
 #[cfg(target_arch = "wasm32")]
-fn run_judge(
-    host: &Host,
-    req: &OnSubmissionInput,
-    contest_id: i32,
-) -> Result<OnSubmissionOutput, SdkError> {
-    let contest_config: ContestConfig = contest::load_config(host, contest_id)?;
-
+fn run_judge(host: &Host, req: &OnSubmissionInput) -> Result<OnSubmissionOutput, SdkError> {
     let test_cases = req.test_cases.clone();
 
     if test_cases.is_empty() {
@@ -130,11 +162,7 @@ fn run_judge(
         req.submission_id,
         req.judgement_id,
         req.judge_epoch,
-        contest_id,
-        req.user_id,
-        req.problem_id,
         &eval,
-        contest_config.count_compile_error,
     )
 }
 
@@ -367,10 +395,9 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
     let phase = &info.phase;
     let can_view_all = req.has_permission("contest:manage");
     let is_restricted = (phase == "before" || phase == "during") && !can_view_all;
-    let mut p = Params::new();
-    let user_filter = if is_restricted {
+    let restricted_user_id = if is_restricted {
         match req.user_id() {
-            Some(uid) => format!(" AND cu.user_id = {}", p.bind(uid)),
+            Some(uid) => Some(uid),
             None => {
                 return Ok(PluginHttpResponse {
                     status: 200,
@@ -385,6 +412,12 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
             }
         }
     } else {
+        None
+    };
+    let mut p = Params::new();
+    let user_filter = if let Some(uid) = restricted_user_id {
+        format!(" AND cu.user_id = {}", p.bind(uid))
+    } else {
         String::new()
     };
     let sql = format!(
@@ -397,17 +430,37 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
     );
     let participants: Vec<Participant> = host.db.query_with_args(&sql, &p.into_args())?;
 
-    // Bulk-fetch all standings keys
-    let all_keys: Vec<String> = participants
-        .iter()
-        .flat_map(|p| {
-            problem_ids
-                .iter()
-                .map(move |&pid| standings_key(contest_id, p.user_id, pid))
+    #[derive(Deserialize)]
+    struct CurrentSubmission {
+        submission_id: i32,
+        user_id: i32,
+        problem_id: i32,
+        status: String,
+        verdict: Option<Verdict>,
+        elapsed_ms: Option<f64>,
+    }
+    let mut p = Params::new();
+    let contest_id_placeholder = p.bind(contest_id);
+    let submission_user_filter = if let Some(uid) = restricted_user_id {
+        format!(" AND s.user_id = {}", p.bind(uid))
+    } else {
+        String::new()
+    };
+    let sql = current_submissions_sql(&contest_id_placeholder, &submission_user_filter);
+    let current_submissions: Vec<CurrentSubmission> =
+        host.db.query_with_args(&sql, &p.into_args())?;
+    let standings_submissions: Vec<StandingsSubmission> = current_submissions
+        .into_iter()
+        .map(|row| StandingsSubmission {
+            submission_id: row.submission_id,
+            user_id: row.user_id,
+            problem_id: row.problem_id,
+            verdict: row.verdict,
+            status: row.status,
+            elapsed_ms: row.elapsed_ms.unwrap_or(0.0).max(0.0) as i64,
         })
         .collect();
-    let key_refs: Vec<&str> = all_keys.iter().map(|s| s.as_str()).collect();
-    let all_states = host.storage.get(&key_refs)?;
+    let all_states = compute_problem_states(&standings_submissions, config.count_compile_error);
 
     // Track first solve per problem for highlighting
     let mut first_solve_time: HashMap<i32, (i32, i64)> = HashMap::new(); // problem_id -> (user_id, solve_time_ms)
@@ -443,10 +496,9 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         let mut problem_cells = HashMap::new();
 
         for (i, &pid) in problem_ids.iter().enumerate() {
-            let key = standings_key(contest_id, participant.user_id, pid);
             let state: ProblemState = all_states
-                .get(&key)
-                .and_then(|s| serde_json::from_str(s).ok())
+                .get(&(participant.user_id, pid))
+                .cloned()
                 .unwrap_or_default();
 
             let label = &problem_labels[i];
@@ -505,14 +557,12 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
     for entry in &mut entries {
         for (i, &pid) in problem_ids.iter().enumerate() {
             let label = &problem_labels[i];
-            if let Some(cell) = entry.problems.get_mut(label) {
-                if cell.solved {
-                    if let Some(&(first_uid, _)) = first_solve_time.get(&pid) {
-                        if first_uid == entry.user_id {
-                            cell.first_solve = Some(true);
-                        }
-                    }
-                }
+            if let Some(cell) = entry.problems.get_mut(label)
+                && cell.solved
+                && let Some(&(first_uid, _)) = first_solve_time.get(&pid)
+                && first_uid == entry.user_id
+            {
+                cell.first_solve = Some(true);
             }
         }
     }

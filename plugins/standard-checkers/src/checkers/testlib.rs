@@ -195,6 +195,142 @@ impl EmptyStringExt for String {
     }
 }
 
+fn build_testlib_checker_operations(
+    checker_source: &[SourceFile],
+    test_input: &JudgeFile,
+    stdout: &JudgeFile,
+    expected_output: &JudgeFile,
+    resolved: &ResolveLanguageOutput,
+    config: &TestlibConfig,
+) -> Vec<OperationTask> {
+    let mut files_in = Vec::new();
+    for source in checker_source {
+        files_in.push((
+            source.filename.clone(),
+            SessionFile::Content {
+                content: source.content.clone(),
+            },
+        ));
+    }
+    files_in.push((
+        "input.txt".to_string(),
+        session_file_from_judge_file(test_input),
+    ));
+    files_in.push((
+        "output.txt".to_string(),
+        session_file_from_judge_file(stdout),
+    ));
+    files_in.push((
+        "answer.txt".to_string(),
+        session_file_from_judge_file(expected_output),
+    ));
+
+    let mut steps = Vec::new();
+
+    if let Some(compile) = &resolved.compile {
+        let cache_outputs: Vec<String> = compile
+            .outputs
+            .iter()
+            .map(|o| match o {
+                OutputSpec::File(f) => f.clone(),
+                OutputSpec::Glob(g) => g.clone(),
+            })
+            .collect();
+        let mut collect = cache_outputs.clone();
+        collect.push("checker_compile.log".to_string());
+        collect.push("checker_compile_err.log".to_string());
+
+        steps.push(Step {
+            id: "compile_checker".to_string(),
+            kind: StepKind::CheckerCompile,
+            env_ref: "checker_sandbox".to_string(),
+            argv: compile.command.clone(),
+            conf: RunOptions {
+                resource_limits: ResourceLimits {
+                    time_limit: Some(config.compile_time_limit_s),
+                    memory_limit: Some(config.compile_memory_limit_kb),
+                    process_limit: Some(64),
+                    ..Default::default()
+                },
+                env_rules: vec![EnvRule::FullEnv],
+                ..Default::default()
+            },
+            io: IOConfig {
+                stdin: IOTarget::Null,
+                stdout: IOTarget::File {
+                    path: "checker_compile.log".to_string(),
+                },
+                stderr: IOTarget::File {
+                    path: "checker_compile_err.log".to_string(),
+                },
+            },
+            collect,
+            depends_on: vec![],
+            cache: Some(StepCacheConfig {
+                key_inputs: compile.cache_inputs.clone(),
+                outputs: cache_outputs,
+            }),
+        });
+    }
+
+    let checker_binary = resolved
+        .compile
+        .as_ref()
+        .and_then(|c| c.outputs.first())
+        .map(|o| match o {
+            OutputSpec::File(f) => format!("./{f}"),
+            OutputSpec::Glob(_) => "./checker".to_string(), // unreachable since it's always C/C++
+        })
+        .unwrap_or_else(|| "./checker".to_string());
+
+    steps.push(Step {
+        id: "check".to_string(),
+        kind: StepKind::Checker,
+        env_ref: "checker_sandbox".to_string(),
+        argv: vec![
+            checker_binary,
+            "input.txt".to_string(),
+            "output.txt".to_string(),
+            "answer.txt".to_string(),
+        ],
+        conf: RunOptions {
+            resource_limits: ResourceLimits {
+                time_limit: Some(config.run_time_limit_s),
+                memory_limit: Some(config.run_memory_limit_kb),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        io: IOConfig {
+            stdin: IOTarget::Null,
+            stdout: IOTarget::File {
+                path: "checker_out.txt".to_string(),
+            },
+            stderr: IOTarget::File {
+                path: "checker_err.txt".to_string(),
+            },
+        },
+        collect: vec!["checker_out.txt".to_string(), "checker_err.txt".to_string()],
+        depends_on: if resolved.compile.is_some() {
+            vec!["compile_checker".to_string()]
+        } else {
+            vec![]
+        },
+        cache: None,
+    });
+
+    vec![OperationTask {
+        environments: vec![Environment {
+            id: "checker_sandbox".to_string(),
+            files_in,
+        }],
+        tasks: steps,
+        channels: vec![],
+        priority: None,
+        target_worker_id: None,
+    }]
+}
+
 /// Dispatch testlib checker.
 #[cfg(target_arch = "wasm32")]
 pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> CheckerVerdict {
@@ -260,130 +396,14 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         }
     };
 
-    let mut files_in = Vec::new();
-    for source in checker_source {
-        files_in.push((
-            source.filename.clone(),
-            SessionFile::Content {
-                content: source.content.clone(),
-            },
-        ));
-    }
-    files_in.push((
-        "input.txt".to_string(),
-        session_file_from_judge_file(&req.test_input),
-    ));
-    files_in.push((
-        "output.txt".to_string(),
-        session_file_from_judge_file(&req.stdout),
-    ));
-    files_in.push((
-        "answer.txt".to_string(),
-        session_file_from_judge_file(&req.expected_output),
-    ));
-
-    let mut steps = Vec::new();
-
-    if let Some(compile) = &resolved.compile {
-        let cache_outputs: Vec<String> = compile
-            .outputs
-            .iter()
-            .map(|o| match o {
-                OutputSpec::File(f) => f.clone(),
-                OutputSpec::Glob(g) => g.clone(),
-            })
-            .collect();
-        let mut collect = cache_outputs.clone();
-        collect.push("checker_compile.log".to_string());
-        collect.push("checker_compile_err.log".to_string());
-
-        steps.push(Step {
-            id: "compile_checker".to_string(),
-            env_ref: "checker_sandbox".to_string(),
-            argv: compile.command.clone(),
-            conf: RunOptions {
-                resource_limits: ResourceLimits {
-                    time_limit: Some(config.compile_time_limit_s),
-                    memory_limit: Some(config.compile_memory_limit_kb),
-                    process_limit: Some(64),
-                    ..Default::default()
-                },
-                env_rules: vec![EnvRule::FullEnv],
-                ..Default::default()
-            },
-            io: IOConfig {
-                stdin: IOTarget::Null,
-                stdout: IOTarget::File {
-                    path: "checker_compile.log".to_string(),
-                },
-                stderr: IOTarget::File {
-                    path: "checker_compile_err.log".to_string(),
-                },
-            },
-            collect,
-            depends_on: vec![],
-            cache: Some(StepCacheConfig {
-                key_inputs: compile.cache_inputs.clone(),
-                outputs: cache_outputs,
-            }),
-        });
-    }
-
-    let checker_binary = resolved
-        .compile
-        .as_ref()
-        .and_then(|c| c.outputs.first())
-        .map(|o| match o {
-            OutputSpec::File(f) => format!("./{f}"),
-            OutputSpec::Glob(_) => "./checker".to_string(), // unreachable since it's always C/C++
-        })
-        .unwrap_or_else(|| "./checker".to_string());
-
-    steps.push(Step {
-        id: "check".to_string(),
-        env_ref: "checker_sandbox".to_string(),
-        argv: vec![
-            checker_binary,
-            "input.txt".to_string(),
-            "output.txt".to_string(),
-            "answer.txt".to_string(),
-        ],
-        conf: RunOptions {
-            resource_limits: ResourceLimits {
-                time_limit: Some(config.run_time_limit_s),
-                memory_limit: Some(config.run_memory_limit_kb),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        io: IOConfig {
-            stdin: IOTarget::Null,
-            stdout: IOTarget::File {
-                path: "checker_out.txt".to_string(),
-            },
-            stderr: IOTarget::File {
-                path: "checker_err.txt".to_string(),
-            },
-        },
-        collect: vec!["checker_out.txt".to_string(), "checker_err.txt".to_string()],
-        depends_on: if resolved.compile.is_some() {
-            vec!["compile_checker".to_string()]
-        } else {
-            vec![]
-        },
-        cache: None,
-    });
-
-    let operations = vec![OperationTask {
-        environments: vec![Environment {
-            id: "checker_sandbox".to_string(),
-            files_in,
-        }],
-        tasks: steps,
-        channels: vec![],
-        priority: None,
-        target_worker_id: None,
-    }];
+    let operations = build_testlib_checker_operations(
+        checker_source,
+        &req.test_input,
+        &req.stdout,
+        &req.expected_output,
+        &resolved,
+        &config,
+    );
 
     let batch_id = match host.operations.start_batch(&operations) {
         Ok(id) => id,
@@ -446,7 +466,6 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
     match file {
         JudgeFile::Blob { file } => SessionFile::Blob {
@@ -512,6 +531,47 @@ pub fn parse_testlib_partial(stderr: &str) -> (f64, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_judge_file() -> JudgeFile {
+        JudgeFile::inline("sample\n")
+    }
+
+    #[test]
+    fn checker_operation_marks_compile_and_checker_step_kinds() {
+        let checker_source = vec![SourceFile {
+            filename: "checker.cpp".to_string(),
+            content: "int main() { return 0; }".to_string(),
+        }];
+        let resolved = ResolveLanguageOutput {
+            compile: Some(CompileSpec {
+                command: vec![
+                    "/usr/bin/g++".to_string(),
+                    "checker.cpp".to_string(),
+                    "-o".to_string(),
+                    "checker".to_string(),
+                ],
+                cache_inputs: vec!["checker.cpp".to_string()],
+                outputs: vec![OutputSpec::File("checker".to_string())],
+                resource_limits: None,
+            }),
+            run: RunSpec {
+                command: vec!["./checker".to_string()],
+                extra_files: vec![],
+            },
+        };
+
+        let operations = build_testlib_checker_operations(
+            &checker_source,
+            &sample_judge_file(),
+            &sample_judge_file(),
+            &sample_judge_file(),
+            &resolved,
+            &TestlibConfig::default(),
+        );
+
+        assert_eq!(operations[0].tasks[0].kind, StepKind::CheckerCompile);
+        assert_eq!(operations[0].tasks[1].kind, StepKind::Checker);
+    }
 
     #[test]
     fn exit_0_accepted() {

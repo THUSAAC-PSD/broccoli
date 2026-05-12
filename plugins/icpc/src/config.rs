@@ -19,7 +19,7 @@ fn default_penalty_minutes() -> i32 {
     20
 }
 
-/// Per-user per-problem penalty tracking state, stored in plugin storage.
+/// Per-user per-problem state derived from current finalized judgements.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProblemState {
     /// Number of penalty-eligible wrong submissions before AC.
@@ -29,11 +29,6 @@ pub struct ProblemState {
     /// Milliseconds from contest start to the accepted submission.
     /// Only meaningful when `solved == true`.
     pub solve_time_ms: Option<i64>,
-}
-
-/// Build the plugin-storage key for a user's per-problem penalty state.
-pub fn standings_key(contest_id: i32, user_id: i32, problem_id: i32) -> String {
-    format!("standings:{contest_id}:{user_id}:{problem_id}")
 }
 
 impl ProblemState {

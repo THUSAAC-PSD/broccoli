@@ -192,7 +192,7 @@ pub fn evaluate_short_circuit(
         let mut fill_rows: Vec<TestCaseResultRow> = Vec::new();
         for tc in test_cases {
             if !collected_ids.contains(&tc.id) {
-                let is_custom = tc_map.get(&tc.id).map_or(false, |t| t.is_custom);
+                let is_custom = tc_map.get(&tc.id).is_some_and(|t| t.is_custom);
                 let (tc_id, run_index) = if is_custom {
                     (None, Some(tc.id))
                 } else {
@@ -288,7 +288,7 @@ fn insert_tc_result(
     tc_map: &HashMap<i32, &TestCaseRow>,
 ) -> Result<(), SdkError> {
     let tc = tc_map.get(&outcome.test_case_id);
-    let is_custom = tc.map_or(false, |t| t.is_custom);
+    let is_custom = tc.is_some_and(|t| t.is_custom);
     let (tc_id, run_index) = if is_custom {
         (None, Some(outcome.test_case_id))
     } else {
