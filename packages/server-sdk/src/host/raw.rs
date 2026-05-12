@@ -16,6 +16,7 @@ extern "ExtismHost" {
     pub fn start_evaluate_batch(input: String) -> String;
     pub fn get_next_evaluate_result(input: String) -> String;
     pub fn cancel_evaluate_batch(input: String);
+    pub fn cancel_evaluate_test_cases(input: String) -> String;
     pub fn start_operation_batch(input: String) -> String;
     pub fn get_next_operation_result(input: String) -> String;
     pub fn cancel_operation_batch(input: String);
