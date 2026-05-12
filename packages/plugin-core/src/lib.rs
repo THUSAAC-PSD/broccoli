@@ -2,6 +2,7 @@ pub mod config;
 pub mod error;
 pub mod hook;
 pub mod host;
+pub mod host_context;
 pub mod http;
 pub mod i18n;
 pub mod manager;

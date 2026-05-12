@@ -295,119 +295,138 @@ pub trait PluginManager: Send + Sync {
         Ok(new_ids)
     }
 
-    #[instrument(skip(self, input), fields(plugin_id = %plugin_id, function = %func_name))]
     async fn call_raw(
         &self,
         plugin_id: &str,
         func_name: &str,
         input: Vec<u8>,
     ) -> Result<Vec<u8>, PluginError> {
+        self.call_raw_with_host_context(plugin_id, func_name, input, None)
+            .await
+    }
+
+    #[instrument(skip(self, input, host_context), fields(plugin_id = %plugin_id, function = %func_name))]
+    async fn call_raw_with_host_context(
+        &self,
+        plugin_id: &str,
+        func_name: &str,
+        input: Vec<u8>,
+        host_context: Option<serde_json::Value>,
+    ) -> Result<Vec<u8>, PluginError> {
         let start = std::time::Instant::now();
 
         let timeout = Duration::from_secs(self.get_config().call_timeout_secs);
-        let registry = self
-            .get_registry()
-            .read()
-            .map_err(|_| PluginError::Internal("Failed to acquire registry read lock".into()))?;
+        let pool = {
+            let registry = self.get_registry().read().map_err(|_| {
+                PluginError::Internal("Failed to acquire registry read lock".into())
+            })?;
 
-        let plugin_entry = registry
-            .get(plugin_id)
-            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+            let plugin_entry = registry
+                .get(plugin_id)
+                .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
 
-        if plugin_entry.status != PluginStatus::Loaded {
-            return Err(PluginError::NotLoaded(plugin_id.to_string()));
-        }
-
-        let pool = plugin_entry
-            .runtime
-            .as_ref()
-            .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?
-            .clone();
-
-        drop(registry);
-
-        let metrics = self.get_metrics().cloned();
-        let plugin_id_for_metrics = plugin_id.to_string();
-        let func_name_for_metrics = func_name.to_string();
-
-        let result = tokio::task::block_in_place(|| {
-            let acquire_start = std::time::Instant::now();
-            let plugin = match pool.get(timeout) {
-                Ok(Some(plugin)) => {
-                    if let Some(metrics) = metrics.as_ref() {
-                        metrics.plugin_instance_acquire_duration.record(
-                            acquire_start.elapsed().as_secs_f64(),
-                            &[
-                                KeyValue::new("plugin.id", plugin_id_for_metrics.clone()),
-                                KeyValue::new("plugin.function", func_name_for_metrics.clone()),
-                                KeyValue::new("outcome", "success"),
-                            ],
-                        );
-                    }
-                    plugin
-                }
-                Ok(None) => {
-                    if let Some(metrics) = metrics.as_ref() {
-                        metrics.plugin_instance_acquire_duration.record(
-                            acquire_start.elapsed().as_secs_f64(),
-                            &[
-                                KeyValue::new("plugin.id", plugin_id_for_metrics.clone()),
-                                KeyValue::new("plugin.function", func_name_for_metrics.clone()),
-                                KeyValue::new("outcome", "timeout"),
-                            ],
-                        );
-                        metrics.plugin_instance_acquire_failures.add(
-                            1,
-                            &[
-                                KeyValue::new("plugin.id", plugin_id_for_metrics.clone()),
-                                KeyValue::new("plugin.function", func_name_for_metrics.clone()),
-                                KeyValue::new("failure.kind", "timeout"),
-                            ],
-                        );
-                    }
-                    return Err(PluginError::PoolTimeout(plugin_id.to_string()));
-                }
-                Err(e) => {
-                    if let Some(metrics) = metrics.as_ref() {
-                        metrics.plugin_instance_acquire_duration.record(
-                            acquire_start.elapsed().as_secs_f64(),
-                            &[
-                                KeyValue::new("plugin.id", plugin_id_for_metrics.clone()),
-                                KeyValue::new("plugin.function", func_name_for_metrics.clone()),
-                                KeyValue::new("outcome", "error"),
-                            ],
-                        );
-                        metrics.plugin_instance_acquire_failures.add(
-                            1,
-                            &[
-                                KeyValue::new("plugin.id", plugin_id_for_metrics.clone()),
-                                KeyValue::new("plugin.function", func_name_for_metrics.clone()),
-                                KeyValue::new("failure.kind", "error"),
-                            ],
-                        );
-                    }
-                    return Err(PluginError::Internal(format!(
-                        "Failed to acquire runtime instance for plugin '{}': {}",
-                        plugin_id, e
-                    )));
-                }
-            };
-
-            if !plugin.plugin().function_exists(func_name) {
-                return Err(PluginError::FunctionNotFound {
-                    plugin_id: plugin_id.to_string(),
-                    func_name: func_name.to_string(),
-                });
+            if plugin_entry.status != PluginStatus::Loaded {
+                return Err(PluginError::NotLoaded(plugin_id.to_string()));
             }
 
-            plugin
-                .call(func_name, input)
-                .map_err(|e| PluginError::ExecutionFailed {
-                    plugin_id: plugin_id.to_string(),
-                    func_name: func_name.to_string(),
-                    message: e.to_string(),
+            plugin_entry
+                .runtime
+                .as_ref()
+                .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?
+                .clone()
+        };
+
+        let metrics = self.get_metrics().cloned();
+        let plugin_id_owned = plugin_id.to_string();
+        let func_name_owned = func_name.to_string();
+
+        let result = tokio::task::spawn_blocking({
+            let plugin_id = plugin_id_owned.clone();
+            let func_name = func_name_owned.clone();
+            let metrics = metrics.clone();
+            move || {
+                crate::host_context::with_context(host_context, || {
+                    let acquire_start = std::time::Instant::now();
+                    let plugin = match pool.get(timeout) {
+                        Ok(Some(plugin)) => {
+                            if let Some(metrics) = metrics.as_ref() {
+                                metrics.plugin_instance_acquire_duration.record(
+                                    acquire_start.elapsed().as_secs_f64(),
+                                    &[
+                                        KeyValue::new("plugin.id", plugin_id.clone()),
+                                        KeyValue::new("plugin.function", func_name.clone()),
+                                        KeyValue::new("outcome", "success"),
+                                    ],
+                                );
+                            }
+                            plugin
+                        }
+                        Ok(None) => {
+                            if let Some(metrics) = metrics.as_ref() {
+                                metrics.plugin_instance_acquire_duration.record(
+                                    acquire_start.elapsed().as_secs_f64(),
+                                    &[
+                                        KeyValue::new("plugin.id", plugin_id.clone()),
+                                        KeyValue::new("plugin.function", func_name.clone()),
+                                        KeyValue::new("outcome", "timeout"),
+                                    ],
+                                );
+                                metrics.plugin_instance_acquire_failures.add(
+                                    1,
+                                    &[
+                                        KeyValue::new("plugin.id", plugin_id.clone()),
+                                        KeyValue::new("plugin.function", func_name.clone()),
+                                        KeyValue::new("failure.kind", "timeout"),
+                                    ],
+                                );
+                            }
+                            return Err(PluginError::PoolTimeout(plugin_id.clone()));
+                        }
+                        Err(e) => {
+                            if let Some(metrics) = metrics.as_ref() {
+                                metrics.plugin_instance_acquire_duration.record(
+                                    acquire_start.elapsed().as_secs_f64(),
+                                    &[
+                                        KeyValue::new("plugin.id", plugin_id.clone()),
+                                        KeyValue::new("plugin.function", func_name.clone()),
+                                        KeyValue::new("outcome", "error"),
+                                    ],
+                                );
+                                metrics.plugin_instance_acquire_failures.add(
+                                    1,
+                                    &[
+                                        KeyValue::new("plugin.id", plugin_id.clone()),
+                                        KeyValue::new("plugin.function", func_name.clone()),
+                                        KeyValue::new("failure.kind", "error"),
+                                    ],
+                                );
+                            }
+                            return Err(PluginError::Internal(format!(
+                                "Failed to acquire runtime instance for plugin '{}': {}",
+                                plugin_id, e
+                            )));
+                        }
+                    };
+
+                    if !plugin.plugin().function_exists(&func_name) {
+                        return Err(PluginError::FunctionNotFound {
+                            plugin_id: plugin_id.clone(),
+                            func_name: func_name.clone(),
+                        });
+                    }
+
+                    plugin.call(func_name.as_str(), input).map_err(|e| {
+                        PluginError::ExecutionFailed {
+                            plugin_id: plugin_id.clone(),
+                            func_name: func_name.clone(),
+                            message: e.to_string(),
+                        }
+                    })
                 })
-        });
+            }
+        })
+        .await
+        .map_err(|e| PluginError::Internal(format!("plugin task join failed: {e}")))?;
 
         let duration = start.elapsed();
         if let Some(metrics) = self.get_metrics() {
