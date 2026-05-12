@@ -133,6 +133,12 @@ drain_seconds = (n_submissions * n_testcases * avg_op_time_seconds)
 
 For 100 submissions × 50 testcases × 5 s on 7 machines × 4 slots ≈ 30 minutes.
 
+Servers default to local evaluator admission sizing. After worker heartbeats are
+visible and include `worker.max_concurrency`, operators can enable
+`BROCCOLI__SERVER__FLEET_AWARE_ADMISSION_ENABLED=true`; each server then polls
+live worker/server heartbeats and sizes its evaluator slots to roughly
+`sum(live worker max_concurrency) / live server replicas`.
+
 **Deployment topology**
 
 The official deployment model is **one worker process per physical machine**,
@@ -148,9 +154,40 @@ number to reason about and one place to apply core-pinning / cgroup
 configuration.
 
 Raising `max_concurrency` above 1 within a single daemon has the same fairness
-trade-off and is documented separately under "Raising max_concurrency safely"
-(once the Phase 1 isolation scripts ship in `release/`). Until then, leave it
-at 1.
+trade-off. Use the procedure below before changing it.
+
+**Raising max_concurrency safely**
+
+Default worker concurrency is `max_concurrency=1`. Leave it there unless the
+worker host has been prepared for CPU isolation.
+
+On the Linux worker host, run:
+
+```bash
+sudo ./release/setup-fairness.sh --max-concurrency 4 --cpus 0-3
+cat fairness.env >> .env.worker
+docker compose --env-file .env.worker -f docker-compose.worker.yaml up -d --no-deps worker
+```
+
+The script refuses to run when SMT/hyperthreading is enabled unless
+`--allow-smt` is passed. It sets CPU governors to `performance` when the host
+exposes writable governor controls, configures isolate per-box CPU assignments
+so each sandbox `box_id` writes a fixed `cpuset.cpus`, and writes the worker env
+snippet:
+
+```bash
+BROCCOLI__WORKER__MAX_CONCURRENCY=4
+BROCCOLI__WORKER__FAIRNESS_UNSAFE_ALLOW=false
+```
+
+WSL and macOS are not supported production fairness targets. Use WSL only for
+local isolate smoke tests and keep `BROCCOLI__WORKER__MAX_CONCURRENCY=1`; macOS
+cannot run the Linux cgroup setup and should also stay clamped to 1.
+
+Phase 1 only makes multi-slot judging an explicit operator opt-in. It does not
+prove verdict fairness: instruction-count instrumentation with `perf_event_open`
+is Phase 5. Treat any higher concurrency as an operational risk for borderline
+time-limit cases until Phase 5 data exists.
 
 **Sizing the database connection pool**
 
@@ -186,6 +223,8 @@ claim invariants, and the planned observability streams (see
 admins watch. `allkeys-lru` would silently lose all of these. With `noeviction`,
 a full Redis returns `OOM command not allowed`; workers retry, the API returns
 `503 OVERLOADED`, and operators get an alert — fail-loud beats fail-silent.
+Worker dedup keys expire via `BROCCOLI__WORKER__DEDUP_TTL_SECS` (default 600)
+instead of the DLQ stuck-job timeout.
 
 ## Multi-Replica Server Identity
 
@@ -206,9 +245,10 @@ each replica's env file before starting.
 
 ## Recovering In-Flight Submissions After a Server Crash
 
-Until the Phase 1b lease/steal mechanism ships, a server crash leaves its
-in-flight submissions in `Running` status until the stuck-job detector catches
-them (default 2 hours via `stuck_job_timeout_secs`). When this happens:
+Unless the Phase 1b lease/steal mechanism is explicitly enabled, a server crash
+leaves its in-flight submissions in `Running` status until the stuck-job
+detector catches them (default 2 hours via `stuck_job_timeout_secs`). When this
+happens:
 
 1. Confirm the failed server is dead (not merely network-partitioned). Two
    replicas with the same ID racing on the same queue is worse than ghost
@@ -222,5 +262,7 @@ them (default 2 hours via `stuck_job_timeout_secs`). When this happens:
    `redis-cli DEL <queue_name> <queue_name>_processing <queue_name>_failed <queue_name>_fairness_set`
    to reclaim the memory.
 
-Phase 1b will automate steps 2–3 (peer servers steal stale submissions within
-~75 s; a sweeper drops ghost queues after 1 h).
+With `BROCCOLI__SERVER__DISPATCHER_LEASE_STEAL_ENABLED=true`, Phase 1b automates
+the recovery loop foundation: servers write heartbeats, refresh owned leases,
+and dry-run ghost reply-queue sweeps. Steal scanning remains behind the same
+opt-in rollout path until the dispatch replay path is enabled.
