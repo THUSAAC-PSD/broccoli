@@ -121,9 +121,22 @@ pub struct StepCacheConfig {
     pub outputs: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    #[default]
+    Generic,
+    Compile,
+    Testcase,
+    CheckerCompile,
+    Checker,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
     pub id: String,
+    #[serde(default)]
+    pub kind: StepKind,
     pub env_ref: String,
     pub argv: Vec<String>,
     pub conf: RunOptions,
@@ -222,6 +235,36 @@ impl Default for ExecutionResult {
             stdout: String::new(),
             stderr: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_kind_defaults_to_generic_for_legacy_payloads() {
+        let step: Step = serde_json::from_value(serde_json::json!({
+            "id": "legacy",
+            "env_ref": "sandbox",
+            "argv": ["echo", "ok"],
+            "conf": {},
+            "io": {
+                "stdin": {"type": "null"},
+                "stdout": {"type": "null"},
+                "stderr": {"type": "null"}
+            },
+            "collect": []
+        }))
+        .unwrap();
+
+        assert_eq!(step.kind, StepKind::Generic);
+    }
+
+    #[test]
+    fn step_kind_uses_snake_case_wire_values() {
+        let value = serde_json::to_value(StepKind::CheckerCompile).unwrap();
+        assert_eq!(value, serde_json::json!("checker_compile"));
     }
 }
 

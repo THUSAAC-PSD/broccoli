@@ -26,7 +26,7 @@ pub use http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
 pub use operation::{
     Channel, DirectoryOptions, DirectoryRule, EnvRule, Environment, ExecutionResult, IOConfig,
     IOTarget, OperationResult, OperationTask, ResourceLimits, RunOptions, SandboxResult,
-    SessionFile, Step, StepCacheConfig, TaskExecutionResult,
+    SessionFile, Step, StepCacheConfig, StepKind, TaskExecutionResult,
 };
 pub use persistence::{
     CodeRunResultRow, CodeRunUpdate, SubmissionStatus, SubmissionUpdate, TestCaseResultRow,

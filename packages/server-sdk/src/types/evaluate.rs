@@ -459,12 +459,68 @@ impl OutputSpec {
         if value.is_empty() {
             return Err(format!("Output {kind} must not be empty"));
         }
-        if value.contains("..") || value.starts_with('/') || value.contains('\\') {
+        if value.split('/').any(|component| component == "..")
+            || value.starts_with('/')
+            || value.contains('\\')
+        {
             return Err(format!(
                 "Output {kind} '{value}' contains unsafe path components"
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod output_spec_tests {
+    use super::OutputSpec;
+
+    #[test]
+    fn output_spec_allows_double_dots_inside_filename_segments() {
+        assert!(
+            OutputSpec::File("solution..bin".to_string())
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            OutputSpec::Glob("classes..tmp/*.class".to_string())
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn output_spec_rejects_parent_directory_components() {
+        assert!(OutputSpec::File("..".to_string()).validate().is_err());
+        assert!(
+            OutputSpec::File("../solution".to_string())
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OutputSpec::Glob("target/../*.class".to_string())
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OutputSpec::Glob("target/..".to_string())
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn output_spec_rejects_absolute_and_backslash_paths() {
+        assert!(
+            OutputSpec::File("/solution".to_string())
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OutputSpec::File("target\\solution".to_string())
+                .validate()
+                .is_err()
+        );
     }
 }
 
