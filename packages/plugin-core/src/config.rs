@@ -9,6 +9,12 @@ pub struct PluginConfig {
     pub call_timeout_secs: u64,
     #[serde(default = "default_pool_max_instances")]
     pub pool_max_instances: usize,
+    /// Maximum concurrent evaluator plugin calls per server. When `None`, falls back
+    /// to `std::thread::available_parallelism()`. Override via env var if the host
+    /// has spare memory and contention is the bottleneck (recommended ≥ 64 for
+    /// contest workloads with high per-submission test-case fan-out).
+    #[serde(default)]
+    pub evaluator_parallelism: Option<usize>,
 }
 
 fn default_call_timeout() -> u64 {
@@ -26,6 +32,7 @@ impl Default for PluginConfig {
             enable_wasi: true,
             call_timeout_secs: default_call_timeout(),
             pool_max_instances: default_pool_max_instances(),
+            evaluator_parallelism: None,
         }
     }
 }

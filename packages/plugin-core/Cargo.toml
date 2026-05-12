@@ -10,6 +10,7 @@ broccoli-server-sdk.workspace = true
 common.workspace = true
 extism.workspace = true
 matchit.workspace = true
+opentelemetry.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
