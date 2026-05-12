@@ -87,6 +87,23 @@ pub struct TestCaseListItem {
     pub problem_id: i32,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AttachmentListResponse {
+    pub attachments: Vec<AttachmentResponse>,
+    pub total: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AttachmentResponse {
+    pub id: String,
+    pub path: String,
+    pub filename: String,
+    pub content_type: Option<String>,
+    pub size: i64,
+    pub content_hash: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegistriesResponse {
     pub problem_types: Vec<String>,
@@ -115,8 +132,12 @@ pub struct ContestResponse {
 pub struct CreateContestRequest {
     pub title: String,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activate_time: Option<DateTime<Utc>>,
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deactivate_time: Option<DateTime<Utc>>,
     pub is_public: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contest_type: Option<String>,
@@ -128,6 +149,41 @@ pub struct AddContestProblemRequest {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<i32>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct BulkAddParticipantsRequest {
+    #[serde(default)]
+    pub usernames: Vec<String>,
+    #[serde(default)]
+    pub create_users: Vec<CreateUserEntry>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct CreateUserEntry {
+    pub username: String,
+    pub password: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BulkAddParticipantsResponse {
+    pub added: Vec<BulkParticipantAdded>,
+    pub created: Vec<BulkParticipantCreated>,
+    pub already_enrolled: Vec<BulkParticipantAdded>,
+    pub not_found: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BulkParticipantAdded {
+    pub user_id: i32,
+    pub username: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BulkParticipantCreated {
+    pub user_id: i32,
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -142,6 +198,36 @@ pub struct CreateSubmissionRequest {
     pub language: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contest_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CustomTestCaseInput {
+    pub input: String,
+    pub expected_output: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RunCodeRequest {
+    pub files: Vec<SubmissionFileDto>,
+    pub language: String,
+    pub custom_test_cases: Vec<CustomTestCaseInput>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CodeRunResponse {
+    pub id: i32,
+    pub files: Vec<SubmissionFileDto>,
+    pub language: String,
+    pub status: SubmissionStatus,
+    pub user_id: i32,
+    pub username: String,
+    pub problem_id: i32,
+    pub problem_title: String,
+    pub contest_id: Option<i32>,
+    pub contest_type: String,
+    pub custom_test_cases: Vec<CustomTestCaseInput>,
+    pub created_at: DateTime<Utc>,
+    pub result: Option<JudgeResultResponse>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

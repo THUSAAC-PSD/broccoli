@@ -8,6 +8,7 @@ pub mod error;
 pub mod events;
 pub mod fixtures;
 pub mod load;
+pub mod mixed;
 pub mod passthrough;
 pub mod report;
 pub mod runner;

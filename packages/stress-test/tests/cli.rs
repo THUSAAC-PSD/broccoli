@@ -1,5 +1,5 @@
 use clap::Parser;
-use stress_test::cli::Cli;
+use stress_test::cli::{Cli, LoadProfile};
 
 #[test]
 fn requires_url() {
@@ -58,7 +58,7 @@ fn rejects_password_without_username() {
 }
 
 #[test]
-fn rejects_skip_correctness_and_skip_load_both_set() {
+fn accepts_skip_correctness_as_legacy_noop() {
     let cli = Cli::try_parse_from([
         "broccoli-stress-test",
         "--url",
@@ -69,11 +69,11 @@ fn rejects_skip_correctness_and_skip_load_both_set() {
         "--skip-load",
     ])
     .unwrap();
-    assert!(cli.validate().is_err());
+    assert!(cli.validate().is_ok());
 }
 
 #[test]
-fn parses_correctness_only_alias() {
+fn rejects_removed_correctness_only_alias() {
     let cli = Cli::try_parse_from([
         "broccoli-stress-test",
         "--url",
@@ -84,7 +84,7 @@ fn parses_correctness_only_alias() {
     ])
     .unwrap();
     assert!(cli.correctness_only);
-    assert!(cli.validate().is_ok());
+    assert!(cli.validate().is_err());
 }
 
 #[test]
@@ -225,4 +225,100 @@ fn parses_keep_fixtures_flag() {
     ])
     .unwrap();
     assert!(cli.keep_fixtures);
+}
+
+#[test]
+fn parses_valid_run_id() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--run-id",
+        "profile.run-1_2",
+    ])
+    .unwrap();
+    assert_eq!(cli.run_id.as_deref(), Some("profile.run-1_2"));
+    assert!(cli.validate().is_ok());
+}
+
+#[test]
+fn rejects_invalid_run_id() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--run-id",
+        "profile run 1",
+    ])
+    .unwrap();
+    assert!(cli.validate().is_err());
+}
+
+#[test]
+fn parses_mixed_profile_and_final_burst_flags() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--profile",
+        "mixed",
+        "--final-burst-duration",
+        "300",
+        "--final-burst-multiplier",
+        "4",
+    ])
+    .unwrap();
+
+    assert_eq!(cli.profile, LoadProfile::Mixed);
+    assert_eq!(cli.final_burst_duration, 300);
+    assert_eq!(cli.final_burst_multiplier, 4);
+    assert!(cli.validate().is_ok());
+}
+
+#[test]
+fn parses_contestants_and_duration_flags() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--profile",
+        "mixed",
+        "--contestants",
+        "25",
+        "--duration",
+        "600",
+    ])
+    .unwrap();
+
+    assert_eq!(cli.contestants, 25);
+    assert_eq!(cli.duration, Some(600));
+    assert!(cli.validate().is_ok());
+}
+
+#[test]
+fn rejects_zero_final_burst_multiplier_when_burst_enabled() {
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "--url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--profile",
+        "mixed",
+        "--final-burst-duration",
+        "60",
+        "--final-burst-multiplier",
+        "0",
+    ])
+    .unwrap();
+
+    assert!(cli.validate().is_err());
 }

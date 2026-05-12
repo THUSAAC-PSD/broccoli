@@ -1,4 +1,12 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum LoadProfile {
+    /// Existing judge-throughput profile: submit official solutions and poll them.
+    Judge,
+    /// Mixed contest-traffic profile: page reads, scoreboard polling, code-runs, and submissions.
+    Mixed,
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -24,11 +32,22 @@ pub struct Cli {
     #[arg(long, default_value_t = 200)]
     pub total: u64,
 
+    /// Run duration in seconds. For mixed profile this overrides --total.
+    #[arg(long)]
+    pub duration: Option<u64>,
+
     #[arg(long, default_value_t = 20)]
     pub rate: u32,
 
     #[arg(long, default_value_t = 50)]
     pub concurrency: u32,
+
+    #[arg(long, value_enum, default_value_t = LoadProfile::Judge)]
+    pub profile: LoadProfile,
+
+    /// Number of contestant accounts to create/enroll for mixed profile traffic.
+    #[arg(long, default_value_t = 0)]
+    pub contestants: u32,
 
     #[arg(long, default_value_t = 60)]
     pub per_job_timeout: u64,
@@ -73,6 +92,18 @@ pub struct Cli {
     /// Skip the startup version handshake against the server.
     #[arg(long, default_value_t = false)]
     pub no_version_check: bool,
+
+    /// Stable identifier attached to every request for log/trace correlation.
+    #[arg(long)]
+    pub run_id: Option<String>,
+
+    /// Duration, in seconds, for the final burst window in the mixed profile.
+    #[arg(long, default_value_t = 0)]
+    pub final_burst_duration: u64,
+
+    /// Rate multiplier used during the final burst window in the mixed profile.
+    #[arg(long, default_value_t = 3)]
+    pub final_burst_multiplier: u32,
 }
 
 impl Cli {
@@ -86,9 +117,9 @@ impl Cli {
             );
         }
 
-        if self.skip_correctness && (self.skip_load || self.correctness_only) {
+        if self.correctness_only {
             return Err(
-                "--skip-correctness cannot be combined with --skip-load or --correctness-only; the run would have nothing to do"
+                "--correctness-only is no longer supported; the stress test now runs load against real contest data, or bootstraps A+B fixtures when no --contest-id is provided"
                     .to_string(),
             );
         }
@@ -96,11 +127,33 @@ impl Cli {
         if self.total == 0 {
             return Err("--total must be greater than zero".to_string());
         }
+        if let Some(duration) = self.duration
+            && duration == 0
+        {
+            return Err("--duration must be greater than zero".to_string());
+        }
         if self.rate == 0 {
             return Err("--rate must be greater than zero".to_string());
         }
         if self.concurrency == 0 {
             return Err("--concurrency must be greater than zero".to_string());
+        }
+        if let Some(run_id) = &self.run_id
+            && (run_id.is_empty()
+                || !run_id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'))
+        {
+            return Err(
+                "--run-id must contain only ASCII alphanumeric characters, '.', '-', or '_'"
+                    .to_string(),
+            );
+        }
+        if self.final_burst_duration > 0 && self.final_burst_multiplier == 0 {
+            return Err(
+                "--final-burst-multiplier must be greater than zero when burst is enabled"
+                    .to_string(),
+            );
         }
 
         Ok(())

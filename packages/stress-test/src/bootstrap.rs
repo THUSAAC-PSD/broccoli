@@ -16,6 +16,7 @@ pub struct BootstrapState {
     pub problem_type: String,
     pub contest_id: i32,
     pub problem_ids_by_scenario: HashMap<&'static str, i32>,
+    pub owns_fixtures: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,6 +82,82 @@ pub async fn bootstrap(
         problem_type,
         contest_id: contest.id,
         problem_ids_by_scenario,
+        owns_fixtures: true,
+    })
+}
+
+pub async fn load_existing_contest(
+    client: &Client,
+    contest_id: i32,
+    problem_id: Option<i32>,
+    scenarios: &[Scenario],
+    config: &BootstrapConfig,
+) -> StressResult<BootstrapState> {
+    let contest = client.get_contest(contest_id).await?;
+    let registries = if config.contest_type.is_some()
+        || contest.contest_type.is_none()
+        || config.problem_type.is_some()
+    {
+        Some(client.list_registries().await?)
+    } else {
+        None
+    };
+    let contest_type = match config.contest_type.as_deref() {
+        Some(override_value) => resolve_contest_type(
+            registries
+                .as_ref()
+                .expect("registries loaded when contest type override is set"),
+            Some(override_value),
+        )?,
+        None => match contest.contest_type.clone() {
+            Some(contest_type) => contest_type,
+            None => resolve_contest_type(
+                registries
+                    .as_ref()
+                    .expect("registries loaded when contest type is absent"),
+                None,
+            )?,
+        },
+    };
+    let problem_type = match config.problem_type.as_deref() {
+        Some(override_value) => resolve_problem_type(
+            registries
+                .as_ref()
+                .expect("registries loaded when problem type override is set"),
+            Some(override_value),
+        )?,
+        None => "existing".to_string(),
+    };
+
+    let mut problems = client.list_contest_problems(contest_id).await?;
+    if let Some(problem_id) = problem_id {
+        problems.retain(|p| p.problem_id == problem_id);
+    }
+    if problems.is_empty() {
+        return Err(StressError::Other(anyhow::anyhow!(
+            "contest {contest_id} has no attached problems matching the requested target"
+        )));
+    }
+
+    let mut problem_ids_by_scenario = HashMap::with_capacity(scenarios.len());
+    for (idx, scenario) in scenarios.iter().enumerate() {
+        let problem = &problems[idx % problems.len()];
+        problem_ids_by_scenario.insert(scenario.id, problem.problem_id);
+    }
+
+    info!(
+        contest_id,
+        contest_type = %contest_type,
+        problem_count = problems.len(),
+        "stress-test loaded existing contest target",
+    );
+
+    Ok(BootstrapState {
+        contest_type,
+        problem_type,
+        contest_id,
+        problem_ids_by_scenario,
+        owns_fixtures: false,
     })
 }
 
@@ -92,8 +169,10 @@ fn build_create_contest_request(contest_type: &str) -> CreateContestRequest {
         description: "Auto-created by broccoli-stress-test. \
                       Will be deleted after the run unless --keep-fixtures is set."
             .into(),
+        activate_time: Some(now - chrono::Duration::seconds(60)),
         start_time: now - chrono::Duration::seconds(60),
         end_time: now + chrono::Duration::hours(24),
+        deactivate_time: Some(now + chrono::Duration::hours(24)),
         is_public: false,
         contest_type: Some(contest_type.to_string()),
     }
@@ -404,6 +483,7 @@ mod tests {
         assert_eq!(state.contest_type, "icpc");
         assert_eq!(state.problem_type, "batch");
         assert_eq!(state.contest_id, 9001);
+        assert!(state.owns_fixtures);
         assert_eq!(state.problem_ids_by_scenario.len(), 9);
         for s in SCENARIOS {
             assert!(
@@ -489,6 +569,7 @@ mod tests {
         assert_eq!(state.contest_type, "ioi");
         assert_eq!(state.problem_type, "batch");
         assert_eq!(state.contest_id, 9002);
+        assert!(state.owns_fixtures);
 
         for body in capture.snapshot() {
             assert_eq!(
@@ -535,6 +616,61 @@ mod tests {
             msg.contains("icpc"),
             "error must list available types; got: {msg}"
         );
+    }
+
+    #[tokio::test]
+    async fn existing_contest_loads_attached_problem_ids_without_owning_fixtures() {
+        let server = MockServer::start().await;
+        let client = build_client(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v1/contests/42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": 42,
+                "title": "real contest",
+                "contest_type": "icpc"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/contests/42/problems"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {
+                    "contest_id": 42,
+                    "problem_id": 101,
+                    "label": "A",
+                    "position": 0,
+                    "problem_title": "signpost"
+                },
+                {
+                    "contest_id": 42,
+                    "problem_id": 102,
+                    "label": "B",
+                    "position": 1,
+                    "problem_title": "other"
+                }
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = load_existing_contest(
+            &client,
+            42,
+            Some(101),
+            SCENARIOS,
+            &BootstrapConfig::default(),
+        )
+        .await
+        .expect("existing contest loads");
+
+        assert_eq!(state.contest_id, 42);
+        assert_eq!(state.contest_type, "icpc");
+        assert_eq!(state.problem_type, "existing");
+        assert!(!state.owns_fixtures);
+        assert_eq!(state.problem_ids_by_scenario.len(), SCENARIOS.len());
+        assert!(state.problem_ids_by_scenario.values().all(|id| *id == 101));
     }
 
     #[test]

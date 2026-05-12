@@ -287,6 +287,7 @@ mod tests {
                 .enumerate()
                 .map(|(i, s)| (s.id, 100 + i as i32))
                 .collect(),
+            owns_fixtures: true,
         }
     }
 
@@ -519,6 +520,7 @@ mod tests {
             problem_type: "batch".into(),
             contest_id: 555,
             problem_ids_by_scenario: [(scenario.id, 200)].into_iter().collect(),
+            owns_fixtures: true,
         };
 
         Mock::given(method("POST"))
@@ -578,6 +580,7 @@ mod tests {
             problem_type: "batch".into(),
             contest_id: 555,
             problem_ids_by_scenario: [(scenario.id, 300)].into_iter().collect(),
+            owns_fixtures: true,
         };
 
         Mock::given(method("POST"))

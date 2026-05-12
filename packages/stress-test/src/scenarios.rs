@@ -24,7 +24,10 @@ pub struct Scenario {
 }
 
 pub const DEFAULT_PROBLEM_TIME_LIMIT_MS: i32 = 1000;
-pub const DEFAULT_PROBLEM_MEMORY_LIMIT_KB: i32 = 65_536;
+// 256 MB — matches `packages/server-sdk/src/types/evaluate.rs::default_memory_limit_kb`.
+// 64 MB is too tight for the g++ static-libstdc++ binary's ~65 MB startup footprint
+// under concurrent execution, producing spurious SIGSEGV-at-entry → RuntimeError verdicts.
+pub const DEFAULT_PROBLEM_MEMORY_LIMIT_KB: i32 = 262_144;
 
 pub const SCENARIOS: &[Scenario] = &[
     Scenario {
