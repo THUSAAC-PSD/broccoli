@@ -4510,6 +4510,7 @@ dependencies = [
  "common",
  "extism",
  "matchit 0.9.1",
+ "opentelemetry",
  "serde",
  "serde_json",
  "tempfile",
@@ -6479,6 +6480,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "wiremock",
 ]
 
