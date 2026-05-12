@@ -52,6 +52,12 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub target_worker_id: Option<String>,
 
+    #[sea_orm(column_type = "String(StringLen::N(128))", nullable)]
+    pub owner_server_id: Option<String>,
+    pub lease_heartbeat_at: Option<DateTimeUtc>,
+    #[sea_orm(default_value = 0)]
+    pub retry_count: i32,
+
     pub created_at: DateTimeUtc,
     pub judged_at: Option<DateTimeUtc>,
 }
