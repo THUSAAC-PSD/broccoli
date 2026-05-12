@@ -63,7 +63,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
 
   const canBulkRejudge = !!user?.permissions.includes('submission:rejudge');
   const scopedUserId =
-    user?.permissions.includes('submissions:view_all') ||
+    user?.permissions.includes('submission:view_all') ||
     user?.permissions.includes('contest:manage')
       ? undefined
       : user?.id;
