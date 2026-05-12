@@ -64,13 +64,14 @@ pub fn evaluate_short_circuit(
 
     let _ = host
         .submission
-        .delete_results(submission_id, req.judgement_id);
+        .delete_results(submission_id, req.judgement_id, req.judge_epoch);
 
     let mut outcomes: Vec<EvalOutcome> = Vec::new();
+    let mut recorded_ids: HashSet<i32> = HashSet::new();
 
     // Try to start batch
-    let batch_id = match host.eval.start_batch(&batch_input) {
-        Ok(id) => id,
+    let mut session = match host.eval.start_windowed(&batch_input, 1) {
+        Ok(session) => session,
         Err(e) => {
             for tc in test_cases {
                 let outcome = EvalOutcome {
@@ -82,7 +83,14 @@ pub fn evaluate_short_circuit(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(host, submission_id, req.judgement_id, &outcome, &tc_map)?;
+                insert_tc_result(
+                    host,
+                    submission_id,
+                    req.judgement_id,
+                    req.judge_epoch,
+                    &outcome,
+                    &tc_map,
+                )?;
                 outcomes.push(outcome);
             }
             return Ok(EvalResult {
@@ -103,7 +111,7 @@ pub fn evaluate_short_circuit(
     })?;
 
     if affected == 0 {
-        let _ = host.eval.cancel_batch(&batch_id);
+        let _ = session.cancel_all();
         return Err(SdkError::StaleEpoch);
     }
 
@@ -118,7 +126,9 @@ pub fn evaluate_short_circuit(
     let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
-        match host.eval.next_result(&batch_id, result_timeout_ms) {
+        match session.next_result_with_refill_filter(result_timeout_ms, |verdict| {
+            verdict.verdict == Verdict::Accepted
+        }) {
             Ok(Some(verdict)) => {
                 let outcome = EvalOutcome {
                     test_case_id: verdict.test_case_id,
@@ -134,24 +144,46 @@ pub fn evaluate_short_circuit(
                     stderr: verdict.stderr,
                 };
 
+                if outcome.verdict.is_skipped_or_cancelled()
+                    && recorded_ids.contains(&outcome.test_case_id)
+                {
+                    continue;
+                }
+
                 if outcome.verdict == Verdict::CompileError {
-                    insert_tc_result(host, submission_id, req.judgement_id, &outcome, &tc_map)?;
+                    insert_tc_result(
+                        host,
+                        submission_id,
+                        req.judgement_id,
+                        req.judge_epoch,
+                        &outcome,
+                        &tc_map,
+                    )?;
+                    recorded_ids.insert(outcome.test_case_id);
                     outcomes.push(outcome);
                     is_compile_error = true;
-                    let _ = host.eval.cancel_batch(&batch_id);
+                    let _ = session.cancel_all();
                     short_circuited = true;
                     break;
                 }
 
                 let is_fail = outcome.verdict != Verdict::Accepted;
 
-                insert_tc_result(host, submission_id, req.judgement_id, &outcome, &tc_map)?;
+                insert_tc_result(
+                    host,
+                    submission_id,
+                    req.judgement_id,
+                    req.judge_epoch,
+                    &outcome,
+                    &tc_map,
+                )?;
+                recorded_ids.insert(outcome.test_case_id);
                 outcomes.push(outcome);
                 collected += 1;
 
                 // Short-circuit on first failure
                 if is_fail {
-                    let _ = host.eval.cancel_batch(&batch_id);
+                    let _ = session.cancel_all();
                     short_circuited = true;
                     break;
                 }
@@ -175,8 +207,6 @@ pub fn evaluate_short_circuit(
 
     // Fill remaining TCs
     if short_circuited {
-        let collected_ids: HashSet<i32> = outcomes.iter().map(|r| r.test_case_id).collect();
-
         // If we short-circuited due to a test failure or CE, fill with Skipped.
         // If due to timeout/error, fill with SystemError.
         let is_known_failure = is_compile_error
@@ -191,8 +221,8 @@ pub fn evaluate_short_circuit(
 
         let mut fill_rows: Vec<TestCaseResultRow> = Vec::new();
         for tc in test_cases {
-            if !collected_ids.contains(&tc.id) {
-                let is_custom = tc_map.get(&tc.id).is_some_and(|t| t.is_custom);
+            if !recorded_ids.contains(&tc.id) {
+                let is_custom = tc_map.get(&tc.id).map_or(false, |t| t.is_custom);
                 let (tc_id, run_index) = if is_custom {
                     (None, Some(tc.id))
                 } else {
@@ -201,6 +231,7 @@ pub fn evaluate_short_circuit(
                 fill_rows.push(TestCaseResultRow {
                     submission_id,
                     judgement_id: req.judgement_id,
+                    judge_epoch: req.judge_epoch,
                     test_case_id: tc_id,
                     run_index,
                     verdict: fill_verdict.clone(),
@@ -211,6 +242,7 @@ pub fn evaluate_short_circuit(
                     stdout: None,
                     stderr: None,
                 });
+                recorded_ids.insert(tc.id);
                 outcomes.push(EvalOutcome {
                     test_case_id: tc.id,
                     verdict: fill_verdict.clone(),
@@ -227,7 +259,7 @@ pub fn evaluate_short_circuit(
         }
 
         if fill_verdict == Verdict::SystemError {
-            let _ = host.eval.cancel_batch(&batch_id);
+            let _ = session.cancel_all();
         }
     }
 
@@ -284,11 +316,12 @@ fn insert_tc_result(
     host: &Host,
     submission_id: i32,
     judgement_id: i32,
+    judge_epoch: i32,
     outcome: &EvalOutcome,
     tc_map: &HashMap<i32, &TestCaseRow>,
 ) -> Result<(), SdkError> {
     let tc = tc_map.get(&outcome.test_case_id);
-    let is_custom = tc.is_some_and(|t| t.is_custom);
+    let is_custom = tc.map_or(false, |t| t.is_custom);
     let (tc_id, run_index) = if is_custom {
         (None, Some(outcome.test_case_id))
     } else {
@@ -303,6 +336,7 @@ fn insert_tc_result(
     host.submission.insert_results(&[TestCaseResultRow {
         submission_id,
         judgement_id,
+        judge_epoch,
         test_case_id: tc_id,
         run_index,
         verdict: outcome.verdict.clone(),
@@ -346,6 +380,61 @@ mod tests {
     }
 
     #[test]
+    fn starts_single_case_initial_window_and_refills_after_result() {
+        let host = Host::mock();
+        let tcs = vec![test_case(1), test_case(2)];
+        let req = test_submission(tcs.clone());
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::accepted(2));
+
+        let result = evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
+
+        assert!(result.is_accepted);
+        let batch_test_case_ids = host
+            .eval
+            .batch_inputs()
+            .into_iter()
+            .map(|batch| {
+                batch
+                    .test_cases
+                    .into_iter()
+                    .map(|case| case.test_case_id)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(batch_test_case_ids, vec![vec![1], vec![2]]);
+    }
+
+    #[test]
+    fn stale_epoch_cancels_active_windowed_evaluation() {
+        let host = Host::mock();
+        let tcs = vec![test_case(1), test_case(2)];
+        let req = test_submission(tcs.clone());
+        host.submission.queue_update_result(Ok(0));
+
+        let err = match evaluate_short_circuit(&host, &req, &tcs, 1) {
+            Ok(_) => panic!("expected stale epoch"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(err, SdkError::StaleEpoch));
+        let batch_test_case_ids = host
+            .eval
+            .batch_inputs()
+            .into_iter()
+            .map(|batch| {
+                batch
+                    .test_cases
+                    .into_iter()
+                    .map(|case| case.test_case_id)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(batch_test_case_ids, vec![vec![1]]);
+        assert!(host.eval.was_cancelled());
+    }
+
+    #[test]
     fn short_circuits_on_wrong_answer_and_fills_skipped() {
         let host = Host::mock();
         let tcs = vec![test_case(1), test_case(2), test_case(3)];
@@ -362,7 +451,19 @@ mod tests {
         assert_eq!(result.outcomes[0].verdict, Verdict::Accepted);
         assert_eq!(result.outcomes[1].verdict, Verdict::WrongAnswer);
         assert_eq!(result.outcomes[2].verdict, Verdict::Skipped);
-        assert!(host.eval.was_cancelled());
+        let batch_test_case_ids = host
+            .eval
+            .batch_inputs()
+            .into_iter()
+            .map(|batch| {
+                batch
+                    .test_cases
+                    .into_iter()
+                    .map(|case| case.test_case_id)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(batch_test_case_ids, vec![vec![1], vec![2]]);
     }
 
     #[test]
@@ -381,7 +482,19 @@ mod tests {
         assert_eq!(result.outcomes[0].verdict, Verdict::CompileError);
         // CE fills remaining with Skipped (not SystemError)
         assert_eq!(result.outcomes[1].verdict, Verdict::Skipped);
-        assert!(host.eval.was_cancelled());
+        let batch_test_case_ids = host
+            .eval
+            .batch_inputs()
+            .into_iter()
+            .map(|batch| {
+                batch
+                    .test_cases
+                    .into_iter()
+                    .map(|case| case.test_case_id)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(batch_test_case_ids, vec![vec![1]]);
     }
 
     #[test]
@@ -410,24 +523,55 @@ mod tests {
     }
 
     #[test]
-    fn timeout_fills_system_error() {
+    fn polling_error_fills_system_error() {
         let host = Host::mock();
         let tcs = vec![test_case(1), test_case(2)];
         let req = test_submission(tcs.clone());
-        host.eval.queue_result(TestCaseVerdict::accepted(1));
-        // TC 2: next_result returns None (timeout — no more results queued)
+        host.eval
+            .queue_result_error(SdkError::Other("poll failed".into()));
 
         let result = evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
 
         assert!(!result.is_accepted);
         assert!(!result.is_compile_error);
         assert_eq!(result.outcomes.len(), 2);
-        assert_eq!(result.outcomes[0].verdict, Verdict::Accepted);
+        assert_eq!(result.outcomes[0].verdict, Verdict::SystemError);
         assert_eq!(result.outcomes[1].verdict, Verdict::SystemError);
     }
 
     #[test]
-    fn passes_derived_timeout_to_evaluation_result_polling() {
+    fn ignores_late_cancelled_for_already_recorded_test_case() {
+        let host = Host::mock();
+        let tcs = vec![test_case(1), test_case(2)];
+        let req = test_submission(tcs.clone());
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict {
+            test_case_id: 1,
+            verdict: Verdict::Cancelled,
+            score: 0.0,
+            time_used_ms: None,
+            memory_used_kb: None,
+            message: Some("Cancelled by host".into()),
+            stdout: None,
+            stderr: None,
+        });
+        host.eval.queue_result(TestCaseVerdict::accepted(2));
+
+        let result = evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
+
+        assert!(result.is_accepted);
+        assert_eq!(result.outcomes.len(), 2);
+
+        let rows = host.submission.results();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].test_case_id, Some(1));
+        assert_eq!(rows[0].verdict, Verdict::Accepted);
+        assert_eq!(rows[1].test_case_id, Some(2));
+        assert_eq!(rows[1].verdict, Verdict::Accepted);
+    }
+
+    #[test]
+    fn polls_ready_window_without_waiting() {
         let host = Host::mock();
         let tcs = vec![test_case(1)];
         let mut req = test_submission(tcs.clone());
@@ -436,9 +580,6 @@ mod tests {
 
         evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
 
-        assert_eq!(
-            host.eval.result_timeouts(),
-            vec![default_evaluation_result_timeout_ms(req.time_limit_ms)]
-        );
+        assert_eq!(host.eval.result_timeouts(), vec![0]);
     }
 }

@@ -299,11 +299,14 @@ fn load_current_submission_test_case_results(
         "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
-         LEFT JOIN submission_judgement sj ON sj.id = tcr.judgement_id \
+         JOIN submission_judgement sj \
+           ON sj.id = tcr.judgement_id \
+          AND sj.submission_id = tcr.submission_id \
+          AND sj.judge_epoch = tcr.judge_epoch \
          WHERE tcr.submission_id = {} \
            AND s.contest_id = {} \
            AND tcr.test_case_id IS NOT NULL \
-           AND (tcr.judgement_id IS NULL OR (sj.is_current = TRUE AND sj.is_finalized = TRUE))",
+           AND sj.is_current = TRUE AND sj.is_finalized = TRUE",
         p.bind(submission_id),
         p.bind(contest_id)
     );
@@ -469,6 +472,7 @@ fn redact_submission_for_level(submission: &mut serde_json::Value, level: Feedba
             {
                 for tcr in arr.iter_mut() {
                     if let Some(obj) = tcr.as_object_mut() {
+                        // Presentation redaction only: this does not mean the test case was skipped during execution.
                         obj.insert("verdict".into(), Value::String("Skipped".into()));
                         obj.insert("score".into(), Value::from(0.0));
                         obj.insert("time_used".into(), Value::Null);
@@ -553,10 +557,13 @@ fn recompute_sum_best_subtask(
         "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
-         LEFT JOIN submission_judgement sj ON sj.id = tcr.judgement_id \
+         JOIN submission_judgement sj \
+           ON sj.id = tcr.judgement_id \
+          AND sj.submission_id = tcr.submission_id \
+          AND sj.judge_epoch = tcr.judge_epoch \
          WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
          AND tcr.test_case_id IS NOT NULL \
-         AND (tcr.judgement_id IS NULL OR (sj.is_current = TRUE AND sj.is_finalized = TRUE))",
+         AND sj.is_current = TRUE AND sj.is_finalized = TRUE",
         p.bind(user_id),
         p.bind(problem_id),
         p.bind(contest_id)
@@ -621,10 +628,12 @@ fn compute_official_task_score(
         ScoringMode::MaxSubmission => {
             let mut p = Params::new();
             let sql = format!(
-                "SELECT MAX(COALESCE(sj.score, s.score)) as max_score \
+                "SELECT MAX(sj.score) as max_score \
                  FROM submission s \
-                 LEFT JOIN submission_judgement sj \
-                   ON sj.submission_id = s.id AND sj.is_current = TRUE \
+                 JOIN submission_judgement sj \
+                   ON sj.submission_id = s.id \
+                  AND sj.is_current = TRUE \
+                  AND sj.judge_epoch = s.judge_epoch \
                  WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {}",
                 p.bind(user_id),
                 p.bind(problem_id),
@@ -668,10 +677,12 @@ fn compute_official_task_score(
                     .map(|id| p.bind(*id))
                     .collect();
                 let sql = format!(
-                    "SELECT MAX(COALESCE(sj.score, s.score)) as max_score \
+                    "SELECT MAX(sj.score) as max_score \
                      FROM submission s \
-                     LEFT JOIN submission_judgement sj \
-                       ON sj.submission_id = s.id AND sj.is_current = TRUE \
+                     JOIN submission_judgement sj \
+                       ON sj.submission_id = s.id \
+                      AND sj.is_current = TRUE \
+                      AND sj.judge_epoch = s.judge_epoch \
                      WHERE s.id IN ({}) AND s.problem_id = {}",
                     ids_sql.join(","),
                     p.bind(problem_id)
@@ -684,10 +695,12 @@ fn compute_official_task_score(
 
             let mut p = Params::new();
             let sql = format!(
-                "SELECT s.id, COALESCE(sj.score, s.score, 0.0) as score \
+                "SELECT s.id, COALESCE(sj.score, 0.0) as score \
                  FROM submission s \
-                 LEFT JOIN submission_judgement sj \
-                   ON sj.submission_id = s.id AND sj.is_current = TRUE \
+                 JOIN submission_judgement sj \
+                   ON sj.submission_id = s.id \
+                  AND sj.is_current = TRUE \
+                  AND sj.judge_epoch = s.judge_epoch \
                  WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
                  ORDER BY s.created_at DESC LIMIT 1",
                 p.bind(user_id),
@@ -732,17 +745,19 @@ fn load_max_submission_scoreboard_cells(
     let score_epsilon_placeholder = p.bind(SCORE_EPSILON);
     let sql = format!(
         "WITH scored AS ( \
-             SELECT s.user_id, s.problem_id, COALESCE(sj.score, s.score) as score, \
+             SELECT s.user_id, s.problem_id, sj.score as score, \
                     GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
                       as elapsed_seconds \
              FROM submission s \
              JOIN contest c ON c.id = s.contest_id \
-             LEFT JOIN submission_judgement sj \
-               ON sj.submission_id = s.id AND sj.is_current = TRUE \
+             JOIN submission_judgement sj \
+               ON sj.submission_id = s.id \
+              AND sj.is_current = TRUE \
+              AND sj.judge_epoch = s.judge_epoch \
              WHERE s.contest_id = {} \
                AND s.user_id IN ({}) \
                AND s.problem_id IN ({}) \
-               AND COALESCE(sj.score, s.score) IS NOT NULL \
+               AND sj.score IS NOT NULL \
          ), maxes AS ( \
              SELECT user_id, problem_id, MAX(score) as score \
              FROM scored \
@@ -809,13 +824,15 @@ fn load_best_tokened_or_last_scoreboard_cells(
     let sql = format!(
         "SELECT DISTINCT ON (s.user_id, s.problem_id) \
                 s.user_id, s.problem_id, \
-                COALESCE(sj.score, s.score, 0.0) as score, \
+                COALESCE(sj.score, 0.0) as score, \
                 GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
                   as elapsed_seconds \
          FROM submission s \
          JOIN contest c ON c.id = s.contest_id \
-         LEFT JOIN submission_judgement sj \
-           ON sj.submission_id = s.id AND sj.is_current = TRUE \
+         JOIN submission_judgement sj \
+           ON sj.submission_id = s.id \
+          AND sj.is_current = TRUE \
+          AND sj.judge_epoch = s.judge_epoch \
          WHERE s.contest_id = {} \
            AND s.user_id IN ({}) \
            AND s.problem_id IN ({}) \
@@ -839,13 +856,15 @@ fn load_best_tokened_or_last_scoreboard_cells(
             .collect();
         let sql = format!(
             "SELECT s.user_id, s.problem_id, \
-                    COALESCE(sj.score, s.score, 0.0) as score, \
+                    COALESCE(sj.score, 0.0) as score, \
                     GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
                       as elapsed_seconds \
              FROM submission s \
              JOIN contest c ON c.id = s.contest_id \
-             LEFT JOIN submission_judgement sj \
-               ON sj.submission_id = s.id AND sj.is_current = TRUE \
+             JOIN submission_judgement sj \
+               ON sj.submission_id = s.id \
+              AND sj.is_current = TRUE \
+              AND sj.judge_epoch = s.judge_epoch \
              WHERE s.contest_id = {} \
                AND s.user_id IN ({}) \
                AND s.problem_id IN ({}) \
@@ -949,12 +968,15 @@ fn load_sum_best_subtask_scoreboard_cells(
          FROM submission s \
          JOIN contest c ON c.id = s.contest_id \
          JOIN test_case_result tcr ON tcr.submission_id = s.id \
-         LEFT JOIN submission_judgement sj ON sj.id = tcr.judgement_id \
+         JOIN submission_judgement sj \
+           ON sj.id = tcr.judgement_id \
+          AND sj.submission_id = tcr.submission_id \
+          AND sj.judge_epoch = tcr.judge_epoch \
          WHERE s.contest_id = {} \
            AND s.user_id IN ({}) \
            AND s.problem_id IN ({}) \
            AND tcr.test_case_id IS NOT NULL \
-           AND (tcr.judgement_id IS NULL OR (sj.is_current = TRUE AND sj.is_finalized = TRUE)) \
+           AND sj.is_current = TRUE AND sj.is_finalized = TRUE \
          ORDER BY s.created_at ASC",
         contest_placeholder,
         user_placeholders.join(","),
@@ -1350,9 +1372,14 @@ fn handle_submission_status(
     }
     let mut p = Params::new();
     let sql = format!(
-        "SELECT id, verdict, score FROM submission \
-         WHERE user_id = {} AND problem_id = {} AND contest_id = {} \
-         AND status = 'Judged' AND verdict IS NOT NULL \
+        "SELECT s.id, sj.verdict, sj.score \
+         FROM submission s \
+         JOIN submission_judgement sj \
+           ON sj.submission_id = s.id \
+          AND sj.is_current = TRUE \
+          AND sj.judge_epoch = s.judge_epoch \
+         WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
+         AND s.status = 'Judged' AND sj.verdict IS NOT NULL \
          ORDER BY created_at DESC LIMIT 1",
         p.bind(user_id),
         p.bind(problem_id),

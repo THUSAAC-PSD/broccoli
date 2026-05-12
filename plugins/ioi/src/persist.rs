@@ -14,7 +14,7 @@ pub fn persist_results(
 ) -> Result<OnSubmissionOutput, SdkError> {
     let non_skipped: Vec<_> = outcomes
         .iter()
-        .filter(|o| !o.verdict.is_skipped())
+        .filter(|o| !o.verdict.is_skipped_or_cancelled())
         .collect();
 
     let verdict = non_skipped

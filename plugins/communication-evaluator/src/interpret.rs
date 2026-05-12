@@ -7,6 +7,19 @@ pub fn interpret_result(
     num_processes: usize,
     req_memory_limit_kb: u32,
 ) -> TestCaseVerdict {
+    if result.is_cancelled_by_host() {
+        return TestCaseVerdict {
+            test_case_id,
+            verdict: Verdict::Cancelled,
+            score: 0.0,
+            time_used_ms: None,
+            memory_used_kb: None,
+            message: result.error.clone(),
+            stdout: None,
+            stderr: None,
+        };
+    }
+
     // Operation-level failure with no results
     if !result.success && result.task_results.is_empty() {
         return TestCaseVerdict {
