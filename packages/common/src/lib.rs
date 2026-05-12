@@ -7,7 +7,6 @@ pub mod mq;
 pub mod observability;
 pub mod retry;
 pub mod storage;
-pub mod submission_dispatch;
 pub mod submission_status;
 pub mod worker;
 

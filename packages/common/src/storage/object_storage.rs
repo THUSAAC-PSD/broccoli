@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use s3::creds::Credentials;
+use s3::error::S3Error;
 use s3::{Bucket, Region};
 use sha2::{Digest, Sha256};
 use tokio::fs;
@@ -76,6 +77,10 @@ impl ObjectStorageBlobStore {
         self.temp_dir
             .join(format!(".s3_upload_{}", uuid::Uuid::new_v4()))
     }
+}
+
+fn is_s3_not_found(err: &S3Error) -> bool {
+    matches!(err, S3Error::HttpFailWithBody(404, _))
 }
 
 #[async_trait]
@@ -206,15 +211,13 @@ impl BlobStore for ObjectStorageBlobStore {
         let key = Self::object_key(hash);
 
         match self.bucket.head_object(&key).await {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("404") || err_str.contains("Not Found") {
-                    Ok(false)
-                } else {
-                    Err(StorageError::Backend(format!("head_object failed: {e}")))
-                }
-            }
+            Ok((_, 404)) => Ok(false),
+            Ok((_, status)) if (200..300).contains(&status) => Ok(true),
+            Ok((_, status)) => Err(StorageError::Backend(format!(
+                "S3 head returned status {status}"
+            ))),
+            Err(e) if is_s3_not_found(&e) => Ok(false),
+            Err(e) => Err(StorageError::Backend(format!("head_object failed: {e}"))),
         }
     }
 
@@ -233,14 +236,17 @@ impl BlobStore for ObjectStorageBlobStore {
     async fn size(&self, hash: &ContentHash) -> Result<u64, StorageError> {
         let key = Self::object_key(hash);
 
-        let (head, _status) = self.bucket.head_object(&key).await.map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("404") || err_str.contains("Not Found") {
-                StorageError::NotFound(hash.to_hex())
-            } else {
-                StorageError::Backend(format!("head_object failed: {e}"))
+        let head = match self.bucket.head_object(&key).await {
+            Ok((_, 404)) => return Err(StorageError::NotFound(hash.to_hex())),
+            Ok((head, status)) if (200..300).contains(&status) => head,
+            Ok((_, status)) => {
+                return Err(StorageError::Backend(format!(
+                    "S3 head returned status {status}"
+                )));
             }
-        })?;
+            Err(e) if is_s3_not_found(&e) => return Err(StorageError::NotFound(hash.to_hex())),
+            Err(e) => return Err(StorageError::Backend(format!("head_object failed: {e}"))),
+        };
 
         let size = head
             .content_length

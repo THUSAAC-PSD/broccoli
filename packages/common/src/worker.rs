@@ -16,6 +16,8 @@ pub struct Task {
     pub priority: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enqueued_at_unix_ms: Option<i64>,
 }
 
 impl Task {
@@ -39,6 +41,7 @@ mod tests {
         }))
         .unwrap();
 
+        assert_eq!(task.enqueued_at_unix_ms, None);
         assert_eq!(task.reply_queue, None);
         assert_eq!(task.reply_queue_name(), "operation_results.legacy");
     }

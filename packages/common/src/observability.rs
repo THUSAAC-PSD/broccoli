@@ -100,6 +100,22 @@ pub fn inject_trace_context() -> Option<String> {
     ))
 }
 
+pub fn current_trace_id() -> Option<String> {
+    use opentelemetry::trace::TraceContextExt;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    let span = tracing::Span::current();
+    let otel_cx = span.context();
+    let span_ref = otel_cx.span();
+    let sc = span_ref.span_context();
+
+    if !sc.is_valid() {
+        return None;
+    }
+
+    Some(sc.trace_id().to_string())
+}
+
 pub fn extract_trace_context(traceparent: &str) -> Option<opentelemetry::Context> {
     use opentelemetry::trace::{
         SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,

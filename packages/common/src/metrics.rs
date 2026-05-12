@@ -5,13 +5,57 @@ pub struct Metrics {
     pub http_request_duration: Histogram<f64>,
     pub http_requests_total: Counter<u64>,
     pub http_requests_in_flight: UpDownCounter<i64>,
+    pub http_request_body_size: Histogram<f64>,
+    pub http_response_body_size: Histogram<f64>,
 
     pub task_process_duration: Histogram<f64>,
+    pub task_queue_wait_duration: Histogram<f64>,
+    pub task_in_flight: UpDownCounter<i64>,
+    pub worker_active_tasks: UpDownCounter<i64>,
+    pub tasks_received_total: Counter<u64>,
+    pub tasks_completed_total: Counter<u64>,
     pub step_duration: Histogram<f64>,
+    pub step_results_total: Counter<u64>,
+    pub sandbox_executions_total: Counter<u64>,
+    pub sandbox_time_used: Histogram<f64>,
+    pub sandbox_wall_time_used: Histogram<f64>,
+    pub sandbox_memory_used: Histogram<f64>,
     pub task_retries_total: Counter<u64>,
+    pub task_dedup_claims_total: Counter<u64>,
     pub dlq_messages_total: Counter<u64>,
 
     pub plugin_call_duration: Histogram<f64>,
+    pub plugin_instance_acquire_duration: Histogram<f64>,
+    pub plugin_instance_acquire_failures: Counter<u64>,
+    pub plugin_call_failures: Counter<u64>,
+
+    pub batch_started_total: Counter<u64>,
+    pub batch_cancelled_total: Counter<u64>,
+    pub batch_reaped_total: Counter<u64>,
+    pub batch_results_total: Counter<u64>,
+    pub batch_wait_duration: Histogram<f64>,
+    pub batch_active: UpDownCounter<i64>,
+    pub batch_pending_items: UpDownCounter<i64>,
+
+    pub operation_result_messages_total: Counter<u64>,
+    pub operation_result_consume_duration: Histogram<f64>,
+
+    pub mq_publish_duration: Histogram<f64>,
+    pub mq_publish_messages_total: Counter<u64>,
+    pub mq_consume_duration: Histogram<f64>,
+    pub mq_consume_messages_total: Counter<u64>,
+    pub mq_message_age: Histogram<f64>,
+
+    pub blob_store_operation_duration: Histogram<f64>,
+    pub blob_store_operations_total: Counter<u64>,
+    pub blob_store_bytes_total: Counter<u64>,
+    pub blob_store_errors_total: Counter<u64>,
+
+    pub operation_file_materialization_duration: Histogram<f64>,
+    pub operation_file_materialization_bytes: Counter<u64>,
+
+    pub task_cache_operation_duration: Histogram<f64>,
+    pub task_cache_operations_total: Counter<u64>,
 
     pub mq_queue_depth: UpDownCounter<i64>,
 }
@@ -24,6 +68,32 @@ const JUDGE_BUCKETS_SECONDS: &[f64] =
     &[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0];
 
 const PLUGIN_BUCKETS_SECONDS: &[f64] = &[0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0];
+
+const MEMORY_BUCKETS_KIB: &[f64] = &[
+    1_024.0,
+    4_096.0,
+    16_384.0,
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+];
+
+const SIZE_BUCKETS_BYTES: &[f64] = &[
+    128.0,
+    512.0,
+    1_024.0,
+    4_096.0,
+    16_384.0,
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    67_108_864.0,
+    268_435_456.0,
+];
 
 impl Metrics {
     pub fn new(meter: &Meter) -> Self {
@@ -42,6 +112,18 @@ impl Metrics {
                 .i64_up_down_counter("http.server.active_requests")
                 .with_description("Number of HTTP requests currently in flight")
                 .build(),
+            http_request_body_size: meter
+                .f64_histogram("http.server.request.body.size")
+                .with_unit("By")
+                .with_description("HTTP request body size from Content-Length when available")
+                .with_boundaries(SIZE_BUCKETS_BYTES.to_vec())
+                .build(),
+            http_response_body_size: meter
+                .f64_histogram("http.server.response.body.size")
+                .with_unit("By")
+                .with_description("HTTP response body size from Content-Length when available")
+                .with_boundaries(SIZE_BUCKETS_BYTES.to_vec())
+                .build(),
 
             task_process_duration: meter
                 .f64_histogram("broccoli.task.process.duration")
@@ -49,15 +131,67 @@ impl Metrics {
                 .with_description("Duration of task processing in the worker pipeline")
                 .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
+            task_queue_wait_duration: meter
+                .f64_histogram("broccoli.task.queue_wait.duration")
+                .with_unit("s")
+                .with_description("Time between task enqueue and worker receive")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            task_in_flight: meter
+                .i64_up_down_counter("broccoli.task.in_flight")
+                .with_description("Number of worker tasks currently in flight")
+                .build(),
+            worker_active_tasks: meter
+                .i64_up_down_counter("broccoli.worker.active_tasks")
+                .with_description("Number of tasks currently active on each worker")
+                .build(),
+            tasks_received_total: meter
+                .u64_counter("broccoli.task.received")
+                .with_description("Total number of worker tasks received")
+                .build(),
+            tasks_completed_total: meter
+                .u64_counter("broccoli.task.completed")
+                .with_description("Total number of worker tasks completed")
+                .build(),
             step_duration: meter
                 .f64_histogram("broccoli.step.duration")
                 .with_unit("s")
                 .with_description("Duration of individual pipeline steps in seconds")
                 .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
+            step_results_total: meter
+                .u64_counter("broccoli.step.results")
+                .with_description("Total number of operation step results")
+                .build(),
+            sandbox_executions_total: meter
+                .u64_counter("broccoli.sandbox.executions")
+                .with_description("Total number of sandbox executions")
+                .build(),
+            sandbox_time_used: meter
+                .f64_histogram("broccoli.sandbox.time_used")
+                .with_unit("s")
+                .with_description("Sandbox CPU time reported by the sandbox backend")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            sandbox_wall_time_used: meter
+                .f64_histogram("broccoli.sandbox.wall_time_used")
+                .with_unit("s")
+                .with_description("Sandbox wall time reported by the sandbox backend")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            sandbox_memory_used: meter
+                .f64_histogram("broccoli.sandbox.memory_used")
+                .with_unit("KiBy")
+                .with_description("Sandbox memory usage reported by the sandbox backend")
+                .with_boundaries(MEMORY_BUCKETS_KIB.to_vec())
+                .build(),
             task_retries_total: meter
                 .u64_counter("broccoli.task.retries")
                 .with_description("Total number of task retries")
+                .build(),
+            task_dedup_claims_total: meter
+                .u64_counter("broccoli.task.dedup.claims")
+                .with_description("Total number of worker task dedup claim outcomes")
                 .build(),
             dlq_messages_total: meter
                 .u64_counter("broccoli.dlq.messages")
@@ -69,6 +203,138 @@ impl Metrics {
                 .with_unit("s")
                 .with_description("Duration of WASM plugin calls")
                 .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
+                .build(),
+            plugin_instance_acquire_duration: meter
+                .f64_histogram("broccoli.plugin.instance.acquire.duration")
+                .with_unit("s")
+                .with_description("Duration spent acquiring a WASM plugin runtime instance")
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
+                .build(),
+            plugin_instance_acquire_failures: meter
+                .u64_counter("broccoli.plugin.instance.acquire.failures")
+                .with_description(
+                    "Total number of failed WASM plugin runtime instance acquisitions",
+                )
+                .build(),
+            plugin_call_failures: meter
+                .u64_counter("broccoli.plugin.call.failures")
+                .with_description("Total number of failed WASM plugin calls")
+                .build(),
+
+            batch_started_total: meter
+                .u64_counter("broccoli.batch.started")
+                .with_description("Total number of plugin-dispatched batches started")
+                .build(),
+            batch_cancelled_total: meter
+                .u64_counter("broccoli.batch.cancelled")
+                .with_description("Total number of plugin-dispatched batches cancelled")
+                .build(),
+            batch_reaped_total: meter
+                .u64_counter("broccoli.batch.reaped")
+                .with_description("Total number of stale plugin-dispatched batches reaped")
+                .build(),
+            batch_results_total: meter
+                .u64_counter("broccoli.batch.results")
+                .with_description("Total number of plugin-dispatched batch results observed")
+                .build(),
+            batch_wait_duration: meter
+                .f64_histogram("broccoli.batch.wait.duration")
+                .with_unit("s")
+                .with_description(
+                    "Duration spent waiting for the next plugin-dispatched batch result",
+                )
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            batch_active: meter
+                .i64_up_down_counter("broccoli.batch.active")
+                .with_description("Number of active plugin-dispatched batches")
+                .build(),
+            batch_pending_items: meter
+                .i64_up_down_counter("broccoli.batch.items.pending")
+                .with_description("Number of pending items inside plugin-dispatched batches")
+                .build(),
+
+            operation_result_messages_total: meter
+                .u64_counter("broccoli.operation_result.messages")
+                .with_description(
+                    "Total number of operation result messages consumed by the server",
+                )
+                .build(),
+            operation_result_consume_duration: meter
+                .f64_histogram("broccoli.operation_result.consume.duration")
+                .with_unit("s")
+                .with_description("Duration spent handling operation result messages")
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
+                .build(),
+
+            mq_publish_duration: meter
+                .f64_histogram("broccoli.mq.publish.duration")
+                .with_unit("s")
+                .with_description("Duration of message publish operations")
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
+                .build(),
+            mq_publish_messages_total: meter
+                .u64_counter("broccoli.mq.publish.messages")
+                .with_description("Total number of message publish operations")
+                .build(),
+            mq_consume_duration: meter
+                .f64_histogram("broccoli.mq.consume.duration")
+                .with_unit("s")
+                .with_description("Duration of message consume handlers")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            mq_consume_messages_total: meter
+                .u64_counter("broccoli.mq.consume.messages")
+                .with_description("Total number of consumed message handler outcomes")
+                .build(),
+            mq_message_age: meter
+                .f64_histogram("broccoli.mq.message.age")
+                .with_unit("s")
+                .with_description("Approximate message age when consumed")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+
+            blob_store_operation_duration: meter
+                .f64_histogram("broccoli.blob_store.operation.duration")
+                .with_unit("s")
+                .with_description("Duration of blob store operations")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            blob_store_operations_total: meter
+                .u64_counter("broccoli.blob_store.operations")
+                .with_description("Total number of blob store operations")
+                .build(),
+            blob_store_bytes_total: meter
+                .u64_counter("broccoli.blob_store.bytes")
+                .with_unit("By")
+                .with_description("Total number of bytes read or written via blob store operations")
+                .build(),
+            blob_store_errors_total: meter
+                .u64_counter("broccoli.blob_store.errors")
+                .with_description("Total number of failed blob store operations")
+                .build(),
+
+            operation_file_materialization_duration: meter
+                .f64_histogram("broccoli.operation.file_materialization.duration")
+                .with_unit("s")
+                .with_description("Duration spent materializing operation files into sandboxes")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            operation_file_materialization_bytes: meter
+                .u64_counter("broccoli.operation.file_materialization.bytes")
+                .with_unit("By")
+                .with_description("Total bytes materialized into operation sandbox files")
+                .build(),
+
+            task_cache_operation_duration: meter
+                .f64_histogram("broccoli.task_cache.operation.duration")
+                .with_unit("s")
+                .with_description("Duration of worker task cache operations")
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
+                .build(),
+            task_cache_operations_total: meter
+                .u64_counter("broccoli.task_cache.operations")
+                .with_description("Total number of worker task cache operations")
                 .build(),
 
             mq_queue_depth: meter

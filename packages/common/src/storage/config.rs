@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::StorageError;
 use super::database::DatabaseBlobStore;
 use super::filesystem::FilesystemBlobStore;
+use super::instrumented::InstrumentedBlobStore;
 use super::traits::BlobStore;
 
 pub const DEFAULT_MAX_BLOB_SIZE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -68,12 +69,14 @@ impl Default for BlobStoreConfig {
 pub async fn create_blob_store(
     config: &BlobStoreConfig,
     db: DatabaseConnection,
+    metrics: Option<crate::metrics::Metrics>,
 ) -> Result<Arc<dyn BlobStore>, StorageError> {
-    match config.backend.as_str() {
+    let backend = config.backend.clone();
+    let store: Arc<dyn BlobStore> = match config.backend.as_str() {
         "filesystem" => {
             let blob_path = PathBuf::from(&config.data_dir).join("blobs");
             let store = FilesystemBlobStore::new(blob_path, config.max_blob_size).await?;
-            Ok(Arc::new(store))
+            Arc::new(store)
         }
         #[cfg(feature = "object-storage")]
         "object_storage" => {
@@ -94,21 +97,29 @@ pub async fn create_blob_store(
                     .temp_dir
                     .as_ref()
                     .filter(|s| !s.is_empty())
-                    .map(PathBuf::from),
+                .map(PathBuf::from),
             })?;
-            Ok(Arc::new(store))
+            Arc::new(store)
         }
         #[cfg(not(feature = "object-storage"))]
-        "object_storage" => Err(StorageError::Backend(
+        "object_storage" => return Err(StorageError::Backend(
             "storage.backend is 'object_storage' but the binary was compiled without the 'object-storage' feature".into(),
         )),
         "database" => {
             DatabaseBlobStore::ensure_table(&db).await?;
             let store = DatabaseBlobStore::new(db, config.max_blob_size);
-            Ok(Arc::new(store))
+            Arc::new(store)
         }
-        other => Err(StorageError::Backend(format!(
+        other => return Err(StorageError::Backend(format!(
             "Unknown storage backend '{other}'. Valid values: database, filesystem, object_storage"
         )))
+    };
+
+    if let Some(metrics) = metrics {
+        Ok(Arc::new(InstrumentedBlobStore::new(
+            store, backend, metrics,
+        )))
+    } else {
+        Ok(store)
     }
 }
