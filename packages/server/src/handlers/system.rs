@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use axum::{Json, extract::State};
 use chrono::Utc;
 use common::SubmissionStatus;
+use opentelemetry::KeyValue;
 use redis::AsyncCommands;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use tracing::{instrument, warn};
@@ -126,7 +128,133 @@ pub(crate) async fn live_worker_ids(state: &AppState) -> std::collections::HashS
         .collect()
 }
 
-async fn read_workers(state: &AppState) -> Vec<WorkerInfo> {
+pub fn spawn_queue_depth_sampler(state: AppState, interval: Duration) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut previous = HashMap::new();
+
+        loop {
+            ticker.tick().await;
+            record_queue_depths(&state, &mut previous).await;
+        }
+    });
+}
+
+async fn record_queue_depths(state: &AppState, previous: &mut HashMap<QueueDepthKey, u64>) {
+    let queues = read_queues(state).await;
+    let samples = queues
+        .iter()
+        .map(|queue| {
+            QueueDepthSample::new(queue_role(state, &queue.name), &queue.name, queue.depth)
+        })
+        .collect();
+
+    for delta in queue_depth_deltas(previous, samples) {
+        let attrs = [
+            KeyValue::new("queue.role", delta.key.role.clone()),
+            KeyValue::new("queue.name", delta.key.name.clone()),
+        ];
+        state.metrics.mq_queue_depth.add(delta.delta, &attrs);
+    }
+}
+
+fn queue_role(state: &AppState, queue_name: &str) -> &'static str {
+    if queue_name == state.config.mq.operation_queue_name {
+        "operation"
+    } else if queue_name
+        .strip_prefix(&state.config.mq.operation_queue_name)
+        .is_some_and(|suffix| suffix.starts_with(":worker:"))
+    {
+        "operation_private"
+    } else if queue_name == state.config.mq.operation_result_queue_name {
+        "operation_result"
+    } else if queue_name == state.config.mq.operation_dlq_queue_name {
+        "operation_dlq"
+    } else {
+        "unknown"
+    }
+}
+
+fn queue_depth_deltas(
+    previous: &mut HashMap<QueueDepthKey, u64>,
+    samples: Vec<QueueDepthSample>,
+) -> Vec<QueueDepthDelta> {
+    let mut current = HashMap::new();
+    for sample in samples {
+        current.insert(sample.key, sample.depth);
+    }
+
+    let mut deltas = Vec::new();
+    for (key, depth) in &current {
+        let prior = previous.get(key).copied().unwrap_or(0);
+        let delta = *depth as i64 - prior as i64;
+        if delta != 0 {
+            deltas.push(QueueDepthDelta {
+                key: key.clone(),
+                delta,
+            });
+        }
+    }
+
+    for (key, depth) in previous.iter() {
+        if !current.contains_key(key) && *depth != 0 {
+            deltas.push(QueueDepthDelta {
+                key: key.clone(),
+                delta: -(*depth as i64),
+            });
+        }
+    }
+
+    deltas.sort_by(|a, b| a.key.cmp(&b.key));
+    *previous = current;
+    deltas
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+struct QueueDepthKey {
+    role: String,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
+struct QueueDepthSample {
+    key: QueueDepthKey,
+    depth: u64,
+}
+
+impl QueueDepthSample {
+    fn new(role: impl Into<String>, name: impl Into<String>, depth: u64) -> Self {
+        Self {
+            key: QueueDepthKey {
+                role: role.into(),
+                name: name.into(),
+            },
+            depth,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct QueueDepthDelta {
+    key: QueueDepthKey,
+    delta: i64,
+}
+
+impl QueueDepthDelta {
+    #[cfg(test)]
+    fn new(role: impl Into<String>, name: impl Into<String>, delta: i64) -> Self {
+        Self {
+            key: QueueDepthKey {
+                role: role.into(),
+                name: name.into(),
+            },
+            delta,
+        }
+    }
+}
+
+pub(crate) async fn read_workers(state: &AppState) -> Vec<WorkerInfo> {
     let Some(client) = state.redis_client.as_ref() else {
         return Vec::new();
     };
@@ -202,16 +330,27 @@ async fn read_workers(state: &AppState) -> Vec<WorkerInfo> {
     workers
 }
 
-async fn read_queues(state: &AppState) -> Vec<QueueInfo> {
+pub(crate) async fn read_queues(state: &AppState) -> Vec<QueueInfo> {
     let Some(mq) = state.mq.as_ref() else {
         return Vec::new();
     };
 
-    let queue_names = [
+    let mut queue_names = vec![
         state.config.mq.operation_queue_name.clone(),
         state.config.mq.operation_result_queue_name.clone(),
         state.config.mq.operation_dlq_queue_name.clone(),
     ];
+
+    for worker in read_workers(state).await {
+        if !worker.stale {
+            queue_names.push(format!(
+                "{}:worker:{}",
+                state.config.mq.operation_queue_name, worker.id
+            ));
+        }
+    }
+    queue_names.sort();
+    queue_names.dedup();
 
     let mut out = Vec::with_capacity(queue_names.len());
     for name in queue_names {
@@ -253,4 +392,41 @@ struct HeartbeatPayload {
     cpu_count: Option<u32>,
     #[serde(default)]
     pid: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queue_depth_delta_tracks_absolute_samples() {
+        let mut previous = HashMap::new();
+
+        let deltas = queue_depth_deltas(
+            &mut previous,
+            vec![
+                QueueDepthSample::new("operation", "operation_tasks", 4),
+                QueueDepthSample::new("dlq", "operation_dlq", 1),
+            ],
+        );
+        assert_eq!(
+            deltas,
+            vec![
+                QueueDepthDelta::new("dlq", "operation_dlq", 1),
+                QueueDepthDelta::new("operation", "operation_tasks", 4),
+            ]
+        );
+
+        let deltas = queue_depth_deltas(
+            &mut previous,
+            vec![QueueDepthSample::new("operation", "operation_tasks", 2)],
+        );
+        assert_eq!(
+            deltas,
+            vec![
+                QueueDepthDelta::new("dlq", "operation_dlq", -1),
+                QueueDepthDelta::new("operation", "operation_tasks", -2),
+            ]
+        );
+    }
 }

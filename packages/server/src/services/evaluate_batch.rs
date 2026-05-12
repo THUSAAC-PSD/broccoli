@@ -1,0 +1,699 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, anyhow};
+use broccoli_server_sdk::types::{
+    BuildEvalOpsInput, FileRef, JudgeFile, SourceFile, StartEvaluateBatchInput,
+    StartEvaluateCaseInput, TestCaseBodyRef, TestCaseVerdict, Verdict as SdkVerdict,
+};
+use common::storage::{BlobStore, ContentHash};
+use opentelemetry::KeyValue;
+use plugin_core::error::PluginError;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use tracing::Instrument;
+use uuid::Uuid;
+
+use crate::entity::{additional_file, plugin_config, problem, test_case};
+use crate::host_funcs::context::EvaluateHostDeps;
+use crate::registry::{BatchState, EvaluateBatches};
+
+const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
+
+pub async fn start_evaluate_batch(
+    caller_plugin_id: String,
+    deps: EvaluateHostDeps,
+    input: StartEvaluateBatchInput,
+) -> anyhow::Result<String> {
+    let problem_type = input.problem_type.clone();
+    let evaluator = {
+        let registry = deps.evaluator_registry.read().await;
+        registry.get(&problem_type).cloned()
+    }
+    .ok_or_else(|| anyhow!("No evaluator registered for problem type: {}", problem_type))?;
+
+    let resolved_inputs = resolve_inputs(&caller_plugin_id, &deps, input).await?;
+    let test_case_count = resolved_inputs.len();
+    let batch_id = Uuid::new_v4().to_string();
+
+    let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
+    let pending_count = Arc::new(AtomicUsize::new(test_case_count));
+
+    deps.evaluate_batches.insert(
+        batch_id.clone(),
+        BatchState {
+            result_rx: batch_rx,
+            pending_count: pending_count.clone(),
+            created_at: Instant::now(),
+            cleanup_keys: Arc::new(Vec::new()),
+            poisoned: AtomicBool::new(false),
+        },
+    );
+
+    tracing::info!(
+        caller = %caller_plugin_id,
+        batch_id = %batch_id,
+        problem_type = %problem_type,
+        test_case_count = test_case_count,
+        evaluator_plugin = %evaluator.plugin_id,
+        evaluator_fn = %evaluator.function_name,
+        "Starting evaluate batch"
+    );
+
+    if let Some(metrics) = deps.metrics.as_ref() {
+        metrics.batch_started_total.add(
+            1,
+            &[
+                KeyValue::new("batch.kind", "evaluate"),
+                KeyValue::new("plugin.id", caller_plugin_id.clone()),
+                KeyValue::new("problem.type", problem_type.clone()),
+                KeyValue::new("evaluator.plugin.id", evaluator.plugin_id.clone()),
+                KeyValue::new("evaluator.function", evaluator.function_name.clone()),
+            ],
+        );
+        metrics
+            .batch_active
+            .add(1, &[KeyValue::new("batch.kind", "evaluate")]);
+        metrics.batch_pending_items.add(
+            test_case_count as i64,
+            &[KeyValue::new("batch.kind", "evaluate")],
+        );
+    }
+
+    for tc_input in resolved_inputs {
+        let pm = deps.plugin_manager.clone();
+        let eval_plugin_id = evaluator.plugin_id.clone();
+        let eval_fn_name = evaluator.function_name.clone();
+        let evaluator_slots = deps.evaluator_slots.clone();
+        let batch_tx = batch_tx.clone();
+        let pending = pending_count.clone();
+        let metrics = deps.metrics.clone();
+        let tc_id = tc_input.test_case_id;
+
+        let span = tracing::info_span!(
+            "evaluate_test_case",
+            test_case_id = tc_id,
+            evaluator_plugin = %eval_plugin_id,
+            evaluator_function = %eval_fn_name
+        );
+
+        tokio::spawn(
+            async move {
+                let _permit = match evaluator_slots.acquire_owned().await {
+                    Ok(permit) => permit,
+                    Err(_) => {
+                        send_system_error(
+                            &batch_tx,
+                            tc_id,
+                            "Evaluator dispatcher is shutting down".into(),
+                        );
+                        decrement_pending(&pending, metrics.as_ref());
+                        return;
+                    }
+                };
+
+                let input_bytes = match serde_json::to_vec(&tc_input) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        send_system_error(
+                            &batch_tx,
+                            tc_id,
+                            format!("Failed to serialize evaluator input: {}", e),
+                        );
+                        decrement_pending(&pending, metrics.as_ref());
+                        return;
+                    }
+                };
+
+                // Retry on plugin pool contention. Plugin pool exhaustion is a transient
+                // backpressure signal, not a permanent failure of the contestant's submission
+                // — looping until we get a permit preserves the verdict semantics. Other
+                // plugin errors (load failures, execution faults, deserialization) are
+                // genuine SystemErrors and fall through to the final send_system_error.
+                let mut attempt: u32 = 0;
+                let max_attempts: u32 = 60; // upper bound to surface real bugs
+                let mut backoff = Duration::from_millis(100);
+                loop {
+                    match pm
+                        .call_raw(&eval_plugin_id, &eval_fn_name, input_bytes.clone())
+                        .await
+                    {
+                        Ok(result_bytes) => {
+                            match serde_json::from_slice::<TestCaseVerdict>(&result_bytes) {
+                                Ok(verdict) => {
+                                    let _ = batch_tx.send(verdict);
+                                }
+                                Err(e) => {
+                                    send_system_error(
+                                        &batch_tx,
+                                        tc_id,
+                                        format!("Failed to deserialize evaluator result: {}", e),
+                                    );
+                                }
+                            }
+                            break;
+                        }
+                        Err(PluginError::PoolTimeout(plugin_id)) if attempt < max_attempts => {
+                            attempt += 1;
+                            tracing::warn!(
+                                test_case_id = tc_id,
+                                plugin_id = %plugin_id,
+                                attempt = attempt,
+                                "Plugin pool acquisition timed out — backing off and retrying"
+                            );
+                            tokio::time::sleep(backoff).await;
+                            // Exponential backoff capped at 5s — under sustained contention we
+                            // keep retrying at a steady rate without thundering.
+                            backoff = (backoff * 2).min(Duration::from_secs(5));
+                            continue;
+                        }
+                        Err(e) => {
+                            send_system_error(
+                                &batch_tx,
+                                tc_id,
+                                format!("Evaluator call failed: {}", e),
+                            );
+                            break;
+                        }
+                    }
+                }
+                decrement_pending(&pending, metrics.as_ref());
+            }
+            .instrument(span),
+        );
+    }
+
+    Ok(batch_id)
+}
+
+pub fn next_evaluate_result(
+    plugin_id: &str,
+    batches: &EvaluateBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    batch_id: &str,
+    timeout: Duration,
+) -> anyhow::Result<Option<TestCaseVerdict>> {
+    let (result_rx, pending_count) = {
+        let batch = batches
+            .get(batch_id)
+            .ok_or_else(|| anyhow!("Batch not found: {}", batch_id))?;
+        (batch.result_rx.clone(), batch.pending_count.clone())
+    };
+
+    let wait_start = Instant::now();
+    let result = result_rx.recv_timeout(timeout);
+
+    match result {
+        Ok(verdict) => {
+            if let Some(metrics) = metrics {
+                let attrs = [
+                    KeyValue::new("batch.kind", "evaluate"),
+                    KeyValue::new("plugin.id", plugin_id.to_string()),
+                    KeyValue::new("outcome", "result"),
+                    KeyValue::new("verdict", verdict.verdict.to_string()),
+                ];
+                metrics
+                    .batch_wait_duration
+                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                metrics.batch_results_total.add(1, &attrs);
+            }
+            tracing::debug!(
+                plugin_id = %plugin_id,
+                batch_id = %batch_id,
+                test_case_id = verdict.test_case_id,
+                verdict = %verdict.verdict,
+                "Evaluate result received"
+            );
+
+            if pending_count.load(Ordering::SeqCst) == 0
+                && result_rx.is_empty()
+                && batches.remove(batch_id).is_some()
+                && let Some(metrics) = metrics
+            {
+                metrics
+                    .batch_active
+                    .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+            }
+
+            Ok(Some(verdict))
+        }
+        Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
+            if let Some(metrics) = metrics {
+                let attrs = [
+                    KeyValue::new("batch.kind", "evaluate"),
+                    KeyValue::new("plugin.id", plugin_id.to_string()),
+                    KeyValue::new("outcome", "timeout"),
+                ];
+                metrics
+                    .batch_wait_duration
+                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                metrics.batch_results_total.add(1, &attrs);
+            }
+            Ok(None)
+        }
+        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
+            if let Some(metrics) = metrics {
+                let attrs = [
+                    KeyValue::new("batch.kind", "evaluate"),
+                    KeyValue::new("plugin.id", plugin_id.to_string()),
+                    KeyValue::new("outcome", "disconnected"),
+                ];
+                metrics
+                    .batch_wait_duration
+                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                metrics.batch_results_total.add(1, &attrs);
+            }
+            Err(anyhow!("Evaluate batch channel disconnected"))
+        }
+    }
+}
+
+pub fn cancel_evaluate_batch(
+    plugin_id: &str,
+    batches: &EvaluateBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    batch_id: &str,
+) {
+    if batches.remove(batch_id).is_some()
+        && let Some(metrics) = metrics
+    {
+        let attrs = [
+            KeyValue::new("batch.kind", "evaluate"),
+            KeyValue::new("plugin.id", plugin_id.to_string()),
+        ];
+        metrics.batch_cancelled_total.add(1, &attrs);
+        metrics
+            .batch_active
+            .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+    }
+
+    tracing::info!(
+        plugin_id = %plugin_id,
+        batch_id = %batch_id,
+        "Evaluate batch cancelled"
+    );
+}
+
+async fn resolve_inputs(
+    caller_plugin_id: &str,
+    deps: &EvaluateHostDeps,
+    input: StartEvaluateBatchInput,
+) -> anyhow::Result<Vec<BuildEvalOpsInput>> {
+    let Some((problem_id, solution_language)) = validate_batch_shape(&input.test_cases)? else {
+        return Ok(Vec::new());
+    };
+
+    let problem_model = problem::Entity::find_by_id(problem_id)
+        .one(&deps.db)
+        .await
+        .with_context(|| "Failed to query problem")?
+        .ok_or_else(|| anyhow!("Problem {} not found", problem_id))?;
+
+    let checker_ns = format!("{}:checker", caller_plugin_id);
+    let checker_config_model = plugin_config::Entity::find_by_id((
+        "problem".to_string(),
+        problem_id.to_string(),
+        checker_ns,
+    ))
+    .one(&deps.db)
+    .await
+    .with_context(|| "Failed to query checker config")?;
+
+    let af_models = additional_file::Entity::find()
+        .filter(additional_file::Column::ProblemId.eq(problem_id))
+        .filter(additional_file::Column::Language.eq(solution_language.as_str()))
+        .all(&deps.db)
+        .await
+        .with_context(|| "Failed to query additional_files")?;
+
+    let additional_file_refs: Vec<FileRef> = af_models
+        .into_iter()
+        .map(|r| FileRef {
+            filename: r.path,
+            content_type: r.content_type,
+            blob_hash: r.content_hash,
+            read_token: None,
+        })
+        .collect();
+
+    let checker_format = Some(problem_model.checker_format.clone());
+    let parsed_checker_source: Option<Vec<SourceFile>> =
+        problem_model.checker_source.as_ref().and_then(|v| {
+            match serde_json::from_value::<Vec<SourceFile>>(v.clone()) {
+                Ok(parsed) => Some(parsed),
+                Err(e) => {
+                    tracing::warn!(
+                        problem_id,
+                        error = %e,
+                        "Failed to parse checker_source JSON"
+                    );
+                    None
+                }
+            }
+        });
+
+    let checker_config_value: Option<serde_json::Value> = checker_config_model.map(|pc| pc.config);
+
+    let test_cases = input.test_cases;
+    let db_needed_ids: Vec<i32> = test_cases
+        .iter()
+        .filter(|tc| !tc.is_custom && (tc.input.is_missing() || tc.expected_output.is_missing()))
+        .map(|tc| tc.test_case_id)
+        .collect();
+    let mut db_case_map: HashMap<i32, test_case::Model> = if db_needed_ids.is_empty() {
+        HashMap::new()
+    } else {
+        test_case::Entity::find()
+            .filter(test_case::Column::ProblemId.eq(problem_id))
+            .filter(test_case::Column::Id.is_in(db_needed_ids))
+            .all(&deps.db)
+            .await
+            .with_context(|| "Failed to query test case data")?
+            .into_iter()
+            .map(|tc| (tc.id, tc))
+            .collect()
+    };
+
+    let mut resolved = Vec::with_capacity(test_cases.len());
+    for tc in test_cases {
+        let db_case =
+            if !tc.is_custom && (tc.input.is_missing() || tc.expected_output.is_missing()) {
+                Some(db_case_map.remove(&tc.test_case_id).ok_or_else(|| {
+                    anyhow!("Test case {} not found in database", tc.test_case_id)
+                })?)
+            } else {
+                None
+            };
+
+        let (db_input, db_input_blob_hash, db_expected_output, db_expected_output_blob_hash) =
+            match db_case {
+                Some(tc) => (
+                    Some(tc.input),
+                    tc.input_blob_hash,
+                    Some(tc.expected_output),
+                    tc.expected_output_blob_hash,
+                ),
+                None => (None, None, None, None),
+            };
+
+        let test_input = resolve_evaluate_body(
+            tc.input,
+            db_input,
+            db_input_blob_hash,
+            "input.txt",
+            "evaluate input",
+            deps.blob_store.clone(),
+        )
+        .await?;
+        let expected_output = resolve_evaluate_body(
+            tc.expected_output,
+            db_expected_output,
+            db_expected_output_blob_hash,
+            "answer.txt",
+            "evaluate answer",
+            deps.blob_store.clone(),
+        )
+        .await?;
+        let tc_checker_format = if expected_output.present {
+            checker_format.clone()
+        } else {
+            Some("none".to_string())
+        };
+
+        resolved.push(BuildEvalOpsInput {
+            problem_id: tc.problem_id,
+            test_case_id: tc.test_case_id,
+            solution_source: tc.solution_source,
+            solution_language: tc.solution_language,
+            time_limit_ms: tc.time_limit_ms,
+            memory_limit_kb: tc.memory_limit_kb,
+            contest_id: tc.contest_id,
+            test_input: test_input.file,
+            expected_output: expected_output.file,
+            checker_format: tc_checker_format,
+            checker_config: checker_config_value.clone(),
+            checker_source: parsed_checker_source.clone(),
+            additional_file_refs: additional_file_refs.clone(),
+            target_worker_id: tc.target_worker_id,
+        });
+    }
+
+    Ok(resolved)
+}
+
+fn validate_batch_shape(
+    test_cases: &[StartEvaluateCaseInput],
+) -> anyhow::Result<Option<(i32, String)>> {
+    let Some(first) = test_cases.first() else {
+        return Ok(None);
+    };
+
+    let problem_id = first.problem_id;
+    if test_cases.iter().any(|tc| tc.problem_id != problem_id) {
+        return Err(anyhow!(
+            "All test cases in a batch must belong to the same problem"
+        ));
+    }
+
+    let solution_language = first.solution_language.clone();
+    if test_cases
+        .iter()
+        .any(|tc| tc.solution_language != solution_language)
+    {
+        return Err(anyhow!(
+            "All test cases in a batch must use the same solution_language"
+        ));
+    }
+
+    Ok(Some((problem_id, solution_language)))
+}
+
+struct ResolvedEvaluateBody {
+    file: JudgeFile,
+    present: bool,
+}
+
+async fn resolve_evaluate_body(
+    body: TestCaseBodyRef,
+    db_inline: Option<String>,
+    db_blob_hash: Option<String>,
+    filename: &str,
+    log_label: &str,
+    blob_store: Arc<dyn BlobStore>,
+) -> anyhow::Result<ResolvedEvaluateBody> {
+    let content = match body {
+        TestCaseBodyRef::Blob { hash } => {
+            return Ok(ResolvedEvaluateBody {
+                file: JudgeFile::blob(file_ref(filename, hash)),
+                present: true,
+            });
+        }
+        TestCaseBodyRef::Inline { text } => text,
+        TestCaseBodyRef::Missing => {
+            if let Some(hash) = db_blob_hash {
+                return Ok(ResolvedEvaluateBody {
+                    file: JudgeFile::blob(file_ref(filename, hash)),
+                    present: true,
+                });
+            }
+            let Some(content) = db_inline else {
+                return Ok(ResolvedEvaluateBody {
+                    file: JudgeFile::Missing,
+                    present: false,
+                });
+            };
+            content
+        }
+    };
+
+    let (inline, reference) =
+        maybe_externalize_text_file(content, filename, log_label, blob_store).await?;
+    Ok(ResolvedEvaluateBody {
+        file: reference
+            .map(JudgeFile::blob)
+            .unwrap_or_else(|| JudgeFile::inline(inline)),
+        present: true,
+    })
+}
+
+async fn maybe_externalize_text_file(
+    content: String,
+    filename: &str,
+    log_label: &str,
+    blob_store: Arc<dyn BlobStore>,
+) -> anyhow::Result<(String, Option<FileRef>)> {
+    if content.len() < INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES {
+        return Ok((content, None));
+    }
+
+    let content_len = content.len();
+    let hash = ContentHash::compute(content.as_bytes());
+    let exists = blob_store
+        .exists(&hash)
+        .await
+        .with_context(|| "Failed to check evaluate blob")?;
+    if !exists {
+        blob_store
+            .put(content.as_bytes())
+            .await
+            .with_context(|| "Failed to store evaluate blob")?;
+    }
+
+    tracing::info!(
+        content_bytes = content_len,
+        blob_hash = %hash.to_hex(),
+        label = log_label,
+        "Externalized large evaluate file to blob storage"
+    );
+
+    Ok((String::new(), Some(file_ref(filename, hash.to_hex()))))
+}
+
+fn file_ref(filename: &str, blob_hash: String) -> FileRef {
+    FileRef {
+        filename: filename.to_string(),
+        content_type: Some("text/plain".to_string()),
+        blob_hash,
+        read_token: None,
+    }
+}
+
+fn send_system_error(
+    batch_tx: &crossbeam::channel::Sender<TestCaseVerdict>,
+    test_case_id: i32,
+    message: String,
+) {
+    let _ = batch_tx.send(TestCaseVerdict {
+        test_case_id,
+        verdict: SdkVerdict::SystemError,
+        score: 0.0,
+        time_used_ms: None,
+        memory_used_kb: None,
+        message: Some(message),
+        stdout: None,
+        stderr: None,
+    });
+}
+
+fn decrement_pending(pending: &AtomicUsize, metrics: Option<&common::metrics::Metrics>) {
+    pending.fetch_sub(1, Ordering::SeqCst);
+    if let Some(metrics) = metrics {
+        metrics
+            .batch_pending_items
+            .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use broccoli_server_sdk::types::{SourceFile, StartEvaluateCaseInput};
+    use common::storage::BlobStore;
+    use common::storage::filesystem::FilesystemBlobStore;
+
+    use super::*;
+
+    fn case(problem_id: i32, language: &str) -> StartEvaluateCaseInput {
+        StartEvaluateCaseInput {
+            problem_id,
+            test_case_id: 1,
+            solution_source: vec![SourceFile {
+                filename: "main.cpp".to_string(),
+                content: "int main() {}".to_string(),
+            }],
+            solution_language: language.to_string(),
+            time_limit_ms: 1000,
+            memory_limit_kb: 262_144,
+            contest_id: None,
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
+            is_custom: false,
+            target_worker_id: None,
+        }
+    }
+
+    #[test]
+    fn validate_batch_shape_accepts_empty_batch() {
+        assert!(validate_batch_shape(&[]).unwrap().is_none());
+    }
+
+    #[test]
+    fn validate_batch_shape_rejects_mixed_problem_ids() {
+        let cases = vec![case(1, "cpp"), case(2, "cpp")];
+        let err = validate_batch_shape(&cases).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("All test cases in a batch must belong to the same problem")
+        );
+    }
+
+    #[test]
+    fn validate_batch_shape_rejects_mixed_languages() {
+        let cases = vec![case(1, "cpp"), case(1, "python")];
+        let err = validate_batch_shape(&cases).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("All test cases in a batch must use the same solution_language")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_evaluate_body_keeps_small_inline_body_inline() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(
+            FilesystemBlobStore::new(temp.path().to_path_buf(), 2_000_000)
+                .await
+                .unwrap(),
+        );
+
+        let resolved = resolve_evaluate_body(
+            TestCaseBodyRef::inline("hello"),
+            None,
+            None,
+            "input.txt",
+            "test",
+            store,
+        )
+        .await
+        .unwrap();
+
+        assert!(resolved.present);
+        assert_eq!(resolved.file.inline_text(), "hello");
+    }
+
+    #[tokio::test]
+    async fn resolve_evaluate_body_externalizes_large_inline_body() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(
+            FilesystemBlobStore::new(temp.path().to_path_buf(), 2_000_000)
+                .await
+                .unwrap(),
+        );
+        let content = "x".repeat(INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES);
+
+        let resolved = resolve_evaluate_body(
+            TestCaseBodyRef::inline(content.clone()),
+            None,
+            None,
+            "input.txt",
+            "test",
+            store.clone(),
+        )
+        .await
+        .unwrap();
+
+        let JudgeFile::Blob { file } = resolved.file else {
+            panic!("large inline body should be externalized");
+        };
+        assert!(resolved.present);
+        assert!(
+            store
+                .exists(&ContentHash::compute(content.as_bytes()))
+                .await
+                .unwrap()
+        );
+        assert_eq!(file.filename, "input.txt");
+    }
+}

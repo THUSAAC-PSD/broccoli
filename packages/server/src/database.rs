@@ -23,6 +23,10 @@ pub async fn init_db_with_max_connections(
     let db = Database::connect(opt).await?;
 
     let _ = db
+        .execute_unprepared(r#"CREATE EXTENSION IF NOT EXISTS pg_stat_statements"#)
+        .await;
+
+    let _ = db
         .execute_unprepared(
             r#"ALTER TABLE IF EXISTS "user" DROP CONSTRAINT IF EXISTS user_username_key"#,
         )

@@ -1,5 +1,6 @@
 pub mod checker;
 pub mod config;
+pub mod context;
 pub mod dispatch;
 pub mod evaluate;
 pub mod language;
@@ -8,38 +9,18 @@ pub mod registry;
 pub mod sql;
 pub mod storage;
 
-use crate::config::AppConfig;
-use crate::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    LanguageResolverRegistry, OperationBatches, OperationWaiters,
-};
-use common::storage::BlobStore;
+use crate::host_funcs::context::HostFunctionDeps;
 use extism::{Function, UserData, ValType};
-use mq::MqQueue;
 use plugin_core::host::HostFunctionRegistry;
-use plugin_core::traits::PluginManager;
-use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Semaphore;
 
-#[allow(clippy::too_many_arguments)]
-pub fn init_host_functions(
-    db: DatabaseConnection,
-    mq: Option<Arc<MqQueue>>,
-    operation_batches: OperationBatches,
-    operation_waiters: OperationWaiters,
-    contest_type_registry: ContestTypeRegistry,
-    evaluator_registry: EvaluatorRegistry,
-    checker_format_registry: CheckerFormatRegistry,
-    language_resolver_registry: LanguageResolverRegistry,
-    evaluate_batches: EvaluateBatches,
-    plugin_manager: Arc<dyn PluginManager>,
-    blob_store: Arc<dyn BlobStore>,
-    config: AppConfig,
-) -> HostFunctionRegistry {
+pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
     let blob_read_grants: storage::BlobReadGrants = Arc::new(dashmap::DashMap::new());
+    let db = deps.system.db.clone();
+    let blob_store = deps.system.blob_store.clone();
 
     hr.register("logger", |plugin_id| {
         Function::new(
@@ -215,10 +196,10 @@ pub fn init_host_functions(
         )
     });
 
-    let contest_reg = contest_type_registry.clone();
-    let eval_reg = evaluator_registry.clone();
-    let checker_reg = checker_format_registry.clone();
-    let lang_reg = language_resolver_registry.clone();
+    let contest_reg = deps.system.contest_type_registry.clone();
+    let eval_reg = deps.system.evaluator_registry.clone();
+    let checker_reg = deps.system.checker_format_registry.clone();
+    let lang_reg = deps.system.language_resolver_registry.clone();
     hr.register_many("plugin:register", move |plugin_id| {
         registry::create_registry_functions(
             plugin_id.to_string(),
@@ -229,48 +210,35 @@ pub fn init_host_functions(
         )
     });
 
-    let eval_reg = evaluator_registry.clone();
-    let pm = plugin_manager.clone();
-    let eval_batches = evaluate_batches;
-    let evaluator_parallelism = std::thread::available_parallelism()
-        .map(|parallelism| parallelism.get())
-        .unwrap_or(1)
+    // Cap concurrent evaluator plugin calls per server. Default = number of cores,
+    // but on hosts with spare RAM and a high-fan-out workload (Signpost: 20 testcases
+    // per submission, ICPC fans them out as parallel tokio tasks), this should be
+    // bumped well above core count via `BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM`.
+    let evaluator_parallelism = deps
+        .system
+        .config
+        .plugin
+        .evaluator_parallelism
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|p| p.get())
+                .unwrap_or(1)
+        })
         .max(1);
+    tracing::info!(evaluator_parallelism, "evaluator semaphore configured");
     let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
-    let db_for_eval = db.clone();
-    let blob_store_for_eval = blob_store.clone();
+    let eval_deps = deps.evaluate_deps(evaluator_slots);
     hr.register_many("evaluator:evaluate", move |plugin_id| {
-        evaluate::create_evaluate_functions(
-            plugin_id.to_string(),
-            pm.clone(),
-            eval_reg.clone(),
-            eval_batches.clone(),
-            evaluator_slots.clone(),
-            blob_store_for_eval.clone(),
-            db_for_eval.clone(),
-        )
+        evaluate::create_evaluate_functions(plugin_id.to_string(), eval_deps.clone())
     });
 
-    let mq_clone = mq;
-    let blob_store_for_dispatch = blob_store;
-    let batches = operation_batches;
-    let waiters = operation_waiters;
-    let op_queue = config.mq.operation_queue_name.clone();
-    let res_queue = config.mq.operation_result_queue_name.clone();
+    let dispatch_deps = deps.system.operation_deps();
     hr.register_many("operations:dispatch", move |plugin_id| {
-        dispatch::create_dispatch_functions(
-            plugin_id.to_string(),
-            mq_clone.clone(),
-            blob_store_for_dispatch.clone(),
-            batches.clone(),
-            waiters.clone(),
-            op_queue.clone(),
-            res_queue.clone(),
-        )
+        dispatch::create_dispatch_functions(plugin_id.to_string(), dispatch_deps.clone())
     });
 
-    let checker_reg = checker_format_registry;
-    let pm = plugin_manager.clone();
+    let checker_reg = deps.system.checker_format_registry;
+    let pm = deps.plugin_manager.clone();
     let blob_read_grants_for_checker = blob_read_grants;
     hr.register("checker:run", move |plugin_id| {
         checker::create_checker_function(
@@ -281,8 +249,8 @@ pub fn init_host_functions(
         )
     });
 
-    let lang_reg = language_resolver_registry;
-    let pm_for_resolve = plugin_manager.clone();
+    let lang_reg = deps.system.language_resolver_registry;
+    let pm_for_resolve = deps.plugin_manager.clone();
     hr.register("language:resolve", move |plugin_id| {
         language::create_resolve_language_function(
             plugin_id.to_string(),
@@ -292,7 +260,7 @@ pub fn init_host_functions(
     });
 
     let db_clone = db.clone();
-    let registry = plugin_manager.get_registry().clone();
+    let registry = deps.plugin_manager.get_registry().clone();
     hr.register("config:read", move |plugin_id| {
         config::create_config_get_function(
             plugin_id.to_string(),

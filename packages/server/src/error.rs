@@ -203,6 +203,10 @@ impl From<PluginError> for AppError {
                 AppError::PluginNotReady(err.to_string())
             }
             PluginError::Serialization(_) => AppError::Validation(err.to_string()),
+            PluginError::PoolTimeout(plugin_id) => {
+                tracing::warn!(plugin_id = %plugin_id, "Plugin pool acquisition timed out");
+                AppError::RateLimited { retry_after: 5 }
+            }
             _ => AppError::Internal(err.to_string()),
         }
     }

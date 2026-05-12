@@ -1,9 +1,5 @@
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use chrono::Utc;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set,
-    TransactionTrait, sea_query::OnConflict,
-};
+use axum::{Json, extract::State, response::IntoResponse};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, TransactionTrait};
 use tracing::instrument;
 
 use std::collections::HashSet;
@@ -16,12 +12,14 @@ use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
-use crate::host_funcs::config::{extract_plugin_id, resolve_namespace, strip_namespace_prefix};
-use crate::models::plugin_config::{PluginConfigResponse, UpsertPluginConfigRequest, config_key};
+use crate::host_funcs::config::{extract_plugin_id, strip_namespace_prefix};
+use crate::models::plugin_config::{PluginConfigResponse, UpsertPluginConfigRequest};
+use crate::services::plugin_config::{
+    ConfigScope, ConfigTarget, delete_config, get_config, upsert_config,
+};
 use crate::state::AppState;
 use crate::utils::contest::{find_contest, find_contest_problem};
 use crate::utils::problem::find_problem;
-use crate::utils::text::sanitize_db_json;
 
 fn validate_namespace(ns: &str) -> Result<(), AppError> {
     if ns.is_empty() || ns.len() > 128 {
@@ -47,11 +45,15 @@ struct AvailableSchema {
     json_schema: serde_json::Value,
 }
 
-fn collect_schemas_for_scope(plugins: &dyn PluginManager, scope: &str) -> Vec<AvailableSchema> {
+fn collect_schemas_for_scope(
+    plugins: &dyn PluginManager,
+    scope: ConfigScope,
+) -> Vec<AvailableSchema> {
+    let scope_name = scope.as_str();
     let plugin_list = match plugins.list_plugins() {
         Ok(list) => list,
         Err(e) => {
-            tracing::warn!(error = %e, scope, "Failed to list plugins for config schema collection");
+            tracing::warn!(error = %e, scope = scope_name, "Failed to list plugins for config schema collection");
             return vec![];
         }
     };
@@ -62,7 +64,7 @@ fn collect_schemas_for_scope(plugins: &dyn PluginManager, scope: &str) -> Vec<Av
             continue;
         }
         for (ns_name, ns_config) in &plugin.manifest.config {
-            if ns_config.scopes.contains(&scope.to_string()) {
+            if ns_config.scopes.contains(&scope_name.to_string()) {
                 schemas.push(AvailableSchema {
                     plugin_id: plugin.id.clone(),
                     namespace: ns_name.clone(),
@@ -77,13 +79,12 @@ fn collect_schemas_for_scope(plugins: &dyn PluginManager, scope: &str) -> Vec<Av
 
 async fn list_config_inner<C: ConnectionTrait>(
     db: &C,
-    scope: &str,
-    ref_id: &str,
+    target: &ConfigTarget,
     available_schemas: &[AvailableSchema],
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     let rows = plugin_config::Entity::find()
-        .filter(plugin_config::Column::Scope.eq(scope))
-        .filter(plugin_config::Column::RefId.eq(ref_id))
+        .filter(plugin_config::Column::Scope.eq(target.scope().as_str()))
+        .filter(plugin_config::Column::RefId.eq(target.ref_id()))
         .all(db)
         .await?;
 
@@ -92,8 +93,8 @@ async fn list_config_inner<C: ConnectionTrait>(
     let mut response: Vec<PluginConfigResponse> = rows
         .into_iter()
         .map(|r| {
-            let (plugin_id, namespace) = if scope == "plugin" {
-                (ref_id.to_string(), r.namespace.clone())
+            let (plugin_id, namespace) = if target.scope() == ConfigScope::Plugin {
+                (target.ref_id().to_string(), r.namespace.clone())
             } else {
                 (
                     extract_plugin_id(&r.namespace).to_string(),
@@ -139,154 +140,6 @@ async fn list_config_inner<C: ConnectionTrait>(
     Ok(Json(response))
 }
 
-async fn get_config_inner<C: ConnectionTrait>(
-    db: &C,
-    scope: &str,
-    ref_id: &str,
-    namespace: &str,
-    plugin_id: &str,
-) -> Result<Json<PluginConfigResponse>, AppError> {
-    let row = plugin_config::Entity::find_by_id((
-        scope.to_string(),
-        ref_id.to_string(),
-        namespace.to_string(),
-    ))
-    .one(db)
-    .await?;
-
-    match row {
-        Some(r) => {
-            let namespace = strip_namespace_prefix(&r.namespace).to_string();
-            Ok(Json(PluginConfigResponse {
-                plugin_id: plugin_id.to_string(),
-                namespace,
-                config: r.config,
-                enabled: r.enabled,
-                position: r.position,
-                updated_at: Some(r.updated_at),
-                json_schema: None,
-                description: None,
-            }))
-        }
-        None => {
-            let display_ns = strip_namespace_prefix(namespace);
-            Err(AppError::NotFound(format!(
-                "Config '{display_ns}' not found"
-            )))
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn upsert_config_inner<C: ConnectionTrait>(
-    db: &C,
-    scope: &str,
-    ref_id: &str,
-    namespace: &str,
-    config: serde_json::Value,
-    enabled: Option<bool>,
-    position: i32,
-    plugin_id: &str,
-) -> Result<Json<PluginConfigResponse>, AppError> {
-    let now = Utc::now();
-    let namespace_str = namespace.to_string();
-    let config = sanitize_db_json(config);
-
-    let active = plugin_config::ActiveModel {
-        scope: Set(scope.to_string()),
-        ref_id: Set(ref_id.to_string()),
-        namespace: Set(namespace_str.clone()),
-        config: Set(config.clone()),
-        enabled: Set(enabled),
-        position: Set(position),
-        updated_at: Set(now),
-    };
-
-    plugin_config::Entity::insert(active)
-        .on_conflict(
-            OnConflict::columns([
-                plugin_config::Column::Scope,
-                plugin_config::Column::RefId,
-                plugin_config::Column::Namespace,
-            ])
-            .update_columns([
-                plugin_config::Column::Config,
-                plugin_config::Column::Enabled,
-                plugin_config::Column::Position,
-                plugin_config::Column::UpdatedAt,
-            ])
-            .to_owned(),
-        )
-        .exec(db)
-        .await?;
-
-    Ok(Json(PluginConfigResponse {
-        plugin_id: plugin_id.to_string(),
-        namespace: strip_namespace_prefix(&namespace_str).to_string(),
-        config,
-        enabled,
-        position,
-        updated_at: Some(now),
-        json_schema: None,
-        description: None,
-    }))
-}
-
-async fn delete_config_inner<C: ConnectionTrait>(
-    db: &C,
-    scope: &str,
-    ref_id: &str,
-    namespace: &str,
-) -> Result<StatusCode, AppError> {
-    let row = plugin_config::Entity::find_by_id((
-        scope.to_string(),
-        ref_id.to_string(),
-        namespace.to_string(),
-    ))
-    .one(db)
-    .await?;
-
-    match row {
-        Some(r) => {
-            let active: plugin_config::ActiveModel = r.into();
-            active.delete(db).await?;
-            Ok(StatusCode::NO_CONTENT)
-        }
-        None => {
-            let display_ns = strip_namespace_prefix(namespace);
-            Err(AppError::NotFound(format!(
-                "Config '{display_ns}' not found"
-            )))
-        }
-    }
-}
-
-pub async fn delete_config_by_scope<C: ConnectionTrait>(
-    db: &C,
-    scope: &str,
-    ref_id: &str,
-) -> Result<(), AppError> {
-    plugin_config::Entity::delete_many()
-        .filter(plugin_config::Column::Scope.eq(scope))
-        .filter(plugin_config::Column::RefId.eq(ref_id))
-        .exec(db)
-        .await?;
-    Ok(())
-}
-
-pub async fn delete_config_by_scope_like<C: ConnectionTrait>(
-    db: &C,
-    scope: &str,
-    ref_id_pattern: &str,
-) -> Result<(), AppError> {
-    plugin_config::Entity::delete_many()
-        .filter(plugin_config::Column::Scope.eq(scope))
-        .filter(plugin_config::Column::RefId.like(ref_id_pattern))
-        .exec(db)
-        .await?;
-    Ok(())
-}
-
 fn validate_plugin_id(id: &str) -> Result<(), AppError> {
     if id.is_empty() || id.len() > 128 {
         return Err(AppError::Validation(
@@ -327,8 +180,8 @@ pub async fn list_plugin_global_config(
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
-    let ref_id = config_key::plugin(&plugin_id);
-    list_config_inner(&state.db, "plugin", &ref_id, &[]).await
+    let target = ConfigTarget::plugin(&plugin_id);
+    list_config_inner(&state.db, &target, &[]).await
 }
 
 #[utoipa::path(
@@ -359,8 +212,8 @@ pub async fn get_plugin_global_config(
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
-    let ref_id = config_key::plugin(&plugin_id);
-    get_config_inner(&state.db, "plugin", &ref_id, &namespace, &plugin_id).await
+    let target = ConfigTarget::plugin(&plugin_id);
+    get_config(&state.db, &target, &plugin_id, &namespace).await
 }
 
 #[utoipa::path(
@@ -392,16 +245,15 @@ pub async fn upsert_plugin_global_config(
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
-    let ref_id = config_key::plugin(&plugin_id);
-    upsert_config_inner(
+    let target = ConfigTarget::plugin(&plugin_id);
+    upsert_config(
         &state.db,
-        "plugin",
-        &ref_id,
+        &target,
+        &plugin_id,
         &namespace,
         payload.config,
         payload.enabled,
         payload.position,
-        &plugin_id,
     )
     .await
 }
@@ -434,8 +286,8 @@ pub async fn delete_plugin_global_config(
     auth_user.require_permission("plugin:manage")?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
-    let ref_id = config_key::plugin(&plugin_id);
-    delete_config_inner(&state.db, "plugin", &ref_id, &namespace).await
+    let target = ConfigTarget::plugin(&plugin_id);
+    delete_config(&state.db, &target, &plugin_id, &namespace).await
 }
 
 #[utoipa::path(
@@ -461,9 +313,9 @@ pub async fn list_problem_config(
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("problem:edit")?;
     find_problem(&state.db, problem_id).await?;
-    let ref_id = config_key::problem(problem_id);
-    let schemas = collect_schemas_for_scope(&*state.plugins, "problem");
-    list_config_inner(&state.db, "problem", &ref_id, &schemas).await
+    let target = ConfigTarget::problem(problem_id);
+    let schemas = collect_schemas_for_scope(&*state.plugins, ConfigScope::Problem);
+    list_config_inner(&state.db, &target, &schemas).await
 }
 
 #[utoipa::path(
@@ -496,9 +348,8 @@ pub async fn get_problem_config(
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_problem(&state.db, problem_id).await?;
-    let ref_id = config_key::problem(problem_id);
-    let composite_ns = resolve_namespace("problem", &plugin_id, &namespace);
-    get_config_inner(&state.db, "problem", &ref_id, &composite_ns, &plugin_id).await
+    let target = ConfigTarget::problem(problem_id);
+    get_config(&state.db, &target, &plugin_id, &namespace).await
 }
 
 #[utoipa::path(
@@ -536,17 +387,15 @@ pub async fn upsert_problem_config(
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_problem(&txn, problem_id).await?;
-    let ref_id = config_key::problem(problem_id);
-    let composite_ns = resolve_namespace("problem", &plugin_id, &namespace);
-    let result = upsert_config_inner(
+    let target = ConfigTarget::problem(problem_id);
+    let result = upsert_config(
         &txn,
-        "problem",
-        &ref_id,
-        &composite_ns,
+        &target,
+        &plugin_id,
+        &namespace,
         payload.config,
         payload.enabled,
         payload.position,
-        &plugin_id,
     )
     .await?;
     txn.commit().await?;
@@ -583,9 +432,8 @@ pub async fn delete_problem_config(
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_problem(&txn, problem_id).await?;
-    let ref_id = config_key::problem(problem_id);
-    let composite_ns = resolve_namespace("problem", &plugin_id, &namespace);
-    let result = delete_config_inner(&txn, "problem", &ref_id, &composite_ns).await?;
+    let target = ConfigTarget::problem(problem_id);
+    let result = delete_config(&txn, &target, &plugin_id, &namespace).await?;
     txn.commit().await?;
     Ok(result)
 }
@@ -616,9 +464,9 @@ pub async fn list_contest_problem_config(
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("contest:manage")?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
-    let ref_id = config_key::contest_problem(contest_id, problem_id);
-    let schemas = collect_schemas_for_scope(&*state.plugins, "contest_problem");
-    list_config_inner(&state.db, "contest_problem", &ref_id, &schemas).await
+    let target = ConfigTarget::contest_problem(contest_id, problem_id);
+    let schemas = collect_schemas_for_scope(&*state.plugins, ConfigScope::ContestProblem);
+    list_config_inner(&state.db, &target, &schemas).await
 }
 
 #[utoipa::path(
@@ -655,16 +503,8 @@ pub async fn get_contest_problem_config(
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
-    let ref_id = config_key::contest_problem(contest_id, problem_id);
-    let composite_ns = resolve_namespace("contest_problem", &plugin_id, &namespace);
-    get_config_inner(
-        &state.db,
-        "contest_problem",
-        &ref_id,
-        &composite_ns,
-        &plugin_id,
-    )
-    .await
+    let target = ConfigTarget::contest_problem(contest_id, problem_id);
+    get_config(&state.db, &target, &plugin_id, &namespace).await
 }
 
 #[utoipa::path(
@@ -703,17 +543,15 @@ pub async fn upsert_contest_problem_config(
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest_problem(&txn, contest_id, problem_id).await?;
-    let ref_id = config_key::contest_problem(contest_id, problem_id);
-    let composite_ns = resolve_namespace("contest_problem", &plugin_id, &namespace);
-    let result = upsert_config_inner(
+    let target = ConfigTarget::contest_problem(contest_id, problem_id);
+    let result = upsert_config(
         &txn,
-        "contest_problem",
-        &ref_id,
-        &composite_ns,
+        &target,
+        &plugin_id,
+        &namespace,
         payload.config,
         payload.enabled,
         payload.position,
-        &plugin_id,
     )
     .await?;
     txn.commit().await?;
@@ -754,9 +592,8 @@ pub async fn delete_contest_problem_config(
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest_problem(&txn, contest_id, problem_id).await?;
-    let ref_id = config_key::contest_problem(contest_id, problem_id);
-    let composite_ns = resolve_namespace("contest_problem", &plugin_id, &namespace);
-    let result = delete_config_inner(&txn, "contest_problem", &ref_id, &composite_ns).await?;
+    let target = ConfigTarget::contest_problem(contest_id, problem_id);
+    let result = delete_config(&txn, &target, &plugin_id, &namespace).await?;
     txn.commit().await?;
     Ok(result)
 }
@@ -784,9 +621,9 @@ pub async fn list_contest_config(
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
     auth_user.require_permission("contest:manage")?;
     find_contest(&state.db, contest_id).await?;
-    let ref_id = config_key::contest(contest_id);
-    let schemas = collect_schemas_for_scope(&*state.plugins, "contest");
-    list_config_inner(&state.db, "contest", &ref_id, &schemas).await
+    let target = ConfigTarget::contest(contest_id);
+    let schemas = collect_schemas_for_scope(&*state.plugins, ConfigScope::Contest);
+    list_config_inner(&state.db, &target, &schemas).await
 }
 
 #[utoipa::path(
@@ -819,9 +656,8 @@ pub async fn get_contest_config(
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_contest(&state.db, contest_id).await?;
-    let ref_id = config_key::contest(contest_id);
-    let composite_ns = resolve_namespace("contest", &plugin_id, &namespace);
-    get_config_inner(&state.db, "contest", &ref_id, &composite_ns, &plugin_id).await
+    let target = ConfigTarget::contest(contest_id);
+    get_config(&state.db, &target, &plugin_id, &namespace).await
 }
 
 #[utoipa::path(
@@ -859,17 +695,15 @@ pub async fn upsert_contest_config(
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest(&txn, contest_id).await?;
-    let ref_id = config_key::contest(contest_id);
-    let composite_ns = resolve_namespace("contest", &plugin_id, &namespace);
-    let result = upsert_config_inner(
+    let target = ConfigTarget::contest(contest_id);
+    let result = upsert_config(
         &txn,
-        "contest",
-        &ref_id,
-        &composite_ns,
+        &target,
+        &plugin_id,
+        &namespace,
         payload.config,
         payload.enabled,
         payload.position,
-        &plugin_id,
     )
     .await?;
     txn.commit().await?;
@@ -906,9 +740,8 @@ pub async fn delete_contest_config(
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
     find_contest(&txn, contest_id).await?;
-    let ref_id = config_key::contest(contest_id);
-    let composite_ns = resolve_namespace("contest", &plugin_id, &namespace);
-    let result = delete_config_inner(&txn, "contest", &ref_id, &composite_ns).await?;
+    let target = ConfigTarget::contest(contest_id);
+    let result = delete_config(&txn, &target, &plugin_id, &namespace).await?;
     txn.commit().await?;
     Ok(result)
 }

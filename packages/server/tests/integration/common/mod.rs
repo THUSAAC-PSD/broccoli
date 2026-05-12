@@ -542,7 +542,7 @@ impl TestApp {
             .await
             .expect("Failed to connect to test database");
 
-        let blob_store = create_blob_store(&BlobStoreConfig::default(), db.clone())
+        let blob_store = create_blob_store(&BlobStoreConfig::default(), db.clone(), None)
             .await
             .expect("Failed to initialize blob store");
 
@@ -593,17 +593,21 @@ impl TestApp {
 
         let server_plugins = ServerManager::new(
             app_config.plugin.clone(),
-            db.clone(),
+            server::host_funcs::context::HostFunctionSystemDeps {
+                db: db.clone(),
+                mq: None,
+                operation_batches: operation_batches.clone(),
+                operation_waiters: operation_waiters.clone(),
+                contest_type_registry: contest_type_registry.clone(),
+                evaluator_registry: evaluator_registry.clone(),
+                checker_format_registry: checker_format_registry.clone(),
+                language_resolver_registry: language_resolver_registry.clone(),
+                evaluate_batches: evaluate_batches.clone(),
+                blob_store: blob_store.clone(),
+                config: app_config.clone(),
+                metrics: None,
+            },
             None,
-            operation_batches.clone(),
-            operation_waiters.clone(),
-            contest_type_registry.clone(),
-            evaluator_registry.clone(),
-            checker_format_registry.clone(),
-            language_resolver_registry.clone(),
-            evaluate_batches.clone(),
-            blob_store.clone(),
-            app_config.clone(),
         )
         .expect("Failed to initialize plugin manager");
         let plugins: Arc<dyn PluginManager> = Arc::new(TestPluginManager {

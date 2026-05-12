@@ -1,4 +1,4 @@
-use common::submission_dispatch::TestCaseVerdict;
+use broccoli_server_sdk::types::TestCaseVerdict;
 use common::worker::TaskResult;
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -55,6 +55,7 @@ pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
     label: &'static str,
     batches: Arc<DashMap<String, BatchState<T>>>,
     max_age: Duration,
+    metrics: Option<common::metrics::Metrics>,
     on_expire: F,
 ) where
     F: Fn(&str, &BatchState<T>) + Send + Sync + 'static,
@@ -73,11 +74,30 @@ pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
                 }
                 if state.poisoned.load(Ordering::Relaxed) {
                     reaped_count += 1;
+                    if let Some(metrics) = metrics.as_ref() {
+                        let attrs = [
+                            opentelemetry::KeyValue::new("batch.kind", label),
+                            opentelemetry::KeyValue::new("phase", "reaped"),
+                        ];
+                        metrics.batch_reaped_total.add(1, &attrs);
+                        metrics
+                            .batch_active
+                            .add(-1, &[opentelemetry::KeyValue::new("batch.kind", label)]);
+                    }
                     false
                 } else {
                     on_expire(batch_id, state);
                     state.poisoned.store(true, Ordering::Relaxed);
                     poisoned_count += 1;
+                    if let Some(metrics) = metrics.as_ref() {
+                        metrics.batch_reaped_total.add(
+                            1,
+                            &[
+                                opentelemetry::KeyValue::new("batch.kind", label),
+                                opentelemetry::KeyValue::new("phase", "poisoned"),
+                            ],
+                        );
+                    }
                     true
                 }
             });

@@ -54,6 +54,7 @@ async fn per_replica_result_queue_delivers_to_originating_replica_only() {
     let base_queue = format!("operation_results.scaling_{suffix}");
     let queue_a = per_replica_result_queue_name(&base_queue, "replica-a");
     let queue_b = per_replica_result_queue_name(&base_queue, "replica-b");
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-scaling-test");
 
     let waiters_a: OperationWaiters = Arc::new(DashMap::new());
     let waiters_b: OperationWaiters = Arc::new(DashMap::new());
@@ -66,11 +67,13 @@ async fn per_replica_result_queue_delivers_to_originating_replica_only() {
         Arc::clone(&mq_a),
         Arc::clone(&waiters_a),
         queue_a.clone(),
+        metrics.clone(),
     ));
     let consumer_b = tokio::spawn(consume_operation_results(
         Arc::clone(&mq_b),
         Arc::clone(&waiters_b),
         queue_b,
+        metrics,
     ));
 
     tokio::time::sleep(Duration::from_millis(250)).await;

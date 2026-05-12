@@ -17,9 +17,9 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
-use crate::handlers::submission::dispatch_to_plugin;
 use crate::models::dlq::*;
 use crate::models::shared::Pagination;
+use crate::services::submission_dispatch::dispatch_submission_to_plugin as dispatch_to_plugin;
 use crate::state::AppState;
 
 #[utoipa::path(

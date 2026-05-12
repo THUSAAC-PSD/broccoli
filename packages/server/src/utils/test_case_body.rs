@@ -7,6 +7,7 @@ use crate::utils::text::sanitize_db_text;
 
 pub const INLINE_TEST_CASE_BODY_THRESHOLD_BYTES: usize = 1_048_576;
 const PREVIEW_CHARS: usize = 100;
+const STORED_PREVIEW_CHARS: usize = PREVIEW_CHARS + 1;
 
 #[derive(Debug, Clone)]
 pub struct PreparedTestCaseBody {
@@ -22,7 +23,7 @@ pub async fn prepare_test_case_body(
 ) -> Result<PreparedTestCaseBody, AppError> {
     let size = i64::try_from(body.len())
         .map_err(|_| AppError::Validation("Test case body is too large".into()))?;
-    let preview = sanitize_db_text(body.chars().take(PREVIEW_CHARS).collect::<String>());
+    let preview = sanitize_db_text(body.chars().take(STORED_PREVIEW_CHARS).collect::<String>());
 
     if body.len() < INLINE_TEST_CASE_BODY_THRESHOLD_BYTES {
         return Ok(PreparedTestCaseBody {
@@ -73,7 +74,12 @@ pub fn test_case_body_size(inline_text: &str, stored_size: Option<i64>) -> usize
 
 pub fn test_case_body_preview(inline_text: &str, stored_preview: Option<&str>) -> String {
     stored_preview.map(ToString::to_string).unwrap_or_else(|| {
-        sanitize_db_text(inline_text.chars().take(PREVIEW_CHARS).collect::<String>())
+        sanitize_db_text(
+            inline_text
+                .chars()
+                .take(STORED_PREVIEW_CHARS)
+                .collect::<String>(),
+        )
     })
 }
 

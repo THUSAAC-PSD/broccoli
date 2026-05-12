@@ -396,10 +396,13 @@ impl E2eTestApp {
             .expect("Failed to initialize MQ"),
         );
 
-        let blob_store =
-            common::storage::config::create_blob_store(&BlobStoreConfig::default(), db.clone())
-                .await
-                .expect("Failed to initialize blob store");
+        let blob_store = common::storage::config::create_blob_store(
+            &BlobStoreConfig::default(),
+            db.clone(),
+            None,
+        )
+        .await
+        .expect("Failed to initialize blob store");
 
         let app_config = AppConfig {
             server: ServerConfig {
@@ -453,17 +456,21 @@ impl E2eTestApp {
 
         let plugins = ServerManager::new(
             app_config.plugin.clone(),
-            db.clone(),
-            Some(Arc::clone(&mq)),
-            operation_batches.clone(),
-            operation_waiters.clone(),
-            contest_type_registry.clone(),
-            evaluator_registry.clone(),
-            checker_format_registry.clone(),
-            language_resolver_registry.clone(),
-            evaluate_batches.clone(),
-            blob_store.clone(),
-            app_config.clone(),
+            server::host_funcs::context::HostFunctionSystemDeps {
+                db: db.clone(),
+                mq: Some(Arc::clone(&mq)),
+                operation_batches: operation_batches.clone(),
+                operation_waiters: operation_waiters.clone(),
+                contest_type_registry: contest_type_registry.clone(),
+                evaluator_registry: evaluator_registry.clone(),
+                checker_format_registry: checker_format_registry.clone(),
+                language_resolver_registry: language_resolver_registry.clone(),
+                evaluate_batches: evaluate_batches.clone(),
+                blob_store: blob_store.clone(),
+                config: app_config.clone(),
+                metrics: None,
+            },
+            None,
         )
         .expect("Failed to initialize ServerManager");
 
@@ -510,8 +517,15 @@ impl E2eTestApp {
             let consumer_mq = Arc::clone(&mq);
             let consumer_waiters = operation_waiters.clone();
             let consumer_queue = result_queue.clone();
+            let consumer_metrics = e2e_metrics.clone();
             result_consumer_handle_opt = Some(tokio::spawn(async move {
-                consume_operation_results(consumer_mq, consumer_waiters, consumer_queue).await;
+                consume_operation_results(
+                    consumer_mq,
+                    consumer_waiters,
+                    consumer_queue,
+                    consumer_metrics,
+                )
+                .await;
             }));
 
             let sandbox_manager = create_sandbox_manager();

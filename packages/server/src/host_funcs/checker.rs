@@ -1,5 +1,5 @@
 use crate::registry::CheckerFormatRegistry;
-use common::submission_dispatch::{CheckerParseInput, CheckerVerdict, JudgeFile, RunCheckerInput};
+use broccoli_server_sdk::types::{CheckerParseInput, CheckerVerdict, JudgeFile, RunCheckerInput};
 use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
 use std::sync::Arc;

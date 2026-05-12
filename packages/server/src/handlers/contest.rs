@@ -12,10 +12,11 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
-use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
 use crate::models::contest::*;
-use crate::models::plugin_config::config_key;
 use crate::models::shared::{Pagination, escape_like};
+use crate::services::plugin_config::{
+    ConfigTarget, ConfigTargetPattern, delete_config_by_target, delete_config_by_target_pattern,
+};
 use crate::state::AppState;
 use crate::utils::contest::{
     check_contest_access, find_contest, find_contest_problem, require_contest_started,
@@ -376,13 +377,9 @@ pub async fn delete_contest(
     active.deleted_at = Set(Some(chrono::Utc::now()));
     active.update(&txn).await?;
 
-    delete_config_by_scope(&txn, "contest", &config_key::contest(id)).await?;
-    delete_config_by_scope_like(
-        &txn,
-        "contest_problem",
-        &config_key::contest_problem_by_contest_like(id),
-    )
-    .await?;
+    delete_config_by_target(&txn, &ConfigTarget::contest(id)).await?;
+    delete_config_by_target_pattern(&txn, &ConfigTargetPattern::contest_problem_by_contest(id))
+        .await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -625,12 +622,7 @@ pub async fn remove_contest_problem(
     let active: contest_problem::ActiveModel = cp.into();
     active.delete(&txn).await?;
 
-    delete_config_by_scope(
-        &txn,
-        "contest_problem",
-        &crate::models::plugin_config::config_key::contest_problem(contest_id, problem_id),
-    )
-    .await?;
+    delete_config_by_target(&txn, &ConfigTarget::contest_problem(contest_id, problem_id)).await?;
 
     txn.commit().await?;
 
@@ -1088,7 +1080,28 @@ pub async fn bulk_add_participants(
 
     let mut users_to_enroll: Vec<(i32, String)> = Vec::new();
 
+    let existing_created_user_map = if hashed_entries.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        let requested_usernames: Vec<String> = hashed_entries
+            .iter()
+            .map(|(username, _, _)| username.clone())
+            .collect();
+        user::Entity::find_active()
+            .filter(user::Column::Username.is_in(requested_usernames))
+            .all(&txn)
+            .await?
+            .into_iter()
+            .map(|user| (user.username.clone(), user.id))
+            .collect::<std::collections::HashMap<_, _>>()
+    };
+
     for (username, plaintext, hash) in hashed_entries {
+        if let Some(&existing_user_id) = existing_created_user_map.get(&username) {
+            users_to_enroll.push((existing_user_id, username));
+            continue;
+        }
+
         let new_user = user::ActiveModel {
             username: Set(username.clone()),
             password: Set(hash),
@@ -1122,16 +1135,9 @@ pub async fn bulk_add_participants(
                 users_to_enroll.push((user.id, username));
             }
             Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                let existing = user::Entity::find_active()
-                    .filter(user::Column::Username.eq(&username))
-                    .one(&txn)
-                    .await?
-                    .ok_or_else(|| {
-                        AppError::Internal(format!(
-                            "User '{username}' caused UniqueConstraintViolation but no active user found"
-                        ))
-                    })?;
-                users_to_enroll.push((existing.id, username));
+                return Err(AppError::Validation(format!(
+                    "User '{username}' was created concurrently; retry the bulk participant request"
+                )));
             }
             Err(e) => return Err(e.into()),
         }

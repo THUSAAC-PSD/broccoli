@@ -16,9 +16,10 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
-use crate::handlers::plugin_config::{delete_config_by_scope, delete_config_by_scope_like};
-use crate::models::plugin_config::config_key;
 use crate::models::problem::*;
+use crate::services::plugin_config::{
+    ConfigTarget, ConfigTargetPattern, delete_config_by_target, delete_config_by_target_pattern,
+};
 use crate::state::AppState;
 use crate::upload_limits::{
     BULK_TEST_CASE_MAX_TOTAL_DECOMPRESSED_BYTES, BULK_TEST_CASE_MAX_TOTAL_DECOMPRESSED_MIB,
@@ -392,13 +393,9 @@ pub async fn delete_problem(
     active.deleted_at = Set(Some(chrono::Utc::now()));
     active.update(&txn).await?;
 
-    delete_config_by_scope(&txn, "problem", &config_key::problem(id)).await?;
-    delete_config_by_scope_like(
-        &txn,
-        "contest_problem",
-        &config_key::contest_problem_by_problem_like(id),
-    )
-    .await?;
+    delete_config_by_target(&txn, &ConfigTarget::problem(id)).await?;
+    delete_config_by_target_pattern(&txn, &ConfigTargetPattern::contest_problem_by_problem(id))
+        .await?;
 
     txn.commit().await?;
     Ok(StatusCode::NO_CONTENT)

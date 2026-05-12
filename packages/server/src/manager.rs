@@ -1,4 +1,3 @@
-use mq::MqQueue;
 use plugin_core::config::PluginConfig;
 use plugin_core::host::HostFunctionRegistry;
 use plugin_core::i18n::I18nRegistry;
@@ -6,57 +5,33 @@ use plugin_core::manager::PluginManagerState;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::registry::PluginRegistry;
 use plugin_core::traits::PluginManager;
-use sea_orm::DatabaseConnection;
 use std::sync::{Arc, OnceLock};
 
-use crate::config::AppConfig;
 use crate::host_funcs;
-use crate::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
-    LanguageResolverRegistry, OperationBatches, OperationWaiters,
-};
+use crate::host_funcs::context::HostFunctionSystemDeps;
 
 pub struct ServerManager {
     state: PluginManagerState,
     host_functions: OnceLock<HostFunctionRegistry>,
     i18n: I18nRegistry,
+    metrics: Option<common::metrics::Metrics>,
 }
 
 impl ServerManager {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: PluginConfig,
-        db: DatabaseConnection,
-        mq: Option<Arc<MqQueue>>,
-        operation_batches: OperationBatches,
-        operation_waiters: OperationWaiters,
-        contest_type_registry: ContestTypeRegistry,
-        evaluator_registry: EvaluatorRegistry,
-        checker_format_registry: CheckerFormatRegistry,
-        language_resolver_registry: LanguageResolverRegistry,
-        evaluate_batches: EvaluateBatches,
-        blob_store: Arc<dyn common::storage::BlobStore>,
-        app_config: AppConfig,
+        host_deps: HostFunctionSystemDeps,
+        metrics: Option<common::metrics::Metrics>,
     ) -> Result<Arc<Self>, anyhow::Error> {
         let manager = Arc::new(Self {
             state: PluginManagerState::new(config),
             host_functions: OnceLock::new(),
             i18n: I18nRegistry::new(),
+            metrics,
         });
 
         let host_functions = host_funcs::init_host_functions(
-            db,
-            mq,
-            operation_batches,
-            operation_waiters,
-            contest_type_registry,
-            evaluator_registry,
-            checker_format_registry,
-            language_resolver_registry,
-            evaluate_batches,
-            manager.clone() as Arc<dyn PluginManager>,
-            blob_store,
-            app_config,
+            host_deps.with_plugin_manager(manager.clone() as Arc<dyn PluginManager>),
         );
 
         manager
@@ -82,6 +57,10 @@ impl PluginManager for ServerManager {
     }
     fn get_i18n_registry(&self) -> &I18nRegistry {
         &self.i18n
+    }
+
+    fn get_metrics(&self) -> Option<&common::metrics::Metrics> {
+        self.metrics.as_ref()
     }
 
     fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
