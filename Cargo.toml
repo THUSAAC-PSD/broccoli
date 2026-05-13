@@ -106,6 +106,7 @@ ratatui = "0.28"
 crossterm = "0.28"
 hdrhistogram = "7"
 wiremock = "0.6"
+redis = { version = "1.0", features = ["tokio-comp"] }
 
 # Keep line tables in release builds so perf-based flame graphs resolve symbols.
 # Cost: ~20% binary size, no runtime impact. Drop for size-sensitive production builds.

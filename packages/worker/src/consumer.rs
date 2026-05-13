@@ -9,7 +9,8 @@ use opentelemetry::KeyValue;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::cancel::RedisCancelChecker;
+use common::cancel::RedisCancelChecker;
+
 use crate::dedup::{ClaimOutcome, RedisTaskDedup};
 use crate::heartbeat::InFlightCounter;
 use crate::metrics::{TaskMetricGuard, record_mq_consume, record_mq_publish};

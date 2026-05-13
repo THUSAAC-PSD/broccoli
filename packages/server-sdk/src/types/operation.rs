@@ -266,6 +266,8 @@ impl Default for ExecutionResult {
     }
 }
 
+pub type SandboxResult = ExecutionResult;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,5 +297,3 @@ mod tests {
         assert_eq!(value, serde_json::json!("checker_compile"));
     }
 }
-
-pub type SandboxResult = ExecutionResult;

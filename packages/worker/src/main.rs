@@ -1,4 +1,3 @@
-mod cancel;
 mod config;
 mod consumer;
 mod dedup;

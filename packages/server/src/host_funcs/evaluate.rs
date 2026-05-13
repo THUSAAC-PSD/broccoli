@@ -159,14 +159,14 @@ fn cancel_evaluate_batch_fn(
         let batch_id = input.batch_id.clone();
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                if let Err(e) = crate::host_funcs::cancel::set_cancel_batch_key(&client, &batch_id)
+                if let Err(e) = common::cancel::set_cancel_batch_key(&client, &batch_id)
                     .await
                 {
                     tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis batch cancel key");
                 }
                 if !op_task_ids.is_empty()
                     && let Err(e) =
-                        crate::host_funcs::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+                        common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
                 {
                     tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
                 }
@@ -222,7 +222,7 @@ fn cancel_evaluate_test_cases_fn(
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async move {
                     if let Err(e) =
-                        crate::host_funcs::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+                        common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
                     {
                         tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
                     }

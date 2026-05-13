@@ -9,7 +9,8 @@ use mq::{BroccoliError, BrokerMessage, MqConfig, init_mq};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::cancel::RedisCancelChecker;
+use common::cancel::RedisCancelChecker;
+
 use crate::config::WorkerAppConfig;
 use crate::consumer::{WorkerConsumer, WorkerConsumerDeps};
 use crate::dedup::RedisTaskDedup;

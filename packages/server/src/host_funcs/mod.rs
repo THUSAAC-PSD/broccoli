@@ -1,4 +1,3 @@
-pub mod cancel;
 pub mod checker;
 pub mod config;
 pub mod context;
@@ -216,17 +215,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     // but on hosts with spare RAM and a high-fan-out workload (Signpost: 20 testcases
     // per submission, ICPC fans them out as parallel tokio tasks), this should be
     // bumped well above core count via `BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM`.
-    let evaluator_parallelism = deps
-        .system
-        .config
-        .plugin
-        .evaluator_parallelism
-        .unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|p| p.get())
-                .unwrap_or(1)
-        })
-        .max(1);
+    let evaluator_parallelism = deps.system.config.plugin.resolve_evaluator_parallelism();
     tracing::info!(evaluator_parallelism, "evaluator semaphore configured");
     let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
     let evaluate_ops_registry =
