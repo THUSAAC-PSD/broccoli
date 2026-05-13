@@ -13,7 +13,7 @@ pub fn persist_and_track(
     let non_skipped: Vec<_> = eval
         .outcomes
         .iter()
-        .filter(|o| !o.verdict.is_skipped())
+        .filter(|o| !o.verdict.is_skipped_or_cancelled())
         .collect();
 
     let verdict = non_skipped
