@@ -226,6 +226,54 @@ a full Redis returns `OOM command not allowed`; workers retry, the API returns
 Worker dedup keys expire via `BROCCOLI__WORKER__DEDUP_TTL_SECS` (default 600)
 instead of the DLQ stuck-job timeout.
 
+## Plugin Pool Sizing
+
+The server holds per-plugin pools of WASM instances. Each parallel contest
+evaluation acquires (1) an evaluator-semaphore slot and (2) one instance from
+the contest plugin's pool, then re-enters the host to call the checker plugin,
+which acquires one instance from the checker plugin's pool.
+
+If the checker pool is smaller than the evaluator semaphore, every evaluator
+holding a contest slot can simultaneously be waiting for a checker slot. No
+checker slot will free until a contest call finishes, and no contest call will
+finish until its checker returns — the fleet deadlocks.
+
+The constraint is:
+
+```
+BROCCOLI__PLUGIN__POOL_MAX_INSTANCES >= BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM
+```
+
+Both knobs are per-server-replica.
+
+- `pool_max_instances` (default 32) caps concurrent calls into any single
+  plugin. Every loaded plugin gets its own pool of this size, so contest and
+  checker pools are independent — the constraint above is the only thing that
+  ties them.
+- `evaluator_parallelism` (default = `std::thread::available_parallelism()`) is
+  the maximum number of evaluator calls a server admits concurrently. Raise it
+  for contest workloads with high per-submission test-case fan-out.
+
+For a typical contest workload, raise both:
+
+```
+BROCCOLI__PLUGIN__POOL_MAX_INSTANCES=64
+BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM=64
+```
+
+`release/.env.server.example` ships these as the multi-replica defaults.
+
+**Diagnosing pool starvation.** A server stuck in the deadlock above shows up as
+climbing `plugin_instance_acquire_duration` for the checker plugin and a flat
+`plugin_instance_acquire_failures` (because callers wait rather than fail). The
+fleet-aware admission semaphore will stop admitting new submissions; the API
+returns `503 OVERLOADED`.
+
+The longer-term fix is to move checker invocation out of the contest plugin call
+path (so the contest call returns before the checker runs), which makes the
+constraint disappear. That refactor is tracked as a follow-up and is not part of
+Phase 1.
+
 ## Multi-Replica Server Identity
 
 `BROCCOLI__SERVER__ID` **must** be set explicitly on every server replica in a
