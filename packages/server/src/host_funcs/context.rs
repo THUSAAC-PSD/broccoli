@@ -27,6 +27,7 @@ pub struct HostFunctionSystemDeps {
     pub blob_store: Arc<dyn BlobStore>,
     pub config: AppConfig,
     pub metrics: Option<common::metrics::Metrics>,
+    pub redis_client: Option<Arc<redis::Client>>,
 }
 
 #[derive(Clone)]
@@ -44,6 +45,7 @@ pub struct OperationHostDeps {
     pub operation_result_queue_name: String,
     pub blob_store: Arc<dyn BlobStore>,
     pub metrics: Option<common::metrics::Metrics>,
+    pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
 }
 
 #[derive(Clone)]
@@ -56,6 +58,8 @@ pub struct EvaluateHostDeps {
     pub blob_store: Arc<dyn BlobStore>,
     pub metrics: Option<common::metrics::Metrics>,
     pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
+    pub redis_client: Option<Arc<redis::Client>>,
+    pub cancel_primitive_enabled: bool,
 }
 
 impl HostFunctionSystemDeps {
@@ -66,7 +70,10 @@ impl HostFunctionSystemDeps {
         }
     }
 
-    pub fn operation_deps(&self) -> OperationHostDeps {
+    pub fn operation_deps(
+        &self,
+        evaluate_ops_registry: EvaluateBatchOpsRegistry,
+    ) -> OperationHostDeps {
         OperationHostDeps {
             mq: self.mq.clone(),
             operation_batches: self.operation_batches.clone(),
@@ -75,6 +82,7 @@ impl HostFunctionSystemDeps {
             operation_result_queue_name: self.config.mq.operation_result_queue_name.clone(),
             blob_store: self.blob_store.clone(),
             metrics: self.metrics.clone(),
+            evaluate_ops_registry,
         }
     }
 }
@@ -94,6 +102,8 @@ impl HostFunctionDeps {
             blob_store: self.system.blob_store.clone(),
             metrics: self.system.metrics.clone(),
             evaluate_ops_registry,
+            redis_client: self.system.redis_client.clone(),
+            cancel_primitive_enabled: self.system.config.server.cancel_primitive_enabled,
         }
     }
 }

@@ -191,6 +191,7 @@ pub fn next_evaluate_result(
     plugin_id: &str,
     batches: &EvaluateBatches,
     metrics: Option<&common::metrics::Metrics>,
+    evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
     batch_id: &str,
     timeout: Duration,
 ) -> anyhow::Result<Option<TestCaseVerdict>> {
@@ -229,11 +230,13 @@ pub fn next_evaluate_result(
             if pending_count.load(Ordering::SeqCst) == 0
                 && result_rx.is_empty()
                 && batches.remove(batch_id).is_some()
-                && let Some(metrics) = metrics
             {
-                metrics
-                    .batch_active
-                    .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+                evaluate_ops_registry.remove_batch(batch_id);
+                if let Some(metrics) = metrics {
+                    metrics
+                        .batch_active
+                        .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+                }
             }
 
             Ok(Some(verdict))
@@ -273,19 +276,21 @@ pub fn cancel_evaluate_batch(
     plugin_id: &str,
     batches: &EvaluateBatches,
     metrics: Option<&common::metrics::Metrics>,
+    evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
     batch_id: &str,
 ) {
-    if batches.remove(batch_id).is_some()
-        && let Some(metrics) = metrics
-    {
-        let attrs = [
-            KeyValue::new("batch.kind", "evaluate"),
-            KeyValue::new("plugin.id", plugin_id.to_string()),
-        ];
-        metrics.batch_cancelled_total.add(1, &attrs);
-        metrics
-            .batch_active
-            .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+    if batches.remove(batch_id).is_some() {
+        evaluate_ops_registry.remove_batch(batch_id);
+        if let Some(metrics) = metrics {
+            let attrs = [
+                KeyValue::new("batch.kind", "evaluate"),
+                KeyValue::new("plugin.id", plugin_id.to_string()),
+            ];
+            metrics.batch_cancelled_total.add(1, &attrs);
+            metrics
+                .batch_active
+                .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+        }
     }
 
     tracing::info!(

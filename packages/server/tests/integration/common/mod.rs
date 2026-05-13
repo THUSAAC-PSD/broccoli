@@ -621,6 +621,7 @@ impl TestApp {
                 blob_store: blob_store.clone(),
                 config: app_config.clone(),
                 metrics: None,
+                redis_client: None,
             },
             None,
         )

@@ -218,6 +218,7 @@ impl ServerRuntime {
                 blob_store: blob_store.clone(),
                 config: app_config.clone(),
                 metrics: Some(metrics.clone()),
+                redis_client: redis_client.clone(),
             },
             Some(metrics.clone()),
         )

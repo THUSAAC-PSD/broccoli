@@ -123,6 +123,7 @@ fn get_next_evaluate_result_fn(
         &plugin_id,
         &deps.evaluate_batches,
         deps.metrics.as_ref(),
+        &deps.evaluate_ops_registry,
         &input.batch_id,
         Duration::from_millis(input.timeout_ms),
     )
@@ -148,10 +149,39 @@ fn cancel_evaluate_batch_fn(
         (guard.plugin_id.clone(), guard.deps.clone())
     };
 
+    if deps.cancel_primitive_enabled
+        && let Some(client) = deps.redis_client.as_ref()
+    {
+        let op_task_ids = deps
+            .evaluate_ops_registry
+            .operation_task_ids_for_batch(&input.batch_id);
+        let client = client.clone();
+        let batch_id = input.batch_id.clone();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                if let Err(e) = crate::host_funcs::cancel::set_cancel_batch_key(&client, &batch_id)
+                    .await
+                {
+                    tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis batch cancel key");
+                }
+                if !op_task_ids.is_empty()
+                    && let Err(e) =
+                        crate::host_funcs::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+                {
+                    tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
+                }
+            })
+        });
+    }
+
+    deps.evaluate_ops_registry
+        .mark_batch_cancelled(&input.batch_id);
+
     evaluate_batch::cancel_evaluate_batch(
         &plugin_id,
         &deps.evaluate_batches,
         deps.metrics.as_ref(),
+        &deps.evaluate_ops_registry,
         &input.batch_id,
     );
 
@@ -179,6 +209,27 @@ fn cancel_evaluate_test_cases_fn(
     let count = deps
         .evaluate_ops_registry
         .mark_cancelled(&input.evaluate_batch_id, &input.test_case_ids);
+
+    if deps.cancel_primitive_enabled
+        && let Some(client) = deps.redis_client.as_ref()
+    {
+        let op_task_ids = deps
+            .evaluate_ops_registry
+            .operation_task_ids_for_test_cases(&input.evaluate_batch_id, &input.test_case_ids);
+        if !op_task_ids.is_empty() {
+            let client = client.clone();
+            let batch_id = input.evaluate_batch_id.clone();
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    if let Err(e) =
+                        crate::host_funcs::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+                    {
+                        tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
+                    }
+                })
+            });
+        }
+    }
 
     let response = serde_json::json!({ "count": count });
     let output_bytes = serde_json::to_vec(&response)

@@ -89,6 +89,17 @@ pub async fn start_operation_batch(
             );
         }
 
+        if let (Some(eval_batch_id), Some(test_case_id)) =
+            (op.evaluate_batch_id.clone(), op.test_case_id)
+        {
+            deps.evaluate_ops_registry.record_ops(
+                &eval_batch_id,
+                test_case_id,
+                &batch_id,
+                std::iter::once(correlation_id.clone()),
+            );
+        }
+
         let op = externalize_large_inline_files(op, deps.blob_store.clone())
             .await
             .with_context(|| "Blob store error")?;
@@ -379,6 +390,8 @@ mod tests {
             channels: vec![],
             priority: None,
             target_worker_id: None,
+            evaluate_batch_id: None,
+            test_case_id: None,
         }
     }
 
@@ -443,6 +456,8 @@ mod tests {
             operation_result_queue_name: "ops-results".to_string(),
             blob_store,
             metrics: None,
+            evaluate_ops_registry:
+                crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default(),
         };
 
         let err = start_operation_batch("plugin".to_string(), deps, vec![])
