@@ -12,10 +12,11 @@ use tracing::{error, info, warn};
 use crate::config::WorkerAppConfig;
 use crate::consumer::{WorkerConsumer, WorkerConsumerDeps};
 use crate::dedup::RedisTaskDedup;
+use crate::fairness::{WorkerCapacity, effective_worker_capacity};
 use crate::heartbeat::{HeartbeatConfig, HeartbeatHandle, InFlightCounter};
 use crate::metrics::spawn_metrics_server;
 use crate::models::worker::Worker;
-use crate::system_info::SystemInfo;
+use crate::system_info::{SystemInfo, is_wsl};
 
 pub struct WorkerRuntime {
     config: WorkerAppConfig,
@@ -23,12 +24,36 @@ pub struct WorkerRuntime {
     consumer: WorkerConsumer,
     in_flight: InFlightCounter,
     heartbeat: HeartbeatHandle,
+    capacity: WorkerCapacity,
     _cleanup_handle: tokio::task::JoinHandle<()>,
 }
 
 impl WorkerRuntime {
     pub async fn build(config: WorkerAppConfig) -> anyhow::Result<Self> {
         info!("Worker starting: {}", config.worker.id);
+
+        let system_info = SystemInfo::detect();
+        let capacity = effective_worker_capacity(
+            config.worker.max_concurrency,
+            config.worker.fairness_unsafe_allow,
+            &system_info.os,
+            is_wsl(),
+        );
+        if capacity.was_clamped {
+            warn!(
+                configured_max_concurrency = config.worker.max_concurrency,
+                effective_max_concurrency = capacity.max_concurrency,
+                os = %system_info.os,
+                "Clamping worker max_concurrency to 1; set worker.fairness_unsafe_allow=true to override on this platform"
+            );
+        } else if capacity.max_concurrency > 1 {
+            info!(
+                configured_max_concurrency = config.worker.max_concurrency,
+                effective_max_concurrency = capacity.max_concurrency,
+                fairness_mode = capacity.fairness_mode.as_str(),
+                "Worker max_concurrency > 1 enabled"
+            );
+        }
 
         let (metrics, prometheus_registry) =
             common::observability::init_metrics(&config.observability.otlp.service_name);
@@ -76,7 +101,6 @@ impl WorkerRuntime {
         );
 
         let in_flight = InFlightCounter::new();
-        let system_info = SystemInfo::detect();
         info!(
             hostname = ?system_info.hostname,
             ip_addresses = ?system_info.ip_addresses,
@@ -91,8 +115,8 @@ impl WorkerRuntime {
                 redis_url: config.mq.url.clone(),
                 worker_id: config.worker.id.clone(),
                 sandbox_backend: config.worker.sandbox_backend.clone(),
-                max_concurrency: None,
-                fairness_mode: "unknown".into(),
+                max_concurrency: Some(capacity.max_concurrency as u32),
+                fairness_mode: capacity.fairness_mode.as_str().into(),
                 system_info,
             },
             in_flight.clone(),
@@ -124,6 +148,7 @@ impl WorkerRuntime {
             consumer,
             in_flight,
             heartbeat,
+            capacity,
             _cleanup_handle: cleanup_handle,
         })
     }
@@ -169,7 +194,7 @@ impl WorkerRuntime {
 
             let shared_fut = self.mq.process_messages(
                 &shared_queue,
-                None,
+                Some(self.capacity.max_concurrency),
                 None,
                 move |message: BrokerMessage<Task>| handler(message),
             );
@@ -179,7 +204,7 @@ impl WorkerRuntime {
                 .handler(self.in_flight.clone(), shutdown.clone());
             let private_fut = self.mq.process_messages(
                 &private_queue,
-                None,
+                Some(self.capacity.max_concurrency),
                 None,
                 move |message: BrokerMessage<Task>| handler(message),
             );
