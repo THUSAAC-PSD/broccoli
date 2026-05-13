@@ -63,6 +63,90 @@ pub struct ServerConfig {
     /// true, hostname/random fallbacks are rejected.
     #[serde(default)]
     pub expects_multi_replica: bool,
+    /// Master switch for lease refresh, steal scanning, and reply-queue
+    /// sweeping. Defaults off for opt-in rollout.
+    #[serde(default)]
+    pub dispatcher_lease_steal_enabled: bool,
+    /// Admission-control switch for plugin-dispatch background tasks.
+    #[serde(default = "default_dispatcher_semaphore_enabled")]
+    pub dispatcher_semaphore_enabled: bool,
+    #[serde(default = "default_dispatcher_concurrency")]
+    pub dispatcher_concurrency: u32,
+    /// Per-server cap on dispatch tasks waiting for a semaphore permit.
+    /// Multi-replica deployments get an aggregate cap of roughly
+    /// `max_queued_submissions * live_server_replicas`.
+    #[serde(default = "default_max_queued_submissions")]
+    pub max_queued_submissions: u32,
+    #[serde(default = "default_lease_ttl_secs")]
+    pub lease_ttl_secs: u64,
+    #[serde(default = "default_lease_refresh_interval_secs")]
+    pub lease_refresh_interval_secs: u64,
+    #[serde(default = "default_steal_scan_interval_secs")]
+    pub steal_scan_interval_secs: u64,
+    #[serde(default = "default_steal_batch_size")]
+    pub steal_batch_size: u32,
+    #[serde(default = "default_sweep_interval_secs")]
+    pub sweep_interval_secs: u64,
+    #[serde(default = "default_max_dispatch_retries")]
+    pub max_dispatch_retries: u32,
+    /// Initially dry-run only: log ghost reply queues and debounce them, but
+    /// do not delete Redis keys until operators explicitly enable deletion.
+    #[serde(default = "default_sweeper_dry_run")]
+    pub sweeper_dry_run: bool,
+    /// Master switch for Redis-backed operation cancellation keys. Defaults
+    /// off so worker-side cancellation checks can soak independently.
+    #[serde(default)]
+    pub cancel_primitive_enabled: bool,
+    /// Admission switch for sizing evaluator slots from live worker
+    /// heartbeats instead of local CPU count.
+    #[serde(default)]
+    pub fleet_aware_admission_enabled: bool,
+    #[serde(default = "default_fleet_capacity_poll_interval_secs")]
+    pub fleet_capacity_poll_interval_secs: u64,
+}
+
+fn default_dispatcher_semaphore_enabled() -> bool {
+    true
+}
+
+fn default_dispatcher_concurrency() -> u32 {
+    16
+}
+
+fn default_max_queued_submissions() -> u32 {
+    100
+}
+
+fn default_lease_ttl_secs() -> u64 {
+    60
+}
+
+fn default_lease_refresh_interval_secs() -> u64 {
+    10
+}
+
+fn default_steal_scan_interval_secs() -> u64 {
+    15
+}
+
+fn default_steal_batch_size() -> u32 {
+    8
+}
+
+fn default_sweep_interval_secs() -> u64 {
+    300
+}
+
+fn default_max_dispatch_retries() -> u32 {
+    5
+}
+
+fn default_sweeper_dry_run() -> bool {
+    true
+}
+
+fn default_fleet_capacity_poll_interval_secs() -> u64 {
+    5
 }
 
 fn default_frontend_dist() -> PathBuf {
@@ -299,6 +383,20 @@ impl AppConfig {
             .set_default("server.frontend_dist", "/srv/dist")?
             .set_default("server.id", "")?
             .set_default("server.expects_multi_replica", false)?
+            .set_default("server.dispatcher_lease_steal_enabled", false)?
+            .set_default("server.dispatcher_semaphore_enabled", true)?
+            .set_default("server.dispatcher_concurrency", 16_i64)?
+            .set_default("server.max_queued_submissions", 100_i64)?
+            .set_default("server.lease_ttl_secs", 60_i64)?
+            .set_default("server.lease_refresh_interval_secs", 10_i64)?
+            .set_default("server.steal_scan_interval_secs", 15_i64)?
+            .set_default("server.steal_batch_size", 8_i64)?
+            .set_default("server.sweep_interval_secs", 300_i64)?
+            .set_default("server.max_dispatch_retries", 5_i64)?
+            .set_default("server.sweeper_dry_run", true)?
+            .set_default("server.cancel_primitive_enabled", false)?
+            .set_default("server.fleet_aware_admission_enabled", false)?
+            .set_default("server.fleet_capacity_poll_interval_secs", 5_i64)?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
             .set_default(
