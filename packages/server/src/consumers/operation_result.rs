@@ -17,10 +17,17 @@ pub async fn consume_operation_results(
         "Starting operation result consumer"
     );
 
+    // Concurrency=8: each handler invocation is short (DashMap lookup +
+    // channel send), but under burst load (1000-submission window) the queue
+    // can briefly buffer thousands of result messages. Single-threaded
+    // consumption serializes the waker fan-out and adds head-of-line blocking
+    // on whichever evaluator is currently slow. 8 concurrent handlers give
+    // enough parallelism that the result queue never becomes the bottleneck,
+    // without flooding the runtime — each handler holds no locks across .await.
     if let Err(e) = mq
         .process_messages(
             &queue_name,
-            None,
+            Some(8),
             None,
             move |message: mq::BrokerMessage<TaskResult>| {
                 let waiters = waiters.clone();
