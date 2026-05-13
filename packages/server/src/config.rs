@@ -103,6 +103,15 @@ pub struct ServerConfig {
     pub fleet_aware_admission_enabled: bool,
     #[serde(default = "default_fleet_capacity_poll_interval_secs")]
     pub fleet_capacity_poll_interval_secs: u64,
+    /// Hard cap on the tokio runtime's blocking-thread pool. When unset, the
+    /// effective value auto-scales to `available_parallelism * 16`, clamped to
+    /// `[512, 8192]`. The blocking pool is consumed by plugin `spawn_blocking`
+    /// calls (one thread held per concurrent plugin call) and `tokio::fs::*`
+    /// operations. Override down on memory-constrained hosts (each thread
+    /// reserves ~2MB of stack) or up when `plugin.evaluator_parallelism` is
+    /// dialed well above CPU count.
+    #[serde(default)]
+    pub max_blocking_threads: Option<usize>,
 }
 
 fn default_dispatcher_semaphore_enabled() -> bool {
@@ -373,6 +382,29 @@ pub fn per_replica_result_queue_name(base: &str, server_id: &str) -> String {
     format!("{}.{}", base, server_id)
 }
 
+/// Auto-default for tokio's `max_blocking_threads`: 16x available CPUs,
+/// clamped to `[512, 8192]`. The 16x multiplier gives roughly 8x headroom
+/// over the realistic peak (`evaluator_parallelism * 2` for plugin +
+/// fs/db). The floor matches tokio's historical default so very small boxes
+/// keep a sane minimum, and the ceiling keeps worst-case stack budget at
+/// ~16GB on enormous hosts.
+pub fn auto_max_blocking_threads() -> usize {
+    let par = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    (par * 16).clamp(512, 8192)
+}
+
+impl ServerConfig {
+    /// Resolves the effective `max_blocking_threads` value for the tokio
+    /// runtime: user-supplied value wins verbatim (no clamping); otherwise
+    /// derived via [`auto_max_blocking_threads`].
+    pub fn effective_max_blocking_threads(&self) -> usize {
+        self.max_blocking_threads
+            .unwrap_or_else(auto_max_blocking_threads)
+    }
+}
+
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let s = Config::builder()
@@ -528,6 +560,74 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(probe.trusted_proxies, vec!["10.0.0.0/8", "192.168.0.0/16"]);
+    }
+
+    fn server_config_fixture(max_blocking_threads: Option<usize>) -> ServerConfig {
+        ServerConfig {
+            host: "127.0.0.1".into(),
+            port: 3000,
+            cors: CorsConfig {
+                allow_origins: Vec::new(),
+                max_age: 0,
+            },
+            frontend_dist: default_frontend_dist(),
+            trusted_proxies: Vec::new(),
+            rate_limit_auth: false,
+            id: String::new(),
+            expects_multi_replica: false,
+            dispatcher_lease_steal_enabled: false,
+            dispatcher_semaphore_enabled: default_dispatcher_semaphore_enabled(),
+            dispatcher_concurrency: default_dispatcher_concurrency(),
+            max_queued_submissions: default_max_queued_submissions(),
+            lease_ttl_secs: default_lease_ttl_secs(),
+            lease_refresh_interval_secs: default_lease_refresh_interval_secs(),
+            steal_scan_interval_secs: default_steal_scan_interval_secs(),
+            steal_batch_size: default_steal_batch_size(),
+            sweep_interval_secs: default_sweep_interval_secs(),
+            max_dispatch_retries: default_max_dispatch_retries(),
+            sweeper_dry_run: default_sweeper_dry_run(),
+            cancel_primitive_enabled: false,
+            fleet_aware_admission_enabled: false,
+            fleet_capacity_poll_interval_secs: default_fleet_capacity_poll_interval_secs(),
+            max_blocking_threads,
+        }
+    }
+
+    #[test]
+    fn auto_max_blocking_threads_stays_within_clamp_bounds() {
+        let resolved = auto_max_blocking_threads();
+        assert!(
+            (512..=8192).contains(&resolved),
+            "auto-resolved value {resolved} outside [512, 8192]"
+        );
+    }
+
+    #[test]
+    fn effective_max_blocking_threads_honors_explicit_value() {
+        let cfg = server_config_fixture(Some(2048));
+        assert_eq!(cfg.effective_max_blocking_threads(), 2048);
+    }
+
+    #[test]
+    fn effective_max_blocking_threads_bypasses_clamp_for_explicit_override() {
+        // Operators with very memory-constrained hosts must be able to set a
+        // value below the auto-default floor. Confirm 100 is honored verbatim
+        // rather than silently bumped to 512.
+        let cfg = server_config_fixture(Some(100));
+        assert_eq!(cfg.effective_max_blocking_threads(), 100);
+
+        // Symmetric: explicit values above the auto-default ceiling also pass
+        // through unchanged.
+        let cfg = server_config_fixture(Some(16_384));
+        assert_eq!(cfg.effective_max_blocking_threads(), 16_384);
+    }
+
+    #[test]
+    fn effective_max_blocking_threads_falls_back_to_auto_default() {
+        let cfg = server_config_fixture(None);
+        let resolved = cfg.effective_max_blocking_threads();
+        assert_eq!(resolved, auto_max_blocking_threads());
+        assert!((512..=8192).contains(&resolved));
     }
 
     #[test]

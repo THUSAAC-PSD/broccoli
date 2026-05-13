@@ -3,15 +3,7 @@ use std::time::Duration;
 use anyhow::Context;
 use server::config::AppConfig;
 use server::runtime::ServerRuntime;
-
-/// Maximum number of threads in the tokio blocking pool. Sized for the worst
-/// case of UP#1: every loaded plugin can have one in-flight `spawn_blocking`
-/// per evaluator slot, plus host-fn `Handle::block_on` sites in
-/// `host_funcs/*.rs`. Tokio's default of 512 is too tight once
-/// `evaluator_parallelism` is raised to match a 64-core box and recursive
-/// checker calls double the depth. 1024 × 2MB stack = ~2GB worst-case
-/// overhead, which is acceptable for a server replica.
-const MAX_BLOCKING_THREADS: usize = 1024;
+use tracing::info;
 
 fn main() -> anyhow::Result<()> {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
@@ -21,9 +13,16 @@ fn main() -> anyhow::Result<()> {
 
     let app_config = AppConfig::load().context("Failed to load configuration")?;
 
+    let max_blocking_threads = app_config.server.effective_max_blocking_threads();
+    info!(
+        max_blocking_threads,
+        configured = ?app_config.server.max_blocking_threads,
+        "Sizing tokio blocking-thread pool"
+    );
+
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .max_blocking_threads(MAX_BLOCKING_THREADS)
+        .max_blocking_threads(max_blocking_threads)
         .thread_name("broccoli-server")
         .build()
         .context("Failed to build tokio runtime")?;
