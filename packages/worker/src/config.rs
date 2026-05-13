@@ -93,7 +93,7 @@ fn default_cache_dir() -> String {
     "./data/cache".into()
 }
 fn default_max_cache_size() -> u64 {
-    512 * 1024 * 1024
+    4 * 1024 * 1024 * 1024
 }
 
 impl Default for StorageConfig {
@@ -148,7 +148,7 @@ impl WorkerAppConfig {
             .set_default("storage.data_dir", "./data")?
             .set_default("storage.max_blob_size", DEFAULT_MAX_BLOB_SIZE_BYTES as i64)?
             .set_default("storage.cache_dir", "./data/cache")?
-            .set_default("storage.max_cache_size", 512 * 1024 * 1024_i64)?
+            .set_default("storage.max_cache_size", 4 * 1024 * 1024 * 1024_i64)?
             .add_source(File::with_name(&config_path).required(false))
             .add_source(
                 Environment::with_prefix("BROCCOLI")
