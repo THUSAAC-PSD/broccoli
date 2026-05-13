@@ -7,6 +7,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Semaphore;
 
 use crate::config::AppConfig;
+use crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry;
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
@@ -54,6 +55,7 @@ pub struct EvaluateHostDeps {
     pub plugin_manager: Arc<dyn PluginManager>,
     pub blob_store: Arc<dyn BlobStore>,
     pub metrics: Option<common::metrics::Metrics>,
+    pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
 }
 
 impl HostFunctionSystemDeps {
@@ -78,7 +80,11 @@ impl HostFunctionSystemDeps {
 }
 
 impl HostFunctionDeps {
-    pub fn evaluate_deps(&self, evaluator_slots: Arc<Semaphore>) -> EvaluateHostDeps {
+    pub fn evaluate_deps(
+        &self,
+        evaluator_slots: Arc<Semaphore>,
+        evaluate_ops_registry: EvaluateBatchOpsRegistry,
+    ) -> EvaluateHostDeps {
         EvaluateHostDeps {
             db: self.system.db.clone(),
             evaluator_registry: self.system.evaluator_registry.clone(),
@@ -87,6 +93,7 @@ impl HostFunctionDeps {
             plugin_manager: self.plugin_manager.clone(),
             blob_store: self.system.blob_store.clone(),
             metrics: self.system.metrics.clone(),
+            evaluate_ops_registry,
         }
     }
 }

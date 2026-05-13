@@ -17,6 +17,12 @@ struct CancelEvaluateBatchInput {
     batch_id: String,
 }
 
+#[derive(Deserialize)]
+struct CancelEvaluateTestCasesInput {
+    evaluate_batch_id: String,
+    test_case_ids: Vec<i32>,
+}
+
 struct EvaluateContext {
     plugin_id: String,
     deps: EvaluateHostDeps,
@@ -46,8 +52,15 @@ pub fn create_evaluate_functions(plugin_id: String, deps: EvaluateHostDeps) -> V
             "cancel_evaluate_batch",
             [ValType::I64],
             [],
-            user_data,
+            user_data.clone(),
             cancel_evaluate_batch_fn,
+        ),
+        Function::new(
+            "cancel_evaluate_test_cases",
+            [ValType::I64],
+            [ValType::I64],
+            user_data,
+            cancel_evaluate_test_cases_fn,
         ),
     ]
 }
@@ -142,6 +155,36 @@ fn cancel_evaluate_batch_fn(
         &input.batch_id,
     );
 
+    Ok(())
+}
+
+fn cancel_evaluate_test_cases_fn(
+    plugin: &mut extism::CurrentPlugin,
+    inputs: &[Val],
+    outputs: &mut [Val],
+    user_data: UserData<EvaluateUserData>,
+) -> Result<(), extism::Error> {
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: CancelEvaluateTestCasesInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let deps = {
+        let user_data_guard = user_data.get()?;
+        let guard = user_data_guard
+            .lock()
+            .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        guard.deps.clone()
+    };
+
+    let count = deps
+        .evaluate_ops_registry
+        .mark_cancelled(&input.evaluate_batch_id, &input.test_case_ids);
+
+    let response = serde_json::json!({ "count": count });
+    let output_bytes = serde_json::to_vec(&response)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize count: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
     Ok(())
 }
 

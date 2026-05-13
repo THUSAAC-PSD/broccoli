@@ -3,6 +3,7 @@ pub mod config;
 pub mod context;
 pub mod dispatch;
 pub mod evaluate;
+pub mod evaluate_ops_registry;
 pub mod language;
 pub mod logger;
 pub mod registry;
@@ -227,7 +228,9 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         .max(1);
     tracing::info!(evaluator_parallelism, "evaluator semaphore configured");
     let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
-    let eval_deps = deps.evaluate_deps(evaluator_slots);
+    let evaluate_ops_registry =
+        crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+    let eval_deps = deps.evaluate_deps(evaluator_slots, evaluate_ops_registry);
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(plugin_id.to_string(), eval_deps.clone())
     });
