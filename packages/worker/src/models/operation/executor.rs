@@ -9,6 +9,7 @@ use super::sandbox::mock::MockSandboxManager;
 use super::task_cache::{DatabaseTaskCacheStore, NoopTaskCacheStore, TaskCacheStore};
 use crate::config::WorkerAppConfig;
 use crate::models::operation::handler::OperationHandler;
+use crate::toolchain_fingerprint;
 use anyhow::Result;
 use async_trait::async_trait;
 use common::storage::config::create_blob_store;
@@ -24,7 +25,12 @@ impl OperationTaskExecutor {
         config: &WorkerAppConfig,
         metrics: common::metrics::Metrics,
     ) -> Result<Self> {
-        let fingerprint = String::new();
+        let fingerprint =
+            toolchain_fingerprint::compute(toolchain_fingerprint::default_probes()).await;
+        info!(
+            worker_toolchain_fingerprint = %fingerprint,
+            "Computed toolchain fingerprint for compile cache key"
+        );
         let sandbox_manager = Self::sandbox_manager_from_config(Some(config));
         let (file_cacher, task_cache) = Self::caching_from_config(config, metrics.clone()).await?;
 

@@ -10,6 +10,7 @@ mod models;
 mod runtime;
 mod system_info;
 mod task_runner;
+mod toolchain_fingerprint;
 
 use std::time::Duration;
 

@@ -3,6 +3,7 @@ pub mod config;
 pub mod dedup;
 pub mod error;
 pub mod models;
+pub mod toolchain_fingerprint;
 
 pub use config::{DatabaseConfig, MqAppConfig, StorageConfig, WorkerAppConfig, WorkerConfig};
 pub use error::WorkerError;
