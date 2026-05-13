@@ -3,6 +3,62 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common::storage::{BlobStore, ContentHash};
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncReadExt;
+
+/// Materialize `src` at `dest` as cheaply as possible.
+///
+/// On unix, attempts a hard link first (`std::fs::hard_link`) so the
+/// two paths share the same inode and no bytes are copied. Falls back to
+/// `tokio::fs::copy` on any link failure (cross-device EXDEV, permission, etc.).
+/// As a corner case, if hard_link fails with EEXIST (`dest` already exists) we
+/// remove `dest` and retry once before falling back.
+///
+/// On non-unix platforms, this is just `tokio::fs::copy`.
+///
+/// Hard-linking is only sound when the worker treats `dest` as read-only — any
+/// write through `dest` would propagate to `src` (the cache entry). The
+/// `fetch_to_path` caller chain satisfies this constraint.
+async fn link_or_copy(src: &Path, dest: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        match std::fs::hard_link(src, dest) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // dest already exists; remove and retry once.
+                if tokio::fs::remove_file(dest).await.is_ok()
+                    && std::fs::hard_link(src, dest).is_ok()
+                {
+                    return Ok(());
+                }
+                // Fall through to copy.
+            }
+            Err(_) => {
+                // EXDEV (cross-filesystem) or any other link failure: fall through to copy.
+            }
+        }
+    }
+
+    tokio::fs::copy(src, dest).await.map(|_| ())
+}
+
+/// Compute SHA-256 of `src` by streaming. Avoids loading the whole file.
+async fn hash_file(src: &Path) -> std::io::Result<ContentHash> {
+    let mut file = tokio::fs::File::open(src).await?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(&digest);
+    Ok(ContentHash::from_bytes(bytes))
+}
 
 #[cfg(unix)]
 fn ensure_readable(path: &Path) {
@@ -213,9 +269,9 @@ impl FileCacher for BlobStoreFileCacher {
         if cached.exists() {
             self.touch(&hash_hex).await;
             ensure_readable(&cached);
-            tokio::fs::copy(&cached, dest)
+            link_or_copy(&cached, dest)
                 .await
-                .map_err(|e| format!("Failed to copy cached file: {e}"))?;
+                .map_err(|e| format!("Failed to materialize cached file: {e}"))?;
             return Ok(());
         }
 
@@ -226,9 +282,9 @@ impl FileCacher for BlobStoreFileCacher {
         if cached.exists() {
             self.touch(&hash_hex).await;
             ensure_readable(&cached);
-            tokio::fs::copy(&cached, dest)
+            link_or_copy(&cached, dest)
                 .await
-                .map_err(|e| format!("Failed to copy cached file: {e}"))?;
+                .map_err(|e| format!("Failed to materialize cached file: {e}"))?;
             return Ok(());
         }
 
@@ -268,31 +324,59 @@ impl FileCacher for BlobStoreFileCacher {
         ensure_readable(&cached);
         self.record_cache_entry(hash_hex.clone(), file_size).await;
 
-        tokio::fs::copy(&cached, dest)
+        link_or_copy(&cached, dest)
             .await
-            .map_err(|e| format!("Failed to copy to dest: {e}"))?;
+            .map_err(|e| format!("Failed to materialize to dest: {e}"))?;
 
         Ok(())
     }
 
     async fn upload_from_path(&self, src: &Path) -> Result<String, String> {
-        let file = tokio::fs::File::open(src)
-            .await
-            .map_err(|e| format!("Failed to open file: {e}"))?;
-
         let meta = tokio::fs::metadata(src)
             .await
             .map_err(|e| format!("Failed to read metadata: {e}"))?;
         let file_size = meta.len();
 
-        let reader: common::storage::BoxReader = Box::new(file);
-        let hash = self
-            .store
-            .put_stream(reader)
+        // Hash the file locally first so we can probe BlobStore::exists before
+        // streaming. The extra local read is dominated by upload cost for any
+        // file >1 KiB and saves a full network round-trip on re-uploads.
+        let hash = hash_file(src)
             .await
-            .map_err(|e| e.to_string())?;
-
+            .map_err(|e| format!("Failed to hash file: {e}"))?;
         let hash_hex = hash.to_hex();
+
+        // HEAD probe; fail open (fall through to streaming) on probe errors so
+        // a flaky head_object call never breaks an upload.
+        // TODO(UP#12): count exists-hit vs miss for cache-hit metrics.
+        let already_remote = match self.store.exists(&hash).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    hash = %hash_hex,
+                    error = %e,
+                    "BlobStore::exists probe failed; falling back to streaming upload"
+                );
+                false
+            }
+        };
+
+        if !already_remote {
+            let file = tokio::fs::File::open(src)
+                .await
+                .map_err(|e| format!("Failed to open file: {e}"))?;
+            let reader: common::storage::BoxReader = Box::new(file);
+            let uploaded = self
+                .store
+                .put_stream(reader)
+                .await
+                .map_err(|e| e.to_string())?;
+            debug_assert_eq!(
+                uploaded.to_hex(),
+                hash_hex,
+                "BlobStore::put_stream hash disagrees with locally-computed hash"
+            );
+        }
+
         let cached = self.cache_path(&hash_hex);
 
         if !cached.exists() {
@@ -379,6 +463,99 @@ mod tests {
 
         let content = tokio::fs::read_to_string(&dest).await.unwrap();
         assert_eq!(content, "hello blob");
+    }
+
+    #[tokio::test]
+    async fn link_or_copy_materializes_file_on_same_fs() {
+        // tempdir is on a real filesystem, so hard_link should succeed.
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.bin");
+        let dest = dir.path().join("dest.bin");
+        tokio::fs::write(&src, b"link me").await.unwrap();
+
+        link_or_copy(&src, &dest).await.unwrap();
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"link me");
+
+        // EEXIST recovery: pre-create dest then re-link.
+        let dest2 = dir.path().join("dest2.bin");
+        tokio::fs::write(&dest2, b"old contents").await.unwrap();
+        link_or_copy(&src, &dest2).await.unwrap();
+        assert_eq!(tokio::fs::read(&dest2).await.unwrap(), b"link me");
+    }
+
+    /// Counts put_stream invocations to verify the HEAD-probe short-circuit
+    /// skips the upload when the blob is already remote.
+    struct CountingBlobStore {
+        inner: Arc<FilesystemBlobStore>,
+        put_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl BlobStore for CountingBlobStore {
+        async fn put_stream(
+            &self,
+            reader: common::storage::BoxReader,
+        ) -> Result<ContentHash, common::storage::StorageError> {
+            self.put_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.inner.put_stream(reader).await
+        }
+        async fn get_stream(
+            &self,
+            hash: &ContentHash,
+        ) -> Result<common::storage::BoxReader, common::storage::StorageError> {
+            self.inner.get_stream(hash).await
+        }
+        async fn exists(&self, hash: &ContentHash) -> Result<bool, common::storage::StorageError> {
+            self.inner.exists(hash).await
+        }
+        async fn delete(&self, hash: &ContentHash) -> Result<bool, common::storage::StorageError> {
+            self.inner.delete(hash).await
+        }
+        async fn size(&self, hash: &ContentHash) -> Result<u64, common::storage::StorageError> {
+            self.inner.size(hash).await
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_from_path_skips_put_stream_when_blob_exists_remotely() {
+        let dir = tempfile::tempdir().unwrap();
+        let blob_dir = dir.path().join("blobs");
+        let cache_dir = dir.path().join("cache");
+        let inner = Arc::new(
+            FilesystemBlobStore::new(blob_dir, 10 * 1024 * 1024)
+                .await
+                .unwrap(),
+        );
+        let counting = Arc::new(CountingBlobStore {
+            inner,
+            put_calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let cacher = BlobStoreFileCacher::new(counting.clone(), cache_dir, 10 * 1024 * 1024)
+            .await
+            .unwrap();
+
+        let src1 = dir.path().join("src1.bin");
+        let src2 = dir.path().join("src2.bin");
+        tokio::fs::write(&src1, b"identical contents")
+            .await
+            .unwrap();
+        tokio::fs::write(&src2, b"identical contents")
+            .await
+            .unwrap();
+
+        let h1 = cacher.upload_from_path(&src1).await.unwrap();
+        let count_after_first = counting.put_calls.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(count_after_first, 1, "first upload should stream");
+
+        let h2 = cacher.upload_from_path(&src2).await.unwrap();
+        assert_eq!(h1, h2, "identical bytes must yield identical hashes");
+
+        let count_after_second = counting.put_calls.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            count_after_second, 1,
+            "second upload of identical content must skip put_stream"
+        );
     }
 
     #[tokio::test]
