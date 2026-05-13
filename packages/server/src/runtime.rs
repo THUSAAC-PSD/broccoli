@@ -34,7 +34,10 @@ impl ServerRuntime {
     pub async fn build(mut app_config: AppConfig) -> anyhow::Result<Self> {
         let telemetry_guard = common::observability::init_tracing(&app_config.observability);
 
-        let server_id = resolve_server_id(&app_config.server.id);
+        let server_id = resolve_server_id(
+            &app_config.server.id,
+            app_config.server.expects_multi_replica,
+        )?;
         app_config.server.id = server_id.clone();
         let per_replica_op_result_queue =
             per_replica_result_queue_name(&app_config.mq.operation_result_queue_name, &server_id);

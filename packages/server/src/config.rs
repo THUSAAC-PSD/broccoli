@@ -59,6 +59,10 @@ pub struct ServerConfig {
     /// random short ID. See [`resolve_server_id`].
     #[serde(default)]
     pub id: String,
+    /// Multi-replica deployments require a stable explicit server ID; when
+    /// true, hostname/random fallbacks are rejected.
+    #[serde(default)]
+    pub expects_multi_replica: bool,
 }
 
 fn default_frontend_dist() -> PathBuf {
@@ -190,29 +194,47 @@ fn default_batch_max_age_secs() -> u64 {
 pub fn is_valid_server_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
+        && !id.ends_with("_processing")
+        && !id.ends_with("_failed")
+        && !id.ends_with("_fairness_set")
         && id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ServerIdResolveError {
+    #[error(
+        "server.id must be explicitly set to a valid value when server.expects_multi_replica is true"
+    )]
+    MultiReplicaServerIdRequired,
+}
+
 /// Resolves the effective server ID from a configured value:
 /// 1. If `configured` is non-empty and valid, use it.
-/// 2. Else fall back to the OS hostname (sanitized — Windows hostnames may
+/// 2. If multi-replica mode is expected, reject missing/invalid configured IDs.
+/// 3. Else fall back to the OS hostname (sanitized — Windows hostnames may
 ///    contain characters Redis dislikes in queue names).
-/// 3. Else generate an 8-char random ID and warn. Refusing to start would
-///    be too aggressive — operators can set `BROCCOLI__SERVER__ID` explicitly
-///    if they care about stable identity.
-pub fn resolve_server_id(configured: &str) -> String {
+/// 4. Else generate an 8-char random ID and warn.
+pub fn resolve_server_id(
+    configured: &str,
+    expects_multi_replica: bool,
+) -> Result<String, ServerIdResolveError> {
     let trimmed = configured.trim();
     if !trimmed.is_empty() {
         if is_valid_server_id(trimmed) {
             info!(server_id = %trimmed, "Server ID resolved from explicit configuration");
-            return trimmed.to_string();
+            return Ok(trimmed.to_string());
+        }
+        if expects_multi_replica {
+            return Err(ServerIdResolveError::MultiReplicaServerIdRequired);
         }
         warn!(
             configured = %trimmed,
             "Configured server.id failed validation; falling back to hostname"
         );
+    } else if expects_multi_replica {
+        return Err(ServerIdResolveError::MultiReplicaServerIdRequired);
     }
 
     if let Ok(host) = hostname::get() {
@@ -235,7 +257,7 @@ pub fn resolve_server_id(configured: &str) -> String {
                  Set BROCCOLI__SERVER__ID explicitly in multi-replica deployments \
                  to avoid silent collisions between replicas with identical hostnames."
             );
-            return sanitized;
+            return Ok(sanitized);
         }
         warn!(
             hostname = %lossy,
@@ -257,7 +279,7 @@ pub fn resolve_server_id(configured: &str) -> String {
          This ID changes every restart — set BROCCOLI__SERVER__ID explicitly so in-flight \
          operation results route correctly across restarts."
     );
-    fallback
+    Ok(fallback)
 }
 
 /// Centralized derivation of the per-replica operation-result queue name.
@@ -276,6 +298,7 @@ impl AppConfig {
             .set_default("server.cors.max_age", 3600_i64)?
             .set_default("server.frontend_dist", "/srv/dist")?
             .set_default("server.id", "")?
+            .set_default("server.expects_multi_replica", false)?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
             .set_default(
@@ -322,26 +345,29 @@ mod tests {
         assert!(!is_valid_server_id(""));
         assert!(!is_valid_server_id("has space"));
         assert!(!is_valid_server_id("colon:bad"));
+        assert!(!is_valid_server_id("server_processing"));
+        assert!(!is_valid_server_id("server_failed"));
+        assert!(!is_valid_server_id("server_fairness_set"));
         assert!(!is_valid_server_id(&"x".repeat(129)));
     }
 
     #[test]
     fn resolves_explicit_server_id_when_valid() {
-        assert_eq!(resolve_server_id("alpha"), "alpha");
-        assert_eq!(resolve_server_id("  alpha  "), "alpha");
+        assert_eq!(resolve_server_id("alpha", false).unwrap(), "alpha");
+        assert_eq!(resolve_server_id("  alpha  ", false).unwrap(), "alpha");
     }
 
     #[test]
     fn resolves_invalid_explicit_id_via_fallback() {
         // "has space" is invalid; we expect a non-empty fallback (hostname or random).
-        let resolved = resolve_server_id("has space");
+        let resolved = resolve_server_id("has space", false).unwrap();
         assert!(!resolved.is_empty());
         assert!(is_valid_server_id(&resolved));
     }
 
     #[test]
     fn resolves_empty_to_hostname_or_random_fallback() {
-        let resolved = resolve_server_id("");
+        let resolved = resolve_server_id("", false).unwrap();
         assert!(!resolved.is_empty());
         assert!(is_valid_server_id(&resolved));
     }
@@ -350,9 +376,17 @@ mod tests {
     fn resolves_whitespace_only_to_fallback() {
         // Whitespace-only configured value should behave like empty:
         // produce a non-empty, well-formed ID via the hostname/random path.
-        let resolved = resolve_server_id("   ");
+        let resolved = resolve_server_id("   ", false).unwrap();
         assert!(!resolved.is_empty());
         assert!(is_valid_server_id(&resolved));
+    }
+
+    #[test]
+    fn multi_replica_server_id_requires_explicit_valid_id() {
+        assert!(resolve_server_id("", true).is_err());
+        assert!(resolve_server_id("   ", true).is_err());
+        assert!(resolve_server_id("has space", true).is_err());
+        assert_eq!(resolve_server_id("server-1", true).unwrap(), "server-1");
     }
 
     #[test]
