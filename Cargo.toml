@@ -7,9 +7,10 @@ members = [
   "packages/worker",
   "packages/cli",
   "packages/stress-test",
+  "packages/fault-harness",
 ]
-# All members EXCEPT packages/stress-test (load-testing harness; opt-in via
-# `cargo build -p stress-test` so day-to-day builds stay fast).
+# All members EXCEPT packages/stress-test and packages/fault-harness (test
+# harnesses; opt-in via `cargo build -p <crate>` so day-to-day builds stay fast).
 default-members = [
   "packages/common",
   "packages/mq",
