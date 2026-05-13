@@ -228,33 +228,46 @@ instead of the DLQ stuck-job timeout.
 
 ## Plugin Pool Sizing
 
-The server holds per-plugin pools of WASM instances. Each parallel contest
+The server holds per-plugin pools of WASM instances. Each parallel test-case
 evaluation acquires (1) an evaluator-semaphore slot and (2) one instance from
-the contest plugin's pool, then re-enters the host to call the checker plugin,
-which acquires one instance from the checker plugin's pool.
+the evaluator plugin's pool, then optionally re-enters the host to call the
+checker plugin, which acquires one instance from the checker plugin's pool.
 
-If the checker pool is smaller than the evaluator semaphore, every evaluator
-holding a contest slot can simultaneously be waiting for a checker slot. No
-checker slot will free until a contest call finishes, and no contest call will
-finish until its checker returns — the fleet deadlocks.
-
-The constraint is:
+**The constraint:**
 
 ```
 BROCCOLI__PLUGIN__POOL_MAX_INSTANCES >= BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM
 ```
 
+The server enforces this at startup: if `pool_max_instances` is smaller, it is
+raised to match `evaluator_parallelism` and a warning is logged
+(`pool_max_instances < evaluator_parallelism; raising pool size to match`). To
+silence the warning, set `BROCCOLI__PLUGIN__POOL_MAX_INSTANCES` explicitly.
+
+**Why it matters:**
+
+- For independent plugins (e.g. `icpc-contest` calling `standard-checkers`),
+  violating the constraint is **not** a deadlock — but the evaluator semaphore
+  ends up sized larger than actual capacity, so excess admitted callers queue
+  inside `plugin_manager.call_raw` waiting for a pool slot. Symptom:
+  `plugin_instance_acquire_duration` climbs, latency tails fan out, and the
+  fleet capacity calculation overestimates throughput.
+- For self-checking plugins (a contest plugin that re-enters its own pool to
+  invoke a checker handler), violating the constraint **is** a deadlock: every
+  pool slot is held by a caller waiting for another slot. Auto-bump prevents
+  this case at startup.
+
 Both knobs are per-server-replica.
 
-- `pool_max_instances` (default 32) caps concurrent calls into any single
-  plugin. Every loaded plugin gets its own pool of this size, so contest and
-  checker pools are independent — the constraint above is the only thing that
-  ties them.
+- `pool_max_instances` (default 32, but auto-raised to `evaluator_parallelism`
+  at startup if smaller) caps concurrent calls into any single plugin. Every
+  loaded plugin gets its own pool of this size.
 - `evaluator_parallelism` (default = `std::thread::available_parallelism()`) is
-  the maximum number of evaluator calls a server admits concurrently. Raise it
-  for contest workloads with high per-submission test-case fan-out.
+  the maximum number of test-case evaluations a server admits concurrently.
+  Raise it for contest workloads with high per-submission test-case fan-out.
 
-For a typical contest workload, raise both:
+For a typical contest workload on a high-core box, set both explicitly so the
+auto-bump warning stays quiet and intent is obvious:
 
 ```
 BROCCOLI__PLUGIN__POOL_MAX_INSTANCES=64
@@ -263,11 +276,13 @@ BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM=64
 
 `release/.env.server.example` ships these as the multi-replica defaults.
 
-**Diagnosing pool starvation.** A server stuck in the deadlock above shows up as
-climbing `plugin_instance_acquire_duration` for the checker plugin and a flat
-`plugin_instance_acquire_failures` (because callers wait rather than fail). The
-fleet-aware admission semaphore will stop admitting new submissions; the API
-returns `503 OVERLOADED`.
+**Diagnosing pool contention.** Both the deadlock case and the queueing case
+show up as climbing `plugin_instance_acquire_duration` for the bottlenecked
+plugin and flat `plugin_instance_acquire_failures` (callers wait rather than
+fail). When the fleet-aware admission semaphore saturates, the API returns
+`503 OVERLOADED`. The auto-bump removes the misconfigured-pool failure mode;
+remaining contention is genuine capacity exhaustion and requires either more
+replicas or higher `pool_max_instances` (at the cost of WASM instance memory).
 
 The longer-term fix is to move checker invocation out of the contest plugin call
 path (so the contest call returns before the checker runs), which makes the

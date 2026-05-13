@@ -40,6 +40,21 @@ impl ServerRuntime {
             app_config.server.expects_multi_replica,
         )?;
         app_config.server.id = server_id.clone();
+
+        let original_pool_max = app_config.plugin.pool_max_instances;
+        if app_config.plugin.normalize_for_safe_pool_sizing() {
+            let evaluator_parallelism = app_config.plugin.resolve_evaluator_parallelism();
+            warn!(
+                configured_pool_max_instances = original_pool_max,
+                evaluator_parallelism,
+                effective_pool_max_instances = app_config.plugin.pool_max_instances,
+                "pool_max_instances < evaluator_parallelism; raising pool size to match. \
+                 This prevents pool-acquire queueing from inflating the evaluator semaphore \
+                 (and outright deadlock for self-checking plugins). Set \
+                 BROCCOLI__PLUGIN__POOL_MAX_INSTANCES explicitly to silence this warning."
+            );
+        }
+
         let operation_result_queue_base = app_config.mq.operation_result_queue_name.clone();
         let per_replica_op_result_queue =
             per_replica_result_queue_name(&operation_result_queue_base, &server_id);
