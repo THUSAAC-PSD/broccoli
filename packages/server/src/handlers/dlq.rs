@@ -339,112 +339,118 @@ pub async fn bulk_retry_dlq(
         ids
     };
 
-    let txn = state.db.begin().await?;
-    let dlq = DlqService::new(&txn);
-
     let mut retried = 0usize;
     let mut skipped = 0usize;
     let mut errors = Vec::new();
     let mut submissions_to_dispatch: Vec<i32> = Vec::new();
 
-    for id in &message_ids {
-        let message = match dlq.get_by_id_for_update(*id).await {
-            Ok(Some(m)) => m,
-            Ok(None) => {
-                errors.push(BulkRetryError {
-                    id: *id,
-                    error: "Message not found".into(),
-                });
-                continue;
-            }
-            Err(e) => {
-                errors.push(BulkRetryError {
-                    id: *id,
-                    error: format!("DB error: {e}"),
-                });
-                continue;
-            }
-        };
+    const BULK_RETRY_CHUNK_SIZE: usize = 100;
 
-        if message.resolved {
-            skipped += 1;
-            continue;
+    for chunk in message_ids.chunks(BULK_RETRY_CHUNK_SIZE) {
+        let txn = state.db.begin().await?;
+        let dlq = DlqService::new(&txn);
+
+        for id in chunk {
+            let message = match dlq.get_by_id_for_update(*id).await {
+                Ok(Some(m)) => m,
+                Ok(None) => {
+                    errors.push(BulkRetryError {
+                        id: *id,
+                        error: "Message not found".into(),
+                    });
+                    continue;
+                }
+                Err(e) => {
+                    errors.push(BulkRetryError {
+                        id: *id,
+                        error: format!("DB error: {e}"),
+                    });
+                    continue;
+                }
+            };
+
+            if message.resolved {
+                skipped += 1;
+                continue;
+            }
+
+            if message.message_type != DlqMessageType::StuckSubmission.as_str() {
+                skipped += 1;
+                continue;
+            }
+
+            let Some(submission_id) = message.submission_id else {
+                skipped += 1;
+                continue;
+            };
+
+            let sub = match submission::Entity::find_by_id(submission_id)
+                .one(&txn)
+                .await
+            {
+                Ok(Some(s)) => s,
+                Ok(None) => {
+                    errors.push(BulkRetryError {
+                        id: *id,
+                        error: format!("Submission {submission_id} not found"),
+                    });
+                    continue;
+                }
+                Err(e) => {
+                    errors.push(BulkRetryError {
+                        id: *id,
+                        error: format!("Failed to load submission: {e}"),
+                    });
+                    continue;
+                }
+            };
+
+            if sub.status != SubmissionStatus::SystemError
+                && sub.status != SubmissionStatus::Pending
+            {
+                skipped += 1;
+                continue;
+            }
+
+            let submission_update = submission::ActiveModel {
+                id: Set(submission_id),
+                status: Set(SubmissionStatus::Pending),
+                error_code: Set(None),
+                error_message: Set(None),
+                ..Default::default()
+            };
+            if let Err(e) = submission_update.update(&txn).await {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: format!("Failed to reset submission: {e}"),
+                });
+                continue;
+            }
+
+            match dlq.resolve(*id, Some(auth_user.user_id)).await {
+                Ok(ResolveResult::Resolved | ResolveResult::AlreadyResolved) => {}
+                Ok(ResolveResult::NotFound) => {
+                    errors.push(BulkRetryError {
+                        id: *id,
+                        error: "DLQ message disappeared during retry".into(),
+                    });
+                    continue;
+                }
+                Err(e) => {
+                    errors.push(BulkRetryError {
+                        id: *id,
+                        error: format!("Failed to resolve: {e}"),
+                    });
+                    continue;
+                }
+            }
+
+            submissions_to_dispatch.push(submission_id);
+            retried += 1;
         }
 
-        if message.message_type != DlqMessageType::StuckSubmission.as_str() {
-            skipped += 1;
-            continue;
-        }
-
-        let Some(submission_id) = message.submission_id else {
-            skipped += 1;
-            continue;
-        };
-
-        let sub = match submission::Entity::find_by_id(submission_id)
-            .one(&txn)
-            .await
-        {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                errors.push(BulkRetryError {
-                    id: *id,
-                    error: format!("Submission {submission_id} not found"),
-                });
-                continue;
-            }
-            Err(e) => {
-                errors.push(BulkRetryError {
-                    id: *id,
-                    error: format!("Failed to load submission: {e}"),
-                });
-                continue;
-            }
-        };
-
-        if sub.status != SubmissionStatus::SystemError && sub.status != SubmissionStatus::Pending {
-            skipped += 1;
-            continue;
-        }
-
-        let submission_update = submission::ActiveModel {
-            id: Set(submission_id),
-            status: Set(SubmissionStatus::Pending),
-            error_code: Set(None),
-            error_message: Set(None),
-            ..Default::default()
-        };
-        if let Err(e) = submission_update.update(&txn).await {
-            errors.push(BulkRetryError {
-                id: *id,
-                error: format!("Failed to reset submission: {e}"),
-            });
-            continue;
-        }
-
-        match dlq.resolve(*id, Some(auth_user.user_id)).await {
-            Ok(ResolveResult::Resolved | ResolveResult::AlreadyResolved) => {}
-            Ok(ResolveResult::NotFound) => {
-                errors.push(BulkRetryError {
-                    id: *id,
-                    error: "DLQ message disappeared during retry".into(),
-                });
-                continue;
-            }
-            Err(e) => {
-                errors.push(BulkRetryError {
-                    id: *id,
-                    error: format!("Failed to resolve: {e}"),
-                });
-                continue;
-            }
-        }
-
-        submissions_to_dispatch.push(submission_id);
-        retried += 1;
+        txn.commit().await?;
     }
-
-    txn.commit().await?;
 
     for submission_id in &submissions_to_dispatch {
         let sub = match submission::Entity::find_by_id(*submission_id)
