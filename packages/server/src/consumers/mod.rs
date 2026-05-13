@@ -6,9 +6,7 @@ pub use operation_result::consume_operation_results;
 
 use broccoli_server_sdk::types::sanitize_text_field;
 use common::SubmissionStatus;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, DbBackend, Set, Statement};
-
-use crate::entity::code_run;
+use sea_orm::{ConnectionTrait, DbBackend, Statement};
 
 pub async fn mark_submission_system_error<C: ConnectionTrait>(
     conn: &C,
@@ -114,13 +112,49 @@ pub async fn mark_code_run_system_error<C: ConnectionTrait>(
     error_code: &str,
     error_message: &str,
 ) -> anyhow::Result<()> {
-    let update = code_run::ActiveModel {
-        id: Set(code_run_id),
-        status: Set(SubmissionStatus::SystemError),
-        error_code: Set(Some(sanitize_text_field(error_code).into_owned())),
-        error_message: Set(Some(sanitize_text_field(error_message).into_owned())),
-        ..Default::default()
+    mark_code_run_system_error_with_epoch(conn, code_run_id, error_code, error_message, None).await
+}
+
+pub async fn mark_code_run_system_error_with_epoch<C: ConnectionTrait>(
+    conn: &C,
+    code_run_id: i32,
+    error_code: &str,
+    error_message: &str,
+    judge_epoch: Option<i32>,
+) -> anyhow::Result<()> {
+    let safe_code = sanitize_text_field(error_code);
+    let safe_message = sanitize_text_field(error_message);
+    let (sql, values) = if let Some(epoch) = judge_epoch {
+        (
+            r#"UPDATE code_run SET status = $1, error_code = $2, error_message = $3
+               WHERE id = $4 AND judge_epoch = $5
+                 AND status NOT IN ('Judged', 'CompilationError', 'SystemError')"#,
+            vec![
+                SubmissionStatus::SystemError.to_string().into(),
+                safe_code.as_ref().to_string().into(),
+                safe_message.as_ref().to_string().into(),
+                code_run_id.into(),
+                epoch.into(),
+            ],
+        )
+    } else {
+        (
+            r#"UPDATE code_run SET status = $1, error_code = $2, error_message = $3
+               WHERE id = $4"#,
+            vec![
+                SubmissionStatus::SystemError.to_string().into(),
+                safe_code.as_ref().to_string().into(),
+                safe_message.as_ref().to_string().into(),
+                code_run_id.into(),
+            ],
+        )
     };
-    update.update(conn).await?;
+
+    conn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        sql,
+        values,
+    ))
+    .await?;
     Ok(())
 }

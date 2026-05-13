@@ -2,6 +2,7 @@ mod client_ip;
 pub mod config;
 pub mod consumers;
 pub mod database;
+pub mod dispatcher;
 pub mod dlq;
 pub mod entity;
 pub mod error;

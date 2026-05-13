@@ -27,6 +27,7 @@ pub struct ServerRuntime {
     listener: tokio::net::TcpListener,
     app: axum::Router,
     addr: SocketAddr,
+    dispatcher: crate::dispatcher::Dispatcher,
     _telemetry_guard: common::observability::TelemetryGuard,
 }
 
@@ -39,8 +40,9 @@ impl ServerRuntime {
             app_config.server.expects_multi_replica,
         )?;
         app_config.server.id = server_id.clone();
+        let operation_result_queue_base = app_config.mq.operation_result_queue_name.clone();
         let per_replica_op_result_queue =
-            per_replica_result_queue_name(&app_config.mq.operation_result_queue_name, &server_id);
+            per_replica_result_queue_name(&operation_result_queue_base, &server_id);
         app_config.mq.operation_result_queue_name = per_replica_op_result_queue.clone();
         info!(
             server_id = %server_id,
@@ -246,12 +248,18 @@ impl ServerRuntime {
             });
         }
 
+        let dispatcher_permits = crate::dispatcher::permits::DispatcherSemaphore::new(
+            app_config.server.dispatcher_semaphore_enabled,
+            app_config.server.dispatcher_concurrency as usize,
+            app_config.server.max_queued_submissions as usize,
+        );
+
         let state = AppState {
             plugins: manager,
             db: db.clone(),
             config: app_config.clone(),
             mq: mq.clone(),
-            redis_client,
+            redis_client: redis_client.clone(),
             blob_store,
             registries: crate::state::RegistryState {
                 contest_type_registry: contest_type_registry.clone(),
@@ -266,11 +274,20 @@ impl ServerRuntime {
             device_codes,
             metrics,
             prometheus_registry,
+            dispatcher_permits,
         };
 
         crate::handlers::system::spawn_queue_depth_sampler(state.clone(), Duration::from_secs(5));
 
         let _failures = sync_plugins(&state).await?;
+
+        let dispatcher = crate::dispatcher::Dispatcher::spawn(crate::dispatcher::DispatcherDeps {
+            state: state.clone(),
+            redis_client: redis_client.as_deref().cloned(),
+            server_id: server_id.clone(),
+            operation_result_queue_base,
+            config: app_config.server.clone(),
+        });
 
         let mut allow_origins = Vec::new();
         for origin in &app_config.server.cors.allow_origins {
@@ -317,13 +334,16 @@ impl ServerRuntime {
             listener,
             app,
             addr,
+            dispatcher,
             _telemetry_guard: telemetry_guard,
         })
     }
 
-    pub async fn serve(self) -> anyhow::Result<()> {
-        serve_with_shutdown(self.listener, self.app)
+    pub async fn serve(mut self) -> anyhow::Result<()> {
+        let serve_result = serve_with_shutdown(self.listener, self.app)
             .await
-            .with_context(|| format!("Server runtime error at http://{}", self.addr))
+            .with_context(|| format!("Server runtime error at http://{}", self.addr));
+        self.dispatcher.shutdown().await;
+        serve_result
     }
 }

@@ -416,6 +416,21 @@ impl E2eTestApp {
                 trusted_proxies: vec![],
                 rate_limit_auth: false,
                 id: String::new(),
+                expects_multi_replica: false,
+                dispatcher_lease_steal_enabled: false,
+                dispatcher_semaphore_enabled: false,
+                dispatcher_concurrency: 1,
+                max_queued_submissions: 0,
+                lease_ttl_secs: 60,
+                lease_refresh_interval_secs: 10,
+                steal_scan_interval_secs: 15,
+                steal_batch_size: 8,
+                sweep_interval_secs: 300,
+                max_dispatch_retries: 5,
+                sweeper_dry_run: true,
+                cancel_primitive_enabled: false,
+                fleet_aware_admission_enabled: false,
+                fleet_capacity_poll_interval_secs: 5,
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
@@ -497,6 +512,7 @@ impl E2eTestApp {
             device_codes: Arc::new(dashmap::DashMap::new()),
             metrics: e2e_metrics.clone(),
             prometheus_registry: e2e_prom_registry,
+            dispatcher_permits: server::dispatcher::permits::DispatcherSemaphore::default(),
         };
 
         let mut result_consumer_handle_opt = None;
