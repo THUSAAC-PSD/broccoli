@@ -9,6 +9,7 @@ use mq::{BroccoliError, BrokerMessage, MqConfig, init_mq};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
+use crate::cancel::RedisCancelChecker;
 use crate::config::WorkerAppConfig;
 use crate::consumer::{WorkerConsumer, WorkerConsumerDeps};
 use crate::dedup::RedisTaskDedup;
@@ -94,6 +95,14 @@ impl WorkerRuntime {
             }
         };
 
+        let cancel_checker = match RedisCancelChecker::new(&config.mq.url) {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) => {
+                warn!(error = %e, "Failed to initialize Redis cancel checker; tasks will not honor host-side cancel keys");
+                None
+            }
+        };
+
         let worker = Arc::new(
             Worker::from_config(&config, metrics.clone())
                 .await
@@ -138,6 +147,7 @@ impl WorkerRuntime {
             dlq_config,
             retry_tracker,
             dedup,
+            cancel_checker,
             metrics,
             worker_id: config.worker.id.clone(),
         });

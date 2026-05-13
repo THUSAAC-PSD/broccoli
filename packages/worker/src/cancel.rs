@@ -1,4 +1,5 @@
 use redis::aio::MultiplexedConnection;
+use tokio::sync::Mutex;
 
 pub fn cancel_batch_key(batch_id: &str) -> String {
     format!("broccoli:cancel:batch:{batch_id}")
@@ -6,6 +7,57 @@ pub fn cancel_batch_key(batch_id: &str) -> String {
 
 pub fn cancel_op_key(task_id: &str) -> String {
     format!("broccoli:cancel:op:{task_id}")
+}
+
+pub struct RedisCancelChecker {
+    client: redis::Client,
+    conn: Mutex<Option<MultiplexedConnection>>,
+}
+
+impl RedisCancelChecker {
+    pub fn new(redis_url: &str) -> Result<Self, redis::RedisError> {
+        let client = redis::Client::open(redis_url)?;
+        Ok(Self {
+            client,
+            conn: Mutex::new(None),
+        })
+    }
+
+    async fn get_conn(&self) -> Result<MultiplexedConnection, redis::RedisError> {
+        let mut guard = self.conn.lock().await;
+        if let Some(ref conn) = *guard {
+            return Ok(conn.clone());
+        }
+        let conn = self.client.get_multiplexed_async_connection().await?;
+        *guard = Some(conn.clone());
+        Ok(conn)
+    }
+
+    async fn invalidate_conn(&self) {
+        let mut guard = self.conn.lock().await;
+        *guard = None;
+    }
+
+    pub async fn is_cancelled(
+        &self,
+        batch_id: Option<&str>,
+        task_id: &str,
+    ) -> Result<bool, redis::RedisError> {
+        let mut conn = match self.get_conn().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                self.invalidate_conn().await;
+                return Err(e);
+            }
+        };
+        match check_cancellation(&mut conn, batch_id, task_id).await {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                self.invalidate_conn().await;
+                Err(e)
+            }
+        }
+    }
 }
 
 pub async fn check_cancellation(

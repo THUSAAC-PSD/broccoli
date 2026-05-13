@@ -9,6 +9,7 @@ use opentelemetry::KeyValue;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
+use crate::cancel::RedisCancelChecker;
 use crate::dedup::{ClaimOutcome, RedisTaskDedup};
 use crate::heartbeat::InFlightCounter;
 use crate::metrics::{TaskMetricGuard, record_mq_consume, record_mq_publish};
@@ -23,6 +24,7 @@ pub struct WorkerConsumer {
     dlq_config: DlqConfig,
     retry_tracker: Arc<Mutex<RetryTracker>>,
     dedup: Option<Arc<RedisTaskDedup>>,
+    cancel_checker: Option<Arc<RedisCancelChecker>>,
     metrics: Metrics,
     worker_id: String,
 }
@@ -34,6 +36,7 @@ pub struct WorkerConsumerDeps {
     pub dlq_config: DlqConfig,
     pub retry_tracker: Arc<Mutex<RetryTracker>>,
     pub dedup: Option<Arc<RedisTaskDedup>>,
+    pub cancel_checker: Option<Arc<RedisCancelChecker>>,
     pub metrics: Metrics,
     pub worker_id: String,
 }
@@ -47,6 +50,7 @@ impl WorkerConsumer {
             dlq_config: deps.dlq_config,
             retry_tracker: deps.retry_tracker,
             dedup: deps.dedup,
+            cancel_checker: deps.cancel_checker,
             metrics: deps.metrics,
             worker_id: deps.worker_id,
         }
@@ -149,6 +153,37 @@ impl WorkerConsumer {
         {
             use tracing_opentelemetry::OpenTelemetrySpanExt;
             let _ = tracing::Span::current().set_parent(remote_cx);
+        }
+
+        if let Some(checker) = self.cancel_checker.as_ref() {
+            match checker
+                .is_cancelled(task.operation_batch_id.as_deref(), &task_id)
+                .await
+            {
+                Ok(true) => {
+                    info!(
+                        job_id = %task_id,
+                        operation_batch_id = ?task.operation_batch_id,
+                        "Task pre-empted by Redis cancel key; skipping execution"
+                    );
+                    let mut attrs = task_attrs.clone();
+                    attrs.push(KeyValue::new("outcome", "cancelled_by_host"));
+                    self.metrics.tasks_completed_total.add(1, &attrs);
+                    record_mq_consume(
+                        &self.metrics,
+                        "operation",
+                        "operation_task",
+                        "cancelled_by_host",
+                        attempts,
+                        consume_start,
+                    );
+                    return Ok(());
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    warn!(error = %e, job_id = %task_id, "Cancel check failed; proceeding with task execution");
+                }
+            }
         }
 
         info!(
