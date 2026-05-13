@@ -138,14 +138,9 @@ impl ServerRuntime {
             info!("Operation DLQ consumer started");
         }
 
-        {
-            let detector_db = db.clone();
-            let detector_config = app_config.mq.dlq.clone();
-            tokio::spawn(async move {
-                run_stuck_job_detector(detector_db, detector_config).await;
-            });
-            info!("Stuck job detector started");
-        }
+        // NOTE: the stuck job detector is spawned later (after AppState is
+        // built) so it can re-dispatch stuck rows via the same dispatcher
+        // entry as the lease/steal scanner. See UP#5.
 
         let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
         let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
@@ -294,6 +289,15 @@ impl ServerRuntime {
         };
 
         crate::handlers::system::spawn_queue_depth_sampler(state.clone(), Duration::from_secs(5));
+
+        {
+            let detector_state = state.clone();
+            let detector_config = app_config.mq.dlq.clone();
+            tokio::spawn(async move {
+                run_stuck_job_detector(detector_state, detector_config).await;
+            });
+            info!("Stuck job detector started");
+        }
 
         let _failures = sync_plugins(&state).await?;
 

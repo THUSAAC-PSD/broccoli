@@ -145,7 +145,11 @@ where
 
 impl Default for DispatcherSemaphore {
     fn default() -> Self {
-        Self::new(false, usize::MAX, usize::MAX)
+        // `tokio::sync::Semaphore::new` panics for permit counts above
+        // `MAX_PERMITS` (~2^61); `usize::MAX` would trip that. We want a
+        // disabled semaphore with effectively unbounded capacity for test
+        // fixtures, so use a large-but-safe constant instead.
+        Self::new(false, 1 << 32, 1 << 32)
     }
 }
 
