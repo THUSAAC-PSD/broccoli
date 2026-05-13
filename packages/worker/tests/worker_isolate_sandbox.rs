@@ -85,6 +85,8 @@ fn build_operation_task(command: &str) -> OperationTask {
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     }
 }
 
@@ -112,6 +114,7 @@ async fn execute_operation_with_isolate(
         executor_name: "operation".to_string(),
         payload: serde_json::to_value(operation).unwrap(),
         result_queue: "test_results".into(),
+        operation_batch_id: None,
         reply_queue: None,
         priority: None,
         trace_context: None,
@@ -277,6 +280,8 @@ printf '2 40\n' > input.txt
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -370,6 +375,8 @@ CPP
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -426,6 +433,8 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -516,6 +525,8 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =

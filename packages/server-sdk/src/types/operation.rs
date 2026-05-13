@@ -176,6 +176,16 @@ pub struct OperationTask {
     /// pool. Used by admin probe / pinned-rejudge flows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_worker_id: Option<String>,
+    /// Evaluator-owned correlation: the evaluate batch this operation belongs
+    /// to. When set together with `test_case_id`, the host records the
+    /// dispatched task in its cancel registry so cancel_test_cases can later
+    /// short-circuit pending work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluate_batch_id: Option<String>,
+    /// Test case this operation evaluates. Paired with `evaluate_batch_id`
+    /// to scope cancellation to a subset of in-flight work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_case_id: Option<i32>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
