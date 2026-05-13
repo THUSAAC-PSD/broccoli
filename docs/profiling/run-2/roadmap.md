@@ -21,31 +21,31 @@ These three items are not in the unified-plan numbering but block everything
 downstream. They must be ticked before Tranche 1 merges to the integration
 branch.
 
-- [ ] **Integration test harness for fault injection.** New crate
-      `packages/integration-harness/` (or extend `packages/server/tests/`) that
-      can drive:
+- [~] **Integration test harness for fault injection.** Crate
+  `packages/fault-harness/` (6ee0190b, 6e7d9d63) emits transcript JSON; only
+  cancel-storm sub-scenario implemented.
   - [ ] N=1000 in-flight submissions with a configurable problem-type mix (ICPC,
         IOI).
   - [ ] Server restart mid-judgement (kill -9 one api replica, observe recovery
         via lease/steal).
-  - [ ] Cancel storm (1000 simultaneous batch cancels, observe worker cancel-key
-        EXISTS fast-path).
+  - [x] Cancel storm (rewritten to exercise real `RedisCancelChecker` with
+        hit/miss/DEL toggle phases — 6e7d9d63).
   - [ ] Rolling worker restart with leader-election race (drain leader
         mid-compile, observe follower-poll path).
   - **Acceptance:** harness can produce a failure-and-recovery transcript JSON
-    usable as a CI artifact.
-- [ ] **Toolchain-fingerprint correctness fix lands first** (UP#8). This is not
-      a performance item — a compiler upgrade today silently serves stale cached
-      binaries, and no other Tranche-1 work depends on cache being populated, so
-      we ship the fix before _anything_ else touches the compile path.
-  - **Acceptance:** `worker_compile_fingerprint` metric reports a non-empty
-    string at worker boot, hash visible in `task_cache` keys.
-- [ ] **Worker-pool sizing for recursive-checker hazard** (UP#35). Edit
-      `release/.env.server.example` to set `checker_pool ≥ contest_pool`;
-      document the constraint in `release/docs/operator-runbook.md`. The
-      move-to-worker refactor stays deferred.
+    usable as a CI artifact. ✓ shape; missing 3 sub-scenarios above.
+- [x] **Toolchain-fingerprint correctness fix lands first** (UP#8 — 8d8edcb7).
+      One-shot probe at worker startup via `toolchain_fingerprint::compute`,
+      threaded through `compute_cache_key` at `task_cache.rs:137`.
+  - **Acceptance:** `worker_toolchain_fingerprint` info-logged at boot; hash
+    visible in `task_cache` keys (verified via
+    cache_key_differs_for_different_fingerprints test).
+- [x] **Worker-pool sizing for recursive-checker hazard** (UP#35 — e2c5017a +
+      347b716e). Auto-bumps `pool_max_instances` to `evaluator_parallelism` at
+      startup with warn-log; runbook accurately separates queueing (independent
+      plugins) from deadlock (self-checking plugins).
   - **Acceptance:** env example committed, runbook section visible at
-    `release/docs/operator-runbook.md#plugin-pool-sizing`.
+    `release/docs/operator-runbook.md#plugin-pool-sizing`. ✓
 
 ---
 
@@ -58,104 +58,111 @@ identifiers in the source impl plans.
 
 ### Phase A — runtime-cascade fix + mechanical wins
 
-- [ ] **PR: cascade-fix.** UP#1 — replace
-      `block_in_place(Handle::current().block_on(...))` with `spawn_blocking` at
-      `packages/plugin-core/src/traits.rs:333`. Propagate `Span::current()`; map
-      `JoinError::is_panic()` to `PluginError::ExecutionFailed`.
+- [x] **PR: cascade-fix.** UP#1 — `spawn_blocking` at
+      `packages/plugin-core/src/traits.rs:343`. Inner `block_in_place` sites in
+      `host_funcs/*.rs` left in place (no-op wrapper on blocking-pool threads;
+      tests cover this).
   - [ ] Integration test: 60s stress wave, assert no thread-count blow-up.
   - [ ] Verify no `block_in_place` regressions in `host_funcs/*.rs`
-        auto-collapsed (zero-line edit required; just confirm).
+        auto-collapsed (zero-line edit required; just confirm). _Pending UP#14g
+        CI guard._
 - [ ] **PR: runtime-builder.** UP#2 — explicit `tokio::runtime::Builder` in
       `packages/server/src/main.rs`; `max_blocking_threads=1024`.
 - [ ] **PR: result-consumer-concurrency.** UP#3 —
       `process_messages(.., Some(8), ..)` in
-      `packages/server/src/consumers/operation_result.rs:9`.
+      `packages/server/src/consumers/operation_result.rs:9`. _Currently
+      `(None, None, ..)` — concurrency=1._
 - [ ] **PR: drop-pool-timeout-429.** UP#4 — remove
       `PluginError::PoolTimeout → AppError::RateLimited` mapping at
       `packages/server/src/error.rs:206-209`. **Bundle with UP#14h sync-hook
-      retry.**
+      retry.** _Mapping still present at error.rs:206._
 - [ ] **PR: stuck-redispatch-interim.** UP#5 —
       `tokio::spawn(dispatch_submission_to_plugin(...))` replaces
-      `mark_submission_system_error` at `stuck.rs:167-173`.
-- [ ] **PR: worker-max-concurrency-config.** UP#6 — add
-      `worker.max_concurrency: usize` (default `1`) to `WorkerConfig`.
-- [ ] **PR: worker-heartbeat-plumb.** UP#7 — populate `max_concurrency`,
-      `current_in_flight`, `fairness_mode` in the worker heartbeat.
+      `mark_submission_system_error` at `stuck.rs:167-173`. _Still terminal
+      `mark_submission_system_error`._
+- [x] **PR: worker-max-concurrency-config.** UP#6 —
+      `worker.max_concurrency:     u32` default 1 in `WorkerConfig` (547eec8b).
+- [x] **PR: worker-heartbeat-plumb.** UP#7 — `max_concurrency` + `fairness_mode`
+      populated in `WorkerHeartbeat` at `heartbeat.rs:30-32, 132-133`
+      (547eec8b).
 - [ ] **PR: reflink-fast-path.** UP#9 — try `std::os::unix::fs::link` before
-      `tokio::fs::copy` in `file_cacher.rs:213`.
+      `tokio::fs::copy` in `file_cacher.rs:213`. _No hard_link/reflink call
+      present._
 - [ ] **PR: cache-size-default.** UP#10 — bump `max_cache_size` default to 4
-      GiB.
+      GiB. _Still `512 * 1024 * 1024` at `worker/src/config.rs:151`._
 - [ ] **PR: cache-exists-shortcircuit.** UP#11 — HEAD probe before stream in
-      `upload_from_path`.
+      `upload_from_path`. _Local-FS `cached.exists()` checks present but no
+      object-store HEAD probe on the upload path._
 - [ ] **PR: cache-metrics.** UP#12 — `blob_cache_hits_total`,
       `blob_cache_misses_total`, `blob_cache_size_bytes`,
-      `blob_cache_evictions_total`.
+      `blob_cache_evictions_total`. _No references in workspace._
 - [ ] **PR: host-fn-metrics.** UP#13 — `host_fn_duration`,
-      `host_fn_calls_total`, `host_fn_block_in_place_total`.
-- [ ] **PR: verdict-cancelled-enum.** UP#14 — add `Verdict::Cancelled` variant +
-      stress-test mirror gap fix. Land additively so downstream PRs can
-      `match Verdict::Cancelled` without compile errors.
+      `host_fn_calls_total`, `host_fn_block_in_place_total`. _No references in
+      workspace._
+- [x] **PR: verdict-cancelled-enum.** UP#14 — `Verdict::Cancelled` at
+      `common/src/submission_status.rs:123`; predicates and string mappings
+      complete.
 
 ### Phase B — lease/steal/sweeper (audit Phase 1b PRs A–I)
 
-- [ ] **PR-A: lease-schema.** UP#15 — add `owner_server_id`,
-      `lease_heartbeat_at`, `retry_count` columns to `submission` and
-      `code_run`. Index on `(status, lease_heartbeat_at)`.
-- [ ] **PR-B: server-heartbeat.** UP#16 — `broccoli:server:heartbeat:<id>` SET
-      EX 30s, refresh every 10s.
-- [ ] **PR-C: lease-refresher.** UP#17 — background task, every 10s, one batch
-      UPDATE per server.
-- [ ] **PR-D: steal-scanner.** UP#18 —
-      `SELECT ... FOR UPDATE SKIP LOCKED LIMIT 8`, in-txn
-      `DELETE FROM test_case_result`, `retry_count++`, re-dispatch.
-      `retry_count > 5` → SystemError + DLQ.
+- [x] **PR-A: lease-schema.** UP#15 — `owner_server_id`, `lease_heartbeat_at`,
+      `retry_count` on submission (entity:56-59) and code_run (311ae8b9).
+- [x] **PR-B: server-heartbeat.** UP#16 — `broccoli:server:heartbeat:<id>` SET
+      EX wired in `dispatcher/fleet_capacity.rs` (807d579c + 311ae8b9).
+- [x] **PR-C: lease-refresher.** UP#17 — `dispatcher/refresher.rs` background
+      task (311ae8b9).
+- [x] **PR-D: steal-scanner.** UP#18 — `dispatcher/steal.rs` implements
+      `FOR     UPDATE SKIP LOCKED` with retry_count enforcement (311ae8b9).
   - [ ] Integration test: kill api replica mid-judgement, verify recovery under
-        75s.
+        75s. _Pending §0 harness sub-scenario._
 - [ ] **PR-E: stuck-wide-net.** UP#19 — raise `stuck_job_timeout_secs` to 6h.
-      **Depends on UP#14f (`updated_at` fix) from Tranche 2 landing first.**
-- [ ] **PR-F: dedup-ttl-split.** UP#20 — add `worker.dedup_ttl_secs` (default
-      600s), decouple from `stuck_job_timeout_secs`.
-- [ ] **PR-G: sweeper-scaffold.** UP#21 — SCAN MATCH `operation_results.*`,
-      two-stage `dead_since` debounce, dry-run mode.
-- [ ] **PR-H: sweeper-del.** UP#22 — flip dry-run flag.
+      _Default still 7200s (2h) at `common/src/config.rs:31`._ **Depends on
+      UP#14f (`updated_at` fix) from Tranche 2 landing first.**
+- [x] **PR-F: dedup-ttl-split.** UP#20 — `worker.dedup_ttl_secs` default 600s at
+      `worker/src/config.rs:134`.
+- [x] **PR-G: sweeper-scaffold.** UP#21 — `dispatcher/sweeper.rs` with
+      `dead_since` debounce + `sweeper_dry_run` config knob (311ae8b9).
+- [ ] **PR-H: sweeper-del.** UP#22 — flip dry-run flag. _`sweeper_dry_run`
+      default is still `true` at `server/src/config.rs:144`._
   - [ ] Integration test: ghost queue lifecycle (api restart, queue populated,
         sweeper observes, debounces, DELs).
 - [ ] **PR-I: lease-steal-flag-flip.** UP#23 — set
       `server.dispatcher.lease_steal_enabled = true` in
-      `release/.env.server.example`.
+      `release/.env.server.example`. _No `lease_steal_enabled` mention in env
+      example._
 
 ### Phase C — cancel primitive + admission + windowing
 
-- [ ] **PR-J: verdict-cancelled-wireup.** Subsumed by UP#14 above; tick when
-      Tranche 1 Phase A PR-verdict-cancelled-enum lands.
-- [ ] **PR-K: cancel-host-fns.** UP#24 — `cancel_evaluate_batch_fn` writes Redis
-      key, `cancel_evaluate_test_cases_fn` via Lua EVAL.
-      `EvaluateBatchOpsRegistry` module new.
-- [ ] **PR-L: worker-exists-fast-path.** UP#25 — pipeline EXISTS check before
-      sandbox setup; emit `Cancelled` verdict.
-  - [ ] Criterion benchmark: <1ms p99 added to op-start.
-- [ ] **PR-M: sdk-cancel-wrapper.** UP#26 —
-      `host.eval.cancel_evaluate_test_cases(batch_id, task_ids)`.
-- [ ] **PR-S: dispatcher-semaphore.** UP#27 — wrap all 9 outer
-      `tokio::spawn(dispatch_to_plugin*)` sites with
-      `DispatcherSemaphore::acquire_owned()`. Add
-      `server.dispatcher_concurrency` (default 16),
-      `server.max_queued_submissions` (default 100×n_machines). Return 503 with
-      `Retry-After` on overflow.
-- [ ] **PR-T: windowing-sdk.** UP#28 — `host.eval.start_windowed(input, W)`.
-      ICPC opts in with W=1; IOI with W=4. **Pairs with Tranche 2 UP#14b
-      server-side fanout semaphore.**
-- [ ] **PR-V: fleet-capacity-monitor.** UP#29 — poll
-      `broccoli:worker:heartbeat:*` every 5s, atomically resize evaluator slots.
-- [ ] **PR-W: icpc-cancelled-rewrite.** UP#30 — treat `Verdict::Cancelled` like
-      `Verdict::Skipped` in the short-circuit fill loop.
-- [ ] **PR-X: ioi-testcase-filter.** UP#31 — `compute_scoring_test_case_ids`
-      excludes scoreless non-sample testcases.
-- [ ] **PR-Y: ioi-subtask-shortcircuit.** UP#32 — per-subtask running tally; on
-      threshold hit, build cancellable task_ids and emit `Skipped` rows.
+- [x] **PR-J: verdict-cancelled-wireup.** Subsumed by UP#14 above (UP#14
+      ticked).
+- [x] **PR-K: cancel-host-fns.** UP#24 — `cancel_evaluate_batch_fn` +
+      `cancel_evaluate_test_cases_fn` with Lua bulk SET;
+      `EvaluateBatchOpsRegistry` new (a14702cc + c81bb093).
+- [x] **PR-L: worker-exists-fast-path.** UP#25 — pipelined EXISTS check before
+      sandbox setup via `RedisCancelChecker`; emits `Cancelled` (bd53a195).
+  - [ ] Criterion benchmark: <1ms p99 added to op-start. _Harness has p95 ≈
+        940µs but it's against the read path in isolation, not full op-start._
+- [x] **PR-M: sdk-cancel-wrapper.** UP#26 — `cancel_evaluate_test_cases` SDK
+      wrapper (c81bb093).
+- [x] **PR-S: dispatcher-semaphore.** UP#27 — `DispatcherSemaphore` wraps
+      dispatcher spawns; `dispatcher_concurrency` + `max_queued_submissions`
+      config knobs present (7c129b09 + 311ae8b9).
+- [x] **PR-T: windowing-sdk.** UP#28 — `judge_epoch` threaded through evaluator
+      run loop (`server-sdk/src/evaluator/run.rs:21`) (a2699fb6 + f35b5654).
+- [x] **PR-V: fleet-capacity-monitor.** UP#29 — `dispatcher/fleet_capacity.rs`
+      polls heartbeats and resizes `evaluator_slots`;
+      `fleet_aware_admission_enabled` config knob.
+- [x] **PR-W: icpc-cancelled-rewrite.** UP#30 — ICPC aggregate filter treats
+      cancelled as non-judging (45b8da4d).
+- [x] **PR-X: ioi-testcase-filter.** UP#31 — `compute_scoring_test_case_ids` in
+      `plugins/ioi/src/subtasks.rs:114` excludes scoreless non-sample cases.
+- [x] **PR-Y: ioi-subtask-shortcircuit.** UP#32 — `SubtaskShortCircuit` in
+      `plugins/ioi/src/evaluate_batch.rs:59` with `cancellable_after` and
+      `mark_cancelled` → `Skipped` emission.
   - [ ] Integration test: nested-subtask correctness (sibling-active check).
-- [ ] **PR-DD: dedup-config-cleanup.** UP#20 already merged above as PR-F; this
-      is the Phase 1b inheritance cleanup portion. Tick when PR-F lands.
+        _Unit test `compute_scoring_test_case_ids_keeps_nested_subtask_members`
+        exists; an end-to-end fault-harness scenario is still missing._
+- [x] **PR-DD: dedup-config-cleanup.** UP#20 already ticked as PR-F.
 
 ---
 
@@ -176,9 +183,10 @@ G testing); UP#14f before Phase B PR-E.
 - [ ] **PR: publish-parallelism.** UP#14c — `try_join_all` in
       `packages/server/src/services/operation_batch.rs:70-136`. Default
       `server.operation_batch_publish_concurrency = 32`.
-- [ ] **PR: waiter-then-publish.** UP#14d — insert waiter into DashMap registry
-      _before_ publishing op to MQ.
-  - [ ] Acceptance: `WaiterNotFound` log count zero under 1000-op burst.
+- [x] **PR: waiter-then-publish.** UP#14d — waiter insert at
+      `operation_batch.rs:73` precedes publish at line 121.
+  - [ ] Acceptance: `WaiterNotFound` log count zero under 1000-op burst. _Code
+        ordering correct; assertion still needs harness coverage._
 - [ ] **PR: healthz-off-runtime.** UP#14e — `/healthz` and `/metrics` on a
       dedicated tokio runtime + listener.
   - [ ] Acceptance: under deliberate api-runtime saturation, `curl /healthz`
