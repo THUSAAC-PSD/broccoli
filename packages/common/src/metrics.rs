@@ -29,6 +29,10 @@ pub struct Metrics {
     pub plugin_instance_acquire_failures: Counter<u64>,
     pub plugin_call_failures: Counter<u64>,
 
+    pub host_fn_duration: Histogram<f64>,
+    pub host_fn_calls_total: Counter<u64>,
+    pub host_fn_block_in_place_total: Counter<u64>,
+
     pub batch_started_total: Counter<u64>,
     pub batch_cancelled_total: Counter<u64>,
     pub batch_reaped_total: Counter<u64>,
@@ -225,6 +229,26 @@ impl Metrics {
             plugin_call_failures: meter
                 .u64_counter("broccoli.plugin.call.failures")
                 .with_description("Total number of failed WASM plugin calls")
+                .build(),
+
+            host_fn_duration: meter
+                .f64_histogram("broccoli.host_fn.duration")
+                .with_unit("s")
+                .with_description(
+                    "Wall-clock duration of a single host function invocation, including inner async work",
+                )
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
+                .build(),
+            host_fn_calls_total: meter
+                .u64_counter("broccoli.host_fn.calls")
+                .with_description("Total number of host function invocations by outcome")
+                .build(),
+            host_fn_block_in_place_total: meter
+                .u64_counter("broccoli.host_fn.block_in_place")
+                .with_description(
+                    "Regression sentinel: increments when a host_fn enters block_in_place. \
+                     Should always be zero in shipping code (see UP#14g).",
+                )
                 .build(),
 
             batch_started_total: meter

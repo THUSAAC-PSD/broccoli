@@ -442,6 +442,19 @@ pub trait PluginManager: Send + Sync {
             if result.is_err() {
                 metrics.plugin_call_failures.add(1, &attrs);
             }
+
+            // UP#13: also expose per-host-fn duration + call totals. After UP#1
+            // the spawn_blocking above is where every plugin entry/exit can be
+            // observed; we tag with the function name so dashboards can break
+            // out latency by host_fn (e.g. "evaluate.start_batch").
+            let host_fn_attrs = [
+                KeyValue::new("host_fn", func_name.to_string()),
+                KeyValue::new("outcome", outcome),
+            ];
+            metrics
+                .host_fn_duration
+                .record(duration.as_secs_f64(), &host_fn_attrs);
+            metrics.host_fn_calls_total.add(1, &host_fn_attrs);
         }
         debug!(
             duration_ms = duration.as_millis() as u64,

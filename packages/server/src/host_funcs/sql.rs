@@ -154,10 +154,8 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     let values = parse_args(&args, plugin_id, &sql)?;
     let stmt = Statement::from_sql_and_values(DbBackend::Postgres, &sql, values);
 
-    let exec_result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            db.execute_raw(stmt).await
-        })
+    let exec_result = tokio::runtime::Handle::current().block_on(async {
+        db.execute_raw(stmt).await
     });
 
     match exec_result {
@@ -185,10 +183,8 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     );
     let stmt = Statement::from_sql_and_values(DbBackend::Postgres, wrapped_sql, values);
 
-    let query_result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            db.query_one_raw(stmt).await
-        })
+    let query_result = tokio::runtime::Handle::current().block_on(async {
+        db.query_one_raw(stmt).await
     });
 
     match query_result {
@@ -212,12 +208,12 @@ host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _
         (ctx.1.clone(), ctx.2.clone())
     };
 
-    let txn = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(db.begin())
-    }).map_err(|e| {
-        error!("DB begin error: {}", e);
-        extism::Error::msg(e.to_string())
-    })?;
+    let txn = tokio::runtime::Handle::current()
+        .block_on(db.begin())
+        .map_err(|e| {
+            error!("DB begin error: {}", e);
+            extism::Error::msg(e.to_string())
+        })?;
 
     let txn_id = Uuid::new_v4().to_string();
     txn_map.lock()
@@ -248,9 +244,7 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
     let txn = map_guard.get_mut(&txn_id)
         .ok_or_else(|| extism::Error::msg(format!("Transaction not found: {txn_id}")))?;
 
-    let query_result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(txn.query_one_raw(stmt))
-    });
+    let query_result = tokio::runtime::Handle::current().block_on(txn.query_one_raw(stmt));
 
     match query_result {
         Ok(Some(res)) => {
@@ -283,9 +277,7 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
     let txn = map_guard.get_mut(&txn_id)
         .ok_or_else(|| extism::Error::msg(format!("Transaction not found: {txn_id}")))?;
 
-    let exec_result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(txn.execute_raw(stmt))
-    });
+    let exec_result = tokio::runtime::Handle::current().block_on(txn.execute_raw(stmt));
 
     match exec_result {
         Ok(res) => HostDbResponse::ok(JsonValue::from(res.rows_affected())).to_json_string(),
@@ -308,9 +300,7 @@ host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); 
         .remove(&txn_id)
         .ok_or_else(|| extism::Error::msg(format!("Transaction not found: {txn_id}")))?;
 
-    let result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(txn.commit())
-    });
+    let result = tokio::runtime::Handle::current().block_on(txn.commit());
 
     match result {
         Ok(()) => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
@@ -334,9 +324,7 @@ host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap)
 
     match txn {
         Some(txn) => {
-            let result = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(txn.rollback())
-            });
+            let result = tokio::runtime::Handle::current().block_on(txn.rollback());
             match result {
                 Ok(()) => HostDbResponse::ok(serde_json::json!({"ok": true})).to_json_string(),
                 Err(e) => {

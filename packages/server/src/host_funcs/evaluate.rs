@@ -83,14 +83,13 @@ fn start_evaluate_batch_fn(
         (guard.plugin_id.clone(), guard.deps.clone())
     };
 
-    let batch_id = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(evaluate_batch::start_evaluate_batch(
+    let batch_id = tokio::runtime::Handle::current()
+        .block_on(evaluate_batch::start_evaluate_batch(
             caller_plugin_id,
             deps,
             input,
         ))
-    })
-    .map_err(|e| extism::Error::msg(e.to_string()))?;
+        .map_err(|e| extism::Error::msg(e.to_string()))?;
 
     let response = serde_json::json!({ "batch_id": batch_id });
     let output_bytes = serde_json::to_vec(&response)
@@ -157,20 +156,18 @@ fn cancel_evaluate_batch_fn(
             .operation_task_ids_for_batch(&input.batch_id);
         let client = client.clone();
         let batch_id = input.batch_id.clone();
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                if let Err(e) = common::cancel::set_cancel_batch_key(&client, &batch_id)
-                    .await
-                {
-                    tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis batch cancel key");
-                }
-                if !op_task_ids.is_empty()
-                    && let Err(e) =
-                        common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
-                {
-                    tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
-                }
-            })
+        tokio::runtime::Handle::current().block_on(async move {
+            if let Err(e) = common::cancel::set_cancel_batch_key(&client, &batch_id)
+                .await
+            {
+                tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis batch cancel key");
+            }
+            if !op_task_ids.is_empty()
+                && let Err(e) =
+                    common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+            {
+                tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
+            }
         });
     }
 
@@ -219,14 +216,12 @@ fn cancel_evaluate_test_cases_fn(
         if !op_task_ids.is_empty() {
             let client = client.clone();
             let batch_id = input.evaluate_batch_id.clone();
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async move {
-                    if let Err(e) =
-                        common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
-                    {
-                        tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
-                    }
-                })
+            tokio::runtime::Handle::current().block_on(async move {
+                if let Err(e) =
+                    common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+                {
+                    tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
+                }
             });
         }
     }

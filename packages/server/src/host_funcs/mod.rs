@@ -11,11 +11,35 @@ pub mod sql;
 pub mod storage;
 
 use crate::host_funcs::context::HostFunctionDeps;
+use common::metrics::Metrics;
 use extism::{Function, UserData, ValType};
+use opentelemetry::KeyValue;
 use plugin_core::host::HostFunctionRegistry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Semaphore;
+
+// regression guard, see UP#14g
+//
+// Available for any future host_fn that re-introduces a `block_in_place`
+// wrapper. Not called anywhere in shipping code — a non-zero count of
+// `broccoli.host_fn.block_in_place` indicates someone reverted UP#13's
+// collapse and CI should fail the build via UP#14g.
+#[track_caller]
+#[allow(dead_code)]
+pub(crate) fn record_block_in_place_regression(metrics: &Option<Metrics>, host_fn: &str) {
+    if let Some(m) = metrics {
+        let loc = std::panic::Location::caller();
+        m.host_fn_block_in_place_total.add(
+            1,
+            &[
+                KeyValue::new("host_fn", host_fn.to_string()),
+                KeyValue::new("file", loc.file().to_string()),
+                KeyValue::new("line", loc.line() as i64),
+            ],
+        );
+    }
+}
 
 pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();

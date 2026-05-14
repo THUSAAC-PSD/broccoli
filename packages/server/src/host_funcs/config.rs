@@ -144,14 +144,13 @@ fn config_get_fn(
     let namespace = resolve_namespace(&input.scope, &plugin_id, &raw_namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
-    let result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    let result = tokio::runtime::Handle::current()
+        .block_on(async {
             plugin_config::Entity::find_by_id((input.scope, ref_id, namespace))
                 .one(&db)
                 .await
         })
-    })
-    .map_err(|e| extism::Error::msg(format!("DB error in config_get: {}", e)))?;
+        .map_err(|e| extism::Error::msg(format!("DB error in config_get: {}", e)))?;
 
     let output_value = match result {
         Some(row) => {
@@ -209,8 +208,8 @@ fn config_set_fn(
     let namespace = resolve_namespace(&input.scope, &plugin_id, &input.namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    tokio::runtime::Handle::current()
+        .block_on(async {
             let active = plugin_config::ActiveModel {
                 scope: Set(input.scope),
                 ref_id: Set(ref_id),
@@ -239,8 +238,7 @@ fn config_set_fn(
 
             Ok::<_, sea_orm::DbErr>(())
         })
-    })
-    .map_err(|e| extism::Error::msg(format!("DB error in config_set: {}", e)))?;
+        .map_err(|e| extism::Error::msg(format!("DB error in config_set: {}", e)))?;
 
     Ok(())
 }

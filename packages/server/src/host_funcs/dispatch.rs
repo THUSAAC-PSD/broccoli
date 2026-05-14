@@ -75,12 +75,11 @@ fn start_operation_batch_fn(
         (guard.plugin_id.clone(), guard.deps.clone())
     };
 
-    let batch_id = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(operation_batch::start_operation_batch(
+    let batch_id = tokio::runtime::Handle::current()
+        .block_on(operation_batch::start_operation_batch(
             plugin_id, deps, operations,
         ))
-    })
-    .map_err(|e| extism::Error::msg(e.to_string()))?;
+        .map_err(|e| extism::Error::msg(e.to_string()))?;
 
     #[derive(Serialize)]
     struct BatchIdResponse {

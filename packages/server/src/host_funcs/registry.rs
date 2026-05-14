@@ -128,23 +128,21 @@ fn register_handler<I: serde::de::DeserializeOwned>(
     let key = key.to_string();
     let handler_name = handler_name.to_string();
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let mut registry = registry.write().await;
-            registry.insert(
-                key.clone(),
-                PluginHandler {
-                    plugin_id: plugin_id.to_string(),
-                    function_name: handler_name.clone(),
-                },
-            );
-            tracing::info!(
-                plugin_id = %plugin_id,
-                key = %key,
-                handler = %handler_name,
-                "{label} registered"
-            );
-        })
+    tokio::runtime::Handle::current().block_on(async {
+        let mut registry = registry.write().await;
+        registry.insert(
+            key.clone(),
+            PluginHandler {
+                plugin_id: plugin_id.to_string(),
+                function_name: handler_name.clone(),
+            },
+        );
+        tracing::info!(
+            plugin_id = %plugin_id,
+            key = %key,
+            handler = %handler_name,
+            "{label} registered"
+        );
     });
 
     Ok(())
@@ -171,31 +169,29 @@ fn register_contest_type_fn(
     let key = input.contest_type;
     validate_registry_id(&key, "contest_type")?;
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let mut registry = registry.write().await;
-            registry.insert(
-                key.clone(),
-                ContestTypeHandlers {
-                    plugin_id: plugin_id.to_string(),
-                    submission_fn: input.submission_handler.clone(),
-                    code_run_fn: input.code_run_handler.clone(),
-                    filter_submission_fn: input
-                        .filter_submission_handler
-                        .as_ref()
-                        .filter(|s| !s.is_empty())
-                        .cloned(),
-                },
-            );
-            tracing::info!(
-                plugin_id = %plugin_id,
-                key = %key,
-                submission_fn = %input.submission_handler,
-                code_run_fn = %input.code_run_handler,
-                filter_submission_fn = ?input.filter_submission_handler,
-                "Contest type registered"
-            );
-        })
+    tokio::runtime::Handle::current().block_on(async {
+        let mut registry = registry.write().await;
+        registry.insert(
+            key.clone(),
+            ContestTypeHandlers {
+                plugin_id: plugin_id.to_string(),
+                submission_fn: input.submission_handler.clone(),
+                code_run_fn: input.code_run_handler.clone(),
+                filter_submission_fn: input
+                    .filter_submission_handler
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .cloned(),
+            },
+        );
+        tracing::info!(
+            plugin_id = %plugin_id,
+            key = %key,
+            submission_fn = %input.submission_handler,
+            code_run_fn = %input.code_run_handler,
+            filter_submission_fn = ?input.filter_submission_handler,
+            "Contest type registered"
+        );
     });
 
     Ok(())
@@ -307,27 +303,25 @@ fn register_language_resolver_fn(
         .filter(|e| !e.is_empty())
         .collect();
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let mut registry = registry.write().await;
-            registry.insert(
-                input.language_id.clone(),
-                LanguageResolverEntry {
-                    plugin_id: plugin_id.to_string(),
-                    function_name: input.function_name.clone(),
-                    display_name,
-                    default_filename: input.default_filename,
-                    extensions,
-                    template: input.template,
-                },
-            );
-            tracing::info!(
-                plugin_id = %plugin_id,
-                language_id = %input.language_id,
-                handler = %input.function_name,
-                "Language resolver registered"
-            );
-        })
+    tokio::runtime::Handle::current().block_on(async {
+        let mut registry = registry.write().await;
+        registry.insert(
+            input.language_id.clone(),
+            LanguageResolverEntry {
+                plugin_id: plugin_id.to_string(),
+                function_name: input.function_name.clone(),
+                display_name,
+                default_filename: input.default_filename,
+                extensions,
+                template: input.template,
+            },
+        );
+        tracing::info!(
+            plugin_id = %plugin_id,
+            language_id = %input.language_id,
+            handler = %input.function_name,
+            "Language resolver registered"
+        );
     });
 
     Ok(())

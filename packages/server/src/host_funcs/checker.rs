@@ -54,11 +54,9 @@ fn run_checker_fn(
         (id.clone(), pm.clone(), reg.clone(), grants.clone())
     };
 
-    let handler = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let registry = checker_format_registry.read().await;
-            registry.get(&input.format).cloned()
-        })
+    let handler = tokio::runtime::Handle::current().block_on(async {
+        let registry = checker_format_registry.read().await;
+        registry.get(&input.format).cloned()
     });
 
     let handler = handler.ok_or_else(|| {
@@ -82,12 +80,10 @@ fn run_checker_fn(
     let input_bytes = serde_json::to_vec(&input.input)
         .map_err(|e| extism::Error::msg(format!("Failed to serialize checker input: {}", e)))?;
 
-    let result_bytes = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            plugin_manager
-                .call_raw(&handler.plugin_id, &handler.function_name, input_bytes)
-                .await
-        })
+    let result_bytes = tokio::runtime::Handle::current().block_on(async {
+        plugin_manager
+            .call_raw(&handler.plugin_id, &handler.function_name, input_bytes)
+            .await
     });
     for token in issued_blob_tokens {
         blob_read_grants.remove(&token);

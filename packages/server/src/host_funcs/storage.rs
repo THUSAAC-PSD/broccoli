@@ -70,12 +70,11 @@ host_fn!(pub blob_read_range(user_data: (String, Arc<dyn BlobStore>, BlobReadGra
         return Err(extism::Error::msg("blob_read_range token does not grant access to this blob"));
     }
 
-    let range = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    let range = tokio::runtime::Handle::current()
+        .block_on(async {
             read_blob_range(&blob_store, &parsed.hash, parsed.offset, parsed.len).await
         })
-    })
-    .map_err(extism::Error::msg)?;
+        .map_err(extism::Error::msg)?;
 
     Ok(serde_json::json!({
         "bytes": BASE64.encode(&range.bytes),
@@ -154,8 +153,8 @@ host_fn!(pub store_get(user_data: (String, DatabaseConnection); input: String) -
         return Ok(serde_json::json!({ "values": {} }).to_string());
     }
 
-    let results = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    let results = tokio::runtime::Handle::current()
+        .block_on(async {
             plugin_storage::Entity::find()
                 .filter(plugin_storage::Column::PluginId.eq(plugin_id))
                 .filter(plugin_storage::Column::Collection.eq(DEFAULT_COLLECTION))
@@ -163,11 +162,10 @@ host_fn!(pub store_get(user_data: (String, DatabaseConnection); input: String) -
                 .all(db)
                 .await
         })
-    })
-    .map_err(|e| {
-        error!("DB store_get error: {e}");
-        extism::Error::msg("Database error")
-    })?;
+        .map_err(|e| {
+            error!("DB store_get error: {e}");
+            extism::Error::msg("Database error")
+        })?;
 
     let values: HashMap<&str, String> = results
         .iter()
@@ -204,8 +202,8 @@ host_fn!(pub store_set(user_data: (String, DatabaseConnection); input: String) -
         return Ok(());
     }
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    tokio::runtime::Handle::current()
+        .block_on(async {
             let txn = db.begin().await?;
 
             for entry in parsed.entries {
@@ -234,11 +232,10 @@ host_fn!(pub store_set(user_data: (String, DatabaseConnection); input: String) -
             txn.commit().await?;
             Ok::<(), sea_orm::DbErr>(())
         })
-    })
-    .map_err(|e| {
-        error!("DB store_set error: {e}");
-        extism::Error::msg("Database error")
-    })?;
+        .map_err(|e| {
+            error!("DB store_set error: {e}");
+            extism::Error::msg("Database error")
+        })?;
 
     Ok(())
 });
@@ -261,8 +258,8 @@ host_fn!(pub store_delete(user_data: (String, DatabaseConnection); input: String
         return Ok(());
     }
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    tokio::runtime::Handle::current()
+        .block_on(async {
             plugin_storage::Entity::delete_many()
                 .filter(plugin_storage::Column::PluginId.eq(plugin_id))
                 .filter(plugin_storage::Column::Collection.eq(DEFAULT_COLLECTION))
@@ -270,11 +267,10 @@ host_fn!(pub store_delete(user_data: (String, DatabaseConnection); input: String
                 .exec(db)
                 .await
         })
-    })
-    .map_err(|e| {
-        error!("DB store_delete error: {e}");
-        extism::Error::msg("Database error")
-    })?;
+        .map_err(|e| {
+            error!("DB store_delete error: {e}");
+            extism::Error::msg("Database error")
+        })?;
 
     Ok(())
 });
@@ -297,8 +293,8 @@ host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); inpu
     parsed.expected = parsed.expected.map(sanitize_db_text);
     parsed.new = sanitize_db_text(&parsed.new);
 
-    let swapped = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    let swapped = tokio::runtime::Handle::current()
+        .block_on(async {
             match parsed.expected {
                 None => {
                     let model = plugin_storage::ActiveModel {
@@ -339,11 +335,10 @@ host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); inpu
                 }
             }
         })
-    })
-    .map_err(|e| {
-        error!("DB store_compare_and_set error: {e}");
-        extism::Error::msg("Database error")
-    })?;
+        .map_err(|e| {
+            error!("DB store_compare_and_set error: {e}");
+            extism::Error::msg("Database error")
+        })?;
 
     Ok(serde_json::json!({ "swapped": swapped }).to_string())
 });
