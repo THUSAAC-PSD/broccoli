@@ -143,6 +143,27 @@ pub struct ServerConfig {
     /// dominate latency.
     #[serde(default = "default_operation_batch_publish_concurrency")]
     pub operation_batch_publish_concurrency: u32,
+    /// Address (e.g. `"0.0.0.0:9091"`) for an **optional** dedicated TCP
+    /// listener that serves only `/healthz` and `/metrics` on its own tokio
+    /// runtime + OS thread (UP#14e). When `None`, behavior is identical to
+    /// the legacy setup: the two endpoints are served only on the main
+    /// router and therefore share the main runtime's scheduler.
+    ///
+    /// Setting this is **opt-in**: it lets liveness probes and metrics
+    /// scrapes survive even when the api runtime is saturated by submission
+    /// bursts or scheduler thrash — but operators must repoint their
+    /// probe/scrape targets at this port to actually realize that
+    /// isolation. The endpoints stay mounted on the main router unchanged
+    /// for backward compatibility.
+    #[serde(default)]
+    pub healthz_listen: Option<String>,
+    /// Number of tokio worker threads for the dedicated healthz/metrics
+    /// runtime (UP#14e). Two is plenty: the only handlers running here are
+    /// a Prometheus encode (CPU-bound, microseconds) and a 2s DB/MQ ping.
+    /// Increase only if you also use the healthz listener for high-volume
+    /// scraping fan-in.
+    #[serde(default = "default_healthz_worker_threads")]
+    pub healthz_worker_threads: u32,
 }
 
 fn default_dispatcher_semaphore_enabled() -> bool {
@@ -195,6 +216,10 @@ fn default_batch_evaluator_fanout_concurrency() -> u32 {
 
 fn default_operation_batch_publish_concurrency() -> u32 {
     32
+}
+
+fn default_healthz_worker_threads() -> u32 {
+    2
 }
 
 fn default_frontend_dist() -> PathBuf {
@@ -470,6 +495,7 @@ impl AppConfig {
             .set_default("server.fleet_capacity_poll_interval_secs", 5_i64)?
             .set_default("server.batch_evaluator_fanout_concurrency", 64_i64)?
             .set_default("server.operation_batch_publish_concurrency", 32_i64)?
+            .set_default("server.healthz_worker_threads", 2_i64)?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
             .set_default(
@@ -633,6 +659,8 @@ mod tests {
             max_blocking_threads,
             batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
             operation_batch_publish_concurrency: default_operation_batch_publish_concurrency(),
+            healthz_listen: None,
+            healthz_worker_threads: default_healthz_worker_threads(),
         }
     }
 

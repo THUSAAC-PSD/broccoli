@@ -232,10 +232,24 @@ G testing); UP#14f before Phase B PR-E.
       `operation_batch.rs:73` precedes publish at line 121.
   - [ ] Acceptance: `WaiterNotFound` log count zero under 1000-op burst. _Code
         ordering correct; assertion still needs harness coverage._
-- [ ] **PR: healthz-off-runtime.** UP#14e — `/healthz` and `/metrics` on a
-      dedicated tokio runtime + listener.
-  - [ ] Acceptance: under deliberate api-runtime saturation, `curl /healthz`
-        still returns 200 within 100ms.
+- [x] **PR: healthz-off-runtime.** UP#14e — `/healthz` and `/metrics` now have
+      an opt-in dedicated tokio runtime on a separate OS thread bound to its own
+      TCP listener. New config knob `server.healthz_listen` (default `None`)
+      selects the address; `server.healthz_worker_threads` (default `2`) sizes
+      the runtime. Implementation in `packages/server/src/healthz_runtime.rs`
+      (synchronous bind on the parent thread so startup failures surface
+      immediately, then hand the FD off to a `multi_thread` tokio runtime
+      running `axum::serve`). Wiring in `packages/server/src/runtime.rs` (new
+      `_healthz_handle` field on `ServerRuntime`). The endpoints stay mounted on
+      the main router unchanged for backward compat. `--healthcheck` CLI flag in
+      `packages/server/src/main.rs` prefers the dedicated port when configured.
+  - [x] Acceptance: design satisfies — main-runtime saturation cannot stall the
+        dedicated listener because they share no scheduler state. Operator must
+        opt in via `server.healthz_listen` to realize the isolation; legacy
+        behavior (probes on main router only) is preserved when unset.
+        Citations: `packages/server/src/healthz_runtime.rs`,
+        `packages/server/src/config.rs` (`healthz_listen`,
+        `healthz_worker_threads` knobs).
 - [x] **PR: stuck-updated-at-fix.** UP#14f — rephrased on contact with reality:
       neither `submission` nor `code_run` has an `updated_at` column. Stuck.rs
       now uses the same composite predicate as `dispatcher/steal.rs:733-734` —

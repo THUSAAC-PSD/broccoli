@@ -16,6 +16,7 @@ use crate::build_router;
 use crate::config::{AppConfig, per_replica_result_queue_name, resolve_server_id};
 use crate::consumers::{consume_operation_dlq, consume_operation_results};
 use crate::dlq::run_stuck_job_detector;
+use crate::healthz_runtime::spawn_healthz_runtime;
 use crate::host_funcs::context::HostFunctionSystemDeps;
 use crate::manager::ServerManager;
 use crate::registry;
@@ -28,6 +29,12 @@ pub struct ServerRuntime {
     app: axum::Router,
     addr: SocketAddr,
     dispatcher: crate::dispatcher::Dispatcher,
+    /// Handle to the dedicated `/healthz` + `/metrics` OS thread spawned in
+    /// [`crate::healthz_runtime`] (UP#14e). `None` when `server.healthz_listen`
+    /// is unset. The thread runs for the process lifetime and is reaped by
+    /// the OS on exit, so we hold the handle for ownership but never `join()`
+    /// it — hence the underscore prefix to silence dead-code warnings.
+    _healthz_handle: Option<std::thread::JoinHandle<()>>,
     _telemetry_guard: common::observability::TelemetryGuard,
 }
 
@@ -318,6 +325,7 @@ impl ServerRuntime {
             );
         }
 
+        let healthz_state = state.clone();
         let app = build_router(state).layer(
             CorsLayer::new()
                 .allow_origin(allow_origins)
@@ -350,11 +358,28 @@ impl ServerRuntime {
             .await
             .with_context(|| format!("Failed to bind to {}", addr))?;
 
+        // UP#14e: optional dedicated runtime + listener for /healthz + /metrics.
+        // When configured, probe traffic survives main-runtime saturation.
+        let healthz_handle = if let Some(ref addr_str) = app_config.server.healthz_listen {
+            let healthz_addr: SocketAddr = addr_str
+                .parse()
+                .with_context(|| format!("Invalid server.healthz_listen address: {}", addr_str))?;
+            let worker_threads = app_config.server.healthz_worker_threads.max(1) as usize;
+            Some(spawn_healthz_runtime(
+                healthz_addr,
+                worker_threads,
+                healthz_state,
+            )?)
+        } else {
+            None
+        };
+
         Ok(Self {
             listener,
             app,
             addr,
             dispatcher,
+            _healthz_handle: healthz_handle,
             _telemetry_guard: telemetry_guard,
         })
     }
