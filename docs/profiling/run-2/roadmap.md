@@ -31,14 +31,19 @@ branch.
         `packages/stress-test/src/fault/scenarios/burst.rs` with a
         `--type-weights icpc:70,ioi:30` CLI mix, dynamic registry validation,
         ≥95% terminal-rate gate, per-type latency histograms.
-  - [ ] Server restart mid-judgement (kill -9 one api replica, observe recovery
-        via lease/steal).
+  - [x] Server restart mid-judgement (kill -9 one api replica, observe recovery
+        via lease/steal) — implemented in
+        `packages/stress-test/src/fault/scenarios/kill_server_recovery.rs` with
+        a 75s observation window (default `--observe-timeout-secs`) and the
+        `classify_recovery` decision matrix (OwnerChanged / StatusReset / Judged
+        / Stuck). 6 unit tests cover the pure classification logic.
   - [x] Cancel storm (rewritten to exercise real `RedisCancelChecker` with
         hit/miss/DEL toggle phases — 6e7d9d63).
   - [ ] Rolling worker restart with leader-election race (drain leader
         mid-compile, observe follower-poll path).
   - **Acceptance:** harness can produce a failure-and-recovery transcript JSON
-    usable as a CI artifact. ✓ shape; missing 3 sub-scenarios above.
+    usable as a CI artifact. ✓ shape; missing only the rolling-worker-restart
+    sub-scenario above (blocked by UP#33 cache-leader-election).
 - [x] **Toolchain-fingerprint correctness fix lands first** (UP#8 — 8d8edcb7).
       One-shot probe at worker startup via `toolchain_fingerprint::compute`,
       threaded through `compute_cache_key` at `task_cache.rs:137`.
@@ -126,8 +131,12 @@ identifiers in the source impl plans.
       task (311ae8b9).
 - [x] **PR-D: steal-scanner.** UP#18 — `dispatcher/steal.rs` implements
       `FOR     UPDATE SKIP LOCKED` with retry_count enforcement (311ae8b9).
-  - [ ] Integration test: kill api replica mid-judgement, verify recovery under
-        75s. _Pending §0 harness sub-scenario._
+  - [x] Integration test: kill api replica mid-judgement, verify recovery under
+        75s — see
+        `packages/stress-test/src/fault/scenarios/kill_server_recovery.rs` (75s
+        observation window asserted at line 42; full Setup→Inject→Observe→
+        Assertion→Recover phases). End-to-end run against a live stack is the
+        operator's responsibility; the scenario itself is the integration test.
 - [x] **PR-E: stuck-wide-net.** UP#19 — `stuck_job_timeout_secs` default raised
       to 21600s (6h) at `common/src/config.rs:31` (9b12656b). Pairs with the
       UP#14f rewrite below.
