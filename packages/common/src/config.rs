@@ -28,7 +28,7 @@ fn default_dlq_max_delay_ms() -> u64 {
     60_000
 }
 fn default_dlq_stuck_job_timeout_secs() -> u64 {
-    7200
+    21_600
 }
 fn default_dlq_stuck_job_scan_interval_secs() -> u64 {
     60

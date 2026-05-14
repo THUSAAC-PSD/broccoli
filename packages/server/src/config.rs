@@ -89,8 +89,10 @@ pub struct ServerConfig {
     pub sweep_interval_secs: u64,
     #[serde(default = "default_max_dispatch_retries")]
     pub max_dispatch_retries: u32,
-    /// Initially dry-run only: log ghost reply queues and debounce them, but
-    /// do not delete Redis keys until operators explicitly enable deletion.
+    /// When true, log ghost reply queues and debounce them without deleting
+    /// the Redis keys. Defaults to false now that the sweeper has soaked in
+    /// dry-run through earlier UP rollouts; flip back to true if you need to
+    /// audit what would be deleted before letting the sweeper act.
     #[serde(default = "default_sweeper_dry_run")]
     pub sweeper_dry_run: bool,
     /// Master switch for Redis-backed operation cancellation keys. Defaults
@@ -151,7 +153,7 @@ fn default_max_dispatch_retries() -> u32 {
 }
 
 fn default_sweeper_dry_run() -> bool {
-    true
+    false
 }
 
 fn default_fleet_capacity_poll_interval_secs() -> u64 {
@@ -425,7 +427,7 @@ impl AppConfig {
             .set_default("server.steal_batch_size", 8_i64)?
             .set_default("server.sweep_interval_secs", 300_i64)?
             .set_default("server.max_dispatch_retries", 5_i64)?
-            .set_default("server.sweeper_dry_run", true)?
+            .set_default("server.sweeper_dry_run", false)?
             .set_default("server.cancel_primitive_enabled", false)?
             .set_default("server.fleet_aware_admission_enabled", false)?
             .set_default("server.fleet_capacity_poll_interval_secs", 5_i64)?

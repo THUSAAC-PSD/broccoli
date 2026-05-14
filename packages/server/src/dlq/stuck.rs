@@ -4,7 +4,8 @@ use chrono::Utc;
 use common::{DlqConfig, DlqErrorCode, DlqMessageType, SubmissionDlqErrorCode, SubmissionStatus};
 use sea_orm::sea_query::{Expr, LockType};
 use sea_orm::{
-    ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, QuerySelect, TransactionTrait,
+    ColumnTrait, Condition, DatabaseTransaction, EntityTrait, QueryFilter, QuerySelect,
+    TransactionTrait,
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -52,11 +53,32 @@ async fn detect_and_handle_stuck_jobs(
     let timeout_threshold =
         Utc::now() - chrono::Duration::seconds(config.stuck_job_timeout_secs as i64);
 
+    // Composite staleness predicate mirroring dispatcher/steal.rs:
+    // unleased rows clock from creation; leased rows clock from the last
+    // heartbeat (a leased row with NULL heartbeat is also suspect). A leased
+    // submission whose worker is heartbeating every 10s never trips this,
+    // even if its created_at is hours old.
     let stuck_submission_ids: Vec<i32> = submission::Entity::find()
         .select_only()
         .column(submission::Column::Id)
         .filter(submission::Column::Status.is_in(IN_PROGRESS_STATUSES))
-        .filter(submission::Column::CreatedAt.lt(timeout_threshold))
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(submission::Column::OwnerServerId.is_null())
+                        .add(submission::Column::CreatedAt.lt(timeout_threshold)),
+                )
+                .add(
+                    Condition::all()
+                        .add(submission::Column::OwnerServerId.is_not_null())
+                        .add(
+                            Condition::any()
+                                .add(submission::Column::LeaseHeartbeatAt.is_null())
+                                .add(submission::Column::LeaseHeartbeatAt.lt(timeout_threshold)),
+                        ),
+                ),
+        )
         .into_tuple()
         .all(db)
         .await?;
@@ -84,7 +106,23 @@ async fn detect_and_handle_stuck_jobs(
         .select_only()
         .column(code_run::Column::Id)
         .filter(code_run::Column::Status.is_in(IN_PROGRESS_STATUSES))
-        .filter(code_run::Column::CreatedAt.lt(timeout_threshold))
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(code_run::Column::OwnerServerId.is_null())
+                        .add(code_run::Column::CreatedAt.lt(timeout_threshold)),
+                )
+                .add(
+                    Condition::all()
+                        .add(code_run::Column::OwnerServerId.is_not_null())
+                        .add(
+                            Condition::any()
+                                .add(code_run::Column::LeaseHeartbeatAt.is_null())
+                                .add(code_run::Column::LeaseHeartbeatAt.lt(timeout_threshold)),
+                        ),
+                ),
+        )
         .into_tuple()
         .all(db)
         .await?;
