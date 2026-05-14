@@ -1,4 +1,6 @@
-use clap::{Parser, ValueEnum};
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum LoadProfile {
@@ -6,6 +8,80 @@ pub enum LoadProfile {
     Judge,
     /// Mixed contest-traffic profile: page reads, scoreboard polling, code-runs, and submissions.
     Mixed,
+}
+
+/// Top-level subcommands. Stress mode (the default) takes no subcommand; the
+/// `fault` subcommand opts in to the fault-injection scenarios formerly
+/// provided by the standalone `fault-harness` crate.
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    /// Fault-injection scenarios (cancel-storm, kill-server-recovery, ...).
+    Fault(FaultArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct FaultArgs {
+    #[command(subcommand)]
+    pub scenario: FaultScenario,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum FaultScenario {
+    /// Hammer Redis with cancel-batch probes; assert hit/miss/DEL toggle behaviour.
+    CancelStorm(CancelStormArgs),
+    /// Kill a server replica mid-judgement; assert lease/steal recovery.
+    KillServerRecovery(KillServerRecoveryArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct CancelStormArgs {
+    /// Number of distinct batch ids to prime / probe. Half are primed.
+    #[arg(long, default_value_t = 1000)]
+    pub batch_count: usize,
+    /// Number of concurrent reader tasks probing the keys.
+    #[arg(long, default_value_t = 64)]
+    pub readers: usize,
+    /// TTL for the primed cancel keys, in seconds.
+    #[arg(long, default_value_t = 21600)]
+    pub key_ttl_secs: u64,
+    /// Redis URL. If omitted, an ephemeral testcontainer is started.
+    #[arg(long)]
+    pub redis_url: Option<String>,
+    /// Path to write the transcript JSON.
+    #[arg(long, default_value = "transcript.json")]
+    pub out: PathBuf,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct KillServerRecoveryArgs {
+    /// Postgres connection URL (e.g. `postgres://postgres:password@localhost:5432/broccoli`).
+    #[arg(long)]
+    pub db_url: String,
+    /// Base URL of the server replica fleet (e.g. `http://localhost:3000`).
+    #[arg(long)]
+    pub server_url: String,
+    /// Admin bearer token used to post submissions.
+    #[arg(long)]
+    pub admin_token: String,
+    /// Shell command executed under `sh -c` to kill the target server replica
+    /// (e.g. `docker compose kill server-1`).
+    #[arg(long)]
+    pub kill_command: String,
+    /// Redis URL. Required; the scenario presumes operator-managed infra.
+    #[arg(long)]
+    pub redis_url: String,
+    /// Number of submissions to POST before killing the server.
+    #[arg(long, default_value_t = 10)]
+    pub submission_count: usize,
+    /// Time (seconds) to observe for recovery after the kill.
+    #[arg(long, default_value_t = 75)]
+    pub observe_timeout_secs: u64,
+    /// Problem id to submit against. Must be pre-seeded.
+    #[arg(long, default_value_t = 1)]
+    pub problem_id: i32,
+    /// Path to write the transcript JSON.
+    #[arg(long, default_value = "transcript.json")]
+    pub out: PathBuf,
 }
 
 #[derive(Parser, Debug)]
@@ -17,7 +93,15 @@ pub enum LoadProfile {
     after_help = "First time? Get the matching binary at <your-server>/downloads.",
 )]
 pub struct Cli {
-    #[arg(long)]
+    /// Optional subcommand. When omitted, stress mode runs (the historical
+    /// behaviour). Currently the only subcommand is `fault` for the
+    /// fault-injection scenarios.
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    /// Target base URL. Required for stress mode; ignored by the `fault`
+    /// subcommand (its scenarios take their own `--server-url` etc.).
+    #[arg(long, default_value = "")]
     pub url: String,
 
     #[arg(long)]
@@ -108,6 +192,17 @@ pub struct Cli {
 
 impl Cli {
     pub fn validate(&self) -> Result<(), String> {
+        // Fault subcommand carries its own self-contained args; the top-level
+        // stress flags do not apply. Clap enforces the per-scenario required
+        // fields; nothing for us to validate here.
+        if self.command.is_some() {
+            return Ok(());
+        }
+
+        if self.url.is_empty() {
+            return Err("--url is required in stress mode".to_string());
+        }
+
         let has_token = self.admin_token.is_some();
         let has_user_pass = self.admin_username.is_some() && self.admin_password.is_some();
         if !has_token && !has_user_pass {

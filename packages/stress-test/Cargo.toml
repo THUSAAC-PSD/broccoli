@@ -25,6 +25,14 @@ chrono = { workspace = true }
 rand = { workspace = true }
 uuid = { workspace = true }
 
+# fault::* dependencies (merged from packages/fault-harness/).
+async-trait = { workspace = true }
+common = { workspace = true }
+redis = { workspace = true }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["redis"] }
+
 [dev-dependencies]
 wiremock = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

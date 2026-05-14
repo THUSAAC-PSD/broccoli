@@ -3,7 +3,7 @@ pub mod kill_server_recovery;
 
 use async_trait::async_trait;
 
-use crate::transcript::Transcript;
+use super::transcript::Transcript;
 
 pub struct ScenarioContext {
     pub redis_url: String,

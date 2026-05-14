@@ -3,8 +3,26 @@ use stress_test::cli::{Cli, LoadProfile};
 
 #[test]
 fn requires_url() {
-    let r = Cli::try_parse_from(["broccoli-stress-test", "--admin-token", "abc"]);
-    assert!(r.is_err());
+    // Clap allows --url to be omitted (so the `fault` subcommand can be used
+    // without supplying a stress-mode URL), but stress mode rejects it at
+    // validate() time.
+    let cli = Cli::try_parse_from(["broccoli-stress-test", "--admin-token", "abc"]).unwrap();
+    assert!(cli.validate().is_err());
+}
+
+#[test]
+fn fault_subcommand_skips_top_level_validation() {
+    use stress_test::cli::Command;
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "fault",
+        "cancel-storm",
+        "--batch-count",
+        "100",
+    ])
+    .unwrap();
+    assert!(matches!(cli.command, Some(Command::Fault(_))));
+    assert!(cli.validate().is_ok());
 }
 
 #[test]

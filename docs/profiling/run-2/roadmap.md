@@ -21,9 +21,11 @@ These three items are not in the unified-plan numbering but block everything
 downstream. They must be ticked before Tranche 1 merges to the integration
 branch.
 
-- [~] **Integration test harness for fault injection.** Crate
-  `packages/fault-harness/` (6ee0190b, 6e7d9d63) emits transcript JSON; only
-  cancel-storm sub-scenario implemented.
+- [~] **Integration test harness for fault injection.** Lives in stress-test's
+  `fault::*` module (originally crate `packages/fault-harness/` — 6ee0190b,
+  6e7d9d63, c96b7fe7 — folded into stress-test to share its HTTP client + admin
+  auth). Emits transcript JSON; only cancel-storm and kill-server-recovery
+  sub-scenarios implemented.
   - [ ] N=1000 in-flight submissions with a configurable problem-type mix (ICPC,
         IOI).
   - [ ] Server restart mid-judgement (kill -9 one api replica, observe recovery
@@ -172,7 +174,8 @@ identifiers in the source impl plans.
       `mark_cancelled` → `Skipped` emission.
   - [ ] Integration test: nested-subtask correctness (sibling-active check).
         _Unit test `compute_scoring_test_case_ids_keeps_nested_subtask_members`
-        exists; an end-to-end fault-harness scenario is still missing._
+        exists; an end-to-end fault scenario in stress-test's `fault::*` module
+        is still missing._
 - [x] **PR-DD: dedup-config-cleanup.** UP#20 already ticked as PR-F.
 
 ---

@@ -6,6 +6,7 @@ pub mod correctness;
 pub mod dto;
 pub mod error;
 pub mod events;
+pub mod fault;
 pub mod fixtures;
 pub mod load;
 pub mod mixed;

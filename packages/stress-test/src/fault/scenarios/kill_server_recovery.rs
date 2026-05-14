@@ -27,7 +27,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::process::Command;
 
 use super::{Scenario, ScenarioContext, ScenarioOutcome};
-use crate::transcript::{EventKind, Severity, Transcript};
+use crate::fault::transcript::{EventKind, Severity, Transcript};
 
 pub struct KillServerRecovery {
     pub submission_count: usize,

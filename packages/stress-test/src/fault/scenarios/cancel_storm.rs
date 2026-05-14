@@ -7,7 +7,7 @@ use hdrhistogram::Histogram;
 use tokio::sync::Mutex;
 
 use super::{Scenario, ScenarioContext, ScenarioOutcome};
-use crate::transcript::{EventKind, Severity, Transcript};
+use crate::fault::transcript::{EventKind, Severity, Transcript};
 
 pub struct CancelStorm {
     pub batch_count: usize,
