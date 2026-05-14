@@ -310,10 +310,14 @@ G testing); UP#14f before Phase B PR-E.
         exactly-one-leader, heartbeat-extends-past-TTL, lease-drop-releases,
         TTL-safety-net). Tests use real Redis container via
         `testcontainers-modules::redis`.
-  - [ ] End-to-end multi-worker concurrent-compile scenario (test 5) deferred to
-        follow-up PR — requires Postgres testcontainer wiring in the worker
-        crate, out of scope for this PR. Redis-only tests above already validate
-        the load-bearing claim (exactly one leader, others wait/poll).
+  - [x] End-to-end multi-worker concurrent-compile scenario (test 5):
+        `packages/worker/tests/cache_leader_election.rs::end_to_end_concurrent_compile_runs_once`.
+        Spins up real Postgres + Redis containers, shares one
+        `DatabaseTaskCacheStore` + filesystem `BlobStore` across 3 handlers,
+        wraps a `CountingSandboxManager` decorator around `MockSandboxManager`
+        with a shared `AtomicUsize`; asserts `exec_count == 1` across all 3 and
+        that follower handlers see the same `build.out` content_hash as the
+        leader.
 - [ ] **PR: bulk-insert-results.** UP#34 — convert single-element-slice callers
       to multi-row endpoint in `plugins/{icpc,ioi}/src/evaluate*.rs`.
   - [ ] Acceptance: per-submission INSERT count drops from ~20 to ~2–3.
