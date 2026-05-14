@@ -318,9 +318,24 @@ G testing); UP#14f before Phase B PR-E.
         with a shared `AtomicUsize`; asserts `exec_count == 1` across all 3 and
         that follower handlers see the same `build.out` content_hash as the
         leader.
-- [ ] **PR: bulk-insert-results.** UP#34 — convert single-element-slice callers
-      to multi-row endpoint in `plugins/{icpc,ioi}/src/evaluate*.rs`.
-  - [ ] Acceptance: per-submission INSERT count drops from ~20 to ~2–3.
+- [x] **PR: bulk-insert-results.** UP#34 — `plugins/icpc/src/evaluate.rs` and
+      `plugins/ioi/src/evaluate_batch.rs` no longer call `insert_results` once
+      per testcase. A per-submission `row_buf: Vec<TestCaseResultRow>` is
+      threaded through the main evaluation loop; each call site that used to
+      issue a single-element slice now goes through `record_outcome`, which
+      pushes to the buffer and auto-flushes at
+      `RESULT_BATCH_FLUSH_THRESHOLD = 8`. A `flush_results` call before every
+      early return / function tail guarantees terminal verdicts are persisted
+      before the plugin function returns. SDK side: `SubmissionsMock` gained
+      `insert_call_count()` so plugin tests can assert the bulk-batching
+      invariant.
+  - [x] Acceptance: per-submission INSERT count drops from ~20 to ~2–3.
+        Regression tests pin this:
+        `plugins/icpc/src/evaluate.rs::tests::bulk_inserts_batch_accepted_results`
+        asserts `insert_call_count() <= 3` for 20 accepted testcases (and `>= 2`
+        so a future "fold everything to one final flush" change is also caught),
+        and the analogous IOI test
+        `plugins/ioi/src/evaluate_batch.rs::tests::bulk_inserts_batch_accepted_results`.
 
 ---
 

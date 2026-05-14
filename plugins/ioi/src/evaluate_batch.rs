@@ -7,6 +7,12 @@ use broccoli_server_sdk::types::*;
 use crate::config::{SubtaskDef, SubtaskScoringMethod};
 use crate::subtasks::test_case_reference_keys;
 
+/// Auto-flush threshold for buffered `TestCaseResultRow`s. IOI problems
+/// commonly have 20–50 testcases across many subtasks; an 8-row chunk
+/// keeps the per-submission INSERT count in the 2–6 range instead of
+/// one INSERT per testcase (UP#34).
+const RESULT_BATCH_FLUSH_THRESHOLD: usize = 8;
+
 /// Per-test-case outcome from evaluation, with raw (0..1) scores.
 #[derive(Debug, Clone)]
 pub struct EvalOutcome {
@@ -63,6 +69,10 @@ pub fn evaluate_all(
         .delete_results(submission_id, req.judgement_id, req.judge_epoch);
 
     let mut outcomes: Vec<EvalOutcome> = Vec::new();
+    // Per-submission row buffer (UP#34). Drained by the threshold flush
+    // inside `record_outcome` and force-flushed before every early
+    // return so callers see terminal verdicts in `test_case_result`.
+    let mut row_buf: Vec<TestCaseResultRow> = Vec::new();
 
     let mut session = match host.eval.start_windowed(&batch_input, 4) {
         Ok(session) => session,
@@ -78,8 +88,9 @@ pub fn evaluate_all(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(
+                record_outcome(
                     host,
+                    &mut row_buf,
                     submission_id,
                     req.judgement_id,
                     req.judge_epoch,
@@ -89,6 +100,7 @@ pub fn evaluate_all(
                 )?;
                 outcomes.push(outcome);
             }
+            flush_results(host, &mut row_buf)?;
             return Ok(outcomes);
         }
     };
@@ -140,8 +152,9 @@ pub fn evaluate_all(
                 };
 
                 if outcome.verdict == Verdict::CompileError {
-                    insert_tc_result(
+                    record_outcome(
                         host,
+                        &mut row_buf,
                         submission_id,
                         req.judgement_id,
                         req.judge_epoch,
@@ -164,8 +177,9 @@ pub fn evaluate_all(
                                 stdout: None,
                                 stderr: None,
                             };
-                            insert_tc_result(
+                            record_outcome(
                                 host,
+                                &mut row_buf,
                                 submission_id,
                                 req.judgement_id,
                                 req.judge_epoch,
@@ -180,8 +194,9 @@ pub fn evaluate_all(
                     break;
                 }
 
-                insert_tc_result(
+                record_outcome(
                     host,
+                    &mut row_buf,
                     submission_id,
                     req.judgement_id,
                     req.judge_epoch,
@@ -209,8 +224,9 @@ pub fn evaluate_all(
                                     stdout: None,
                                     stderr: None,
                                 };
-                                insert_tc_result(
+                                record_outcome(
                                     host,
+                                    &mut row_buf,
                                     submission_id,
                                     req.judgement_id,
                                     req.judge_epoch,
@@ -268,8 +284,9 @@ pub fn evaluate_all(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(
+                record_outcome(
                     host,
+                    &mut row_buf,
                     submission_id,
                     req.judgement_id,
                     req.judge_epoch,
@@ -282,6 +299,11 @@ pub fn evaluate_all(
         }
         let _ = session.cancel_all();
     }
+
+    // Final flush before returning so the caller's terminal verdicts
+    // are visible in `test_case_result` no matter which exit path we
+    // took.
+    flush_results(host, &mut row_buf)?;
 
     Ok(outcomes)
 }
@@ -453,15 +475,14 @@ impl SubtaskShortCircuit {
     }
 }
 
-fn insert_tc_result(
-    host: &Host,
+fn build_tc_row(
     submission_id: i32,
     judgement_id: i32,
     judge_epoch: i32,
     outcome: &EvalOutcome,
     tc_map: &HashMap<i32, &TestCaseRow>,
     scale_score: &impl Fn(f64, &TestCaseRow) -> f64,
-) -> Result<(), SdkError> {
+) -> TestCaseResultRow {
     let tc = tc_map.get(&outcome.test_case_id);
     let score = match tc {
         Some(tc) => scale_score(outcome.raw_score, tc),
@@ -473,7 +494,7 @@ fn insert_tc_result(
     } else {
         (Some(outcome.test_case_id), None)
     };
-    host.submission.insert_results(&[TestCaseResultRow {
+    TestCaseResultRow {
         submission_id,
         judgement_id,
         judge_epoch,
@@ -486,7 +507,44 @@ fn insert_tc_result(
         message: sanitize_optional_text(outcome.message.as_deref()),
         stdout: sanitize_optional_text(outcome.stdout.as_deref()),
         stderr: sanitize_optional_text(outcome.stderr.as_deref()),
-    }])
+    }
+}
+
+/// Drain `buf` into one bulk `insert_results` call. No-op if `buf` is
+/// empty.
+fn flush_results(host: &Host, buf: &mut Vec<TestCaseResultRow>) -> Result<(), SdkError> {
+    if buf.is_empty() {
+        return Ok(());
+    }
+    host.submission.insert_results(buf)?;
+    buf.clear();
+    Ok(())
+}
+
+/// Append a row for `outcome` to `buf`; flush when the buffer reaches
+/// `RESULT_BATCH_FLUSH_THRESHOLD`.
+fn record_outcome(
+    host: &Host,
+    buf: &mut Vec<TestCaseResultRow>,
+    submission_id: i32,
+    judgement_id: i32,
+    judge_epoch: i32,
+    outcome: &EvalOutcome,
+    tc_map: &HashMap<i32, &TestCaseRow>,
+    scale_score: &impl Fn(f64, &TestCaseRow) -> f64,
+) -> Result<(), SdkError> {
+    buf.push(build_tc_row(
+        submission_id,
+        judgement_id,
+        judge_epoch,
+        outcome,
+        tc_map,
+        scale_score,
+    ));
+    if buf.len() >= RESULT_BATCH_FLUSH_THRESHOLD {
+        flush_results(host, buf)?;
+    }
+    Ok(())
 }
 
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
@@ -827,6 +885,34 @@ mod tests {
         assert_eq!(
             host.eval.testcase_cancels(),
             vec![("mock-batch-1".to_string(), vec![2, 3, 4])]
+        );
+    }
+
+    /// UP#34 regression: 20 accepted testcases must produce strictly
+    /// fewer than 20 `insert_results` calls. With
+    /// `RESULT_BATCH_FLUSH_THRESHOLD = 8` we expect 3 calls (two full
+    /// chunks of 8 + one tail flush of 4).
+    #[test]
+    fn bulk_inserts_batch_accepted_results() {
+        let host = Host::mock();
+        let tcs: Vec<TestCaseRow> = (1..=20).map(test_case).collect();
+        let req = test_submission(tcs.clone());
+        for i in 1..=20 {
+            host.eval.queue_result(TestCaseVerdict::accepted(i));
+        }
+
+        let outcomes = evaluate_all(&host, &req, &tcs, 1, |raw, _| raw, &[]).unwrap();
+
+        assert_eq!(outcomes.len(), 20);
+        assert_eq!(host.submission.results().len(), 20);
+        let calls = host.submission.insert_call_count();
+        assert!(
+            calls <= 3,
+            "expected ≤3 bulk INSERTs for 20 testcases, got {calls}"
+        );
+        assert!(
+            calls >= 2,
+            "expected ≥2 bulk INSERTs (threshold = 8), got {calls}"
         );
     }
 }

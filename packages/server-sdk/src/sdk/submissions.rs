@@ -214,6 +214,11 @@ pub(super) struct SubmissionsMock {
     insert_errors: RefCell<VecDeque<SdkError>>,
     updates: RefCell<Vec<SubmissionUpdate>>,
     tc_results: RefCell<Vec<TestCaseResultRow>>,
+    /// Number of `insert_results` calls that actually issued an INSERT
+    /// (empty-slice calls early-return and are not counted). Used by the
+    /// UP#34 bulk-insert-results regression tests to assert that plugins
+    /// batch their per-testcase rows rather than calling once per row.
+    insert_call_count: RefCell<usize>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -226,6 +231,7 @@ impl SubmissionsMock {
             insert_errors: RefCell::new(VecDeque::new()),
             updates: RefCell::new(Vec::new()),
             tc_results: RefCell::new(Vec::new()),
+            insert_call_count: RefCell::new(0),
         }
     }
 }
@@ -251,12 +257,16 @@ impl Submissions {
     }
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
+        if results.is_empty() {
+            return Ok(());
+        }
         if results.iter().any(|r| r.judgement_id <= 0) {
             return Err(SdkError::StaleEpoch);
         }
         if let Some(err) = self.inner.insert_errors.borrow_mut().pop_front() {
             return Err(err);
         }
+        *self.inner.insert_call_count.borrow_mut() += 1;
         self.inner
             .tc_results
             .borrow_mut()
@@ -324,5 +334,14 @@ impl Submissions {
 
     pub fn results(&self) -> Vec<TestCaseResultRow> {
         self.inner.tc_results.borrow().clone()
+    }
+
+    /// Number of `insert_results` calls that actually issued an INSERT.
+    /// Empty-slice calls early-return and are not counted. Plugins are
+    /// expected to batch per-testcase rows (UP#34) — assert
+    /// `insert_call_count() <= ceil(rows / threshold) + small_constant` in
+    /// regression tests.
+    pub fn insert_call_count(&self) -> usize {
+        *self.inner.insert_call_count.borrow()
     }
 }

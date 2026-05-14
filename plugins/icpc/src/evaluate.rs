@@ -4,6 +4,11 @@ use broccoli_server_sdk::Host;
 use broccoli_server_sdk::error::SdkError;
 use broccoli_server_sdk::types::*;
 
+/// Auto-flush threshold for buffered `TestCaseResultRow`s. With typical
+/// ICPC contests in the 15–25 testcase range this yields 2–3 bulk
+/// INSERTs per submission instead of one INSERT per testcase (UP#34).
+const RESULT_BATCH_FLUSH_THRESHOLD: usize = 8;
+
 /// Per-test-case outcome from evaluation.
 #[derive(Debug, Clone)]
 pub struct EvalOutcome {
@@ -68,6 +73,11 @@ pub fn evaluate_short_circuit(
 
     let mut outcomes: Vec<EvalOutcome> = Vec::new();
     let mut recorded_ids: HashSet<i32> = HashSet::new();
+    // Per-submission row buffer (UP#34). Filled by `record_outcome`,
+    // periodically drained by the threshold flush inside that helper,
+    // and force-flushed before any early return so the caller still
+    // observes terminal verdicts in `test_case_result`.
+    let mut row_buf: Vec<TestCaseResultRow> = Vec::new();
 
     // Try to start batch
     let mut session = match host.eval.start_windowed(&batch_input, 1) {
@@ -83,8 +93,9 @@ pub fn evaluate_short_circuit(
                     stdout: None,
                     stderr: None,
                 };
-                insert_tc_result(
+                record_outcome(
                     host,
+                    &mut row_buf,
                     submission_id,
                     req.judgement_id,
                     req.judge_epoch,
@@ -93,6 +104,7 @@ pub fn evaluate_short_circuit(
                 )?;
                 outcomes.push(outcome);
             }
+            flush_results(host, &mut row_buf)?;
             return Ok(EvalResult {
                 outcomes,
                 is_compile_error: false,
@@ -151,8 +163,9 @@ pub fn evaluate_short_circuit(
                 }
 
                 if outcome.verdict == Verdict::CompileError {
-                    insert_tc_result(
+                    record_outcome(
                         host,
+                        &mut row_buf,
                         submission_id,
                         req.judgement_id,
                         req.judge_epoch,
@@ -169,8 +182,9 @@ pub fn evaluate_short_circuit(
 
                 let is_fail = outcome.verdict != Verdict::Accepted;
 
-                insert_tc_result(
+                record_outcome(
                     host,
+                    &mut row_buf,
                     submission_id,
                     req.judgement_id,
                     req.judge_epoch,
@@ -219,31 +233,9 @@ pub fn evaluate_short_circuit(
             (Verdict::SystemError, "EVALUATION_TIMEOUT")
         };
 
-        let mut fill_rows: Vec<TestCaseResultRow> = Vec::new();
         for tc in test_cases {
             if !recorded_ids.contains(&tc.id) {
-                let is_custom = tc_map.get(&tc.id).map_or(false, |t| t.is_custom);
-                let (tc_id, run_index) = if is_custom {
-                    (None, Some(tc.id))
-                } else {
-                    (Some(tc.id), None)
-                };
-                fill_rows.push(TestCaseResultRow {
-                    submission_id,
-                    judgement_id: req.judgement_id,
-                    judge_epoch: req.judge_epoch,
-                    test_case_id: tc_id,
-                    run_index,
-                    verdict: fill_verdict.clone(),
-                    score: 0.0,
-                    time_used: None,
-                    memory_used: None,
-                    message: Some(fill_message.into()),
-                    stdout: None,
-                    stderr: None,
-                });
-                recorded_ids.insert(tc.id);
-                outcomes.push(EvalOutcome {
+                let outcome = EvalOutcome {
                     test_case_id: tc.id,
                     verdict: fill_verdict.clone(),
                     time_used: None,
@@ -251,17 +243,31 @@ pub fn evaluate_short_circuit(
                     message: Some(fill_message.into()),
                     stdout: None,
                     stderr: None,
-                });
+                };
+                // `record_outcome` may flush mid-fill if buf crosses the
+                // threshold; that's fine — fill rows are independent.
+                record_outcome(
+                    host,
+                    &mut row_buf,
+                    submission_id,
+                    req.judgement_id,
+                    req.judge_epoch,
+                    &outcome,
+                    &tc_map,
+                )?;
+                recorded_ids.insert(tc.id);
+                outcomes.push(outcome);
             }
-        }
-        if !fill_rows.is_empty() {
-            host.submission.insert_results(&fill_rows)?;
         }
 
         if fill_verdict == Verdict::SystemError {
             let _ = session.cancel_all();
         }
     }
+
+    // Final flush: drain any rows still in the buffer (typical case
+    // when total testcases < threshold or the last partial chunk).
+    flush_results(host, &mut row_buf)?;
 
     let is_accepted = !is_compile_error
         && !short_circuited
@@ -312,14 +318,13 @@ fn test_case(id: i32) -> TestCaseRow {
     }
 }
 
-fn insert_tc_result(
-    host: &Host,
+fn build_tc_row(
     submission_id: i32,
     judgement_id: i32,
     judge_epoch: i32,
     outcome: &EvalOutcome,
     tc_map: &HashMap<i32, &TestCaseRow>,
-) -> Result<(), SdkError> {
+) -> TestCaseResultRow {
     let tc = tc_map.get(&outcome.test_case_id);
     let is_custom = tc.map_or(false, |t| t.is_custom);
     let (tc_id, run_index) = if is_custom {
@@ -333,7 +338,7 @@ fn insert_tc_result(
     } else {
         0.0
     };
-    host.submission.insert_results(&[TestCaseResultRow {
+    TestCaseResultRow {
         submission_id,
         judgement_id,
         judge_epoch,
@@ -346,7 +351,44 @@ fn insert_tc_result(
         message: sanitize_optional_text(outcome.message.as_deref()),
         stdout: sanitize_optional_text(outcome.stdout.as_deref()),
         stderr: sanitize_optional_text(outcome.stderr.as_deref()),
-    }])
+    }
+}
+
+/// Drain `buf` into one bulk `insert_results` call. No-op if `buf` is
+/// empty.
+fn flush_results(host: &Host, buf: &mut Vec<TestCaseResultRow>) -> Result<(), SdkError> {
+    if buf.is_empty() {
+        return Ok(());
+    }
+    host.submission.insert_results(buf)?;
+    buf.clear();
+    Ok(())
+}
+
+/// Append a row for `outcome` to `buf`; flush when the buffer reaches
+/// `RESULT_BATCH_FLUSH_THRESHOLD`. Returns the error from the flush call
+/// if any, so the caller's existing `?` continues to short-circuit on
+/// `StaleEpoch` exactly as before.
+fn record_outcome(
+    host: &Host,
+    buf: &mut Vec<TestCaseResultRow>,
+    submission_id: i32,
+    judgement_id: i32,
+    judge_epoch: i32,
+    outcome: &EvalOutcome,
+    tc_map: &HashMap<i32, &TestCaseRow>,
+) -> Result<(), SdkError> {
+    buf.push(build_tc_row(
+        submission_id,
+        judgement_id,
+        judge_epoch,
+        outcome,
+        tc_map,
+    ));
+    if buf.len() >= RESULT_BATCH_FLUSH_THRESHOLD {
+        flush_results(host, buf)?;
+    }
+    Ok(())
 }
 
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
@@ -581,5 +623,56 @@ mod tests {
         evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
 
         assert_eq!(host.eval.result_timeouts(), vec![0]);
+    }
+
+    /// UP#34 regression: 20 accepted testcases must produce strictly
+    /// fewer than 20 `insert_results` calls. With
+    /// `RESULT_BATCH_FLUSH_THRESHOLD = 8` we expect 3 calls (two full
+    /// chunks of 8 + one tail flush of 4).
+    #[test]
+    fn bulk_inserts_batch_accepted_results() {
+        let host = Host::mock();
+        let tcs: Vec<TestCaseRow> = (1..=20).map(test_case).collect();
+        let req = test_submission(tcs.clone());
+        for i in 1..=20 {
+            host.eval.queue_result(TestCaseVerdict::accepted(i));
+        }
+
+        let result = evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
+
+        assert!(result.is_accepted);
+        assert_eq!(host.submission.results().len(), 20);
+        // 20 / 8 = 2 full chunks + 1 tail = 3 INSERTs total.
+        let calls = host.submission.insert_call_count();
+        assert!(
+            calls <= 3,
+            "expected ≤3 bulk INSERTs for 20 testcases, got {calls}"
+        );
+        assert!(
+            calls >= 2,
+            "expected ≥2 bulk INSERTs (threshold = 8), got {calls}"
+        );
+    }
+
+    /// UP#34 regression: a short-circuited failure should still take at
+    /// most 2 INSERTs (one for the partial run, one tail flush for the
+    /// fill rows).
+    #[test]
+    fn bulk_inserts_short_circuit_uses_at_most_two_calls() {
+        let host = Host::mock();
+        let tcs: Vec<TestCaseRow> = (1..=15).map(test_case).collect();
+        let req = test_submission(tcs.clone());
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
+
+        let result = evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
+
+        assert!(!result.is_accepted);
+        assert_eq!(host.submission.results().len(), 15);
+        let calls = host.submission.insert_call_count();
+        assert!(
+            calls <= 2,
+            "expected ≤2 bulk INSERTs for short-circuit + fill, got {calls}"
+        );
     }
 }
