@@ -164,6 +164,29 @@ pub struct ServerConfig {
     /// scraping fan-in.
     #[serde(default = "default_healthz_worker_threads")]
     pub healthz_worker_threads: u32,
+    /// Master switch for the UP#38 claim fiber. When `true` (default), the
+    /// per-server claim fiber polls the `submission` and `code_run` tables
+    /// for `status='Queued'` rows, transitions them to `Pending`, and
+    /// dispatches them via the existing plugin path. When `false`, the
+    /// fiber never starts — UP#37's POST handlers still write `Queued`, but
+    /// no one will claim the rows, so they will accumulate until a
+    /// configuration roll-forward. Only flip this off if you need to pin a
+    /// deployment to the pre-UP#37 dispatch behavior while debugging.
+    #[serde(default = "default_claim_fiber_enabled")]
+    pub claim_fiber_enabled: bool,
+    /// Poll interval (ms) for the UP#38 claim fiber. Default 1000ms. Lower
+    /// values reduce POST→Pending latency but increase background SQL load
+    /// (a no-op poll is a single `SELECT … LIMIT $batch FOR UPDATE SKIP
+    /// LOCKED` per table).
+    #[serde(default = "default_claim_poll_interval_ms")]
+    pub claim_poll_interval_ms: u64,
+    /// Bounded SELECT LIMIT for the UP#38 claim fiber. The fiber claims at
+    /// most this many rows per table per tick. Defaults to 32 to match
+    /// `dispatcher_concurrency`'s order of magnitude; raise it on
+    /// deployments with bursty submission patterns so a single tick can
+    /// drain a spike.
+    #[serde(default = "default_claim_batch_size")]
+    pub claim_batch_size: u32,
 }
 
 fn default_dispatcher_semaphore_enabled() -> bool {
@@ -220,6 +243,18 @@ fn default_operation_batch_publish_concurrency() -> u32 {
 
 fn default_healthz_worker_threads() -> u32 {
     2
+}
+
+fn default_claim_fiber_enabled() -> bool {
+    true
+}
+
+fn default_claim_poll_interval_ms() -> u64 {
+    1000
+}
+
+fn default_claim_batch_size() -> u32 {
+    32
 }
 
 fn default_frontend_dist() -> PathBuf {
@@ -496,6 +531,9 @@ impl AppConfig {
             .set_default("server.batch_evaluator_fanout_concurrency", 64_i64)?
             .set_default("server.operation_batch_publish_concurrency", 32_i64)?
             .set_default("server.healthz_worker_threads", 2_i64)?
+            .set_default("server.claim_fiber_enabled", true)?
+            .set_default("server.claim_poll_interval_ms", 1000_i64)?
+            .set_default("server.claim_batch_size", 32_i64)?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
             .set_default(
@@ -661,6 +699,9 @@ mod tests {
             operation_batch_publish_concurrency: default_operation_batch_publish_concurrency(),
             healthz_listen: None,
             healthz_worker_threads: default_healthz_worker_threads(),
+            claim_fiber_enabled: default_claim_fiber_enabled(),
+            claim_poll_interval_ms: default_claim_poll_interval_ms(),
+            claim_batch_size: default_claim_batch_size(),
         }
     }
 

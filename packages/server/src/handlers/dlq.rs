@@ -19,7 +19,6 @@ use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::dlq::*;
 use crate::models::shared::Pagination;
-use crate::services::submission_dispatch::dispatch_submission_to_plugin as dispatch_to_plugin;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -197,7 +196,12 @@ pub async fn retry_dlq_message(
 
     let submission_update = submission::ActiveModel {
         id: Set(submission_id),
-        status: Set(SubmissionStatus::Pending),
+        // UP#37: DLQ retry resets the submission into the durable-accept
+        // state. The claim fiber (UP#38) will promote `Queued` to
+        // `Pending` and re-dispatch via the plugin path — no need to
+        // spawn here, which also avoids losing the retry if the api
+        // crashes between txn commit and the spawned task running.
+        status: Set(SubmissionStatus::Queued),
         error_code: Set(None),
         error_message: Set(None),
         ..Default::default()
@@ -221,25 +225,13 @@ pub async fn retry_dlq_message(
 
     txn.commit().await?;
 
-    let updated_sub = submission::Entity::find_by_id(submission_id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| {
-            AppError::Internal(format!(
-                "Submission {} disappeared after commit",
-                submission_id
-            ))
-        })?;
-
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, updated_sub).await;
-    });
-
-    info!(id, submission_id, "DLQ message retried via plugin dispatch");
+    info!(
+        id,
+        submission_id, "DLQ message reset to Queued for claim-fiber dispatch"
+    );
 
     Ok(Json(DlqRetryResponse {
-        message: format!("Submission {} re-dispatched for judging", submission_id),
+        message: format!("Submission {} re-queued for judging", submission_id),
     }))
 }
 
@@ -414,7 +406,9 @@ pub async fn bulk_retry_dlq(
 
             let submission_update = submission::ActiveModel {
                 id: Set(submission_id),
-                status: Set(SubmissionStatus::Pending),
+                // UP#37: durable-accept reset — see single-message
+                // `retry_dlq_message` for the gap being closed.
+                status: Set(SubmissionStatus::Queued),
                 error_code: Set(None),
                 error_message: Set(None),
                 ..Default::default()
@@ -452,37 +446,18 @@ pub async fn bulk_retry_dlq(
         txn.commit().await?;
     }
 
-    for submission_id in &submissions_to_dispatch {
-        let sub = match submission::Entity::find_by_id(*submission_id)
-            .one(&state.db)
-            .await
-        {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                warn!(
-                    submission_id,
-                    "Submission disappeared after commit during bulk retry dispatch"
-                );
-                continue;
-            }
-            Err(e) => {
-                warn!(submission_id, error = %e, "Failed to reload submission for dispatch");
-                continue;
-            }
-        };
-
-        let state_clone = state.clone();
-        tokio::spawn(async move {
-            dispatch_to_plugin(state_clone, sub).await;
-        });
-    }
+    // UP#37: each reset submission is now in `Queued`; the claim fiber
+    // (UP#38, `dispatcher/claim.rs`) takes it from there. We no longer
+    // reload + spawn per row — that path was the very silent-loss
+    // vector this PR closes.
 
     info!(
         retried,
         skipped,
         errors = errors.len(),
         user_id = auth_user.user_id,
-        "Bulk retried DLQ messages via plugin dispatch"
+        queued_for_claim = submissions_to_dispatch.len(),
+        "Bulk retried DLQ messages reset to Queued for claim-fiber dispatch"
     );
 
     Ok(Json(BulkRetryDlqResponse {

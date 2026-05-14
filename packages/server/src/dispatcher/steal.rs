@@ -966,6 +966,9 @@ mod tests {
                     operation_batch_publish_concurrency: 32,
                     healthz_listen: None,
                     healthz_worker_threads: 2,
+                    claim_fiber_enabled: false,
+                    claim_poll_interval_ms: 1000,
+                    claim_batch_size: 32,
                 },
                 database: DatabaseConfig {
                     url: "mock://steal-test".to_string(),

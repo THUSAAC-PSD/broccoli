@@ -945,7 +945,14 @@ pub async fn create_submission(
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language.clone()),
-        status: Set(SubmissionStatus::Pending),
+        // UP#37: persist `Queued` and return 201 immediately. The
+        // per-server claim fiber (UP#38, see
+        // `dispatcher/claim.rs`) promotes the row to `Pending` and
+        // dispatches it. Replacing the previous `tokio::spawn(dispatch_to_plugin)`
+        // closes the silent-loss window where an api crash between
+        // commit and spawn would lose the submission with no MQ
+        // message and no recoverable state.
+        status: Set(SubmissionStatus::Queued),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(None),
@@ -966,12 +973,6 @@ pub async fn create_submission(
         language,
         Some(enabled_plugins),
     );
-
-    let state_clone = state.clone();
-    let model_clone = model.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, model_clone).await;
-    });
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -1493,7 +1494,14 @@ pub async fn rejudge_submission(
 
     let updated = if payload.apply_immediately {
         let mut active: submission::ActiveModel = sub.clone().into();
-        active.status = Set(SubmissionStatus::Pending);
+        // UP#37: rejudge that takes effect immediately enters the same
+        // durable-accept lifecycle as a fresh POST — flip to `Queued`
+        // and let the claim fiber (UP#38) promote to `Pending` and
+        // dispatch. The new judgement row was just created above by
+        // `open_rejudge_judgement` and is `is_current=true`, so the
+        // claim path's call to `ensure_active_judgement_id` will pick
+        // it up.
+        active.status = Set(SubmissionStatus::Queued);
         active.verdict = Set(None);
         active.compile_output = Set(None);
         active.error_code = Set(None);
@@ -1513,25 +1521,39 @@ pub async fn rejudge_submission(
 
     txn.commit().await?;
 
-    let state_clone = state.clone();
-    let mut dispatch_submission = updated.clone();
+    // UP#37: for `apply_immediately=true` the submission is now in
+    // `Queued` and the claim fiber will dispatch it — no need to spawn
+    // here.
+    //
+    // The `apply_immediately=false` path is intentionally left as a
+    // direct (synchronous-from-the-handler's-perspective) dispatch. It
+    // creates a NON-current judgement (`is_current=false`) and does
+    // not change the submission's status, so neither the claim fiber
+    // (which scans `submission.status='Queued'`) nor the steal
+    // scanner (which scans `submission_judgement.is_current=TRUE`)
+    // would pick it up. Closing this remaining silent-loss vector
+    // would require either a dedicated claim path for deferred
+    // judgements or rethinking the `apply_immediately=false` UX; both
+    // are out of scope for UP#37.
     if !payload.apply_immediately {
+        let state_clone = state.clone();
+        let mut dispatch_submission = updated.clone();
         dispatch_submission.status = SubmissionStatus::Pending;
         dispatch_submission.judge_epoch = new_epoch;
         if let Some(target) = new_target {
             dispatch_submission.target_worker_id = target;
         }
+        let dispatch_judgement_id = _new_judgement.id;
+        tokio::spawn(async move {
+            dispatch_to_plugin_with_judgement(
+                state_clone,
+                dispatch_submission,
+                Some(dispatch_judgement_id),
+                false,
+            )
+            .await;
+        });
     }
-    let dispatch_judgement_id = _new_judgement.id;
-    tokio::spawn(async move {
-        dispatch_to_plugin_with_judgement(
-            state_clone,
-            dispatch_submission,
-            Some(dispatch_judgement_id),
-            payload.apply_immediately,
-        )
-        .await;
-    });
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -1636,7 +1658,10 @@ pub async fn create_contest_submission(
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language.clone()),
-        status: Set(SubmissionStatus::Pending),
+        // UP#37: see the contest-free `create_submission` handler for the
+        // full rationale — `Queued` is the durable-accept state the claim
+        // fiber transitions to `Pending`.
+        status: Set(SubmissionStatus::Queued),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(Some(contest_id)),
@@ -1657,12 +1682,6 @@ pub async fn create_contest_submission(
         language,
         Some(enabled_plugins),
     );
-
-    let state_clone = state.clone();
-    let model_clone = model.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, model_clone).await;
-    });
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -1849,6 +1868,11 @@ pub async fn bulk_rejudge_submissions(
 
     const BATCH_SIZE: usize = 500;
     let mut all_enqueue_data: Vec<(submission::Model, i32)> = Vec::new();
+    // Track immediate-rejudge count separately from the deferred queue
+    // because UP#37 stops pushing immediate rows into `all_enqueue_data`
+    // (they're claimed by the fiber instead). `queued` in the response
+    // must still match "rows the user successfully re-queued".
+    let mut immediate_queued: usize = 0;
 
     for batch_ids in all_ids.chunks(BATCH_SIZE) {
         let txn = state.db.begin().await?;
@@ -1878,7 +1902,11 @@ pub async fn bulk_rejudge_submissions(
 
             if payload.apply_immediately {
                 let mut active: submission::ActiveModel = sub.clone().into();
-                active.status = Set(SubmissionStatus::Pending);
+                // UP#37: durable accept — flip to `Queued`, claim fiber
+                // (UP#38) will promote to `Pending` and dispatch. See
+                // single-submission rejudge handler above for the full
+                // narrative.
+                active.status = Set(SubmissionStatus::Queued);
                 active.verdict = Set(None);
                 active.compile_output = Set(None);
                 active.error_code = Set(None);
@@ -1891,13 +1919,19 @@ pub async fn bulk_rejudge_submissions(
                 if let Some(target) = new_target.clone() {
                     active.target_worker_id = Set(target);
                 }
-                let updated = active.update(&txn).await?;
-                all_enqueue_data.push((updated, new_judgement.id));
+                active.update(&txn).await?;
+                immediate_queued += 1;
+                // The submission row is now in `Queued`; the claim
+                // fiber will handle it. We don't queue a direct
+                // dispatch here.
             } else {
                 let mut dispatch_submission = sub.clone();
                 dispatch_submission.status = SubmissionStatus::Pending;
                 dispatch_submission.judge_epoch = new_epoch;
                 dispatch_submission.target_worker_id = resolved_target;
+                // Deferred-rejudge path: non-current judgement, see
+                // single-submission handler for why this still needs a
+                // direct dispatch.
                 all_enqueue_data.push((dispatch_submission, new_judgement.id));
             }
         }
@@ -1905,19 +1939,14 @@ pub async fn bulk_rejudge_submissions(
         txn.commit().await?;
     }
 
-    let queued = all_enqueue_data.len();
+    let queued = immediate_queued + all_enqueue_data.len();
 
+    // Only the deferred (`apply_immediately=false`) path still spawns
+    // here — see UP#37 narrative in single-submission rejudge.
     for (sub, judgement_id) in all_enqueue_data {
         let state_clone = state.clone();
-        let fire_after_judging = payload.apply_immediately;
         tokio::spawn(async move {
-            dispatch_to_plugin_with_judgement(
-                state_clone,
-                sub,
-                Some(judgement_id),
-                fire_after_judging,
-            )
-            .await;
+            dispatch_to_plugin_with_judgement(state_clone, sub, Some(judgement_id), false).await;
         });
     }
 
@@ -2040,7 +2069,12 @@ pub async fn admin_fan_out_submission(
         let new_submission = submission::ActiveModel {
             files: Set(files_json.clone()),
             language: Set(language.clone()),
-            status: Set(SubmissionStatus::Pending),
+            // UP#37: admin fan-out submissions enter the same
+            // durable-accept lifecycle. The claim fiber (UP#38)
+            // promotes each row from `Queued` to `Pending` and
+            // dispatches via the worker-pinned route already encoded
+            // in `target_worker_id`.
+            status: Set(SubmissionStatus::Queued),
             user_id: Set(auth_user.user_id),
             problem_id: Set(payload.problem_id),
             contest_id: Set(payload.contest_id),
@@ -2070,12 +2104,6 @@ pub async fn admin_fan_out_submission(
 
     let mut responses = Vec::with_capacity(models.len());
     for model in models {
-        let dispatch_state = state.clone();
-        let dispatch_model = model.clone();
-        tokio::spawn(async move {
-            dispatch_to_plugin(dispatch_state, dispatch_model).await;
-        });
-
         let response =
             build_submission_response(&state.db, &*state.blob_store, model, visibility).await?;
         responses.push(response);

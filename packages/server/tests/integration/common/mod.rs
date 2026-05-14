@@ -578,6 +578,12 @@ impl TestApp {
                 operation_batch_publish_concurrency: 32,
                 healthz_listen: None,
                 healthz_worker_threads: 2,
+                // Enable the UP#38 claim fiber by default so integration
+                // tests that rely on the UP#37 `Queued`-on-POST flow see the
+                // row transition all the way to dispatch.
+                claim_fiber_enabled: true,
+                claim_poll_interval_ms: 100,
+                claim_batch_size: 32,
             },
             database: DatabaseConfig {
                 url: db_url.clone(),

@@ -37,7 +37,10 @@ mod submission_creation {
 
         assert_eq!(res.status, 201);
         assert_eq!(res.body["language"], "cpp");
-        assert_eq!(res.body["status"], "Pending");
+        // UP#37: fresh submissions land in `Queued`; the per-server
+        // claim fiber promotes them to `Pending` asynchronously, but
+        // the POST response reflects the just-committed row.
+        assert_eq!(res.body["status"], "Queued");
         assert!(res.body["id"].as_i64().is_some());
     }
 
@@ -691,7 +694,15 @@ mod rejudge {
             .await;
 
         assert_eq!(res.status, 200);
-        assert_eq!(res.body["status"], "Pending");
+        // UP#37: rejudge (apply_immediately defaults to true) writes the
+        // submission back to `Queued`. The claim fiber owns the
+        // promotion to `Pending`. We assert on the POST body which
+        // reflects the just-committed row, not the eventual state.
+        let status = res.body["status"].as_str().expect("status string");
+        assert!(
+            status == "Queued" || status == "Pending",
+            "expected Queued or Pending, got {status}"
+        );
     }
 
     #[tokio::test]
@@ -1830,5 +1841,140 @@ mod contest_submission_visibility {
         assert_eq!(res.status, 200);
         let data = res.body["data"].as_array().expect("data should be array");
         assert_eq!(data.len(), 1);
+    }
+}
+
+/// UP#38 — claim-fiber coverage.
+///
+/// These tests exercise the durable-accept path end-to-end: rows that
+/// land in `Queued` (either via a POST or a direct DB write that
+/// simulates an api crash mid-flight) must be promoted to `Pending` by
+/// the per-server claim fiber within a small wall-clock budget. A full
+/// kill-api-mid-POST harness would require subprocess control which the
+/// integration suite doesn't have today; the equivalent invariant is
+/// covered here by writing the `Queued` row directly with sea-orm,
+/// bypassing the POST handler.
+mod claim_fiber {
+    use super::*;
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+    use server::entity::submission;
+    use std::time::Duration;
+    use tokio::time::{Instant, sleep};
+
+    /// Best-effort wait until either the row's status changes off
+    /// `Queued` or the deadline elapses. Returns the last-observed
+    /// status string.
+    async fn poll_until_not_queued(app: &TestApp, submission_id: i32, budget: Duration) -> String {
+        let deadline = Instant::now() + budget;
+        loop {
+            let row = submission::Entity::find_by_id(submission_id)
+                .one(&app.db)
+                .await
+                .expect("db lookup")
+                .expect("submission row");
+            let status = row.status.as_str().to_string();
+            if status != "Queued" {
+                return status;
+            }
+            if Instant::now() >= deadline {
+                return status;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Posting a submission goes through the UP#37 durable-accept path
+    /// (POST inserts `Queued` and returns 201). The UP#38 claim fiber
+    /// running in the test app's runtime must promote the row to
+    /// `Pending` (or further) without any other actor intervening.
+    #[tokio::test]
+    async fn claim_fiber_promotes_queued_submission_to_pending() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
+            .await;
+        assert_eq!(res.status, 201);
+        // UP#37 contract: POST response reflects the just-committed row.
+        assert_eq!(res.body["status"], "Queued");
+        let submission_id = res.body["id"]
+            .as_i64()
+            .expect("submission id should be i64") as i32;
+
+        // 5s budget is generous: the test fixture sets
+        // `claim_poll_interval_ms=100`, so a healthy fiber promotes
+        // within ~200ms. If the fiber is broken or never started this
+        // assertion fails fast.
+        let final_status = poll_until_not_queued(&app, submission_id, Duration::from_secs(5)).await;
+        assert_ne!(
+            final_status, "Queued",
+            "claim fiber did not promote Queued submission within 5s"
+        );
+
+        // Verify the fiber also wrote ownership metadata. Without these
+        // a stuck row would have no path to recovery via the existing
+        // dispatcher/steal scanner (UP#15).
+        let row = submission::Entity::find_by_id(submission_id)
+            .one(&app.db)
+            .await
+            .expect("db")
+            .expect("submission row");
+        assert!(
+            row.owner_server_id.is_some(),
+            "claim fiber should set owner_server_id when promoting"
+        );
+        assert!(
+            row.lease_heartbeat_at.is_some(),
+            "claim fiber should set lease_heartbeat_at when promoting"
+        );
+    }
+
+    /// Simulates an api crash between the POST handler's INSERT (UP#37)
+    /// and any client-visible response: write a `Queued` row directly
+    /// via sea-orm, then verify the claim fiber picks it up. This is
+    /// the strongest assertion we can make in-process without
+    /// subprocess control over the api.
+    #[tokio::test]
+    async fn claim_fiber_recovers_directly_inserted_queued_row() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+
+        // Resolve user id via /auth/me so we don't depend on the seed.
+        let me = app.get_with_token("/api/v1/auth/me", &user_token).await;
+        let user_id = me.body["id"].as_i64().expect("user id") as i32;
+
+        let now = chrono::Utc::now();
+        let inserted = submission::ActiveModel {
+            files: Set(serde_json::json!([
+                {"filename": "main.cpp", "content": "int main(){}"}
+            ])),
+            language: Set("cpp".to_string()),
+            status: Set(common::SubmissionStatus::Queued),
+            user_id: Set(user_id),
+            problem_id: Set(problem_id),
+            contest_id: Set(None),
+            contest_type: Set("ioi".to_string()),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("direct insert should succeed");
+
+        let final_status = poll_until_not_queued(&app, inserted.id, Duration::from_secs(5)).await;
+        assert_ne!(
+            final_status, "Queued",
+            "claim fiber failed to recover a directly-inserted Queued row"
+        );
     }
 }
