@@ -97,8 +97,13 @@ pub fn spawn_healthz_runtime(
                     }
                 };
 
+                // The dedicated `/healthz` is intentionally a liveness-only
+                // probe (no DB/Redis ping). See `healthz_liveness` rationale.
                 let app = axum::Router::new()
-                    .route("/healthz", axum::routing::get(handlers::health::healthz))
+                    .route(
+                        "/healthz",
+                        axum::routing::get(handlers::health::healthz_liveness),
+                    )
                     .route("/metrics", axum::routing::get(metrics_handler))
                     .with_state(app_state);
 

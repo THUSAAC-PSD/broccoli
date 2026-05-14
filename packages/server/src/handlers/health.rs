@@ -127,6 +127,26 @@ pub async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
     (status_code(&body), Json(body))
 }
 
+/// Liveness-only `/healthz` handler for the dedicated UP#14e runtime. Does
+/// NOT ping the DB or Redis — those checks issue I/O through pool driver
+/// tasks that were spawned on the *main* tokio runtime, so a saturated main
+/// runtime would stall the ping regardless of which runtime the handler runs
+/// on, defeating the entire purpose of the dedicated listener.
+///
+/// This handler conveys process-is-alive only (the standard Kubernetes
+/// liveness-vs-readiness distinction). For full dependency status, the main
+/// router still serves the original `/healthz` and `/api/v1/health` — point
+/// readiness probes at those.
+pub async fn healthz_liveness() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "alive",
+            "version": env!("CARGO_PKG_VERSION"),
+        })),
+    )
+}
+
 #[utoipa::path(
     get,
     path = "/health",
