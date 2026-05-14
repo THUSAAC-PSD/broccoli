@@ -171,6 +171,7 @@ pub fn weighted_pick<R: rand::Rng>(
     total_weight: u64,
 ) -> usize {
     debug_assert!(total_weight > 0, "total_weight must be > 0");
+    debug_assert!(!weights.is_empty(), "weights must be non-empty");
     let pick = rng.random_range(0..total_weight);
     let mut acc: u64 = 0;
     for (i, (_, w)) in weights.iter().enumerate() {
@@ -179,7 +180,7 @@ pub fn weighted_pick<R: rand::Rng>(
             return i;
         }
     }
-    weights.len() - 1
+    unreachable!("pick < total_weight and weights cover total_weight; loop must return")
 }
 
 /// Per-type aggregated stats, emitted in the transcript summary.
@@ -475,8 +476,28 @@ impl Burst {
             Arc::new(Mutex::new(HashMap::new()));
 
         let mut futs = FuturesUnordered::new();
-        for (i, type_idx) in assignments.iter().enumerate() {
-            let permit = semaphore.clone().acquire_owned().await?;
+        for type_idx in assignments.iter() {
+            // Note: the semaphore is owned by this run() scope and never closed
+            // by any other task, so acquire_owned cannot fail here. If a future
+            // refactor introduces a close() site, switch to expect() or fold
+            // the cleanup into a Drop/scopeguard so contest fixtures aren't
+            // leaked on the error path.
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(e) => {
+                    transcript.record(
+                        EventKind::Inject,
+                        Severity::Error,
+                        format!("semaphore closed unexpectedly: {e}"),
+                    );
+                    self.cleanup_contests(&client, &contest_ids).await;
+                    transcript.finish(false);
+                    return Ok(ScenarioOutcome {
+                        passed: false,
+                        transcript,
+                    });
+                }
+            };
             let ctype = &mix[*type_idx].0;
             let contest_id = *contest_ids
                 .get(ctype)
@@ -507,11 +528,24 @@ impl Burst {
                         *send_fail_counts.lock().await.entry(type_idx).or_insert(0) += 1;
                     }
                 }
-                let _ = i; // silence unused
             }));
         }
 
-        while futs.next().await.is_some() {}
+        let mut inject_panics: u64 = 0;
+        while let Some(join_result) = futs.next().await {
+            if let Err(e) = join_result {
+                inject_panics += 1;
+                tracing::warn!(error = %e, "inject task panicked");
+            }
+        }
+        if inject_panics > 0 {
+            transcript.record_with(
+                EventKind::Inject,
+                Severity::Warn,
+                format!("{inject_panics} inject task(s) panicked"),
+                BTreeMap::from_iter([("panic_count".into(), serde_json::json!(inject_panics))]),
+            );
+        }
 
         let inject_elapsed_ms = inject_start.elapsed().as_millis() as u64;
         let posted = Arc::try_unwrap(posted)
@@ -854,6 +888,29 @@ mod tests {
         let msg = format!("{err}");
         assert!(msg.contains("nonsense"), "got: {msg}");
         assert!(msg.contains("strict"), "got: {msg}");
+    }
+
+    #[test]
+    fn override_contest_type_with_empty_weights_treated_as_single_entry_mix() {
+        // The d711c3a9 fix path: --contest-type X with no --type-weights should
+        // be equivalent to --type-weights X:1. Verify by feeding it through
+        // filter_and_renormalize_weights the same way run() does.
+        let effective_requested = vec![("ioi".to_string(), 1)];
+        let avail = vec!["icpc".to_string(), "ioi".to_string()];
+        let f = filter_and_renormalize_weights(&effective_requested, &avail, false).unwrap();
+        assert_eq!(f.kept, vec![("ioi".to_string(), 1)]);
+        assert!(f.dropped.is_empty());
+    }
+
+    #[test]
+    fn override_contest_type_unregistered_under_strict_errors() {
+        // Same path as above but for an unregistered override under --strict;
+        // ensures the override participates in the strict policy.
+        let effective_requested = vec![("nonsense".to_string(), 1)];
+        let avail = vec!["icpc".to_string(), "ioi".to_string()];
+        let err = filter_and_renormalize_weights(&effective_requested, &avail, true).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("nonsense"), "got: {msg}");
     }
 
     #[test]
