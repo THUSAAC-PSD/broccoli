@@ -54,6 +54,7 @@ pub struct EvaluateHostDeps {
     pub evaluator_registry: EvaluatorRegistry,
     pub evaluate_batches: EvaluateBatches,
     pub evaluator_slots: Arc<Semaphore>,
+    pub fanout_slots: crate::dispatcher::fanout::FanoutSemaphore,
     pub plugin_manager: Arc<dyn PluginManager>,
     pub blob_store: Arc<dyn BlobStore>,
     pub metrics: Option<common::metrics::Metrics>,
@@ -91,6 +92,7 @@ impl HostFunctionDeps {
     pub fn evaluate_deps(
         &self,
         evaluator_slots: Arc<Semaphore>,
+        fanout_slots: crate::dispatcher::fanout::FanoutSemaphore,
         evaluate_ops_registry: EvaluateBatchOpsRegistry,
     ) -> EvaluateHostDeps {
         EvaluateHostDeps {
@@ -98,6 +100,7 @@ impl HostFunctionDeps {
             evaluator_registry: self.system.evaluator_registry.clone(),
             evaluate_batches: self.system.evaluate_batches.clone(),
             evaluator_slots,
+            fanout_slots,
             plugin_manager: self.plugin_manager.clone(),
             blob_store: self.system.blob_store.clone(),
             metrics: self.system.metrics.clone(),

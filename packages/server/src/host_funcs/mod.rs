@@ -240,11 +240,21 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     // per submission, ICPC fans them out as parallel tokio tasks), this should be
     // bumped well above core count via `BROCCOLI__PLUGIN__EVALUATOR_PARALLELISM`.
     let evaluator_parallelism = deps.system.config.plugin.resolve_evaluator_parallelism();
-    tracing::info!(evaluator_parallelism, "evaluator semaphore configured");
+    let fanout_concurrency = deps.system.config.server.batch_evaluator_fanout_concurrency as usize;
+    tracing::info!(
+        evaluator_parallelism,
+        fanout_concurrency,
+        "evaluator and fan-out semaphores configured"
+    );
     let evaluator_slots = Arc::new(Semaphore::new(evaluator_parallelism));
+    let fanout_slots = crate::dispatcher::fanout::FanoutSemaphore::new(
+        fanout_concurrency,
+        deps.system.metrics.clone(),
+    );
     let evaluate_ops_registry =
         crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
-    let eval_deps = deps.evaluate_deps(evaluator_slots, evaluate_ops_registry.clone());
+    let eval_deps =
+        deps.evaluate_deps(evaluator_slots, fanout_slots, evaluate_ops_registry.clone());
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(plugin_id.to_string(), eval_deps.clone())
     });

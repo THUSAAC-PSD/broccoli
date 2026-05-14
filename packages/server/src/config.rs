@@ -114,6 +114,21 @@ pub struct ServerConfig {
     /// dialed well above CPU count.
     #[serde(default)]
     pub max_blocking_threads: Option<usize>,
+    /// Per-server cap on concurrent live evaluator-batch test-case dispatch
+    /// tasks (UP#14b). `start_evaluate_batch` historically spawned one tokio
+    /// task per test case in an unbounded loop; under a 1000-submission burst
+    /// with ICPC's 20 testcases/submission that produced 20,000 simultaneous
+    /// tasks contending on the inner plugin-pool semaphore. This bounds the
+    /// **spawn** itself: the dispatcher acquires a permit before spawning the
+    /// per-test-case task and holds it for the task's lifetime.
+    ///
+    /// Default 64. Relationship to `plugin.evaluator_parallelism`: this is the
+    /// outer bound on live test-case tasks server-wide; `evaluator_parallelism`
+    /// is the inner bound on concurrent plugin-pool acquisitions. Configure so
+    /// that `batch_evaluator_fanout_concurrency >= evaluator_parallelism`,
+    /// otherwise the inner pool is never fully utilized.
+    #[serde(default = "default_batch_evaluator_fanout_concurrency")]
+    pub batch_evaluator_fanout_concurrency: u32,
 }
 
 fn default_dispatcher_semaphore_enabled() -> bool {
@@ -158,6 +173,10 @@ fn default_sweeper_dry_run() -> bool {
 
 fn default_fleet_capacity_poll_interval_secs() -> u64 {
     5
+}
+
+fn default_batch_evaluator_fanout_concurrency() -> u32 {
+    64
 }
 
 fn default_frontend_dist() -> PathBuf {
@@ -431,6 +450,7 @@ impl AppConfig {
             .set_default("server.cancel_primitive_enabled", false)?
             .set_default("server.fleet_aware_admission_enabled", false)?
             .set_default("server.fleet_capacity_poll_interval_secs", 5_i64)?
+            .set_default("server.batch_evaluator_fanout_concurrency", 64_i64)?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
             .set_default(
@@ -592,6 +612,7 @@ mod tests {
             fleet_aware_admission_enabled: false,
             fleet_capacity_poll_interval_secs: default_fleet_capacity_poll_interval_secs(),
             max_blocking_threads,
+            batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
         }
     }
 

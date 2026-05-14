@@ -1,3 +1,4 @@
+pub mod fanout;
 pub mod fleet_capacity;
 pub mod lease;
 pub mod permits;

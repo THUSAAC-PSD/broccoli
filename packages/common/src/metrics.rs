@@ -40,6 +40,8 @@ pub struct Metrics {
     pub batch_wait_duration: Histogram<f64>,
     pub batch_active: UpDownCounter<i64>,
     pub batch_pending_items: UpDownCounter<i64>,
+    pub batch_evaluator_fanout_wait_duration: Histogram<f64>,
+    pub batch_evaluator_fanout_saturated_total: Counter<u64>,
 
     pub operation_result_messages_total: Counter<u64>,
     pub operation_result_consume_duration: Histogram<f64>,
@@ -78,6 +80,10 @@ const JUDGE_BUCKETS_SECONDS: &[f64] =
     &[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0];
 
 const PLUGIN_BUCKETS_SECONDS: &[f64] = &[0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0];
+
+const FANOUT_WAIT_BUCKETS_MS: &[f64] = &[
+    1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1_000.0, 5_000.0, 10_000.0,
+];
 
 const MEMORY_BUCKETS_KIB: &[f64] = &[
     1_024.0,
@@ -282,6 +288,22 @@ impl Metrics {
             batch_pending_items: meter
                 .i64_up_down_counter("broccoli.batch.items.pending")
                 .with_description("Number of pending items inside plugin-dispatched batches")
+                .build(),
+            batch_evaluator_fanout_wait_duration: meter
+                .f64_histogram("broccoli.batch_evaluator.fanout.wait.duration")
+                .with_unit("ms")
+                .with_description(
+                    "Duration spent waiting for a server-wide evaluator fan-out permit before \
+                     spawning a per-test-case dispatch task (UP#14b)",
+                )
+                .with_boundaries(FANOUT_WAIT_BUCKETS_MS.to_vec())
+                .build(),
+            batch_evaluator_fanout_saturated_total: meter
+                .u64_counter("broccoli.batch_evaluator.fanout.saturated")
+                .with_description(
+                    "Total number of evaluator fan-out acquires that had to block on a permit \
+                     (vs. acquiring immediately). UP#14b backpressure signal.",
+                )
                 .build(),
 
             operation_result_messages_total: meter

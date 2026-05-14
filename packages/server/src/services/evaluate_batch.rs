@@ -1,3 +1,9 @@
+// NOTE: `start_evaluate_batch` is not exercised by direct unit tests here. It
+// consumes a full `EvaluateHostDeps` graph (plugin manager, DB connection,
+// blob store, evaluator/operation registries) that can only be wired up in the
+// integration suite. The FanoutSemaphore introduced for UP#14b is tested in
+// `crate::dispatcher::fanout` and the end-to-end bounded fan-out behaviour
+// relies on the integration suite + stress-test harness for verification.
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -81,108 +87,147 @@ pub async fn start_evaluate_batch(
         );
     }
 
-    for tc_input in resolved_inputs {
-        let pm = deps.plugin_manager.clone();
-        let eval_plugin_id = evaluator.plugin_id.clone();
-        let eval_fn_name = evaluator.function_name.clone();
-        let evaluator_slots = deps.evaluator_slots.clone();
-        let batch_tx = batch_tx.clone();
-        let pending = pending_count.clone();
-        let metrics = deps.metrics.clone();
-        let tc_id = tc_input.test_case_id;
+    // Bounded fan-out (UP#14b): a dedicated dispatcher task acquires one fan-out
+    // permit per test case BEFORE spawning the per-tc worker. The permit is
+    // held inside the spawned task for its whole lifetime, so the count of
+    // live test-case tasks server-wide is bounded by `fanout_slots` regardless
+    // of incoming batch size. Without this, a 1000-submission burst with 20
+    // testcases/submission would spawn 20,000 tasks in milliseconds and all
+    // would contend on the inner `evaluator_slots` semaphore.
+    let fanout = deps.fanout_slots.clone();
+    let pm = deps.plugin_manager.clone();
+    let eval_plugin_id = evaluator.plugin_id.clone();
+    let eval_fn_name = evaluator.function_name.clone();
+    let evaluator_slots = deps.evaluator_slots.clone();
+    let metrics = deps.metrics.clone();
+    let batch_tx_for_dispatcher = batch_tx.clone();
+    let pending_for_dispatcher = pending_count.clone();
 
-        let span = tracing::info_span!(
-            "evaluate_test_case",
-            test_case_id = tc_id,
-            evaluator_plugin = %eval_plugin_id,
-            evaluator_function = %eval_fn_name
-        );
+    tokio::spawn(async move {
+        for tc_input in resolved_inputs {
+            let tc_id = tc_input.test_case_id;
+            let permit = match fanout.acquire().await {
+                Ok(p) => p,
+                Err(_) => {
+                    // Semaphore closed (server shutdown). Mark the remaining
+                    // test cases SystemError so waiters don't hang.
+                    send_system_error(
+                        &batch_tx_for_dispatcher,
+                        tc_id,
+                        "Fan-out semaphore closed (server shutting down)".into(),
+                    );
+                    decrement_pending(&pending_for_dispatcher, metrics.as_ref());
+                    continue;
+                }
+            };
 
-        tokio::spawn(
-            async move {
-                let _permit = match evaluator_slots.acquire_owned().await {
-                    Ok(permit) => permit,
-                    Err(_) => {
-                        send_system_error(
-                            &batch_tx,
-                            tc_id,
-                            "Evaluator dispatcher is shutting down".into(),
-                        );
-                        decrement_pending(&pending, metrics.as_ref());
-                        return;
-                    }
-                };
+            let pm = pm.clone();
+            let eval_plugin_id = eval_plugin_id.clone();
+            let eval_fn_name = eval_fn_name.clone();
+            let evaluator_slots = evaluator_slots.clone();
+            let batch_tx = batch_tx_for_dispatcher.clone();
+            let pending = pending_for_dispatcher.clone();
+            let metrics = metrics.clone();
 
-                let input_bytes = match serde_json::to_vec(&tc_input) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        send_system_error(
-                            &batch_tx,
-                            tc_id,
-                            format!("Failed to serialize evaluator input: {}", e),
-                        );
-                        decrement_pending(&pending, metrics.as_ref());
-                        return;
-                    }
-                };
+            let span = tracing::info_span!(
+                "evaluate_test_case",
+                test_case_id = tc_id,
+                evaluator_plugin = %eval_plugin_id,
+                evaluator_function = %eval_fn_name
+            );
 
-                // Retry on plugin pool contention. Plugin pool exhaustion is a transient
-                // backpressure signal, not a permanent failure of the contestant's submission
-                // — looping until we get a permit preserves the verdict semantics. Other
-                // plugin errors (load failures, execution faults, deserialization) are
-                // genuine SystemErrors and fall through to the final send_system_error.
-                let mut attempt: u32 = 0;
-                let max_attempts: u32 = 60; // upper bound to surface real bugs
-                let mut backoff = Duration::from_millis(100);
-                loop {
-                    match pm
-                        .call_raw(&eval_plugin_id, &eval_fn_name, input_bytes.clone())
-                        .await
-                    {
-                        Ok(result_bytes) => {
-                            match serde_json::from_slice::<TestCaseVerdict>(&result_bytes) {
-                                Ok(verdict) => {
-                                    let _ = batch_tx.send(verdict);
-                                }
-                                Err(e) => {
-                                    send_system_error(
-                                        &batch_tx,
-                                        tc_id,
-                                        format!("Failed to deserialize evaluator result: {}", e),
-                                    );
-                                }
-                            }
-                            break;
-                        }
-                        Err(PluginError::PoolTimeout(plugin_id)) if attempt < max_attempts => {
-                            attempt += 1;
-                            tracing::warn!(
-                                test_case_id = tc_id,
-                                plugin_id = %plugin_id,
-                                attempt = attempt,
-                                "Plugin pool acquisition timed out — backing off and retrying"
+            tokio::spawn(
+                async move {
+                    // Hold the fan-out permit for the lifetime of this task.
+                    let _fanout_permit = permit;
+
+                    let _permit = match evaluator_slots.acquire_owned().await {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            send_system_error(
+                                &batch_tx,
+                                tc_id,
+                                "Evaluator dispatcher is shutting down".into(),
                             );
-                            tokio::time::sleep(backoff).await;
-                            // Exponential backoff capped at 5s — under sustained contention we
-                            // keep retrying at a steady rate without thundering.
-                            backoff = (backoff * 2).min(Duration::from_secs(5));
-                            continue;
+                            decrement_pending(&pending, metrics.as_ref());
+                            return;
                         }
+                    };
+
+                    let input_bytes = match serde_json::to_vec(&tc_input) {
+                        Ok(bytes) => bytes,
                         Err(e) => {
                             send_system_error(
                                 &batch_tx,
                                 tc_id,
-                                format!("Evaluator call failed: {}", e),
+                                format!("Failed to serialize evaluator input: {}", e),
                             );
-                            break;
+                            decrement_pending(&pending, metrics.as_ref());
+                            return;
+                        }
+                    };
+
+                    // Retry on plugin pool contention. Plugin pool exhaustion is a transient
+                    // backpressure signal, not a permanent failure of the contestant's submission
+                    // — looping until we get a permit preserves the verdict semantics. Other
+                    // plugin errors (load failures, execution faults, deserialization) are
+                    // genuine SystemErrors and fall through to the final send_system_error.
+                    let mut attempt: u32 = 0;
+                    let max_attempts: u32 = 60; // upper bound to surface real bugs
+                    let mut backoff = Duration::from_millis(100);
+                    loop {
+                        match pm
+                            .call_raw(&eval_plugin_id, &eval_fn_name, input_bytes.clone())
+                            .await
+                        {
+                            Ok(result_bytes) => {
+                                match serde_json::from_slice::<TestCaseVerdict>(&result_bytes) {
+                                    Ok(verdict) => {
+                                        let _ = batch_tx.send(verdict);
+                                    }
+                                    Err(e) => {
+                                        send_system_error(
+                                            &batch_tx,
+                                            tc_id,
+                                            format!(
+                                                "Failed to deserialize evaluator result: {}",
+                                                e
+                                            ),
+                                        );
+                                    }
+                                }
+                                break;
+                            }
+                            Err(PluginError::PoolTimeout(plugin_id)) if attempt < max_attempts => {
+                                attempt += 1;
+                                tracing::warn!(
+                                    test_case_id = tc_id,
+                                    plugin_id = %plugin_id,
+                                    attempt = attempt,
+                                    "Plugin pool acquisition timed out — backing off and retrying"
+                                );
+                                tokio::time::sleep(backoff).await;
+                                // Exponential backoff capped at 5s — under sustained contention we
+                                // keep retrying at a steady rate without thundering.
+                                backoff = (backoff * 2).min(Duration::from_secs(5));
+                                continue;
+                            }
+                            Err(e) => {
+                                send_system_error(
+                                    &batch_tx,
+                                    tc_id,
+                                    format!("Evaluator call failed: {}", e),
+                                );
+                                break;
+                            }
                         }
                     }
+                    decrement_pending(&pending, metrics.as_ref());
                 }
-                decrement_pending(&pending, metrics.as_ref());
-            }
-            .instrument(span),
-        );
-    }
+                .instrument(span),
+            );
+        }
+    });
 
     Ok(batch_id)
 }

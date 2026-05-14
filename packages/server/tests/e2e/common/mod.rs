@@ -432,6 +432,7 @@ impl E2eTestApp {
                 fleet_aware_admission_enabled: false,
                 fleet_capacity_poll_interval_secs: 5,
                 max_blocking_threads: None,
+                batch_evaluator_fanout_concurrency: 64,
             },
             database: DatabaseConfig {
                 url: db_url.clone(),

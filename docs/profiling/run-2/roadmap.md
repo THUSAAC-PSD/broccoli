@@ -199,10 +199,16 @@ G testing); UP#14f before Phase B PR-E.
 
 ### Phase A.5 — server-side hoist + stabilization
 
-- [ ] **PR: server-fanout-semaphore.** UP#14b — bounded fan-out in
-      `packages/server/src/services/evaluate_batch.rs:84-185`. New helper in
-      `packages/server/src/dispatcher/fanout.rs`. Default
-      `server.batch_evaluator_fanout_concurrency = 64` per server.
+- [x] **PR: server-fanout-semaphore.** UP#14b — bounded fan-out in
+      `packages/server/src/services/evaluate_batch.rs:90-233` via single
+      dispatcher task acquiring `FanoutSemaphore` permits before per-tc spawn.
+      New helper at `packages/server/src/dispatcher/fanout.rs:1` (clone-cheap
+      `Arc<Semaphore>` wrapper with wait-duration histogram + saturation
+      counter). Config knob `server.batch_evaluator_fanout_concurrency` defaults
+      64 in `packages/server/src/config.rs:131`; wired into
+      `EvaluateHostDeps.fanout_slots` at
+      `packages/server/src/host_funcs/mod.rs:251`. Override via
+      `BROCCOLI__SERVER__BATCH_EVALUATOR_FANOUT_CONCURRENCY`.
   - [ ] Integration test: 1000-submission burst observes
         `plugin_pool_contention_total` rate well below the no-semaphore
         baseline.
