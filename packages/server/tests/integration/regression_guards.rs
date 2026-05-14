@@ -157,8 +157,10 @@ mod helper_tests {
 
     #[test]
     fn identifier_context_is_recognized() {
-        // `record_block_in_place_regression(` — prev char is `_`.
-        let line = "    record_block_in_place_regression(&None, \"foo\");";
+        // Hypothetical user-defined wrapper `my_block_in_place(` — the char
+        // immediately before `block_in_place(` is `_`, so the guard must
+        // treat the match as an identifier tail and skip it.
+        let line = "    my_block_in_place(|| {});";
         let pos = line.find("block_in_place(").expect("substring present");
         assert!(match_is_inside_identifier(line, pos));
     }
