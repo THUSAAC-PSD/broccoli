@@ -307,8 +307,19 @@ pub async fn bulk_retry_dlq(
     auth_user.require_permission("dlq:manage")?;
     validate_bulk_retry_dlq(&payload)?;
     // UP#39 backpressure-on-post: bulk DLQ retry flips many
-    // submissions back to `Queued`. Same sampling-before-bulk-insert
-    // tradeoff as `bulk_rejudge_submissions`.
+    // submissions back to `Queued` in a single call. The check here
+    // samples the depth **once at the start** of the bulk insert,
+    // which is intentionally permissive: the cap is a steady-state
+    // circuit-breaker, not a strict per-row gate. A DLQ retry storm
+    // that arrives just below the cap can take the depth meaningfully
+    // past it for the rest of that call's duration; the next caller
+    // (or the next bulk-retry) will be rejected, restoring
+    // equilibrium. The alternative — per-chunk recheck — would
+    // serialize the bulk path into hundreds of COUNT round-trips and
+    // defeat the bulk endpoint, so we accept bounded overshoot under
+    // a retry storm in exchange for keeping bulk retry a single
+    // logical operation. Mirrors `bulk_rejudge_submissions`
+    // (`submission.rs`) by design.
     enforce_queue_depth_admission(&state).await?;
 
     let message_ids: Vec<i32> = if let Some(ref ids) = payload.message_ids {
