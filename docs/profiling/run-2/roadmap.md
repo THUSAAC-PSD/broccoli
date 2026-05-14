@@ -59,46 +59,54 @@ identifiers in the source impl plans.
 ### Phase A — runtime-cascade fix + mechanical wins
 
 - [x] **PR: cascade-fix.** UP#1 — `spawn_blocking` at
-      `packages/plugin-core/src/traits.rs:343`. Inner `block_in_place` sites in
-      `host_funcs/*.rs` left in place (no-op wrapper on blocking-pool threads;
-      tests cover this).
+      `packages/plugin-core/src/traits.rs:343`. Inner `block_in_place` wrappers
+      in `host_funcs/*.rs` collapsed to plain `Handle::current().block_on(...)`
+      in 7b612064 (they were no-ops on blocking-pool threads).
   - [ ] Integration test: 60s stress wave, assert no thread-count blow-up.
-  - [ ] Verify no `block_in_place` regressions in `host_funcs/*.rs`
-        auto-collapsed (zero-line edit required; just confirm). _Pending UP#14g
-        CI guard._
-- [ ] **PR: runtime-builder.** UP#2 — explicit `tokio::runtime::Builder` in
-      `packages/server/src/main.rs`; `max_blocking_threads=1024`.
-- [ ] **PR: result-consumer-concurrency.** UP#3 —
-      `process_messages(.., Some(8), ..)` in
-      `packages/server/src/consumers/operation_result.rs:9`. _Currently
-      `(None, None, ..)` — concurrency=1._
+  - [x] No `block_in_place` regressions in `host_funcs/*.rs` —
+        `grep -rn     block_in_place packages/server/src/host_funcs/` returns
+        only the regression-guard doc comment.
+- [x] **PR: runtime-builder.** UP#2 — explicit `tokio::runtime::Builder` in
+      `packages/server/src/main.rs` (739b034c + 0651c664).
+      `max_blocking_threads` is config-driven with `available_parallelism * 16`
+      clamp [512, 8192] auto-default, override via
+      `BROCCOLI__SERVER__MAX_BLOCKING_THREADS`.
+- [x] **PR: result-consumer-concurrency.** UP#3 —
+      `process_messages(.., Some(8),     ..)` at
+      `packages/server/src/consumers/operation_result.rs:21` (19ffd8d3).
 - [ ] **PR: drop-pool-timeout-429.** UP#4 — remove
-      `PluginError::PoolTimeout → AppError::RateLimited` mapping at
+      `PluginError::PoolTimeout →     AppError::RateLimited` mapping at
       `packages/server/src/error.rs:206-209`. **Bundle with UP#14h sync-hook
       retry.** _Mapping still present at error.rs:206._
-- [ ] **PR: stuck-redispatch-interim.** UP#5 —
-      `tokio::spawn(dispatch_submission_to_plugin(...))` replaces
-      `mark_submission_system_error` at `stuck.rs:167-173`. _Still terminal
-      `mark_submission_system_error`._
+- [x] **PR: stuck-redispatch-interim.** UP#5 — stuck-detector now re-dispatches
+      via `tokio::spawn(dispatch_to_plugin(...))` with a
+      `retry_count >=     max_dispatch_retries` guard, mirroring the lease/steal
+      pattern; opens a fresh `submission_judgement` per re-dispatch (da3da409).
 - [x] **PR: worker-max-concurrency-config.** UP#6 —
       `worker.max_concurrency:     u32` default 1 in `WorkerConfig` (547eec8b).
 - [x] **PR: worker-heartbeat-plumb.** UP#7 — `max_concurrency` + `fairness_mode`
       populated in `WorkerHeartbeat` at `heartbeat.rs:30-32, 132-133`
       (547eec8b).
-- [ ] **PR: reflink-fast-path.** UP#9 — try `std::os::unix::fs::link` before
-      `tokio::fs::copy` in `file_cacher.rs:213`. _No hard_link/reflink call
-      present._
-- [ ] **PR: cache-size-default.** UP#10 — bump `max_cache_size` default to 4
-      GiB. _Still `512 * 1024 * 1024` at `worker/src/config.rs:151`._
-- [ ] **PR: cache-exists-shortcircuit.** UP#11 — HEAD probe before stream in
-      `upload_from_path`. _Local-FS `cached.exists()` checks present but no
-      object-store HEAD probe on the upload path._
-- [ ] **PR: cache-metrics.** UP#12 — `blob_cache_hits_total`,
-      `blob_cache_misses_total`, `blob_cache_size_bytes`,
-      `blob_cache_evictions_total`. _No references in workspace._
-- [ ] **PR: host-fn-metrics.** UP#13 — `host_fn_duration`,
-      `host_fn_calls_total`, `host_fn_block_in_place_total`. _No references in
-      workspace._
+- [x] **PR: reflink-fast-path.** UP#9 — `link_or_copy` helper tries
+      `std::fs::hard_link` first (unix), falls back to `tokio::fs::copy` on
+      EXDEV/EEXIST/any failure; replaces all three
+      `tokio::fs::copy(&cached,     dest)` sites in `fetch_to_path` (3acbca45).
+- [x] **PR: cache-size-default.** UP#10 — `max_cache_size` default bumped to
+      `4 * 1024 * 1024 * 1024` (887bd6ce).
+- [x] **PR: cache-exists-shortcircuit.** UP#11 — `upload_from_path` now hashes
+      the file locally first, probes `BlobStore::exists(&hash)`, and skips
+      `put_stream` on a hit; falls open to streaming on probe error (3acbca45).
+- [x] **PR: cache-metrics.** UP#12 — `blob_cache_hits_total`,
+      `blob_cache_misses_total`, `blob_cache_size_bytes` (UpDownCounter),
+      `blob_cache_evictions_total`, plus a sibling
+      `blob_store_remote_hits_total` for the UP#11 short-circuit; threaded via
+      `Option<Metrics>` into `BlobStoreFileCacher::new` (849ef6fb).
+- [x] **PR: host-fn-metrics.** UP#13 — `host_fn_duration`, `host_fn_calls_total`
+      wired around the `spawn_blocking` site in `plugin-core/src/traits.rs`;
+      `host_fn_block_in_place_total` regression sentinel +
+      `record_block_in_place_regression` helper in `host_funcs/mod.rs` (never
+      invoked in shipping code; flips on if someone re-adds `block_in_place`)
+      (7b612064).
 - [x] **PR: verdict-cancelled-enum.** UP#14 — `Verdict::Cancelled` at
       `common/src/submission_status.rs:123`; predicates and string mappings
       complete.
