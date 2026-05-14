@@ -1,3 +1,4 @@
+use super::cache_leader::{CacheLeaderElector, LeaderRole, NoopCacheLeaderElector};
 use super::file_cacher::FileCacher;
 use super::models::*;
 use super::sandbox::{
@@ -10,7 +11,9 @@ use std::collections::{HashMap, HashSet};
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 use tracing::{Instrument, debug, error, info, instrument, warn};
 
 fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
@@ -72,6 +75,7 @@ fn sandbox_status_label(result: &ExecutionResult) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{ExecutionResult, sandbox_exit_kind, sandbox_status_label, step_kind};
     use crate::models::operation::models::{IOConfig, RunOptions, Step, StepKind};
@@ -198,7 +202,10 @@ fn step_kind(step: &Step) -> &'static str {
 pub struct OperationHandler {
     sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
     file_cacher: Box<dyn FileCacher>,
-    task_cache: Box<dyn TaskCacheStore>,
+    task_cache: Arc<dyn TaskCacheStore>,
+    cache_leader: Arc<dyn CacheLeaderElector>,
+    follower_poll_interval: Duration,
+    follower_max_wait: Duration,
     toolchain_fingerprint: String,
     metrics: common::metrics::Metrics,
 }
@@ -211,10 +218,36 @@ impl OperationHandler {
         toolchain_fingerprint: String,
         metrics: common::metrics::Metrics,
     ) -> Self {
+        Self::with_cache_leader(
+            sandbox_manager,
+            file_cacher,
+            Arc::from(task_cache),
+            Arc::new(NoopCacheLeaderElector),
+            Duration::from_millis(250),
+            Duration::from_secs(30),
+            toolchain_fingerprint,
+            metrics,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_cache_leader(
+        sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
+        file_cacher: Box<dyn FileCacher>,
+        task_cache: Arc<dyn TaskCacheStore>,
+        cache_leader: Arc<dyn CacheLeaderElector>,
+        follower_poll_interval: Duration,
+        follower_max_wait: Duration,
+        toolchain_fingerprint: String,
+        metrics: common::metrics::Metrics,
+    ) -> Self {
         Self {
             sandbox_manager,
             file_cacher,
             task_cache,
+            cache_leader,
+            follower_poll_interval,
+            follower_max_wait,
             toolchain_fingerprint,
             metrics,
         }
@@ -592,8 +625,14 @@ impl OperationHandler {
             };
         }
 
+        // Cached cache_key (computed at most once per process_step call) so
+        // try_cache_hit, leader-acquire and store_in_cache all see the same key.
+        let mut cache_key_cache: Option<String> = None;
+
         if let Some(cache_spec) = &step.cache
-            && let Some(cached) = self.try_cache_hit(step, environments, cache_spec).await
+            && let Some(cached) = self
+                .try_cache_hit(step, environments, cache_spec, &mut cache_key_cache)
+                .await
         {
             self.record_step_metrics(StepMetricRecord {
                 start,
@@ -605,6 +644,61 @@ impl OperationHandler {
                 cg_oom_killed: false,
             });
             return cached;
+        }
+
+        // Leader-election around the cache miss: if another worker is already
+        // computing this same key, become a follower and poll task_cache until
+        // they store the result (or our max_wait elapses).
+        //
+        // The `_lease` binding keeps the leader's Redis lock alive (with
+        // heartbeat) through `execute_step` + `store_in_cache`. Drop happens
+        // at the end of this function and fires a CAS-release.
+        let _lease;
+        if let Some(cache_spec) = &step.cache {
+            // None here means we couldn't compute a key (e.g. env missing or
+            // input file read error); fall through with an empty key so we
+            // skip leader-election but still attempt execution.
+            let cache_key = self
+                .ensure_cache_key(step, environments, cache_spec, &mut cache_key_cache)
+                .await
+                .unwrap_or_default();
+
+            if !cache_key.is_empty() {
+                match self.cache_leader.acquire(&cache_key).await {
+                    Ok(LeaderRole::Leader(lease)) => {
+                        _lease = Some(lease);
+                        debug!(step_id = %step.id, cache_key = %cache_key, "cache-leader: leading");
+                    }
+                    Ok(LeaderRole::Follower) => {
+                        _lease = None;
+                        debug!(step_id = %step.id, cache_key = %cache_key, "cache-leader: following — polling task_cache");
+                        if let Some(restored) = self
+                            .follower_poll_loop(step, environments, &cache_key)
+                            .await
+                        {
+                            self.record_step_metrics(StepMetricRecord {
+                                start,
+                                step_kind: step_kind(step),
+                                outcome: "cache_hit",
+                                sandbox_status: "cache_follower_hit".to_string(),
+                                exit_kind: "none",
+                                killed: false,
+                                cg_oom_killed: false,
+                            });
+                            return restored;
+                        }
+                        warn!(step_id = %step.id, cache_key = %cache_key, "cache-leader: follower timed out, falling back to execution");
+                    }
+                    Err(e) => {
+                        _lease = None;
+                        warn!(step_id = %step.id, cache_key = %cache_key, error = %e, "cache-leader: acquire failed, executing normally");
+                    }
+                }
+            } else {
+                _lease = None;
+            }
+        } else {
+            _lease = None;
         }
 
         let result = match self
@@ -641,9 +735,16 @@ impl OperationHandler {
         if result.success
             && let Some(cache_spec) = &step.cache
         {
-            self.store_in_cache(step, environments, cache_spec, &result.collected_outputs)
-                .await;
+            self.store_in_cache(
+                step,
+                environments,
+                cache_spec,
+                &result.collected_outputs,
+                &mut cache_key_cache,
+            )
+            .await;
         }
+        drop(_lease);
 
         self.record_sandbox_metrics(&result.sandbox_result, result.success);
         self.record_step_metrics(StepMetricRecord {
@@ -699,42 +800,43 @@ impl OperationHandler {
         }
     }
 
-    async fn try_cache_hit(
+    async fn ensure_cache_key(
         &self,
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
         cache_spec: &StepCacheConfig,
-    ) -> Option<TaskExecutionResult> {
+        cache_key_cache: &mut Option<String>,
+    ) -> Option<String> {
+        if let Some(k) = cache_key_cache {
+            return Some(k.clone());
+        }
         let env = environments.get(&step.env_ref)?;
-        let cache_key = match self
+        match self
             .build_cache_key(&env.working_dir, &step.argv, &cache_spec.key_inputs)
             .await
         {
-            Ok(key) => key,
-            Err(e) => {
-                debug!(step_id = %step.id, error = %e, "Failed to compute cache key, skipping cache");
-                return None;
-            }
-        };
-
-        let cache_start = std::time::Instant::now();
-        let cached_outputs = match self.task_cache.get(&cache_key).await {
-            Ok(Some(outputs)) => {
-                self.record_task_cache_metric(cache_start, "get", "hit");
-                outputs
-            }
-            Ok(None) => {
-                self.record_task_cache_metric(cache_start, "get", "miss");
-                debug!(step_id = %step.id, cache_key = %cache_key, "Cache miss");
-                return None;
+            Ok(key) => {
+                *cache_key_cache = Some(key.clone());
+                Some(key)
             }
             Err(e) => {
-                self.record_task_cache_metric(cache_start, "get", "error");
-                warn!(step_id = %step.id, error = %e, "Cache lookup failed, executing normally");
-                return None;
+                debug!(step_id = %step.id, error = %e, "Failed to compute cache key");
+                None
             }
-        };
+        }
+    }
 
+    /// Restore cached outputs from `task_cache` outputs map into the env's
+    /// working directory. Returns `Some(TaskExecutionResult)` on success, or
+    /// `None` if any file restore failed (in which case the caller should
+    /// fall through to normal execution).
+    async fn restore_cached_outputs(
+        &self,
+        step: &Step,
+        env: &EnvironmentList,
+        cached_outputs: HashMap<String, String>,
+        cache_key: &str,
+    ) -> Option<TaskExecutionResult> {
         for (filename, content_hash) in &cached_outputs {
             let dest = match safe_join(&env.working_dir, filename) {
                 Ok(p) => p,
@@ -778,12 +880,84 @@ impl OperationHandler {
         })
     }
 
+    async fn try_cache_hit(
+        &self,
+        step: &Step,
+        environments: &HashMap<String, EnvironmentList>,
+        cache_spec: &StepCacheConfig,
+        cache_key_cache: &mut Option<String>,
+    ) -> Option<TaskExecutionResult> {
+        let env = environments.get(&step.env_ref)?;
+        let cache_key = self
+            .ensure_cache_key(step, environments, cache_spec, cache_key_cache)
+            .await?;
+
+        let cache_start = std::time::Instant::now();
+        let cached_outputs = match self.task_cache.get(&cache_key).await {
+            Ok(Some(outputs)) => {
+                self.record_task_cache_metric(cache_start, "get", "hit");
+                outputs
+            }
+            Ok(None) => {
+                self.record_task_cache_metric(cache_start, "get", "miss");
+                debug!(step_id = %step.id, cache_key = %cache_key, "Cache miss");
+                return None;
+            }
+            Err(e) => {
+                self.record_task_cache_metric(cache_start, "get", "error");
+                warn!(step_id = %step.id, error = %e, "Cache lookup failed, executing normally");
+                return None;
+            }
+        };
+
+        self.restore_cached_outputs(step, env, cached_outputs, &cache_key)
+            .await
+    }
+
+    /// As a follower, repeatedly poll task_cache until we see the leader's
+    /// stored entry. Returns `Some(TaskExecutionResult)` if we successfully
+    /// restored the cached outputs; `None` on timeout or any failure (caller
+    /// then falls back to executing the step itself).
+    async fn follower_poll_loop(
+        &self,
+        step: &Step,
+        environments: &HashMap<String, EnvironmentList>,
+        cache_key: &str,
+    ) -> Option<TaskExecutionResult> {
+        let env = environments.get(&step.env_ref)?;
+        let deadline = tokio::time::Instant::now() + self.follower_max_wait;
+        loop {
+            tokio::time::sleep(self.follower_poll_interval).await;
+            let cache_start = std::time::Instant::now();
+            match self.task_cache.get(cache_key).await {
+                Ok(Some(outputs)) => {
+                    self.record_task_cache_metric(cache_start, "get", "follower_hit");
+                    return self
+                        .restore_cached_outputs(step, env, outputs, cache_key)
+                        .await;
+                }
+                Ok(None) => {
+                    self.record_task_cache_metric(cache_start, "get", "follower_miss");
+                }
+                Err(e) => {
+                    self.record_task_cache_metric(cache_start, "get", "follower_error");
+                    warn!(step_id = %step.id, error = %e, "Follower cache poll failed");
+                    return None;
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+        }
+    }
+
     async fn store_in_cache(
         &self,
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
         cache_spec: &StepCacheConfig,
         existing_hashes: &HashMap<String, String>,
+        cache_key_cache: &mut Option<String>,
     ) {
         let env = match environments.get(&step.env_ref) {
             Some(e) => e,
@@ -791,12 +965,12 @@ impl OperationHandler {
         };
 
         let cache_key = match self
-            .build_cache_key(&env.working_dir, &step.argv, &cache_spec.key_inputs)
+            .ensure_cache_key(step, environments, cache_spec, cache_key_cache)
             .await
         {
-            Ok(key) => key,
-            Err(e) => {
-                warn!(step_id = %step.id, error = %e, "Failed to compute cache key for storage");
+            Some(k) => k,
+            None => {
+                warn!(step_id = %step.id, "Failed to compute cache key for storage");
                 return;
             }
         };

@@ -1,6 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use super::cache_leader::{
+    CacheLeaderElector, CacheLeaderOpts, NoopCacheLeaderElector, RedisCacheLeaderElector,
+};
 use super::file_cacher::{BlobStoreFileCacher, FileCacher, NoopFileCacher};
 use super::models::OperationTask;
 use super::sandbox::SandboxManager;
@@ -33,16 +37,52 @@ impl OperationTaskExecutor {
         );
         let sandbox_manager = Self::sandbox_manager_from_config(Some(config));
         let (file_cacher, task_cache) = Self::caching_from_config(config, metrics.clone()).await?;
+        let cache_leader = Self::cache_leader_from_config(config);
+        let follower_poll = Duration::from_millis(config.worker.cache_follower_poll_interval_ms);
+        let follower_max_wait = Duration::from_secs(config.worker.cache_follower_max_wait_secs);
 
         Ok(Self {
-            operation_executor: OperationHandler::new(
+            operation_executor: OperationHandler::with_cache_leader(
                 sandbox_manager,
                 file_cacher,
-                task_cache,
+                Arc::from(task_cache),
+                cache_leader,
+                follower_poll,
+                follower_max_wait,
                 fingerprint,
                 metrics,
             ),
         })
+    }
+
+    fn cache_leader_from_config(config: &WorkerAppConfig) -> Arc<dyn CacheLeaderElector> {
+        if !config.worker.cache_leader_election_enabled || !config.mq.enabled {
+            info!("cache-leader-election disabled, using NoopCacheLeaderElector");
+            return Arc::new(NoopCacheLeaderElector);
+        }
+        let opts = CacheLeaderOpts {
+            ttl_secs: config.worker.cache_leader_ttl_secs,
+            heartbeat_interval_secs: config.worker.cache_leader_heartbeat_interval_secs,
+        };
+        match RedisCacheLeaderElector::from_url(&config.mq.url, opts) {
+            Ok(elector) => {
+                info!(
+                    redis_url = %config.mq.url,
+                    ttl_secs = opts.ttl_secs,
+                    heartbeat_interval_secs = opts.heartbeat_interval_secs,
+                    "RedisCacheLeaderElector initialized"
+                );
+                Arc::new(elector)
+            }
+            Err(e) => {
+                warn!(
+                    redis_url = %config.mq.url,
+                    error = %e,
+                    "Failed to build RedisCacheLeaderElector, falling back to no-op"
+                );
+                Arc::new(NoopCacheLeaderElector)
+            }
+        }
     }
 
     #[allow(dead_code)]

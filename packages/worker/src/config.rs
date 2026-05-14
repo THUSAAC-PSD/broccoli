@@ -44,6 +44,16 @@ pub struct WorkerConfig {
     pub dedup_ttl_secs: u64,
     #[serde(default)]
     pub fairness_unsafe_allow: bool,
+    #[serde(default = "default_cache_leader_election_enabled")]
+    pub cache_leader_election_enabled: bool,
+    #[serde(default = "default_cache_leader_ttl_secs")]
+    pub cache_leader_ttl_secs: u64,
+    #[serde(default = "default_cache_leader_heartbeat_interval_secs")]
+    pub cache_leader_heartbeat_interval_secs: u64,
+    #[serde(default = "default_cache_follower_poll_interval_ms")]
+    pub cache_follower_poll_interval_ms: u64,
+    #[serde(default = "default_cache_follower_max_wait_secs")]
+    pub cache_follower_max_wait_secs: u64,
 }
 
 fn default_worker_id() -> String {
@@ -64,6 +74,21 @@ fn default_max_concurrency() -> u32 {
 fn default_dedup_ttl_secs() -> u64 {
     600
 }
+fn default_cache_leader_election_enabled() -> bool {
+    true
+}
+fn default_cache_leader_ttl_secs() -> u64 {
+    60
+}
+fn default_cache_leader_heartbeat_interval_secs() -> u64 {
+    5
+}
+fn default_cache_follower_poll_interval_ms() -> u64 {
+    250
+}
+fn default_cache_follower_max_wait_secs() -> u64 {
+    30
+}
 
 impl Default for WorkerConfig {
     fn default() -> Self {
@@ -75,6 +100,11 @@ impl Default for WorkerConfig {
             max_concurrency: default_max_concurrency(),
             dedup_ttl_secs: default_dedup_ttl_secs(),
             fairness_unsafe_allow: false,
+            cache_leader_election_enabled: default_cache_leader_election_enabled(),
+            cache_leader_ttl_secs: default_cache_leader_ttl_secs(),
+            cache_leader_heartbeat_interval_secs: default_cache_leader_heartbeat_interval_secs(),
+            cache_follower_poll_interval_ms: default_cache_follower_poll_interval_ms(),
+            cache_follower_max_wait_secs: default_cache_follower_max_wait_secs(),
         }
     }
 }
@@ -133,6 +163,11 @@ impl WorkerAppConfig {
             .set_default("worker.max_concurrency", 1_i64)?
             .set_default("worker.dedup_ttl_secs", 600_i64)?
             .set_default("worker.fairness_unsafe_allow", false)?
+            .set_default("worker.cache_leader_election_enabled", true)?
+            .set_default("worker.cache_leader_ttl_secs", 60_i64)?
+            .set_default("worker.cache_leader_heartbeat_interval_secs", 5_i64)?
+            .set_default("worker.cache_follower_poll_interval_ms", 250_i64)?
+            .set_default("worker.cache_follower_max_wait_secs", 30_i64)?
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
             .set_default("mq.pool_size", 5_i64)?
@@ -172,6 +207,38 @@ mod tests {
         assert_eq!(worker.max_concurrency, 1);
         assert!(!worker.fairness_unsafe_allow);
         assert_eq!(worker.dedup_ttl_secs, 600);
+    }
+
+    #[test]
+    fn worker_config_defaults_for_cache_leader_election() {
+        let worker = WorkerConfig::default();
+
+        assert!(worker.cache_leader_election_enabled);
+        assert_eq!(worker.cache_leader_ttl_secs, 60);
+        assert_eq!(worker.cache_leader_heartbeat_interval_secs, 5);
+        assert_eq!(worker.cache_follower_poll_interval_ms, 250);
+        assert_eq!(worker.cache_follower_max_wait_secs, 30);
+    }
+
+    #[test]
+    fn worker_config_deserializes_cache_leader_overrides() {
+        let worker: WorkerConfig = toml::from_str(
+            r#"
+            id = "worker-b"
+            cache_leader_election_enabled = false
+            cache_leader_ttl_secs = 120
+            cache_leader_heartbeat_interval_secs = 10
+            cache_follower_poll_interval_ms = 500
+            cache_follower_max_wait_secs = 60
+            "#,
+        )
+        .expect("worker config");
+
+        assert!(!worker.cache_leader_election_enabled);
+        assert_eq!(worker.cache_leader_ttl_secs, 120);
+        assert_eq!(worker.cache_leader_heartbeat_interval_secs, 10);
+        assert_eq!(worker.cache_follower_poll_interval_ms, 500);
+        assert_eq!(worker.cache_follower_max_wait_secs, 60);
     }
 
     #[test]
