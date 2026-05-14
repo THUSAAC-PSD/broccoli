@@ -2082,7 +2082,9 @@ mod claim_fiber {
 /// UP#39 backpressure-on-post — `server.max_queued_submissions` caps
 /// the durable `Queued` row depth across `submission`, `code_run`,
 /// and `submission_judgement`. POST endpoints that would insert a
-/// new `Queued` row return 429 + `Retry-After` when the cap is hit.
+/// new `Queued` row return 503 + `Retry-After` when the cap is hit
+/// (RFC 7231 §6.6.4: "server is currently unable to handle the
+/// request due to a temporary overload").
 mod backpressure {
     use super::*;
     use crate::common::SpawnOptions;
@@ -2129,11 +2131,12 @@ mod backpressure {
 
     /// **Test 1**: when `max_queued_submissions=1`, the very first
     /// POST that pushes the depth to the cap is accepted, and the
-    /// next POST is rejected with 429 + `Retry-After`. The 429 path
-    /// runs through `AppError::RateLimited` so the response body has
-    /// `code=RATE_LIMITED` and the header is set as integer seconds.
+    /// next POST is rejected with 503 + `Retry-After`. The 503 path
+    /// runs through `AppError::Overloaded` so the response body has
+    /// `code=QUEUE_OVERLOADED` and the header is set as integer
+    /// seconds.
     #[tokio::test]
-    async fn rejects_with_429_when_queue_depth_at_cap() {
+    async fn rejects_with_503_when_queue_depth_at_cap() {
         let app = TestApp::spawn_with_options(SpawnOptions {
             max_queued_submissions: Some(1),
             disable_claim_fiber: true,
@@ -2158,18 +2161,18 @@ mod backpressure {
             .await;
 
         assert_eq!(
-            res.status, 429,
-            "expected 429 once durable Queued depth reaches cap; got body={}",
+            res.status, 503,
+            "expected 503 once durable Queued depth reaches cap; got body={}",
             res.text
         );
-        assert_eq!(res.body["code"], "RATE_LIMITED");
-        // Retry-After must be set (RFC 6585) so clients know when
-        // to retry. We don't pin a specific value to keep the const
-        // free to evolve.
+        assert_eq!(res.body["code"], "QUEUE_OVERLOADED");
+        // Retry-After must be set (RFC 7231 §7.1.3) so clients know
+        // when to retry. We don't pin a specific value to keep the
+        // const free to evolve.
         let retry_after = res
             .headers
             .get("Retry-After")
-            .expect("Retry-After header should be present on 429 backpressure response");
+            .expect("Retry-After header should be present on 503 backpressure response");
         let parsed: u64 = retry_after
             .to_str()
             .expect("Retry-After should be ASCII")
@@ -2241,8 +2244,8 @@ mod backpressure {
             .post_with_token(&routes::problem_code_runs(problem_id), &body, &user_token)
             .await;
 
-        assert_eq!(res.status, 429);
-        assert_eq!(res.body["code"], "RATE_LIMITED");
+        assert_eq!(res.status, 503);
+        assert_eq!(res.body["code"], "QUEUE_OVERLOADED");
     }
 
     /// **Test 4**: covers `rejudge_submission` — confirms that
@@ -2299,11 +2302,11 @@ mod backpressure {
             .await;
 
         assert_eq!(
-            res.status, 429,
+            res.status, 503,
             "rejudge should observe the durable-Queued cap; got body={}",
             res.text
         );
-        assert_eq!(res.body["code"], "RATE_LIMITED");
+        assert_eq!(res.body["code"], "QUEUE_OVERLOADED");
     }
 
     /// **Test 5**: `max_queued_submissions=0` disables the check

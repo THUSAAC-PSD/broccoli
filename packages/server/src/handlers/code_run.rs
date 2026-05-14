@@ -143,7 +143,8 @@ async fn build_code_run_response(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 429, description = "Per-user rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -231,7 +232,8 @@ pub async fn run_code(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Contest or problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 429, description = "Per-user rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]

@@ -15,7 +15,7 @@
 //! `server.max_queued_submissions`, accepting more work would only
 //! grow the buffer between ingress and dispatch — degrading p95
 //! POST→Pending latency without changing throughput. Better to shed
-//! load at the door with `429 Too Many Requests` + `Retry-After`.
+//! load at the door with `503 Service Unavailable` + `Retry-After`.
 //!
 //! The check is best-effort: there is no transactional coupling
 //! between the COUNT and the subsequent INSERT, so a small overshoot
@@ -70,7 +70,7 @@ where
     Ok(submissions + code_runs + judgements)
 }
 
-/// Returns `Err(AppError::RateLimited)` if the live queued-depth is
+/// Returns `Err(AppError::Overloaded)` if the live queued-depth is
 /// at or above the configured cap; returns `Ok(())` otherwise.
 ///
 /// A cap of `0` disables the check entirely (used by integration
@@ -83,17 +83,16 @@ where
 /// past the cap and the next concurrent POST would still squeak in
 /// before observing the new state.
 ///
-/// Status-code choice: the spec text for UP#39 reads "503 +
-/// Retry-After". We deliberately use **429** instead. The two
-/// codes split a fine-grained semantic distinction (429 = "too many
-/// requests from this client / for this resource"; 503 = "service
-/// is temporarily unable to handle the request"). Per RFC 6585 §4,
-/// 429 is the canonical answer for rate-limit / admission-control
-/// rejections; 503 conventionally means "I am unhealthy or
-/// shutting down". Re-using `AppError::RateLimited` also gives us
-/// the `Retry-After` header wiring and the `RATE_LIMITED` error
-/// code for free, keeping the surface consistent with the
-/// per-user-rate-limit path that already returns 429.
+/// Status-code choice: the UP#39 spec text reads "503 + Retry-After".
+/// We match that literally. Per RFC 7231 §6.6.4, 503 means "the
+/// server is currently unable to handle the request due to a
+/// temporary overload" — the exact semantics of durable-queue
+/// backpressure (the service as a whole is past capacity, not "this
+/// client is too chatty"). 429 (RFC 6585 §4) would put the blame on
+/// the client, which is wrong here: a single well-behaved client can
+/// trip the cap if the fleet is already saturated by other traffic.
+/// `AppError::Overloaded` (status 503, code `QUEUE_OVERLOADED`)
+/// carries the `Retry-After` hint the same way `RateLimited` does.
 pub async fn enforce_queue_depth_admission(state: &AppState) -> Result<(), AppError> {
     let cap = state.config.server.max_queued_submissions;
     if cap == 0 {
@@ -106,7 +105,7 @@ pub async fn enforce_queue_depth_admission(state: &AppState) -> Result<(), AppEr
             cap,
             "Rejecting POST: durable Queued depth at or above cap (UP#39 backpressure)"
         );
-        return Err(AppError::RateLimited {
+        return Err(AppError::Overloaded {
             retry_after: RETRY_AFTER_SECS,
         });
     }

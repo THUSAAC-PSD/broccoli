@@ -148,7 +148,7 @@ pub async fn get_dlq_message(
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Message or submission not found (NOT_FOUND)", body = ErrorBody),
         (status = 409, description = "Message already resolved (CONFLICT)", body = ErrorBody),
-        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -294,7 +294,7 @@ pub async fn delete_dlq_message(
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]

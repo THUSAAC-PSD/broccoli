@@ -90,7 +90,7 @@ pub struct ServerConfig {
     /// in the `submission`, `code_run`, and `submission_judgement`
     /// tables combined. When the live count is at or above this value,
     /// POST endpoints that would insert a new `Queued` row reject with
-    /// `429 Too Many Requests` + `Retry-After` rather than enqueueing
+    /// `503 Service Unavailable` + `Retry-After` rather than enqueueing
     /// more work (UP#39 backpressure-on-post).
     ///
     /// Multi-replica deployments share the DB, so this cap is observed

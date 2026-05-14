@@ -891,7 +891,8 @@ async fn apply_filter_to_list(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED)", body = ErrorBody),
+        (status = 429, description = "Per-user rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1444,7 +1445,7 @@ pub struct RejudgeQuery {
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Submission not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1592,7 +1593,8 @@ pub async fn rejudge_submission(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Contest or problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED)", body = ErrorBody),
+        (status = 429, description = "Per-user rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1827,7 +1829,7 @@ pub async fn list_contest_submissions(
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
-        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1981,7 +1983,7 @@ pub fn submission_body_limit(max_size: usize) -> axum::extract::DefaultBodyLimit
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem or contest not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
