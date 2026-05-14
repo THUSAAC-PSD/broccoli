@@ -94,6 +94,13 @@ pub async fn start_evaluate_batch(
     // of incoming batch size. Without this, a 1000-submission burst with 20
     // testcases/submission would spawn 20,000 tasks in milliseconds and all
     // would contend on the inner `evaluator_slots` semaphore.
+    //
+    // The dispatcher is wrapped in a DispatchGuard (defined below) so that if
+    // the loop ever panics mid-iteration, the remaining test cases are drained
+    // with SystemError verdicts rather than leaving the batch's pending_count
+    // hung above zero (which would block `next_evaluate_result` callers
+    // indefinitely). The closed-semaphore path inside the loop handles its own
+    // cleanup synchronously; the guard only fires for unexpected unwinds.
     let fanout = deps.fanout_slots.clone();
     let pm = deps.plugin_manager.clone();
     let eval_plugin_id = evaluator.plugin_id.clone();
@@ -102,8 +109,16 @@ pub async fn start_evaluate_batch(
     let metrics = deps.metrics.clone();
     let batch_tx_for_dispatcher = batch_tx.clone();
     let pending_for_dispatcher = pending_count.clone();
+    let undispatched_tc_ids: Vec<i32> = resolved_inputs.iter().map(|tc| tc.test_case_id).collect();
 
     tokio::spawn(async move {
+        let mut guard = DispatchGuard {
+            pending: undispatched_tc_ids,
+            batch_tx: batch_tx_for_dispatcher.clone(),
+            pending_count: pending_for_dispatcher.clone(),
+            metrics: metrics.clone(),
+        };
+
         for tc_input in resolved_inputs {
             let tc_id = tc_input.test_case_id;
             let permit = match fanout.acquire().await {
@@ -117,9 +132,16 @@ pub async fn start_evaluate_batch(
                         "Fan-out semaphore closed (server shutting down)".into(),
                     );
                     decrement_pending(&pending_for_dispatcher, metrics.as_ref());
+                    guard.claim(tc_id);
                     continue;
                 }
             };
+
+            // Claim this tc_id from the guard BEFORE spawning: once the worker
+            // is spawned, it owns the cleanup obligation. If the spawn itself
+            // unwinds (impossible today but cheap to be defensive), the guard
+            // would otherwise double-cleanup.
+            guard.claim(tc_id);
 
             let pm = pm.clone();
             let eval_plugin_id = eval_plugin_id.clone();
@@ -635,6 +657,42 @@ fn decrement_pending(pending: &AtomicUsize, metrics: Option<&common::metrics::Me
     }
 }
 
+/// Defensive cleanup for the fan-out dispatcher task. The dispatcher loop has
+/// no panic sites today, but if a future change introduces one, the guard's
+/// Drop drains any test cases that weren't yet handed off to a worker. Without
+/// this floor, a dispatcher panic would leave `pending_count > 0` and block
+/// every `next_evaluate_result` waiter forever.
+struct DispatchGuard {
+    pending: Vec<i32>,
+    batch_tx: crossbeam::channel::Sender<TestCaseVerdict>,
+    pending_count: Arc<AtomicUsize>,
+    metrics: Option<common::metrics::Metrics>,
+}
+
+impl DispatchGuard {
+    /// Mark a tc_id as successfully handed off to a worker (or cleaned up
+    /// inline). The worker now owns the cleanup obligation for that tc_id, so
+    /// the guard must not double-drain it.
+    fn claim(&mut self, tc_id: i32) {
+        if let Some(pos) = self.pending.iter().position(|x| *x == tc_id) {
+            self.pending.swap_remove(pos);
+        }
+    }
+}
+
+impl Drop for DispatchGuard {
+    fn drop(&mut self) {
+        for tc_id in self.pending.drain(..) {
+            send_system_error(
+                &self.batch_tx,
+                tc_id,
+                "Evaluator dispatcher terminated unexpectedly".into(),
+            );
+            decrement_pending(&self.pending_count, self.metrics.as_ref());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -644,6 +702,45 @@ mod tests {
     use common::storage::filesystem::FilesystemBlobStore;
 
     use super::*;
+
+    #[test]
+    fn dispatch_guard_drains_remaining_on_drop() {
+        let (tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let pending = Arc::new(AtomicUsize::new(3));
+        {
+            let mut guard = DispatchGuard {
+                pending: vec![10, 20, 30],
+                batch_tx: tx,
+                pending_count: pending.clone(),
+                metrics: None,
+            };
+            // Worker spawned for tc_id=10 → guard no longer owns it.
+            guard.claim(10);
+            // Simulate dispatcher unwind: drop guard with [20, 30] still pending.
+        }
+        // Guard's Drop emits SystemError + decrement for each remaining tc_id.
+        assert_eq!(pending.load(Ordering::SeqCst), 1, "should drop by 2");
+        let mut seen: Vec<i32> = rx.try_iter().map(|v| v.test_case_id).collect();
+        seen.sort();
+        assert_eq!(seen, vec![20, 30]);
+    }
+
+    #[test]
+    fn dispatch_guard_empty_pending_is_noop_on_drop() {
+        let (tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let pending = Arc::new(AtomicUsize::new(2));
+        {
+            let guard = DispatchGuard {
+                pending: Vec::new(),
+                batch_tx: tx,
+                pending_count: pending.clone(),
+                metrics: None,
+            };
+            drop(guard);
+        }
+        assert_eq!(pending.load(Ordering::SeqCst), 2, "no decrement on empty");
+        assert!(rx.try_recv().is_err(), "no verdicts on empty drain");
+    }
 
     fn case(problem_id: i32, language: &str) -> StartEvaluateCaseInput {
         StartEvaluateCaseInput {

@@ -23,8 +23,10 @@ use opentelemetry::KeyValue;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// Heuristic threshold below which an acquire is considered "instant" and the
-/// saturation counter / wait histogram are not emitted. 1ms of jitter is well
-/// below scheduler hop noise.
+/// saturation counter is not incremented. 1ms of jitter is well below scheduler
+/// hop noise. The wait-duration histogram records every acquire regardless, so
+/// operators see the full distribution; this threshold only gates the binary
+/// "did we block" counter.
 const SATURATION_THRESHOLD_MS: f64 = 1.0;
 
 #[derive(Clone)]
@@ -45,23 +47,25 @@ impl FanoutSemaphore {
     }
 
     /// Acquire one permit, awaiting if none is immediately available. Emits
-    /// `broccoli.batch_evaluator.fanout.wait.duration` whenever the acquire
-    /// blocked beyond [`SATURATION_THRESHOLD_MS`] and increments
-    /// `broccoli.batch_evaluator.fanout.saturated` on the same condition.
+    /// `broccoli.batch_evaluator.fanout.wait.duration` for every acquire (so
+    /// the full distribution is visible), and increments
+    /// `broccoli.batch_evaluator.fanout.saturated` only when the acquire
+    /// blocked beyond [`SATURATION_THRESHOLD_MS`].
     pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, tokio::sync::AcquireError> {
         let start = Instant::now();
         let permit = self.permits.clone().acquire_owned().await?;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1_000.0;
 
-        if elapsed_ms >= SATURATION_THRESHOLD_MS
-            && let Some(metrics) = self.metrics.as_ref()
-        {
+        if let Some(metrics) = self.metrics.as_ref() {
+            let labels = [KeyValue::new("batch.kind", "evaluate")];
             metrics
                 .batch_evaluator_fanout_wait_duration
-                .record(elapsed_ms, &[]);
-            metrics
-                .batch_evaluator_fanout_saturated_total
-                .add(1, &[KeyValue::new("batch.kind", "evaluate")]);
+                .record(elapsed_ms, &labels);
+            if elapsed_ms >= SATURATION_THRESHOLD_MS {
+                metrics
+                    .batch_evaluator_fanout_saturated_total
+                    .add(1, &labels);
+            }
         }
 
         Ok(permit)
@@ -125,6 +129,14 @@ mod tests {
             .await
             .expect("second acquire should resolve after permit drop")
             .expect("task should not panic");
+    }
+
+    #[tokio::test]
+    async fn acquire_returns_err_when_semaphore_closed() {
+        let sem = FanoutSemaphore::new(2, None);
+        sem.permits.close();
+        let err = sem.acquire().await;
+        assert!(err.is_err(), "expected AcquireError after close()");
     }
 
     #[tokio::test]
