@@ -164,33 +164,10 @@ async fn ttl_safety_net_releases_after_expiry() {
         LeaderRole::Follower => panic!("first must be leader"),
     };
 
-    // Forget the lease to skip Drop (simulating a crashed leader). The
-    // heartbeat task remains alive in process and would refresh the lock —
-    // we abort that by leaking the lease *and* stopping the runtime via
-    // explicit cancellation by tearing down via JoinHandle isn't possible
-    // here, so instead we abort the heartbeat by leaking — that test would
-    // be flaky.
-    //
-    // Cleaner: drop the entire `leader` Arc so the elector's heartbeat task
-    // we spawned has no live owner.  But the heartbeat task is detached on
-    // its own tokio task, so dropping `leader` doesn't abort it. Instead we
-    // explicitly extract & abort.
-    //
-    // For this test we instead rely on **dropping `lease`** (which aborts
-    // its heartbeat) but then we **DELETE the key out from under it** so
-    // that the next acquire sees an empty slot. That doesn't validate the
-    // TTL safety net; what we really want is: heartbeat aborted, key still
-    // present, TTL elapses.
-    //
-    // The simplest safe simulation: leak the lease so Drop never fires,
-    // and rely on the heartbeat to die when the test's tokio runtime exits.
-    // Within this test, however, the heartbeat IS alive and IS extending.
-    //
-    // Hence: explicit teardown via `std::mem::forget` is not viable. We
-    // take a different approach: build a `RedisCacheLeaderElector` whose
-    // heartbeat we abort *manually* by dropping its lease — and then we
-    // emulate a "crashed" leader by SETting the key directly (bypassing
-    // our elector). After TTL, the next acquire must succeed.
+    // To validate the TTL safety net (rather than the normal Drop path),
+    // we drop our real lease and then write a *ghost* lock directly via
+    // raw SET. Because the token is not ours, no heartbeat will extend
+    // it, so we observe Redis's own TTL expiry.
     drop(lease);
 
     // Manually emit a SET with our TTL using the redis crate directly.
@@ -213,7 +190,10 @@ async fn ttl_safety_net_releases_after_expiry() {
     // Immediately challenging should see Follower (key present, our token != ghost).
     let cache_key = manual_key.trim_start_matches("broccoli:cache-leader:");
     let immediate = challenger.acquire(cache_key).await.expect("acquire ok");
-    matches!(immediate, LeaderRole::Follower);
+    assert!(
+        matches!(immediate, LeaderRole::Follower),
+        "ghost lock present → next acquire must be Follower"
+    );
 
     // After TTL elapses (give a 1s slack), next acquire must become leader.
     tokio::time::sleep(Duration::from_secs(3)).await;

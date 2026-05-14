@@ -347,8 +347,6 @@ impl CacheLeaderElector for NoopCacheLeaderElector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn noop_elector_always_returns_leader() {
@@ -388,50 +386,5 @@ mod tests {
     #[test]
     fn opts_default_is_valid() {
         CacheLeaderOpts::default().validate();
-    }
-
-    /// Mock elector that records acquisitions and lease drops.
-    struct MockElector {
-        acquired: Arc<AtomicUsize>,
-        released: Arc<AtomicUsize>,
-    }
-
-    struct MockLease {
-        released: Arc<AtomicUsize>,
-    }
-
-    impl Drop for MockLease {
-        fn drop(&mut self) {
-            self.released.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    // We need to plug a "released" hook into LeaderLease semantics. Since
-    // LeaderLease::noop is the test variant and has no on-drop side effect,
-    // the cleanest path is to model the mock entirely outside LeaderLease.
-    // Instead, here we verify our own counter logic: a real lease will fire
-    // its detached release task; that path is covered by the Redis-backed
-    // integration test in tests/cache_leader_election.rs.
-
-    impl MockElector {
-        fn new() -> Self {
-            Self {
-                acquired: Arc::new(AtomicUsize::new(0)),
-                released: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn mock_drop_counter_works() {
-        let m = MockElector::new();
-        m.acquired.fetch_add(1, Ordering::SeqCst);
-        {
-            let _lease = MockLease {
-                released: m.released.clone(),
-            };
-        }
-        assert_eq!(m.acquired.load(Ordering::SeqCst), 1);
-        assert_eq!(m.released.load(Ordering::SeqCst), 1);
     }
 }
