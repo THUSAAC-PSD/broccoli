@@ -72,7 +72,10 @@ where
                     "Plugin pool acquisition timed out — backing off and retrying"
                 );
                 tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(policy.max_backoff);
+                backoff = backoff
+                    .checked_mul(2)
+                    .unwrap_or(policy.max_backoff)
+                    .min(policy.max_backoff);
                 continue;
             }
             Err(e) => return Err(e),
