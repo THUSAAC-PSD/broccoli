@@ -161,7 +161,7 @@ pub async fn load_existing_contest(
     })
 }
 
-fn build_create_contest_request(contest_type: &str) -> CreateContestRequest {
+pub(crate) fn build_create_contest_request(contest_type: &str) -> CreateContestRequest {
     let now = chrono::Utc::now();
     let suffix = now.timestamp();
     CreateContestRequest {
@@ -178,7 +178,7 @@ fn build_create_contest_request(contest_type: &str) -> CreateContestRequest {
     }
 }
 
-fn contest_label(index: usize) -> String {
+pub(crate) fn contest_label(index: usize) -> String {
     const ALPHA: usize = (b'Z' - b'A' + 1) as usize;
     if index < ALPHA {
         ((b'A' + index as u8) as char).to_string()
@@ -249,7 +249,7 @@ fn empty_problem_types_hint() -> &'static str {
      server's plugin registries are populated, then re-run the stress test."
 }
 
-fn build_create_problem_request(
+pub(crate) fn build_create_problem_request(
     scenario: &Scenario,
     contest_type: &str,
     problem_type: &str,

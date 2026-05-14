@@ -8,9 +8,11 @@
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::redis::Redis;
 
-use crate::cli::{CancelStormArgs, FaultArgs, FaultScenario, KillServerRecoveryArgs};
+use crate::cli::{BurstArgs, CancelStormArgs, FaultArgs, FaultScenario, KillServerRecoveryArgs};
+use crate::client::AuthCreds;
 use crate::fault::scenarios::{
-    Scenario, ScenarioContext, cancel_storm::CancelStorm, kill_server_recovery::KillServerRecovery,
+    Scenario, ScenarioContext, burst::Burst, cancel_storm::CancelStorm,
+    kill_server_recovery::KillServerRecovery,
 };
 
 /// Run the fault subcommand. Returns the exit code (0 = pass, 1 = scenario
@@ -19,6 +21,7 @@ pub async fn run(args: FaultArgs) -> u8 {
     let result = match &args.scenario {
         FaultScenario::CancelStorm(s) => run_cancel_storm(s).await,
         FaultScenario::KillServerRecovery(s) => run_kill_server_recovery(s).await,
+        FaultScenario::Burst(s) => run_burst(s).await,
     };
 
     match result {
@@ -59,6 +62,51 @@ async fn run_cancel_storm(args: &CancelStormArgs) -> anyhow::Result<u8> {
     .run(&ctx)
     .await?;
 
+    outcome.transcript.write_json(&args.out)?;
+    tracing::info!(
+        path = %args.out.display(),
+        passed = outcome.passed,
+        "wrote transcript"
+    );
+
+    Ok(if outcome.passed { 0 } else { 1 })
+}
+
+async fn run_burst(args: &BurstArgs) -> anyhow::Result<u8> {
+    let creds = match (
+        args.admin_token.clone(),
+        args.admin_username.clone(),
+        args.admin_password.clone(),
+    ) {
+        (Some(t), _, _) => AuthCreds::Token(t),
+        (None, Some(u), Some(p)) => AuthCreds::UsernamePassword {
+            username: u,
+            password: p,
+        },
+        _ => {
+            return Err(anyhow::anyhow!(
+                "burst requires --admin-token, or both --admin-username and --admin-password"
+            ));
+        }
+    };
+
+    let type_weights = crate::fault::scenarios::burst::parse_type_weights(&args.type_weights)?;
+
+    let burst = Burst {
+        submission_count: args.submission_count,
+        concurrency: args.concurrency,
+        type_weights,
+        strict: args.strict,
+        terminal_deadline_secs: args.terminal_deadline_secs,
+        keep_fixtures: args.keep_fixtures,
+        contest_type: args.contest_type.clone(),
+        problem_type: args.problem_type.clone(),
+        server_url: args.server_url.clone(),
+        creds,
+        out: args.out.clone(),
+    };
+
+    let outcome = burst.run().await?;
     outcome.transcript.write_json(&args.out)?;
     tracing::info!(
         path = %args.out.display(),

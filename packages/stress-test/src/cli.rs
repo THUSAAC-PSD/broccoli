@@ -31,6 +31,9 @@ pub enum FaultScenario {
     CancelStorm(CancelStormArgs),
     /// Kill a server replica mid-judgement; assert lease/steal recovery.
     KillServerRecovery(KillServerRecoveryArgs),
+    /// Post a burst of N submissions across a configurable contest-type mix and
+    /// assert that ≥95% reach a terminal verdict within the deadline.
+    Burst(BurstArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -47,6 +50,53 @@ pub struct CancelStormArgs {
     /// Redis URL. If omitted, an ephemeral testcontainer is started.
     #[arg(long)]
     pub redis_url: Option<String>,
+    /// Path to write the transcript JSON.
+    #[arg(long, default_value = "transcript.json")]
+    pub out: PathBuf,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct BurstArgs {
+    /// Base URL of the server (e.g. `http://localhost:3000`).
+    #[arg(long)]
+    pub server_url: String,
+    /// Admin bearer token. Provide this OR --admin-username + --admin-password.
+    #[arg(long)]
+    pub admin_token: Option<String>,
+    /// Admin username (used with --admin-password to login).
+    #[arg(long)]
+    pub admin_username: Option<String>,
+    /// Admin password (used with --admin-username to login).
+    #[arg(long)]
+    pub admin_password: Option<String>,
+    /// Total number of submissions to post.
+    #[arg(long, default_value_t = 1000)]
+    pub submission_count: usize,
+    /// In-flight submission cap during the inject phase.
+    #[arg(long, default_value_t = 64)]
+    pub concurrency: usize,
+    /// Comma-separated contest-type weights, e.g. `icpc:70,ioi:30`. Empty =
+    /// auto-pick all registered contest types with equal weight.
+    #[arg(long, default_value = "")]
+    pub type_weights: String,
+    /// If set, hard-fail when any requested type is missing from the registry.
+    /// Otherwise missing types are dropped with a warning.
+    #[arg(long, default_value_t = false)]
+    pub strict: bool,
+    /// Maximum seconds to wait for all submissions to reach a terminal state.
+    #[arg(long, default_value_t = 300)]
+    pub terminal_deadline_secs: u64,
+    /// If set, keep the scratch contests after the run for inspection.
+    #[arg(long, default_value_t = false)]
+    pub keep_fixtures: bool,
+    /// Override the contest_type used for any "auto" picks. Ignored when
+    /// --type-weights provides explicit types.
+    #[arg(long)]
+    pub contest_type: Option<String>,
+    /// Override the problem_type for created problems. Defaults to the first
+    /// registered problem_type.
+    #[arg(long)]
+    pub problem_type: Option<String>,
     /// Path to write the transcript JSON.
     #[arg(long, default_value = "transcript.json")]
     pub out: PathBuf,

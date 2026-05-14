@@ -24,6 +24,7 @@ tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
 uuid = { workspace = true }
+futures = { workspace = true }
 
 # fault::* dependencies (merged from packages/fault-harness/).
 async-trait = { workspace = true }

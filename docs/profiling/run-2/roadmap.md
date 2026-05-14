@@ -24,10 +24,13 @@ branch.
 - [~] **Integration test harness for fault injection.** Lives in stress-test's
   `fault::*` module (originally crate `packages/fault-harness/` — 6ee0190b,
   6e7d9d63, c96b7fe7 — folded into stress-test to share its HTTP client + admin
-  auth). Emits transcript JSON; only cancel-storm and kill-server-recovery
+  auth). Emits transcript JSON; cancel-storm, kill-server-recovery, and burst
   sub-scenarios implemented.
-  - [ ] N=1000 in-flight submissions with a configurable problem-type mix (ICPC,
-        IOI).
+  - [x] N=1000 in-flight submissions with a configurable problem-type mix (ICPC,
+        IOI) — implemented in
+        `packages/stress-test/src/fault/scenarios/burst.rs` with a
+        `--type-weights icpc:70,ioi:30` CLI mix, dynamic registry validation,
+        ≥95% terminal-rate gate, per-type latency histograms.
   - [ ] Server restart mid-judgement (kill -9 one api replica, observe recovery
         via lease/steal).
   - [x] Cancel storm (rewritten to exercise real `RedisCancelChecker` with
