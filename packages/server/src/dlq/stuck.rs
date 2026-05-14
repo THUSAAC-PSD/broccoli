@@ -16,7 +16,14 @@ use crate::state::AppState;
 
 use super::DlqService;
 
-const IN_PROGRESS_STATUSES: [SubmissionStatus; 3] = [
+// `Queued` is in-progress from the stuck-detector's perspective — a row
+// stranded in `Queued` because every server's claim fiber is dead is a
+// genuine system-stuck condition the wide-net 6h timeout (UP#19) must
+// catch. UP#43 will layer a 5min per-state threshold on top so the
+// detector escalates `Queued` orphans faster than the 6h global, but
+// inclusion in this list is the floor.
+const IN_PROGRESS_STATUSES: [SubmissionStatus; 4] = [
+    SubmissionStatus::Queued,
     SubmissionStatus::Pending,
     SubmissionStatus::Compiling,
     SubmissionStatus::Running,

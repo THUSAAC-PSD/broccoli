@@ -13,6 +13,14 @@ use sea_orm::entity::prelude::*;
 )]
 #[serde(rename_all = "PascalCase")]
 pub enum SubmissionStatus {
+    /// Durable accept state: submission has been persisted by the API but
+    /// not yet claimed by a server's claim fiber for dispatch. Set by
+    /// UP#37 (`INSERT ... status='Queued'` on POST). The claim fiber
+    /// transitions to `Pending` once it acquires the row. Distinguishing
+    /// `Queued` from `Pending` lets per-state stuck-detector thresholds
+    /// (UP#43) apply different timeouts and avoids false-positive 5-min
+    /// "no owner" alarms on rows that simply haven't been claimed yet.
+    Queued,
     #[default]
     Pending,
     Compiling,
@@ -39,6 +47,7 @@ impl SubmissionStatus {
     }
 
     pub const ALL: &'static [SubmissionStatus] = &[
+        Self::Queued,
         Self::Pending,
         Self::Compiling,
         Self::Running,
@@ -49,6 +58,7 @@ impl SubmissionStatus {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Queued => "Queued",
             Self::Pending => "Pending",
             Self::Compiling => "Compiling",
             Self::Running => "Running",
@@ -92,6 +102,7 @@ impl FromStr for SubmissionStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "Queued" => Ok(Self::Queued),
             "Pending" => Ok(Self::Pending),
             "Compiling" => Ok(Self::Compiling),
             "Running" => Ok(Self::Running),
@@ -282,8 +293,28 @@ impl From<broccoli_server_sdk::types::Verdict> for Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::Verdict;
+    use super::{SubmissionStatus, Verdict};
     use std::str::FromStr;
+
+    #[test]
+    fn queued_status_round_trip_and_predicates() {
+        let raw = serde_json::to_string(&SubmissionStatus::Queued).expect("serialize status");
+        assert_eq!(raw, "\"Queued\"");
+        let parsed: SubmissionStatus = serde_json::from_str(&raw).expect("deserialize status");
+        assert_eq!(parsed, SubmissionStatus::Queued);
+        assert_eq!(SubmissionStatus::Queued.as_str(), "Queued");
+        assert_eq!(
+            SubmissionStatus::from_str("Queued").expect("parse Queued"),
+            SubmissionStatus::Queued
+        );
+        // Queued is pre-Pending: not terminal, not judged, not error.
+        assert!(!SubmissionStatus::Queued.is_terminal());
+        assert!(!SubmissionStatus::Queued.is_judged());
+        assert!(!SubmissionStatus::Queued.is_error());
+        // Queued must be in the ALL listing so callers iterating over all
+        // statuses (registries, metrics labels) see it.
+        assert!(SubmissionStatus::ALL.contains(&SubmissionStatus::Queued));
+    }
 
     #[test]
     fn parse_tagged_other_verdict() {

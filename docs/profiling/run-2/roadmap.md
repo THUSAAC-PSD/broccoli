@@ -343,8 +343,16 @@ G testing); UP#14f before Phase B PR-E.
 
 ### Phase D — durable submission accept
 
-- [ ] **PR: queued-status-enum.** UP#36 — add `Queued` variant; update
-      `IN_PROGRESS_STATUSES`.
+- [x] **PR: queued-status-enum.** UP#36 — `Queued` variant added to
+      `SubmissionStatus` at `packages/common/src/submission_status.rs` (before
+      `Pending` in the lifecycle order); wired into `ALL`, `as_str()`,
+      `FromStr`, and a `queued_status_round_trip_and_predicates` test that pins
+      `is_terminal/is_judged/is_error` all to `false`. `IN_PROGRESS_STATUSES` in
+      `packages/server/src/dlq/stuck.rs:19-30` bumped from `[…; 3]` to `[…; 4]`
+      with `Queued` first; comment explains that the wide-net 6h timeout (UP#19)
+      is the floor catch-all and UP#43 will layer per-state thresholds on top.
+      Workspace build clean — no other exhaustive-match site needed a `Queued`
+      arm.
 - [ ] **PR: insert-queued-on-post.** UP#37 — replace `tokio::spawn` with
       `INSERT ... status='Queued'` at the 9 dispatch sites.
 - [ ] **PR: claim-fiber.** UP#38 — `SELECT ... FOR UPDATE SKIP LOCKED` polling
