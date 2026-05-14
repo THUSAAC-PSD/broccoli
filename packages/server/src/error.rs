@@ -203,10 +203,13 @@ impl From<PluginError> for AppError {
                 AppError::PluginNotReady(err.to_string())
             }
             PluginError::Serialization(_) => AppError::Validation(err.to_string()),
-            PluginError::PoolTimeout(plugin_id) => {
-                tracing::warn!(plugin_id = %plugin_id, "Plugin pool acquisition timed out");
-                AppError::RateLimited { retry_after: 5 }
-            }
+            // Note: `PluginError::PoolTimeout` deliberately falls through to
+            // `Internal` (500). Hot-path callers (submission dispatch,
+            // evaluate batch, hook firing) retry transparently via
+            // `plugin_core::retry::call_raw_with_pool_retry`, so by the time a
+            // PoolTimeout reaches HTTP error mapping the server is genuinely
+            // overloaded — a 429 would misleadingly tell the *client* to back
+            // off when the right signal is server-internal failure (UP#4).
             _ => AppError::Internal(err.to_string()),
         }
     }

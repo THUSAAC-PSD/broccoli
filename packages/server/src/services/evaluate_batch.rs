@@ -16,7 +16,7 @@ use broccoli_server_sdk::types::{
 };
 use common::storage::{BlobStore, ContentHash};
 use opentelemetry::KeyValue;
-use plugin_core::error::PluginError;
+use plugin_core::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tracing::Instrument;
 use uuid::Uuid;
@@ -194,54 +194,35 @@ pub async fn start_evaluate_batch(
                     // — looping until we get a permit preserves the verdict semantics. Other
                     // plugin errors (load failures, execution faults, deserialization) are
                     // genuine SystemErrors and fall through to the final send_system_error.
-                    let mut attempt: u32 = 0;
-                    let max_attempts: u32 = 60; // upper bound to surface real bugs
-                    let mut backoff = Duration::from_millis(100);
-                    loop {
-                        match pm
-                            .call_raw(&eval_plugin_id, &eval_fn_name, input_bytes.clone())
-                            .await
-                        {
-                            Ok(result_bytes) => {
-                                match serde_json::from_slice::<TestCaseVerdict>(&result_bytes) {
-                                    Ok(verdict) => {
-                                        let _ = batch_tx.send(verdict);
-                                    }
-                                    Err(e) => {
-                                        send_system_error(
-                                            &batch_tx,
-                                            tc_id,
-                                            format!(
-                                                "Failed to deserialize evaluator result: {}",
-                                                e
-                                            ),
-                                        );
-                                    }
+                    match call_raw_with_pool_retry(
+                        pm.as_ref(),
+                        &eval_plugin_id,
+                        &eval_fn_name,
+                        input_bytes,
+                        PoolRetryPolicy::default(),
+                    )
+                    .await
+                    {
+                        Ok(result_bytes) => {
+                            match serde_json::from_slice::<TestCaseVerdict>(&result_bytes) {
+                                Ok(verdict) => {
+                                    let _ = batch_tx.send(verdict);
                                 }
-                                break;
+                                Err(e) => {
+                                    send_system_error(
+                                        &batch_tx,
+                                        tc_id,
+                                        format!("Failed to deserialize evaluator result: {}", e),
+                                    );
+                                }
                             }
-                            Err(PluginError::PoolTimeout(plugin_id)) if attempt < max_attempts => {
-                                attempt += 1;
-                                tracing::warn!(
-                                    test_case_id = tc_id,
-                                    plugin_id = %plugin_id,
-                                    attempt = attempt,
-                                    "Plugin pool acquisition timed out — backing off and retrying"
-                                );
-                                tokio::time::sleep(backoff).await;
-                                // Exponential backoff capped at 5s — under sustained contention we
-                                // keep retrying at a steady rate without thundering.
-                                backoff = (backoff * 2).min(Duration::from_secs(5));
-                                continue;
-                            }
-                            Err(e) => {
-                                send_system_error(
-                                    &batch_tx,
-                                    tc_id,
-                                    format!("Evaluator call failed: {}", e),
-                                );
-                                break;
-                            }
+                        }
+                        Err(e) => {
+                            send_system_error(
+                                &batch_tx,
+                                tc_id,
+                                format!("Evaluator call failed: {}", e),
+                            );
                         }
                     }
                     decrement_pending(&pending, metrics.as_ref());

@@ -5,7 +5,8 @@ use common::hook::{GenericHook, GenericHookAction, HookAction};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::traits::{PluginManager, PluginManagerExt};
+use crate::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
+use crate::traits::PluginManager;
 
 pub const PLUGIN_RUNTIME_ERROR_CODE: &str = "__BROCCOLI_PLUGIN_RUNTIME_ERROR";
 
@@ -141,12 +142,43 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
     }
 
     async fn on_event(&self, _ctx: (), event: &GenericEvent) -> Result<GenericHookAction> {
-        match self
-            .plugin_manager
-            .call::<_, serde_json::Value>(&self.plugin_id, &self.function_name, &event.payload)
-            .await
-        {
-            Ok(response_value) => match serde_json::from_value::<HookResponse>(response_value) {
+        // Serialize the payload once outside the retry loop. A serialization
+        // failure here is a genuine error (not transient backpressure), so we
+        // fail-closed with Reject — matching the prior `call::<_, _>` path
+        // which would have surfaced this as `PluginError::Serialization`.
+        let input_bytes = match serde_json::to_vec(&event.payload) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                tracing::error!(
+                    plugin_id = %self.plugin_id,
+                    function = %self.function_name,
+                    "Failed to serialize hook payload (fail-closed): {e}",
+                );
+                let detail = serde_json::json!({
+                    "code": PLUGIN_RUNTIME_ERROR_CODE,
+                    "message": format!("Plugin '{}' hook '{}' failed: {e}", self.plugin_id, self.function_name),
+                    "status_code": 500,
+                });
+                return Ok(GenericHookAction::Reject(detail.to_string()));
+            }
+        };
+
+        // Pool timeouts are transient backpressure: every WASM instance is
+        // busy but a free slot will appear shortly. Retrying transparently
+        // here matches the synchronous evaluator path and prevents a
+        // fail-closed Reject (HTTP 500) for what is purely a server-side
+        // overload signal (UP#14h).
+        let call_result = call_raw_with_pool_retry(
+            self.plugin_manager.as_ref(),
+            &self.plugin_id,
+            &self.function_name,
+            input_bytes,
+            PoolRetryPolicy::default(),
+        )
+        .await;
+
+        match call_result {
+            Ok(output_bytes) => match serde_json::from_slice::<HookResponse>(&output_bytes) {
                 Ok(hook_response) => Ok(hook_response.into_hook_action(&event.topic)),
                 Err(e) => {
                     tracing::warn!(

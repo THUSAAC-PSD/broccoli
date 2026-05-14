@@ -8,4 +8,5 @@ pub mod i18n;
 pub mod manager;
 pub mod manifest;
 pub mod registry;
+pub mod retry;
 pub mod traits;

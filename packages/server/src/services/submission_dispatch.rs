@@ -4,10 +4,9 @@ use broccoli_server_sdk::types::{
 };
 use chrono::Utc;
 use common::SubmissionStatus;
-use plugin_core::error::PluginError;
+use plugin_core::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
 use sea_orm::prelude::Expr;
 use sea_orm::*;
-use std::time::Duration;
 use tracing::{Instrument, error, info, instrument, warn};
 
 use crate::entity::{problem, submission, submission_judgement, test_case};
@@ -414,31 +413,14 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
         async move {
             // Retry on plugin-pool contention. Pool exhaustion is transient backpressure
             // and must never produce a permanent SystemError verdict for the contestant.
-            let mut attempt: u32 = 0;
-            const MAX_ATTEMPTS: u32 = 60;
-            let mut backoff = Duration::from_millis(100);
-            let result = loop {
-                match plugins
-                    .call_raw(&plugin_id, &function_name, input_bytes.clone())
-                    .await
-                {
-                    Ok(b) => break Ok(b),
-                    Err(PluginError::PoolTimeout(pid)) if attempt < MAX_ATTEMPTS => {
-                        attempt += 1;
-                        warn!(
-                            submission_id,
-                            judgement_id,
-                            plugin_id = %pid,
-                            attempt,
-                            "Plugin pool acquisition timed out — backing off and retrying"
-                        );
-                        tokio::time::sleep(backoff).await;
-                        backoff = (backoff * 2).min(Duration::from_secs(5));
-                        continue;
-                    }
-                    Err(e) => break Err(e),
-                }
-            };
+            let result = call_raw_with_pool_retry(
+                plugins.as_ref(),
+                &plugin_id,
+                &function_name,
+                input_bytes,
+                PoolRetryPolicy::default(),
+            )
+            .await;
 
             match result {
                 Ok(output_bytes) => {

@@ -84,10 +84,13 @@ identifiers in the source impl plans.
 - [x] **PR: result-consumer-concurrency.** UP#3 —
       `process_messages(.., Some(8),     ..)` at
       `packages/server/src/consumers/operation_result.rs:21` (19ffd8d3).
-- [ ] **PR: drop-pool-timeout-429.** UP#4 — remove
-      `PluginError::PoolTimeout →     AppError::RateLimited` mapping at
-      `packages/server/src/error.rs:206-209`. **Bundle with UP#14h sync-hook
-      retry.** _Mapping still present at error.rs:206._
+- [x] **PR: drop-pool-timeout-429.** UP#4 — `PluginError::PoolTimeout` now falls
+      through to `AppError::Internal` (500) at
+      `packages/server/src/error.rs:205-213`; hot-path callers retry
+      transparently via `plugin_core::retry::call_raw_with_pool_retry`
+      (`packages/plugin-core/src/retry.rs`), so a PoolTimeout reaching HTTP
+      mapping is genuine overload, not client-side rate-limit. Bundled with
+      UP#14h sync-hook retry.
 - [x] **PR: stuck-redispatch-interim.** UP#5 — stuck-detector now re-dispatches
       via `tokio::spawn(dispatch_to_plugin(...))` with a
       `retry_count >=     max_dispatch_retries` guard, mirroring the lease/steal
@@ -232,9 +235,13 @@ G testing); UP#14f before Phase B PR-E.
 - [ ] **PR: regression-guard-block-in-place.** UP#14g — CI test asserts
       `host_fn_block_in_place_total == 0` after a 60s integration-test stress
       wave. Fail build with file/line offender hint on violation.
-- [ ] **PR: sync-hook-retry.** UP#14h — copy retry-with-backoff helper from
-      synchronous-evaluator path to hook path. **Pairs with Tranche 1 UP#4 (drop
-      PoolTimeout→429).**
+- [x] **PR: sync-hook-retry.** UP#14h — `PluginHook::on_event` now retries on
+      `PluginError::PoolTimeout` via the shared
+      `plugin_core::retry::call_raw_with_pool_retry` helper
+      (`packages/plugin-core/src/retry.rs`), so blocking and notify hooks no
+      longer fail-closed with a 500 on transient pool contention. Submission
+      dispatch and evaluate-batch were refactored onto the same helper,
+      replacing two inline copy-pasted loops. Paired with Tranche 1 UP#4.
 - [ ] **PR: silent-error-remediation.** UP#14a — replace each of the 10
       `let _ = mark_submission_dispatch_system_error(...)` sites in
       `submission_dispatch.rs` with explicit error-log + counter increment.
