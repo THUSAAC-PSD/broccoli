@@ -1977,4 +1977,104 @@ mod claim_fiber {
             "claim fiber failed to recover a directly-inserted Queued row"
         );
     }
+
+    /// UP#37 residual fix: a non-current `submission_judgement` row
+    /// inserted at `status=Queued` (simulating the deferred-rejudge
+    /// post-commit state) must be picked up by the claim fiber's
+    /// judgement scan and promoted to Pending. Without this path the
+    /// `apply_immediately=false` rejudge silently strands on api crash.
+    #[tokio::test]
+    async fn claim_fiber_recovers_directly_inserted_queued_judgement() {
+        use server::entity::submission_judgement;
+
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+
+        let me = app.get_with_token("/api/v1/auth/me", &user_token).await;
+        let user_id = me.body["id"].as_i64().expect("user id") as i32;
+
+        // First a submission row that's already terminal (mimicking
+        // the deferred-rejudge precondition: a previously-judged
+        // submission with a *new* non-current judgement pending).
+        let now = chrono::Utc::now();
+        let sub = submission::ActiveModel {
+            files: Set(serde_json::json!([
+                {"filename": "main.cpp", "content": "int main(){}"}
+            ])),
+            language: Set("cpp".to_string()),
+            status: Set(common::SubmissionStatus::Judged),
+            user_id: Set(user_id),
+            problem_id: Set(problem_id),
+            contest_id: Set(None),
+            contest_type: Set("ioi".to_string()),
+            created_at: Set(now),
+            judge_epoch: Set(1),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("direct submission insert");
+
+        let queued_judgement = submission_judgement::ActiveModel {
+            submission_id: Set(sub.id),
+            version: Set(2),
+            is_current: Set(false),
+            is_finalized: Set(false),
+            triggered_by_user_id: Set(Some(user_id)),
+            status: Set(common::SubmissionStatus::Queued),
+            judge_epoch: Set(2),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("direct judgement insert at Queued");
+
+        // Poll the judgement row directly — the claim fiber's
+        // judgement scan should flip its status off Queued. We assert
+        // owner_server_id was populated on the judgement (not the
+        // submission, which stays at Judged because the deferred
+        // judgement intentionally doesn't override the displayed
+        // verdict).
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let final_judgement = loop {
+            let row = submission_judgement::Entity::find_by_id(queued_judgement.id)
+                .one(&app.db)
+                .await
+                .expect("db lookup")
+                .expect("judgement row");
+            if row.status.as_str() != "Queued" {
+                break row;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break row;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        assert_ne!(
+            final_judgement.status.as_str(),
+            "Queued",
+            "claim fiber did not promote Queued judgement within 5s"
+        );
+        assert!(
+            final_judgement.owner_server_id.is_some(),
+            "claim fiber should set owner_server_id on promoted judgement"
+        );
+        assert!(
+            final_judgement.lease_heartbeat_at.is_some(),
+            "claim fiber should set lease_heartbeat_at on promoted judgement"
+        );
+        // The submission's own status must NOT have been touched —
+        // the deferred path doesn't override the displayed verdict.
+        let parent = submission::Entity::find_by_id(sub.id)
+            .one(&app.db)
+            .await
+            .expect("db")
+            .expect("submission row");
+        assert_eq!(parent.status.as_str(), "Judged");
+    }
 }

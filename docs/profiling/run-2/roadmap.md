@@ -357,12 +357,14 @@ G testing); UP#14f before Phase B PR-E.
       `tokio::spawn(dispatch_to_plugin(...))` sites to
       `INSERT/UPDATE …     status='Queued'` with no spawn. Sites:
       `packages/server/src/handlers/submission.rs:949-960`
-      (`create_submission`), `:1503-1518` (single rejudge —
-      apply_immediately=true path; deferred apply_immediately=false branch
-      retains a spawn with a doc comment explaining the residual gap),
-      `:1650-1661` (`create_contest_submission`), `:1898-1920,1949-1951`
-      (`bulk_rejudge_submissions` — counter `immediate_queued` keeps the
-      response total honest), `:2050-2070` (`admin_fan_out_submission`);
+      (`create_submission`), `:1502-1538` (single rejudge — both immediate
+      `apply_immediately=true` and deferred `apply_immediately=false` branches
+      are durable; the residual deferred-rejudge silent-loss vector is closed by
+      the **residual-fix follow-up** that inserts non-current judgements at
+      `status=Queued` and adds a judgement scan to the claim fiber, see UP#38
+      below), `:1650-1661` (`create_contest_submission`), `:1880-1937`
+      (`bulk_rejudge_submissions` — single `queued` counter; deferred branch no
+      longer spawns), `:2050-2070` (`admin_fan_out_submission`);
       `packages/server/src/handlers/code_run.rs:188-195` (`run_code`) and
       `:288-295` (`run_contest_code`);
       `packages/server/src/handlers/dlq.rs:198-225` (single retry) and
@@ -388,17 +390,30 @@ G testing); UP#14f before Phase B PR-E.
       `server.claim_fiber_enabled` (default true). Config knobs
       (`packages/server/src/config.rs`): `claim_fiber_enabled`,
       `claim_poll_interval_ms`, `claim_batch_size` with defaults wired into
-      `Config::builder()` and example/test fixtures.
-  - [x] Integration test: in-process equivalent in
-        `packages/server/tests/integration/submission.rs::claim_fiber` (two
-        tests: `claim_fiber_promotes_queued_submission_to_pending` verifies the
+      `Config::builder()` and example/test fixtures. **Residual-fix follow-up**
+      extends the fiber with a third scan against
+      `submission_judgement WHERE status='Queued'` so deferred rejudges
+      (`apply_immediately=false`, which insert non-current judgements at
+      `status=Queued` via `open_rejudge_judgement`) are also picked up:
+      `claim_queued_judgements` in `packages/server/src/dispatcher/claim.rs`
+      mirrors the submission scan, dispatches via
+      `dispatch_to_plugin_with_judgement(..., fire_after_judging=is_current)`,
+      and leaves the parent submission's denormalized cache untouched. Closes
+      the post-commit silent-loss vector for deferred rejudges.
+  - [x] Integration test: in-process equivalents in
+        `packages/server/tests/integration/submission.rs::claim_fiber`:
+        `claim_fiber_promotes_queued_submission_to_pending` verifies the
         durable-accept happy path end-to-end via the POST handler;
         `claim_fiber_recovers_directly_inserted_queued_row` writes a `Queued`
-        row directly via sea-orm — bypassing the POST — to simulate an api crash
-        mid-flight and asserts the fiber still recovers it). The roadmap's "kill
-        api mid-POST" formulation would require subprocess-level control which
-        the testcontainer harness doesn't have today; the direct-insert variant
-        covers the equivalent invariant. Tests blocked from running locally
+        submission row directly via sea-orm — bypassing the POST — to simulate
+        an api crash mid-flight and asserts the fiber still recovers it;
+        `claim_fiber_recovers_directly_inserted_queued_judgement` does the same
+        for a non-current `submission_judgement` row, asserting the fiber
+        promotes the judgement off `Queued` while leaving the parent
+        submission's status unchanged. The roadmap's "kill api mid-POST"
+        formulation would require subprocess-level control which the
+        testcontainer harness doesn't have today; the direct-insert variants
+        cover the equivalent invariant. Tests blocked from running locally
         because OrbStack's daemon would not start in this environment
         (`SocketNotFoundError`); the workspace `cargo     build` and
         `cargo test -p server --lib` are both green.

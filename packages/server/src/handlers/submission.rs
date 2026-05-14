@@ -139,6 +139,24 @@ async fn open_rejudge_judgement(
     }
 
     let now = Utc::now();
+    // For `apply_immediately=true`, the parent submission already goes
+    // to `Queued` (UP#37) and the claim fiber promotes the *submission*;
+    // the new judgement on this branch is the current one and starts at
+    // `Pending` so the dispatch can write its first state transition.
+    //
+    // For `apply_immediately=false` (deferred rejudge) the parent
+    // submission's status is **not** changed — it stays at its previous
+    // terminal state — so the claim fiber's submission scan can't reach
+    // this row. We instead start the *judgement* at `Queued` so the
+    // claim fiber's judgement scan (added in the UP#37-residual fix)
+    // promotes it to Pending and dispatches it. Without this, an api
+    // crash between txn.commit() and the previous handler-side spawn
+    // would silently strand the deferred rejudge forever.
+    let initial_status = if apply_immediately {
+        SubmissionStatus::Pending
+    } else {
+        SubmissionStatus::Queued
+    };
     let new = submission_judgement::ActiveModel {
         submission_id: Set(sub.id),
         version: Set(next_version),
@@ -147,7 +165,7 @@ async fn open_rejudge_judgement(
         triggered_by_user_id: Set(Some(triggered_by_user_id)),
         target_worker_id: Set(target_worker_id),
         note: Set(note),
-        status: Set(SubmissionStatus::Pending),
+        status: Set(initial_status),
         verdict: Set(None),
         score: Set(None),
         time_used: Set(None),
@@ -1521,39 +1539,20 @@ pub async fn rejudge_submission(
 
     txn.commit().await?;
 
-    // UP#37: for `apply_immediately=true` the submission is now in
-    // `Queued` and the claim fiber will dispatch it — no need to spawn
-    // here.
+    // UP#37 + residual fix: both branches are durable now.
     //
-    // The `apply_immediately=false` path is intentionally left as a
-    // direct (synchronous-from-the-handler's-perspective) dispatch. It
-    // creates a NON-current judgement (`is_current=false`) and does
-    // not change the submission's status, so neither the claim fiber
-    // (which scans `submission.status='Queued'`) nor the steal
-    // scanner (which scans `submission_judgement.is_current=TRUE`)
-    // would pick it up. Closing this remaining silent-loss vector
-    // would require either a dedicated claim path for deferred
-    // judgements or rethinking the `apply_immediately=false` UX; both
-    // are out of scope for UP#37.
-    if !payload.apply_immediately {
-        let state_clone = state.clone();
-        let mut dispatch_submission = updated.clone();
-        dispatch_submission.status = SubmissionStatus::Pending;
-        dispatch_submission.judge_epoch = new_epoch;
-        if let Some(target) = new_target {
-            dispatch_submission.target_worker_id = target;
-        }
-        let dispatch_judgement_id = _new_judgement.id;
-        tokio::spawn(async move {
-            dispatch_to_plugin_with_judgement(
-                state_clone,
-                dispatch_submission,
-                Some(dispatch_judgement_id),
-                false,
-            )
-            .await;
-        });
-    }
+    // - `apply_immediately=true` flips the submission row to `Queued`;
+    //   the claim fiber's submission scan promotes it to Pending and
+    //   dispatches.
+    // - `apply_immediately=false` inserts a non-current judgement at
+    //   `status=Queued` (see `open_rejudge_judgement` above); the claim
+    //   fiber's judgement scan picks that up, promotes it to Pending,
+    //   and dispatches via `dispatch_to_plugin_with_judgement` with
+    //   `fire_after_judging=false`.
+    //
+    // No handler-side `tokio::spawn` is needed in either branch — a
+    // crash between txn.commit() and the response no longer loses the
+    // rejudge.
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
@@ -1867,12 +1866,11 @@ pub async fn bulk_rejudge_submissions(
     }
 
     const BATCH_SIZE: usize = 500;
-    let mut all_enqueue_data: Vec<(submission::Model, i32)> = Vec::new();
-    // Track immediate-rejudge count separately from the deferred queue
-    // because UP#37 stops pushing immediate rows into `all_enqueue_data`
-    // (they're claimed by the fiber instead). `queued` in the response
-    // must still match "rows the user successfully re-queued".
-    let mut immediate_queued: usize = 0;
+    // Per-batch counter: rows the user successfully re-queued (immediate
+    // path → submission row in `Queued`; deferred path → judgement row
+    // in `Queued`). After UP#37 + the residual fix, both branches are
+    // claim-fiber-driven and the handler never spawns.
+    let mut queued: usize = 0;
 
     for batch_ids in all_ids.chunks(BATCH_SIZE) {
         let txn = state.db.begin().await?;
@@ -1889,7 +1887,7 @@ pub async fn bulk_rejudge_submissions(
                 None => sub.target_worker_id.clone(),
             };
             let new_epoch = sub.judge_epoch.saturating_add(1);
-            let new_judgement = open_rejudge_judgement(
+            let _new_judgement = open_rejudge_judgement(
                 &txn,
                 sub,
                 auth_user.user_id,
@@ -1920,34 +1918,17 @@ pub async fn bulk_rejudge_submissions(
                     active.target_worker_id = Set(target);
                 }
                 active.update(&txn).await?;
-                immediate_queued += 1;
-                // The submission row is now in `Queued`; the claim
-                // fiber will handle it. We don't queue a direct
-                // dispatch here.
-            } else {
-                let mut dispatch_submission = sub.clone();
-                dispatch_submission.status = SubmissionStatus::Pending;
-                dispatch_submission.judge_epoch = new_epoch;
-                dispatch_submission.target_worker_id = resolved_target;
-                // Deferred-rejudge path: non-current judgement, see
-                // single-submission handler for why this still needs a
-                // direct dispatch.
-                all_enqueue_data.push((dispatch_submission, new_judgement.id));
             }
+            // Deferred branch (`apply_immediately=false`): the
+            // judgement row was inserted at status=Queued (see
+            // `open_rejudge_judgement`); the claim fiber's judgement
+            // scan will dispatch it via
+            // `dispatch_to_plugin_with_judgement(..., fire_after_judging=false)`.
+            // No handler-side spawn.
+            queued += 1;
         }
 
         txn.commit().await?;
-    }
-
-    let queued = immediate_queued + all_enqueue_data.len();
-
-    // Only the deferred (`apply_immediately=false`) path still spawns
-    // here — see UP#37 narrative in single-submission rejudge.
-    for (sub, judgement_id) in all_enqueue_data {
-        let state_clone = state.clone();
-        tokio::spawn(async move {
-            dispatch_to_plugin_with_judgement(state_clone, sub, Some(judgement_id), false).await;
-        });
     }
 
     info!(

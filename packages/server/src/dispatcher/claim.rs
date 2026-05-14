@@ -22,7 +22,7 @@ use sea_orm::{
 use tokio::sync::watch;
 use tracing::{error, info};
 
-use crate::entity::{code_run, submission};
+use crate::entity::{code_run, submission, submission_judgement};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +101,37 @@ async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyho
         let state_clone = state.clone();
         tokio::spawn(async move {
             crate::handlers::code_run::dispatch_to_plugin(state_clone, model).await;
+        });
+    }
+
+    // Deferred-rejudge path (UP#37 residual fix). Non-current
+    // judgements created by `apply_immediately=false` start at
+    // `status=Queued` so the post-commit silent-loss window is closed
+    // symmetrically with the submission path. The parent submission's
+    // own status is unchanged for these rows, so the submission scan
+    // above doesn't reach them — the judgement scan does.
+    let judgement_pairs = claim_queued_judgements(state, server_id, batch_size).await?;
+    for (sub_model, judgement_model) in judgement_pairs {
+        let state_clone = state.clone();
+        let judgement_id = judgement_model.id;
+        let is_current = judgement_model.is_current;
+        tokio::spawn(async move {
+            crate::handlers::submission::dispatch_to_plugin_with_judgement(
+                state_clone,
+                sub_model,
+                Some(judgement_id),
+                // `fire_after_judging` mirrors `is_current`: the
+                // deferred path was originally spawned with
+                // `false`, and that's still correct here — the
+                // judgement isn't the displayed verdict, so hooks
+                // shouldn't fire for it. A judgement reached this
+                // path with `is_current=true` only if a future
+                // refactor routes immediate-apply through this
+                // scan, in which case the caller will have flipped
+                // `is_current` and hooks should fire.
+                is_current,
+            )
+            .await;
         });
     }
 
@@ -224,6 +255,102 @@ async fn claim_queued_code_runs(
     }
 
     Ok(models)
+}
+
+/// Claims deferred-rejudge judgement rows (`status='Queued'` on the
+/// `submission_judgement` table) and returns them paired with their
+/// parent submission model — the dispatch path needs both.
+///
+/// Mirrors `claim_queued_submissions` shape: SELECT FOR UPDATE SKIP
+/// LOCKED, in-txn UPDATE to Pending, refetch, commit. The parent
+/// submission's denormalized columns are left untouched — by design,
+/// a deferred rejudge's outcome doesn't override the current verdict
+/// until an admin explicitly applies it.
+async fn claim_queued_judgements(
+    state: &AppState,
+    server_id: &str,
+    batch_size: u32,
+) -> anyhow::Result<Vec<(submission::Model, submission_judgement::Model)>> {
+    let txn = state.db.begin().await?;
+    let rows = select_queued_rows(&txn, "submission_judgement", batch_size).await?;
+
+    if rows.is_empty() {
+        txn.commit().await?;
+        return Ok(Vec::new());
+    }
+
+    let ids: Vec<i32> = rows.iter().map(|r| r.id).collect();
+
+    submission_judgement::Entity::update_many()
+        .col_expr(
+            submission_judgement::Column::Status,
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+        )
+        .col_expr(
+            submission_judgement::Column::OwnerServerId,
+            sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+        )
+        .col_expr(
+            submission_judgement::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::cust("NOW()").into(),
+        )
+        .col_expr(
+            submission_judgement::Column::RetryCount,
+            sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount)
+                .add(1)
+                .into(),
+        )
+        .filter(submission_judgement::Column::Id.is_in(ids.clone()))
+        .filter(submission_judgement::Column::Status.eq(SubmissionStatus::Queued))
+        .exec(&txn)
+        .await?;
+
+    let judgements = submission_judgement::Entity::find()
+        .filter(submission_judgement::Column::Id.is_in(ids))
+        .all(&txn)
+        .await?;
+
+    // Re-fetch each parent submission in the same txn so dispatch
+    // sees a consistent snapshot. Submissions for deferred rejudge
+    // are not locked here — we don't mutate them and a concurrent
+    // current-judgement claim acts on a different row.
+    let sub_ids: Vec<i32> = judgements.iter().map(|j| j.submission_id).collect();
+    let submissions = submission::Entity::find()
+        .filter(submission::Column::Id.is_in(sub_ids))
+        .all(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    use std::collections::HashMap;
+    let sub_by_id: HashMap<i32, submission::Model> =
+        submissions.into_iter().map(|s| (s.id, s)).collect();
+
+    let mut pairs = Vec::with_capacity(judgements.len());
+    for j in judgements {
+        if let Some(s) = sub_by_id.get(&j.submission_id).cloned() {
+            pairs.push((s, j));
+        } else {
+            // Parent submission vanished between SELECT and JOIN —
+            // exceedingly unlikely (deletes are guarded) but log and
+            // skip rather than panic.
+            tracing::warn!(
+                judgement_id = j.id,
+                submission_id = j.submission_id,
+                "Claim fiber: parent submission missing for queued judgement; skipping"
+            );
+        }
+    }
+
+    if !pairs.is_empty() {
+        info!(
+            server_id,
+            claimed = pairs.len(),
+            "Claim fiber promoted deferred judgements Queued -> Pending"
+        );
+    }
+
+    Ok(pairs)
 }
 
 /// Selects a bounded batch of `Queued` rows from the named table with
