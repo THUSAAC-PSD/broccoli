@@ -242,11 +242,17 @@ G testing); UP#14f before Phase B PR-E.
       longer fail-closed with a 500 on transient pool contention. Submission
       dispatch and evaluate-batch were refactored onto the same helper,
       replacing two inline copy-pasted loops. Paired with Tranche 1 UP#4.
-- [ ] **PR: silent-error-remediation.** UP#14a — replace each of the 10
+- [x] **PR: silent-error-remediation.** UP#14a — replaced each of the 9
       `let _ = mark_submission_dispatch_system_error(...)` sites in
-      `submission_dispatch.rs` with explicit error-log + counter increment.
-  - [ ] Acceptance: `submission_dispatch_failure_total` counter emitted with
-        submission_id, error_code labels.
+      `packages/server/src/services/submission_dispatch.rs` with a
+      `record_dispatch_failure` helper that emits a structured error log on
+      SystemError persistence failure and increments a counter regardless.
+  - [x] Acceptance: `broccoli.submission_dispatch.failures` counter emitted with
+        error_code, recovered labels (submission_id on the structured error
+        event, not the counter — Prometheus cardinality). Counter defined in
+        `packages/common/src/metrics.rs` (`submission_dispatch_failure_total`);
+        helper at `packages/server/src/services/submission_dispatch.rs`
+        (`record_dispatch_failure`).
 
 ### Phase C — worker cache leader-election
 

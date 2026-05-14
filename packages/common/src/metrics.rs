@@ -43,6 +43,8 @@ pub struct Metrics {
     pub batch_evaluator_fanout_wait_duration: Histogram<f64>,
     pub batch_evaluator_fanout_saturated_total: Counter<u64>,
 
+    pub submission_dispatch_failure_total: Counter<u64>,
+
     pub operation_result_messages_total: Counter<u64>,
     pub operation_result_consume_duration: Histogram<f64>,
 
@@ -303,6 +305,14 @@ impl Metrics {
                 .with_description(
                     "Total number of evaluator fan-out acquires that had to block on a permit \
                      (vs. acquiring immediately). UP#14b backpressure signal.",
+                )
+                .build(),
+
+            submission_dispatch_failure_total: meter
+                .u64_counter("broccoli.submission_dispatch.failures")
+                .with_description(
+                    "Total submissions that hit a dispatch failure. Labels: error_code \
+                     (cause), recovered (true if SystemError was persisted to DB).",
                 )
                 .build(),
 

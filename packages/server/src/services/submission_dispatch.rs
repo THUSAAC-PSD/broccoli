@@ -172,6 +172,46 @@ async fn mark_submission_dispatch_system_error(
     .await
 }
 
+async fn record_dispatch_failure(
+    db: &DatabaseConnection,
+    metrics: &common::metrics::Metrics,
+    submission_id: i32,
+    judgement_id: i32,
+    error_code: &'static str,
+    error_message: &str,
+    judge_epoch: i32,
+) {
+    let recovered = match mark_submission_dispatch_system_error(
+        db,
+        submission_id,
+        judgement_id,
+        error_code,
+        error_message,
+        judge_epoch,
+    )
+    .await
+    {
+        Ok(()) => true,
+        Err(e) => {
+            error!(
+                submission_id,
+                judgement_id,
+                error_code,
+                marking_error = %e,
+                "Failed to persist submission SystemError — submission left non-terminal, stuck-detector will retry"
+            );
+            false
+        }
+    };
+    metrics.submission_dispatch_failure_total.add(
+        1,
+        &[
+            opentelemetry::KeyValue::new("error_code", error_code),
+            opentelemetry::KeyValue::new("recovered", recovered),
+        ],
+    );
+}
+
 #[instrument(skip(state), fields(submission_id = submission.id))]
 pub(crate) async fn dispatch_submission_to_plugin(state: AppState, submission: submission::Model) {
     dispatch_submission_to_plugin_with_judgement(state, submission, None, true).await;
@@ -225,8 +265,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                 contest_type = ?contest_type,
                 "No plugin registered for contest type"
             );
-            let _ = mark_submission_dispatch_system_error(
+            record_dispatch_failure(
                 &state.db,
+                &state.metrics,
                 submission.id,
                 judgement_id,
                 "NO_HANDLER_REGISTERED",
@@ -245,8 +286,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
         Ok(Some(p)) => p,
         Ok(None) => {
             error!(problem_id = submission.problem_id, "Problem not found");
-            let _ = mark_submission_dispatch_system_error(
+            record_dispatch_failure(
                 &state.db,
+                &state.metrics,
                 submission.id,
                 judgement_id,
                 "PROBLEM_NOT_FOUND",
@@ -258,8 +300,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
         }
         Err(e) => {
             error!(error = %e, "DB error fetching problem");
-            let _ = mark_submission_dispatch_system_error(
+            record_dispatch_failure(
                 &state.db,
+                &state.metrics,
                 submission.id,
                 judgement_id,
                 "DATABASE_ERROR",
@@ -275,8 +318,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
         Ok(f) => f,
         Err(e) => {
             error!(error = %e, "Failed to parse submission files");
-            let _ = mark_submission_dispatch_system_error(
+            record_dispatch_failure(
                 &state.db,
+                &state.metrics,
                 submission.id,
                 judgement_id,
                 "INVALID_FILES",
@@ -318,8 +362,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
             Ok(tcs) => tcs,
             Err(e) => {
                 error!(error = %e, "Failed to query test cases");
-                let _ = mark_submission_dispatch_system_error(
+                record_dispatch_failure(
                     &state.db,
+                    &state.metrics,
                     submission.id,
                     judgement_id,
                     "DATABASE_ERROR",
@@ -366,8 +411,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
         Ok(b) => b,
         Err(e) => {
             error!(error = %e, "Failed to serialize plugin input");
-            let _ = mark_submission_dispatch_system_error(
+            record_dispatch_failure(
                 &state.db,
+                &state.metrics,
                 submission.id,
                 judgement_id,
                 "SERIALIZATION_ERROR",
@@ -384,6 +430,7 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
     let plugins = state.plugins.clone();
     let hook_registry = state.registries.hook_registry.clone();
     let db = state.db.clone();
+    let metrics = state.metrics.clone();
     let submission_id = submission.id;
     let judge_epoch = submission.judge_epoch;
     let user_id = submission.user_id;
@@ -435,8 +482,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                                     error = ?output.error_message,
                                     "Plugin reported failure"
                                 );
-                                let _ = mark_submission_dispatch_system_error(
+                                record_dispatch_failure(
                                     &db,
+                                    &metrics,
                                     submission_id,
                                     judgement_id,
                                     "PLUGIN_ERROR",
@@ -458,8 +506,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                         }
                         Err(e) => {
                             error!(submission_id, judgement_id, problem_id, contest_id = ?contest_id, error = %e, "Failed to parse plugin output");
-                            let _ = mark_submission_dispatch_system_error(
+                            record_dispatch_failure(
                                 &db,
+                                &metrics,
                                 submission_id,
                                 judgement_id,
                                 "PLUGIN_INVALID_OUTPUT",
@@ -472,8 +521,9 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                 }
                 Err(e) => {
                     error!(submission_id, judgement_id, problem_id, contest_id = ?contest_id, error = %e, "Plugin execution failed");
-                    let _ = mark_submission_dispatch_system_error(
+                    record_dispatch_failure(
                         &db,
+                        &metrics,
                         submission_id,
                         judgement_id,
                         "PLUGIN_EXECUTION_ERROR",
