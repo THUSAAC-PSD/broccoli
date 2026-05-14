@@ -72,9 +72,38 @@ pub struct ServerConfig {
     pub dispatcher_semaphore_enabled: bool,
     #[serde(default = "default_dispatcher_concurrency")]
     pub dispatcher_concurrency: u32,
-    /// Per-server cap on dispatch tasks waiting for a semaphore permit.
-    /// Multi-replica deployments get an aggregate cap of roughly
-    /// `max_queued_submissions * live_server_replicas`.
+    /// Per-server cap on in-process dispatch tasks waiting on the
+    /// dispatcher semaphore. Post-UP#37 the durable accept path
+    /// (POST → INSERT `Queued` → claim fiber → dispatch) no longer
+    /// passes through the dispatcher semaphore at ingress — only the
+    /// steal-scanner (`dispatcher/steal.rs`) still calls
+    /// `dispatcher_permits.reserve()` before spawning a re-dispatch
+    /// task. Tune this to bound spawn bursts on a single server when
+    /// the steal scanner picks up many orphaned rows at once.
+    ///
+    /// Historically named `max_queued_submissions`; renamed in UP#39
+    /// so that name could be repurposed as the **DB-row backpressure
+    /// cap** at POST ingress, matching its plain-English meaning.
+    #[serde(default = "default_dispatcher_admission_queue_max")]
+    pub dispatcher_admission_queue_max: u32,
+    /// Per-server cap on the **durable `Queued` queue depth** observed
+    /// in the `submission`, `code_run`, and `submission_judgement`
+    /// tables combined. When the live count is at or above this value,
+    /// POST endpoints that would insert a new `Queued` row reject with
+    /// `429 Too Many Requests` + `Retry-After` rather than enqueueing
+    /// more work (UP#39 backpressure-on-post).
+    ///
+    /// Multi-replica deployments share the DB, so this cap is observed
+    /// fleet-wide via `SELECT COUNT(*) WHERE status='Queued'` — not
+    /// per-replica. Each replica makes the same decision independently
+    /// without coordination.
+    ///
+    /// Default 5000. `0` disables the cap entirely (used by integration
+    /// tests that do not exercise backpressure). Tune by observing the
+    /// `Queued` p95 depth during a load test — when claim fibers can
+    /// drain `Queued` rows at a steady rate `R` rows/sec, a cap of
+    /// `R * acceptable_latency_seconds` keeps p95 POST→dispatch latency
+    /// bounded.
     #[serde(default = "default_max_queued_submissions")]
     pub max_queued_submissions: u32,
     #[serde(default = "default_lease_ttl_secs")]
@@ -197,8 +226,14 @@ fn default_dispatcher_concurrency() -> u32 {
     16
 }
 
-fn default_max_queued_submissions() -> u32 {
+fn default_dispatcher_admission_queue_max() -> u32 {
     100
+}
+
+fn default_max_queued_submissions() -> u32 {
+    // 5000 — the durable `Queued` row depth at which UP#39
+    // backpressure kicks in. Set to `0` to disable.
+    5000
 }
 
 fn default_lease_ttl_secs() -> u64 {
@@ -517,7 +552,8 @@ impl AppConfig {
             .set_default("server.dispatcher_lease_steal_enabled", false)?
             .set_default("server.dispatcher_semaphore_enabled", true)?
             .set_default("server.dispatcher_concurrency", 16_i64)?
-            .set_default("server.max_queued_submissions", 100_i64)?
+            .set_default("server.dispatcher_admission_queue_max", 100_i64)?
+            .set_default("server.max_queued_submissions", 5000_i64)?
             .set_default("server.lease_ttl_secs", 60_i64)?
             .set_default("server.lease_refresh_interval_secs", 10_i64)?
             .set_default("server.steal_scan_interval_secs", 15_i64)?
@@ -683,6 +719,7 @@ mod tests {
             dispatcher_lease_steal_enabled: false,
             dispatcher_semaphore_enabled: default_dispatcher_semaphore_enabled(),
             dispatcher_concurrency: default_dispatcher_concurrency(),
+            dispatcher_admission_queue_max: default_dispatcher_admission_queue_max(),
             max_queued_submissions: default_max_queued_submissions(),
             lease_ttl_secs: default_lease_ttl_secs(),
             lease_refresh_interval_secs: default_lease_refresh_interval_secs(),

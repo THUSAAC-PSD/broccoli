@@ -3,6 +3,7 @@ pub mod fanout;
 pub mod fleet_capacity;
 pub mod lease;
 pub mod permits;
+pub mod queue_depth;
 pub mod steal;
 pub mod sweeper;
 

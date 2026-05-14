@@ -2078,3 +2078,266 @@ mod claim_fiber {
         assert_eq!(parent.status.as_str(), "Judged");
     }
 }
+
+/// UP#39 backpressure-on-post — `server.max_queued_submissions` caps
+/// the durable `Queued` row depth across `submission`, `code_run`,
+/// and `submission_judgement`. POST endpoints that would insert a
+/// new `Queued` row return 429 + `Retry-After` when the cap is hit.
+mod backpressure {
+    use super::*;
+    use crate::common::SpawnOptions;
+    use chrono::Utc;
+    use sea_orm::{ActiveModelTrait, Set};
+    use server::entity::submission;
+
+    /// Inserts `n` placeholder `Queued` rows directly into the
+    /// `submission` table, bypassing the API. Returns once the
+    /// COUNT(*) the handler will observe is at least `n`.
+    ///
+    /// Done directly via sea-orm (not via POST) because each POST
+    /// would itself be subject to the cap under test. Pre-staging
+    /// also lets us land on an exact depth deterministically.
+    async fn stage_queued_submissions(app: &TestApp, user_id: i32, problem_id: i32, n: usize) {
+        for _ in 0..n {
+            let row = submission::ActiveModel {
+                files: Set(serde_json::json!([
+                    {"filename": "main.cpp", "content": "int main(){}"}
+                ])),
+                language: Set("cpp".into()),
+                status: Set(common::SubmissionStatus::Queued),
+                user_id: Set(user_id),
+                problem_id: Set(problem_id),
+                contest_id: Set(None),
+                contest_type: Set("standard".into()),
+                created_at: Set(Utc::now()),
+                ..Default::default()
+            };
+            row.insert(&app.db).await.expect("stage queued row");
+        }
+    }
+
+    async fn fetch_user_id(app: &TestApp, username: &str) -> i32 {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        let row = server::entity::user::Entity::find()
+            .filter(server::entity::user::Column::Username.eq(username))
+            .one(&app.db)
+            .await
+            .expect("db")
+            .expect("user row");
+        row.id
+    }
+
+    /// **Test 1**: when `max_queued_submissions=1`, the very first
+    /// POST that pushes the depth to the cap is accepted, and the
+    /// next POST is rejected with 429 + `Retry-After`. The 429 path
+    /// runs through `AppError::RateLimited` so the response body has
+    /// `code=RATE_LIMITED` and the header is set as integer seconds.
+    #[tokio::test]
+    async fn rejects_with_429_when_queue_depth_at_cap() {
+        let app = TestApp::spawn_with_options(SpawnOptions {
+            max_queued_submissions: Some(1),
+            disable_claim_fiber: true,
+        })
+        .await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        let user_id = fetch_user_id(&app, "user1").await;
+
+        // Pre-stage one `Queued` row so the next POST observes
+        // depth >= cap. Direct DB insert dodges the cap (which is
+        // checked only in the handler) and is the only way to land
+        // on exactly depth=1.
+        stage_queued_submissions(&app, user_id, problem_id, 1).await;
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
+            .await;
+
+        assert_eq!(
+            res.status, 429,
+            "expected 429 once durable Queued depth reaches cap; got body={}",
+            res.text
+        );
+        assert_eq!(res.body["code"], "RATE_LIMITED");
+        // Retry-After must be set (RFC 6585) so clients know when
+        // to retry. We don't pin a specific value to keep the const
+        // free to evolve.
+        let retry_after = res
+            .headers
+            .get("Retry-After")
+            .expect("Retry-After header should be present on 429 backpressure response");
+        let parsed: u64 = retry_after
+            .to_str()
+            .expect("Retry-After should be ASCII")
+            .parse()
+            .expect("Retry-After should be integer seconds");
+        assert!(parsed > 0, "Retry-After must be a positive integer");
+    }
+
+    /// **Test 2**: when the queue is empty, POST succeeds even with
+    /// a low cap. This is the "cap is permissive when fleet is
+    /// idle" baseline that any false-positive backpressure logic
+    /// (e.g., off-by-one on the comparison operator, double-counting
+    /// across tables) would break.
+    #[tokio::test]
+    async fn accepts_when_queue_is_below_cap() {
+        let app = TestApp::spawn_with_options(SpawnOptions {
+            max_queued_submissions: Some(10),
+            disable_claim_fiber: true,
+        })
+        .await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
+            .await;
+
+        assert_eq!(
+            res.status, 201,
+            "expected 201 when queue is empty; got body={}",
+            res.text
+        );
+        assert_eq!(res.body["status"], "Queued");
+    }
+
+    /// **Test 3**: covers a second site (`run_code`) to confirm the
+    /// admission check is wired at the code-run endpoint too. Same
+    /// pre-staged-depth pattern: one direct-insert into the
+    /// `submission` table is enough to trip the cap because
+    /// `count_queued_rows` sums depth across the three durable-accept
+    /// tables (`submission`, `code_run`, `submission_judgement`),
+    /// not just the table being written.
+    #[tokio::test]
+    async fn run_code_rejects_when_queue_depth_at_cap() {
+        let app = TestApp::spawn_with_options(SpawnOptions {
+            max_queued_submissions: Some(1),
+            disable_claim_fiber: true,
+        })
+        .await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        let user_id = fetch_user_id(&app, "user1").await;
+
+        stage_queued_submissions(&app, user_id, problem_id, 1).await;
+
+        let body = serde_json::json!({
+            "files": [{"filename": "main.cpp", "content": "int main(){}"}],
+            "language": "cpp",
+            "custom_test_cases": [{"input": "1\n"}],
+        });
+        let res = app
+            .post_with_token(&routes::problem_code_runs(problem_id), &body, &user_token)
+            .await;
+
+        assert_eq!(res.status, 429);
+        assert_eq!(res.body["code"], "RATE_LIMITED");
+    }
+
+    /// **Test 4**: covers `rejudge_submission` — confirms that
+    /// non-ingress write paths that also insert a `Queued` row are
+    /// gated by the same cap. Picks the deferred-rejudge branch
+    /// (`apply_immediately=false`) because that one writes the
+    /// `Queued` row into `submission_judgement`, not `submission`,
+    /// proving the count helper sums correctly across tables.
+    #[tokio::test]
+    async fn rejudge_rejects_when_queue_depth_at_cap() {
+        let app = TestApp::spawn_with_options(SpawnOptions {
+            max_queued_submissions: Some(1),
+            disable_claim_fiber: true,
+        })
+        .await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let _user_token = app.create_authenticated_user("user1", "pass1234").await;
+        let user_id = fetch_user_id(&app, "user1").await;
+
+        // Stage two rows: one to *be* the submission targeted by
+        // rejudge (any non-terminal status would do; `Judged` is the
+        // canonical "ready to rejudge" state), and one to pin
+        // the durable-Queued depth at the cap. We have to write the
+        // target submission with `Judged` so it isn't itself counted
+        // toward the cap — otherwise we couldn't distinguish "cap
+        // tripped by setup" from "cap tripped by the handler".
+        let target = submission::ActiveModel {
+            files: Set(serde_json::json!([
+                {"filename": "main.cpp", "content": "int main(){}"}
+            ])),
+            language: Set("cpp".into()),
+            status: Set(common::SubmissionStatus::Judged),
+            user_id: Set(user_id),
+            problem_id: Set(problem_id),
+            contest_id: Set(None),
+            contest_type: Set("standard".into()),
+            created_at: Set(Utc::now()),
+            ..Default::default()
+        };
+        let target = target.insert(&app.db).await.expect("insert target");
+        stage_queued_submissions(&app, user_id, problem_id, 1).await;
+
+        // Rejudge admin permission piggybacks on `admin`.
+        let body = serde_json::json!({ "apply_immediately": false });
+        let res = app
+            .post_with_token(
+                &format!("/api/v1/submissions/{}/rejudge", target.id),
+                &body,
+                &admin_token,
+            )
+            .await;
+
+        assert_eq!(
+            res.status, 429,
+            "rejudge should observe the durable-Queued cap; got body={}",
+            res.text
+        );
+        assert_eq!(res.body["code"], "RATE_LIMITED");
+    }
+
+    /// **Test 5**: `max_queued_submissions=0` disables the check
+    /// (used by all tests outside this module). Even with a packed
+    /// queue, the POST is accepted. Without this escape hatch, the
+    /// fixture default would have to track a moving target every
+    /// time the production default changes.
+    #[tokio::test]
+    async fn cap_of_zero_disables_backpressure() {
+        let app = TestApp::spawn_with_options(SpawnOptions {
+            max_queued_submissions: Some(0),
+            disable_claim_fiber: true,
+        })
+        .await;
+        let admin_token = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin_token, "Test Problem").await;
+        let user_token = app.create_authenticated_user("user1", "pass1234").await;
+        let user_id = fetch_user_id(&app, "user1").await;
+
+        // 50 staged rows would trip *any* sane cap; with cap=0 the
+        // handler should not even count them.
+        stage_queued_submissions(&app, user_id, problem_id, 50).await;
+
+        let body = valid_submission_body("cpp");
+        let res = app
+            .post_with_token(&routes::problem_submissions(problem_id), &body, &user_token)
+            .await;
+
+        assert_eq!(
+            res.status, 201,
+            "cap=0 should be a no-op; got body={}",
+            res.text
+        );
+    }
+}

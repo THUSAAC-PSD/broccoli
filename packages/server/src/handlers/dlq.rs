@@ -11,6 +11,7 @@ use sea_orm::{
 };
 use tracing::{info, instrument, warn};
 
+use crate::dispatcher::queue_depth::enforce_queue_depth_admission;
 use crate::dlq::{DlqService, ResolveResult, dlq_service};
 use crate::entity::{dead_letter_message, submission};
 use crate::error::{AppError, ErrorBody};
@@ -147,6 +148,7 @@ pub async fn get_dlq_message(
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Message or submission not found (NOT_FOUND)", body = ErrorBody),
         (status = 409, description = "Message already resolved (CONFLICT)", body = ErrorBody),
+        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -157,6 +159,10 @@ pub async fn retry_dlq_message(
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<DlqRetryResponse>, AppError> {
     auth_user.require_permission("dlq:manage")?;
+    // UP#39 backpressure-on-post: DLQ retry flips the submission back
+    // into `Queued` (see comment below the update). Treat it as a
+    // fresh durable-accept and apply the same cap.
+    enforce_queue_depth_admission(&state).await?;
 
     let txn = state.db.begin().await?;
 
@@ -288,6 +294,7 @@ pub async fn delete_dlq_message(
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -299,6 +306,10 @@ pub async fn bulk_retry_dlq(
 ) -> Result<Json<BulkRetryDlqResponse>, AppError> {
     auth_user.require_permission("dlq:manage")?;
     validate_bulk_retry_dlq(&payload)?;
+    // UP#39 backpressure-on-post: bulk DLQ retry flips many
+    // submissions back to `Queued`. Same sampling-before-bulk-insert
+    // tradeoff as `bulk_rejudge_submissions`.
+    enforce_queue_depth_admission(&state).await?;
 
     let message_ids: Vec<i32> = if let Some(ref ids) = payload.message_ids {
         ids.clone()

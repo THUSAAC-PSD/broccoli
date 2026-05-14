@@ -420,6 +420,9 @@ impl E2eTestApp {
                 dispatcher_lease_steal_enabled: false,
                 dispatcher_semaphore_enabled: false,
                 dispatcher_concurrency: 1,
+                dispatcher_admission_queue_max: 0,
+                // UP#39: disable durable Queued-depth backpressure in e2e
+                // by default; tests opt in if they need to exercise it.
                 max_queued_submissions: 0,
                 lease_ttl_secs: 60,
                 lease_refresh_interval_secs: 10,

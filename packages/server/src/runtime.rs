@@ -269,7 +269,7 @@ impl ServerRuntime {
         let dispatcher_permits = crate::dispatcher::permits::DispatcherSemaphore::new(
             app_config.server.dispatcher_semaphore_enabled,
             app_config.server.dispatcher_concurrency as usize,
-            app_config.server.max_queued_submissions as usize,
+            app_config.server.dispatcher_admission_queue_max as usize,
         );
 
         let state = AppState {

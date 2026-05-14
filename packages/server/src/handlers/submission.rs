@@ -17,6 +17,7 @@ use tracing::{info, instrument};
 
 use plugin_core::traits::PluginManagerExt;
 
+use crate::dispatcher::queue_depth::enforce_queue_depth_admission;
 use crate::entity::{
     contest, problem, submission, submission_judgement, test_case, test_case_result, user,
 };
@@ -913,6 +914,9 @@ pub async fn create_submission(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
+    // UP#39 backpressure-on-post: shed load before opening a txn so
+    // the rejected request never holds a connection or a row lock.
+    enforce_queue_depth_admission(&state).await?;
 
     let txn = state.db.begin().await?;
 
@@ -1440,6 +1444,7 @@ pub struct RejudgeQuery {
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Submission not found (NOT_FOUND)", body = ErrorBody),
+        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1459,6 +1464,12 @@ pub async fn rejudge_submission(
         serde_json::from_slice::<RejudgeRequest>(&body)
             .map_err(|e| AppError::Validation(format!("Invalid rejudge request body: {e}")))?
     };
+    // UP#39 backpressure-on-post: covers both branches of this
+    // handler — `apply_immediately=true` inserts a `Queued` row into
+    // `submission`, `apply_immediately=false` inserts one into
+    // `submission_judgement`. Both are counted in
+    // `count_queued_rows()` so the cap applies uniformly.
+    enforce_queue_depth_admission(&state).await?;
 
     let requested_target = payload
         .target_worker_id
@@ -1604,6 +1615,8 @@ pub async fn create_contest_submission(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
+    // UP#39 backpressure-on-post: same rationale as `create_submission`.
+    enforce_queue_depth_admission(&state).await?;
 
     let contest_id = id;
     let txn = state.db.begin().await?;
@@ -1814,6 +1827,7 @@ pub async fn list_contest_submissions(
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1825,6 +1839,16 @@ pub async fn bulk_rejudge_submissions(
 ) -> Result<Json<BulkRejudgeResponse>, AppError> {
     auth_user.require_permission("submission:rejudge")?;
     validate_bulk_rejudge(&payload)?;
+    // UP#39 backpressure-on-post: bulk rejudge can insert hundreds of
+    // `Queued` rows in one call. The check here samples the depth
+    // **before** the bulk insert, which is intentionally permissive:
+    // the cap is a steady-state circuit-breaker, not a strict per-row
+    // gate. A bulk request that arrives just below the cap may take
+    // the depth meaningfully past it for the rest of that call's
+    // duration; the next caller will be rejected, restoring
+    // equilibrium. Sampling per-row would serialize bulk-rejudge into
+    // hundreds of count round-trips and defeat the bulk endpoint.
+    enforce_queue_depth_admission(&state).await?;
 
     // `target_worker_id=Some("")` is a sentinel for "clear pin"; any explicit
     // routing change requires admin. `None` means leave existing pins alone.
@@ -1957,6 +1981,7 @@ pub fn submission_body_limit(max_size: usize) -> axum::extract::DefaultBodyLimit
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem or contest not found (NOT_FOUND)", body = ErrorBody),
+        (status = 429, description = "Durable queue depth exceeded (RATE_LIMITED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -1973,6 +1998,12 @@ pub async fn admin_fan_out_submission(
         &payload.language,
         state.config.submission.max_size,
     )?;
+    // UP#39 backpressure-on-post: admin fan-out inserts one `Queued`
+    // row per target worker, so the same sampling-before-bulk-insert
+    // tradeoff applies as `bulk_rejudge_submissions`. A successful
+    // fan-out may temporarily exceed the cap; subsequent callers
+    // observe the bumped depth and back off.
+    enforce_queue_depth_admission(&state).await?;
 
     let live_workers = crate::handlers::system::live_worker_ids(&state).await;
     let mut offline: Vec<&str> = payload

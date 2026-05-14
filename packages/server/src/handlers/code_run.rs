@@ -7,6 +7,7 @@ use common::SubmissionStatus;
 use sea_orm::*;
 use tracing::instrument;
 
+use crate::dispatcher::queue_depth::enforce_queue_depth_admission;
 use crate::entity::{code_run, code_run_result, problem, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -161,6 +162,11 @@ pub async fn run_code(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
+    // UP#39 backpressure-on-post: code-run rows ride the same
+    // durable-accept lifecycle as submissions (see
+    // `submission::create_submission`) and are counted toward the
+    // same cap.
+    enforce_queue_depth_admission(&state).await?;
 
     let txn = state.db.begin().await?;
     let problem = find_problem(&txn, problem_id).await?;
@@ -244,6 +250,8 @@ pub async fn run_contest_code(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
+    // UP#39 backpressure-on-post: same rationale as `run_code`.
+    enforce_queue_depth_admission(&state).await?;
 
     let contest_id = id;
     let txn = state.db.begin().await?;

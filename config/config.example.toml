@@ -12,6 +12,17 @@ port = 3000
 # to the wrong replica.
 id = ""
 
+# UP#39 backpressure-on-post: cap on durable `Queued` rows across
+# `submission`, `code_run`, and `submission_judgement` combined. When
+# the live depth is at or above this value, POST endpoints that would
+# insert a new `Queued` row return 429 + Retry-After instead of
+# accepting more work. Set to 0 to disable. Default 5000.
+max_queued_submissions = 5000
+# Per-server cap on in-process dispatch tasks waiting on the
+# dispatcher semaphore. Bounds spawn bursts when the steal-scanner
+# picks up many orphaned rows at once. Default 100.
+dispatcher_admission_queue_max = 100
+
 [server.cors]
 allow_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
 max_age = 3600

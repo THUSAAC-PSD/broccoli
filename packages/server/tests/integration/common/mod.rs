@@ -514,16 +514,37 @@ pub struct TestResponse {
     pub body: Value,
 }
 
+/// Per-test config knobs that diverge from the default fixture in
+/// `Self::spawn_internal`. Add a field here when a test needs to
+/// observe a non-default `ServerConfig` value rather than copy-pasting
+/// the entire fixture in the test.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SpawnOptions {
+    /// UP#39: cap on durable `Queued` rows accepted at POST time.
+    /// `Some(0)` (the fixture default) disables the cap; `Some(n)`
+    /// trips backpressure once depth reaches `n`. `None` keeps the
+    /// fixture default (disabled).
+    pub max_queued_submissions: Option<u32>,
+    /// Disable the UP#38 claim fiber. Required for backpressure
+    /// tests that pre-stage `Queued` rows directly — otherwise the
+    /// fiber drains them before the test can observe the cap.
+    pub disable_claim_fiber: bool,
+}
+
 impl TestApp {
     pub async fn spawn() -> Self {
-        Self::spawn_internal(false).await
+        Self::spawn_internal(false, SpawnOptions::default()).await
     }
 
     pub async fn spawn_with_plugins() -> Self {
-        Self::spawn_internal(true).await
+        Self::spawn_internal(true, SpawnOptions::default()).await
     }
 
-    async fn spawn_internal(load_plugins: bool) -> Self {
+    pub async fn spawn_with_options(options: SpawnOptions) -> Self {
+        Self::spawn_internal(false, options).await
+    }
+
+    async fn spawn_internal(load_plugins: bool, options: SpawnOptions) -> Self {
         let port = shared_pg_port().await;
         let db_name = format!("test_{}", DB_COUNTER.fetch_add(1, Ordering::Relaxed));
 
@@ -546,7 +567,7 @@ impl TestApp {
             .await
             .expect("Failed to initialize blob store");
 
-        let app_config = AppConfig {
+        let mut app_config = AppConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 0,
@@ -562,6 +583,11 @@ impl TestApp {
                 dispatcher_lease_steal_enabled: false,
                 dispatcher_semaphore_enabled: false,
                 dispatcher_concurrency: 1,
+                dispatcher_admission_queue_max: 0,
+                // UP#39: 0 disables the durable Queued-depth cap so the
+                // bulk of integration tests don't have to reason about
+                // backpressure. Tests that exercise the cap call
+                // `spawn_with_options(SpawnOptions { max_queued_submissions: ... })`.
                 max_queued_submissions: 0,
                 lease_ttl_secs: 60,
                 lease_refresh_interval_secs: 10,
@@ -607,6 +633,13 @@ impl TestApp {
             batch_max_age_secs: 600,
             bootstrap: BootstrapConfig::default(),
         };
+
+        if let Some(cap) = options.max_queued_submissions {
+            app_config.server.max_queued_submissions = cap;
+        }
+        if options.disable_claim_fiber {
+            app_config.server.claim_fiber_enabled = false;
+        }
 
         let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
         let evaluator_registry: EvaluatorRegistry = Arc::new(RwLock::new(HashMap::new()));
