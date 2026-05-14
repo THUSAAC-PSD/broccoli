@@ -215,9 +215,19 @@ G testing); UP#14f before Phase B PR-E.
   - [ ] Integration test: 1000-submission burst observes
         `plugin_pool_contention_total` rate well below the no-semaphore
         baseline.
-- [ ] **PR: publish-parallelism.** UP#14c — `try_join_all` in
-      `packages/server/src/services/operation_batch.rs:70-136`. Default
-      `server.operation_batch_publish_concurrency = 32`.
+- [x] **PR: publish-parallelism.** UP#14c — `start_operation_batch` now streams
+      per-op blob-externalize + `mq.publish` through
+      `futures::stream::buffer_unordered(N).try_collect()` in
+      `packages/server/src/services/operation_batch.rs:70-180`. `try_join_all`
+      was rejected as unbounded; `buffer_unordered` caps in-flight publishes at
+      the configured concurrency. Config knob
+      `server.operation_batch_publish_concurrency` defaults 32 in
+      `packages/server/src/config.rs:132-146`; wired into
+      `OperationHostDeps.operation_batch_publish_concurrency` at
+      `packages/server/src/host_funcs/context.rs:95-99`. Per-op waiter-insert →
+      publish ordering (UP#14d) preserved via sequential await inside each
+      in-flight future. Override via
+      `BROCCOLI__SERVER__OPERATION_BATCH_PUBLISH_CONCURRENCY`.
 - [x] **PR: waiter-then-publish.** UP#14d — waiter insert at
       `operation_batch.rs:73` precedes publish at line 121.
   - [ ] Acceptance: `WaiterNotFound` log count zero under 1000-op burst. _Code

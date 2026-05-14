@@ -6009,6 +6009,7 @@ dependencies = [
  "dashmap",
  "extism",
  "flate2",
+ "futures",
  "hex",
  "hostname",
  "hyper",

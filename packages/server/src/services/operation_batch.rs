@@ -6,6 +6,7 @@ use anyhow::{Context, anyhow};
 use broccoli_server_sdk::types::{OperationTask, SessionFile};
 use common::storage::BlobStore;
 use common::worker::{Task, TaskResult};
+use futures::stream::{self, StreamExt, TryStreamExt};
 use mq::config::PublishConfig;
 use opentelemetry::KeyValue;
 use uuid::Uuid;
@@ -20,8 +21,11 @@ pub async fn start_operation_batch(
     deps: OperationHostDeps,
     operations: Vec<OperationTask>,
 ) -> anyhow::Result<String> {
-    let mq = deps
-        .mq
+    // Fast-fail before allocating batch state if MQ isn't configured. Each
+    // per-op future also re-checks (since they clone `deps`), but rejecting
+    // here preserves the early-return semantic (and avoids registering a
+    // BatchState whose ops can never publish).
+    deps.mq
         .as_ref()
         .ok_or_else(|| anyhow!("MQ not available"))?;
 
@@ -67,85 +71,113 @@ pub async fn start_operation_batch(
             .add(1, &[KeyValue::new("batch.kind", "operation")]);
     }
 
-    for (correlation_id, op) in cleanup_keys.iter().cloned().zip(operations) {
-        let (op_tx, op_rx) = tokio::sync::oneshot::channel();
+    // UP#14c: parallelize per-op blob-externalize + mq.publish via
+    // buffer_unordered. Each per-op future preserves the waiter-insert →
+    // publish ordering invariant (UP#14d) by sequential await inside one
+    // closure; cross-op ordering is intentionally unordered. First error
+    // short-circuits via try_collect; in-flight peers are dropped.
+    let publish_concurrency = deps.operation_batch_publish_concurrency.max(1);
+    let per_op_inputs: Vec<(String, OperationTask)> =
+        cleanup_keys.iter().cloned().zip(operations).collect();
 
-        deps.operation_waiters.insert(correlation_id.clone(), op_tx);
-        spawn_waiter_forwarder(
-            correlation_id.clone(),
-            op_rx,
-            batch_tx.clone(),
-            pending_count.clone(),
-            deps.metrics.clone(),
-        );
+    stream::iter(per_op_inputs.into_iter().map(|(correlation_id, op)| {
+        let deps = deps.clone();
+        let batch_tx = batch_tx.clone();
+        let pending_count = pending_count.clone();
+        let plugin_id = plugin_id.clone();
+        let batch_id = batch_id.clone();
+        async move {
+            let (op_tx, op_rx) = tokio::sync::oneshot::channel();
 
-        let target_queue =
-            target_operation_queue(&deps.operation_queue_name, op.target_worker_id.as_deref());
-        if op.target_worker_id.is_some() && target_queue == deps.operation_queue_name {
-            tracing::warn!(
-                plugin_id = %plugin_id,
-                target = ?op.target_worker_id,
-                "Rejecting operation with invalid target_worker_id; falling back to shared queue"
+            // Waiter insert must precede publish for THIS op (UP#14d). These
+            // two sync calls happen before the awaits below.
+            deps.operation_waiters.insert(correlation_id.clone(), op_tx);
+            spawn_waiter_forwarder(
+                correlation_id.clone(),
+                op_rx,
+                batch_tx,
+                pending_count,
+                deps.metrics.clone(),
             );
-        }
 
-        if let (Some(eval_batch_id), Some(test_case_id)) =
-            (op.evaluate_batch_id.clone(), op.test_case_id)
-        {
-            deps.evaluate_ops_registry.record_ops(
-                &eval_batch_id,
-                test_case_id,
-                &batch_id,
-                std::iter::once(correlation_id.clone()),
-            );
-        }
+            let target_queue =
+                target_operation_queue(&deps.operation_queue_name, op.target_worker_id.as_deref());
+            if op.target_worker_id.is_some() && target_queue == deps.operation_queue_name {
+                tracing::warn!(
+                    plugin_id = %plugin_id,
+                    target = ?op.target_worker_id,
+                    "Rejecting operation with invalid target_worker_id; falling back to shared queue"
+                );
+            }
 
-        let op = externalize_large_inline_files(op, deps.blob_store.clone())
-            .await
-            .with_context(|| "Blob store error")?;
+            if let (Some(eval_batch_id), Some(test_case_id)) =
+                (op.evaluate_batch_id.clone(), op.test_case_id)
+            {
+                deps.evaluate_ops_registry.record_ops(
+                    &eval_batch_id,
+                    test_case_id,
+                    &batch_id,
+                    std::iter::once(correlation_id.clone()),
+                );
+            }
 
-        let task = Task {
-            id: correlation_id.clone(),
-            task_type: "operation".to_string(),
-            executor_name: "operation".to_string(),
-            payload: serde_json::to_value(&op).with_context(|| "Failed to serialize operation")?,
-            result_queue: deps.operation_result_queue_name.clone(),
-            operation_batch_id: None,
-            reply_queue: Some(deps.operation_result_queue_name.clone()),
-            priority: op.priority,
-            trace_context: common::observability::inject_trace_context(),
-            enqueued_at_unix_ms: Some(chrono::Utc::now().timestamp_millis()),
-        };
+            let op = externalize_large_inline_files(op, deps.blob_store.clone())
+                .await
+                .with_context(|| "Blob store error")?;
 
-        let publish_start = Instant::now();
-        let publish_result = mq
-            .publish(
+            let task = Task {
+                id: correlation_id.clone(),
+                task_type: "operation".to_string(),
+                executor_name: "operation".to_string(),
+                payload: serde_json::to_value(&op)
+                    .with_context(|| "Failed to serialize operation")?,
+                result_queue: deps.operation_result_queue_name.clone(),
+                operation_batch_id: None,
+                reply_queue: Some(deps.operation_result_queue_name.clone()),
+                priority: op.priority,
+                trace_context: common::observability::inject_trace_context(),
+                enqueued_at_unix_ms: Some(chrono::Utc::now().timestamp_millis()),
+            };
+
+            let mq = deps
+                .mq
+                .as_ref()
+                .ok_or_else(|| anyhow!("MQ not available"))?;
+            let publish_start = Instant::now();
+            let publish_result = mq
+                .publish(
+                    &target_queue,
+                    None,
+                    &task,
+                    task.priority
+                        .map(|p| PublishConfig::builder().priority(p).build()),
+                )
+                .await;
+            record_mq_publish(
+                deps.metrics.as_ref(),
                 &target_queue,
-                None,
-                &task,
-                task.priority
-                    .map(|p| PublishConfig::builder().priority(p).build()),
-            )
-            .await;
-        record_mq_publish(
-            deps.metrics.as_ref(),
-            &target_queue,
-            "operation_task",
-            if publish_result.is_ok() {
-                "success"
-            } else {
-                "error"
-            },
-            publish_start,
-        );
-        publish_result.with_context(|| "MQ publish error")?;
+                "operation_task",
+                if publish_result.is_ok() {
+                    "success"
+                } else {
+                    "error"
+                },
+                publish_start,
+            );
+            publish_result.with_context(|| "MQ publish error")?;
 
-        tracing::debug!(
-            batch_id = %batch_id,
-            correlation_id = %correlation_id,
-            "Operation dispatched"
-        );
-    }
+            tracing::debug!(
+                batch_id = %batch_id,
+                correlation_id = %correlation_id,
+                "Operation dispatched"
+            );
+
+            Ok::<(), anyhow::Error>(())
+        }
+    }))
+    .buffer_unordered(publish_concurrency)
+    .try_collect::<Vec<()>>()
+    .await?;
 
     Ok(batch_id)
 }
@@ -458,6 +490,7 @@ mod tests {
             metrics: None,
             evaluate_ops_registry:
                 crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default(),
+            operation_batch_publish_concurrency: 32,
         };
 
         let err = start_operation_batch("plugin".to_string(), deps, vec![])

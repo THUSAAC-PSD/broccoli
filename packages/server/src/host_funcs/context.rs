@@ -46,6 +46,10 @@ pub struct OperationHostDeps {
     pub blob_store: Arc<dyn BlobStore>,
     pub metrics: Option<common::metrics::Metrics>,
     pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
+    /// Per-batch cap on concurrent in-flight blob-externalize + mq.publish
+    /// operations inside `start_operation_batch`. Sourced from
+    /// `server.operation_batch_publish_concurrency`.
+    pub operation_batch_publish_concurrency: usize,
 }
 
 #[derive(Clone)]
@@ -84,6 +88,11 @@ impl HostFunctionSystemDeps {
             blob_store: self.blob_store.clone(),
             metrics: self.metrics.clone(),
             evaluate_ops_registry,
+            operation_batch_publish_concurrency: self
+                .config
+                .server
+                .operation_batch_publish_concurrency
+                as usize,
         }
     }
 }

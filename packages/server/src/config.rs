@@ -129,6 +129,20 @@ pub struct ServerConfig {
     /// otherwise the inner pool is never fully utilized.
     #[serde(default = "default_batch_evaluator_fanout_concurrency")]
     pub batch_evaluator_fanout_concurrency: u32,
+    /// Per-batch cap on concurrent in-flight `mq.publish` + blob-externalize
+    /// operations inside `start_operation_batch` (UP#14c). Historically the
+    /// batch loop awaited each publish sequentially, so a 1000-op batch with
+    /// 5ms publishes serialized to ~5s of wall time before the first worker
+    /// could pick up a task. With `buffer_unordered(N)` the same batch takes
+    /// roughly `total_publish_ms / N` plus MQ-broker throughput limits.
+    ///
+    /// Default 32. Trade-off: higher values reduce dispatch latency but
+    /// multiply concurrent load on the Redis MQ broker (each publish is one
+    /// RPUSH plus optional priority sorting). Tune down on a constrained MQ
+    /// host; tune up when broker is over-provisioned and submission bursts
+    /// dominate latency.
+    #[serde(default = "default_operation_batch_publish_concurrency")]
+    pub operation_batch_publish_concurrency: u32,
 }
 
 fn default_dispatcher_semaphore_enabled() -> bool {
@@ -177,6 +191,10 @@ fn default_fleet_capacity_poll_interval_secs() -> u64 {
 
 fn default_batch_evaluator_fanout_concurrency() -> u32 {
     64
+}
+
+fn default_operation_batch_publish_concurrency() -> u32 {
+    32
 }
 
 fn default_frontend_dist() -> PathBuf {
@@ -451,6 +469,7 @@ impl AppConfig {
             .set_default("server.fleet_aware_admission_enabled", false)?
             .set_default("server.fleet_capacity_poll_interval_secs", 5_i64)?
             .set_default("server.batch_evaluator_fanout_concurrency", 64_i64)?
+            .set_default("server.operation_batch_publish_concurrency", 32_i64)?
             .set_default("server.trusted_proxies", Vec::<String>::new())?
             .set_default("server.rate_limit_auth", false)?
             .set_default(
@@ -613,6 +632,7 @@ mod tests {
             fleet_capacity_poll_interval_secs: default_fleet_capacity_poll_interval_secs(),
             max_blocking_threads,
             batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
+            operation_batch_publish_concurrency: default_operation_batch_publish_concurrency(),
         }
     }
 
