@@ -123,21 +123,24 @@ identifiers in the source impl plans.
       `FOR     UPDATE SKIP LOCKED` with retry_count enforcement (311ae8b9).
   - [ ] Integration test: kill api replica mid-judgement, verify recovery under
         75s. _Pending §0 harness sub-scenario._
-- [ ] **PR-E: stuck-wide-net.** UP#19 — raise `stuck_job_timeout_secs` to 6h.
-      _Default still 7200s (2h) at `common/src/config.rs:31`._ **Depends on
-      UP#14f (`updated_at` fix) from Tranche 2 landing first.**
+- [x] **PR-E: stuck-wide-net.** UP#19 — `stuck_job_timeout_secs` default raised
+      to 21600s (6h) at `common/src/config.rs:31` (9b12656b). Pairs with the
+      UP#14f rewrite below.
 - [x] **PR-F: dedup-ttl-split.** UP#20 — `worker.dedup_ttl_secs` default 600s at
       `worker/src/config.rs:134`.
 - [x] **PR-G: sweeper-scaffold.** UP#21 — `dispatcher/sweeper.rs` with
       `dead_since` debounce + `sweeper_dry_run` config knob (311ae8b9).
-- [ ] **PR-H: sweeper-del.** UP#22 — flip dry-run flag. _`sweeper_dry_run`
-      default is still `true` at `server/src/config.rs:144`._
+- [x] **PR-H: sweeper-del.** UP#22 — `default_sweeper_dry_run` flipped to
+      `false` in both `server/src/config.rs` and the docker-compose template's
+      `${SWEEPER_DRY_RUN:-...}` fallback (9b12656b). The sweeper now actually
+      DELs ghost reply queues after the debounce window.
   - [ ] Integration test: ghost queue lifecycle (api restart, queue populated,
         sweeper observes, debounces, DELs).
-- [ ] **PR-I: lease-steal-flag-flip.** UP#23 — set
-      `server.dispatcher.lease_steal_enabled = true` in
-      `release/.env.server.example`. _No `lease_steal_enabled` mention in env
-      example._
+- [x] **PR-I: lease-steal-flag-flip.** UP#23 —
+      `BROCCOLI__SERVER__DISPATCHER_LEASE_STEAL_ENABLED` documented in
+      `release/.env.server.example` with operator guidance ("flip to true after
+      UP#15-18 has soaked in your fleet"). Default remains `false`; the env var
+      is now discoverable, not the value. (9b12656b)
 
 ### Phase C — cancel primitive + admission + windowing
 
@@ -199,8 +202,12 @@ G testing); UP#14f before Phase B PR-E.
       dedicated tokio runtime + listener.
   - [ ] Acceptance: under deliberate api-runtime saturation, `curl /healthz`
         still returns 200 within 100ms.
-- [ ] **PR: stuck-updated-at-fix.** UP#14f — switch `stuck.rs:54` from
-      `created_at` to `updated_at`. **Must merge before Phase B PR-E.**
+- [x] **PR: stuck-updated-at-fix.** UP#14f — rephrased on contact with reality:
+      neither `submission` nor `code_run` has an `updated_at` column. Stuck.rs
+      now uses the same composite predicate as `dispatcher/steal.rs:733-734` —
+      `(owner_server_id IS NULL AND created_at < t) OR (owner_server_id IS NOT     NULL AND (lease_heartbeat_at IS NULL OR lease_heartbeat_at < t))`
+      — which is the modern equivalent: leased rows clock from heartbeat,
+      unleased rows from creation (9b12656b).
 - [ ] **PR: regression-guard-block-in-place.** UP#14g — CI test asserts
       `host_fn_block_in_place_total == 0` after a 60s integration-test stress
       wave. Fail build with file/line offender hint on violation.
