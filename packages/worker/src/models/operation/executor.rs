@@ -138,19 +138,23 @@ impl OperationTaskExecutor {
                 }
             };
 
-        let file_cacher: Box<dyn FileCacher> =
-            match BlobStoreFileCacher::new(blob_store, PathBuf::from(&cache_dir), max_cache_size)
-                .await
-            {
-                Ok(cacher) => Box::new(cacher),
-                Err(e) => {
-                    error!(
-                        error = %e,
-                        "Failed to initialize BlobStoreFileCacher"
-                    );
-                    return Err(anyhow::anyhow!(e));
-                }
-            };
+        let file_cacher: Box<dyn FileCacher> = match BlobStoreFileCacher::new(
+            blob_store,
+            PathBuf::from(&cache_dir),
+            max_cache_size,
+            Some(metrics.clone()),
+        )
+        .await
+        {
+            Ok(cacher) => Box::new(cacher),
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to initialize BlobStoreFileCacher"
+                );
+                return Err(anyhow::anyhow!(e));
+            }
+        };
 
         let task_cache: Box<dyn TaskCacheStore> = match DatabaseTaskCacheStore::ensure_table(
             &db_for_cache,

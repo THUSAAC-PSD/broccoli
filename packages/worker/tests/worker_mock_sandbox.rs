@@ -615,9 +615,14 @@ async fn execute_operation_with_file_pulled_from_object_storage() {
     let hash_hex = hash.to_hex();
 
     let cache_root = tempfile::tempdir().expect("create temp cache dir");
-    let cacher = BlobStoreFileCacher::new(store, cache_root.path().join("cache"), 64 * 1024 * 1024)
-        .await
-        .expect("create blob store file cacher should succeed");
+    let cacher = BlobStoreFileCacher::new(
+        store,
+        cache_root.path().join("cache"),
+        64 * 1024 * 1024,
+        None,
+    )
+    .await
+    .expect("create blob store file cacher should succeed");
 
     let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
     let handler = OperationHandler::new(

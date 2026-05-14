@@ -50,6 +50,12 @@ pub struct Metrics {
     pub blob_store_operations_total: Counter<u64>,
     pub blob_store_bytes_total: Counter<u64>,
     pub blob_store_errors_total: Counter<u64>,
+    pub blob_store_remote_hits_total: Counter<u64>,
+
+    pub blob_cache_hits_total: Counter<u64>,
+    pub blob_cache_misses_total: Counter<u64>,
+    pub blob_cache_size_bytes: UpDownCounter<i64>,
+    pub blob_cache_evictions_total: Counter<u64>,
 
     pub operation_file_materialization_duration: Histogram<f64>,
     pub operation_file_materialization_bytes: Counter<u64>,
@@ -312,6 +318,32 @@ impl Metrics {
             blob_store_errors_total: meter
                 .u64_counter("broccoli.blob_store.errors")
                 .with_description("Total number of failed blob store operations")
+                .build(),
+            blob_store_remote_hits_total: meter
+                .u64_counter("broccoli.blob_store.remote_hits")
+                .with_description(
+                    "Total number of uploads short-circuited because the blob already existed remotely",
+                )
+                .build(),
+
+            blob_cache_hits_total: meter
+                .u64_counter("broccoli.blob_cache.hits")
+                .with_description("Total number of local blob cache hits (served from disk)")
+                .build(),
+            blob_cache_misses_total: meter
+                .u64_counter("broccoli.blob_cache.misses")
+                .with_description(
+                    "Total number of local blob cache misses (streamed from blob store)",
+                )
+                .build(),
+            blob_cache_size_bytes: meter
+                .i64_up_down_counter("broccoli.blob_cache.size")
+                .with_unit("By")
+                .with_description("Current size of the local blob cache on disk")
+                .build(),
+            blob_cache_evictions_total: meter
+                .u64_counter("broccoli.blob_cache.evictions")
+                .with_description("Total number of LRU evictions from the local blob cache")
                 .build(),
 
             operation_file_materialization_duration: meter
