@@ -137,35 +137,50 @@ impl Drop for LeaderLease {
             client,
         } = inner;
 
-        // Stop the heartbeat first; ignore send/abort errors.
+        // Stop the heartbeat first; ignore send/abort errors. The release
+        // script below is CAS — it only DELs when the token still matches —
+        // so even an in-flight EXTEND racing the release cannot corrupt
+        // another leader's lock; worst case it logs `lock lost`.
         let _ = cancel.send(());
-
-        // Fire-and-forget the CAS-release. We deliberately don't await the
-        // heartbeat join handle here to keep Drop synchronous; aborting is
-        // safe because the task's only side effect is a Redis EXPIRE.
         heartbeat.abort();
 
-        tokio::spawn(async move {
-            match client.get_multiplexed_async_connection().await {
-                Ok(mut conn) => {
-                    let result: Result<i64, _> = redis::cmd("EVAL")
-                        .arg(RELEASE_SCRIPT)
-                        .arg(1)
-                        .arg(&redis_key)
-                        .arg(&token)
-                        .query_async(&mut conn)
-                        .await;
-                    if let Err(e) = result {
-                        warn!(redis_key = %redis_key, error = %e, "cache-leader release failed");
-                    } else {
-                        debug!(redis_key = %redis_key, "cache-leader lease released");
+        // Fire-and-forget the CAS-release. If we're being dropped outside a
+        // tokio runtime (e.g., synchronous shutdown after the runtime has
+        // started teardown), `tokio::spawn` would panic — guard with
+        // `Handle::try_current` and fall back to the TTL safety net so the
+        // worker shutdown path stays panic-free. The Redis key will then
+        // expire naturally after at most `opts.ttl_secs`.
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async move {
+                    match client.get_multiplexed_async_connection().await {
+                        Ok(mut conn) => {
+                            let result: Result<i64, _> = redis::cmd("EVAL")
+                                .arg(RELEASE_SCRIPT)
+                                .arg(1)
+                                .arg(&redis_key)
+                                .arg(&token)
+                                .query_async(&mut conn)
+                                .await;
+                            if let Err(e) = result {
+                                warn!(redis_key = %redis_key, error = %e, "cache-leader release failed");
+                            } else {
+                                debug!(redis_key = %redis_key, "cache-leader lease released");
+                            }
+                        }
+                        Err(e) => {
+                            warn!(redis_key = %redis_key, error = %e, "cache-leader release: failed to get redis conn");
+                        }
                     }
-                }
-                Err(e) => {
-                    warn!(redis_key = %redis_key, error = %e, "cache-leader release: failed to get redis conn");
-                }
+                });
             }
-        });
+            Err(_) => {
+                debug!(
+                    redis_key = %redis_key,
+                    "cache-leader lease dropped outside tokio runtime; relying on TTL safety net"
+                );
+            }
+        }
     }
 }
 
