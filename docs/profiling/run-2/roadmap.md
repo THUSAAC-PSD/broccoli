@@ -242,9 +242,17 @@ G testing); UP#14f before Phase B PR-E.
       `(owner_server_id IS NULL AND created_at < t) OR (owner_server_id IS NOT     NULL AND (lease_heartbeat_at IS NULL OR lease_heartbeat_at < t))`
       — which is the modern equivalent: leased rows clock from heartbeat,
       unleased rows from creation (9b12656b).
-- [ ] **PR: regression-guard-block-in-place.** UP#14g — CI test asserts
-      `host_fn_block_in_place_total == 0` after a 60s integration-test stress
-      wave. Fail build with file/line offender hint on violation.
+- [x] **PR: regression-guard-block-in-place.** UP#14g — static-source guard at
+      `packages/server/tests/integration/regression_guards.rs::host_funcs_must_not_use_tokio_block_in_place`
+      fails CI if `block_in_place(` reappears anywhere in
+      `packages/server/src/host_funcs/` (outside identifier or comment context).
+      The counter-based dynamic check from the original spec was dropped: the
+      recorder helper (`record_block_in_place_regression`) is
+      `#[allow(dead_code)]` and the counter can only register a regression if
+      future code opts in via the helper — a static-source guard is the
+      structural invariant we actually want. Recorder helper now exercised by a
+      `#[cfg(test)]` unit test in `packages/server/src/host_funcs/mod.rs` so it
+      is no longer dead in CI.
 - [x] **PR: sync-hook-retry.** UP#14h — `PluginHook::on_event` now retries on
       `PluginError::PoolTimeout` via the shared
       `plugin_core::retry::call_raw_with_pool_retry` helper

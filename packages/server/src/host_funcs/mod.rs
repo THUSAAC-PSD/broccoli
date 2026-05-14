@@ -303,3 +303,26 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
 
     hr
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `record_block_in_place_regression` is `#[allow(dead_code)]` and
+    /// has no production callers; without this test it would never be
+    /// exercised. The `None` branch must be a no-op (calls into a
+    /// missing `Metrics` would panic and bring down a host function).
+    #[test]
+    fn record_block_in_place_regression_no_metrics_is_noop() {
+        record_block_in_place_regression(&None, "test_host_fn");
+    }
+
+    /// With a real `Metrics` instance, the recorder must run cleanly
+    /// (we can't easily assert the counter incremented without an
+    /// OTLP harness — non-panic is the contract under test here).
+    #[test]
+    fn record_block_in_place_regression_with_metrics_runs() {
+        let (metrics, _registry) = common::observability::init_metrics("broccoli-test");
+        record_block_in_place_regression(&Some(metrics), "test_host_fn");
+    }
+}
