@@ -53,6 +53,15 @@ impl Dispatcher {
         let mut handles = Vec::new();
 
         if claim_enabled {
+            // Fail loudly at startup on a 0 batch-size rather than logging
+            // a warning per poll-tick forever. Operators who want the fiber
+            // off should set `server.claim_fiber_enabled = false`; a 0
+            // batch is almost always a typo on a different knob.
+            assert!(
+                deps.config.claim_batch_size > 0,
+                "server.claim_batch_size must be > 0 when claim_fiber_enabled is true; \
+                 set claim_fiber_enabled=false to stop the fiber instead"
+            );
             handles.push(tokio::spawn(claim::run(
                 deps.state.clone(),
                 deps.server_id.clone(),

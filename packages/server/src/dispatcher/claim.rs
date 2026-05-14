@@ -20,7 +20,7 @@ use sea_orm::{
     QueryFilter, QueryResult, Statement, TransactionTrait,
 };
 use tokio::sync::watch;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::entity::{code_run, submission};
 use crate::state::AppState;
@@ -73,6 +73,20 @@ pub async fn run(
 /// returned to the caller so the fiber loop can log; partial progress
 /// (e.g., submissions claimed but code-runs failed) is fine — the next
 /// tick will pick up whatever's still in `Queued`.
+///
+/// **Crash-recovery contract:** the post-commit `tokio::spawn` below is
+/// intentionally detached. If this server crashes after `txn.commit()`
+/// (which has already flipped the row to `Pending`, set `owner_server_id`
+/// to *us*, and bumped `retry_count`) but before the spawned task
+/// actually publishes the dispatch, the row is now stranded in `Pending`
+/// owned by a dead server. The **only** safety net is the
+/// dispatcher/steal scanner (UP#17): once `lease_heartbeat_at` is older
+/// than `lease_ttl_secs`, a peer server's steal scanner reclaims the row
+/// and re-dispatches it. So the worst-case end-to-end recovery latency
+/// is `lease_ttl_secs`, not "instant" — this is the cost of decoupling
+/// claim from dispatch. Don't introduce a bounded join-set or `await`
+/// here without re-thinking that contract: an inline `await` would make
+/// the claim fiber the bottleneck for dispatch throughput.
 async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyhow::Result<()> {
     let submission_models = claim_queued_submissions(state, server_id, batch_size).await?;
     for model in submission_models {
@@ -221,12 +235,11 @@ async fn select_queued_rows(
     table: &str,
     batch_size: u32,
 ) -> Result<Vec<QueuedRow>, sea_orm::DbErr> {
-    if batch_size == 0 {
-        warn!(
-            table,
-            "claim_batch_size is 0 - clamping to 1 to keep the fiber alive"
-        );
-    }
+    // Spawn-time validation (see `dispatcher::Dispatcher::spawn`) asserts
+    // `batch_size > 0`, so we should never see a 0 here. Keep a defensive
+    // `max(_, 1)` so a future regression in that validation doesn't turn
+    // into a silent "select 0 rows forever" no-op.
+    debug_assert!(batch_size > 0, "batch_size must be positive at this point");
     let limit = std::cmp::max(batch_size, 1);
     let sql = format!(
         r#"SELECT id
