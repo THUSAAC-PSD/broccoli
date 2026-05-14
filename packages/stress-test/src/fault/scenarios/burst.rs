@@ -243,8 +243,21 @@ impl Burst {
             }
         };
 
+        // Honor --contest-type when --type-weights is absent: it overrides the
+        // "auto = all available" expansion to a single-type mix. With explicit
+        // --type-weights the override is ignored (the CLI doc-comment promises
+        // exactly this), so the user's mix wins.
+        let effective_requested: Vec<(String, u32)> = if self.type_weights.is_empty() {
+            match self.contest_type.as_deref() {
+                Some(t) => vec![(t.to_string(), 1)],
+                None => Vec::new(),
+            }
+        } else {
+            self.type_weights.clone()
+        };
+
         let filtered = match filter_and_renormalize_weights(
-            &self.type_weights,
+            &effective_requested,
             &registries.contest_types,
             self.strict,
         ) {
