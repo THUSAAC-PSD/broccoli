@@ -1,4 +1,5 @@
 pub mod cancel_storm;
+pub mod kill_server_recovery;
 
 use async_trait::async_trait;
 
@@ -6,6 +7,10 @@ use crate::transcript::Transcript;
 
 pub struct ScenarioContext {
     pub redis_url: String,
+    pub db_url: Option<String>,
+    pub server_url: Option<String>,
+    pub admin_token: Option<String>,
+    pub kill_command: Option<String>,
 }
 
 #[derive(Debug)]
