@@ -575,6 +575,7 @@ impl TestApp {
                 fleet_capacity_poll_interval_secs: 5,
                 max_blocking_threads: None,
                 batch_evaluator_fanout_concurrency: 64,
+                operation_batch_publish_concurrency: 32,
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
