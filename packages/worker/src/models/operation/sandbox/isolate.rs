@@ -296,6 +296,11 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
 
 #[async_trait]
 impl SandboxManager for IsolateSandboxManager {
+    #[tracing::instrument(
+        name = "isolate_init",
+        skip(self),
+        fields(box_id = id.unwrap_or("0"), enable_cgroups = self.enable_cgroups)
+    )]
     async fn create_sandbox(&self, id: Option<&str>) -> Result<PathBuf, SandboxError> {
         let start = std::time::Instant::now();
         let mut command = Command::new(&self.isolate_bin);
@@ -361,6 +366,11 @@ impl SandboxManager for IsolateSandboxManager {
         Ok(working_dir)
     }
 
+    #[tracing::instrument(
+        name = "isolate_cleanup",
+        skip(self),
+        fields(box_id = %id, enable_cgroups = self.enable_cgroups)
+    )]
     async fn remove_sandbox(&self, id: &str) -> Result<(), SandboxError> {
         let start = std::time::Instant::now();
         let box_id = parse_box_id(Some(id))?;
@@ -408,6 +418,18 @@ impl SandboxManager for IsolateSandboxManager {
         Ok(())
     }
 
+    #[tracing::instrument(
+        name = "isolate_execute",
+        skip(self, argv, run_options),
+        fields(
+            box_id = %box_id,
+            argv_len = argv.len(),
+            wait = run_options.wait,
+            env_rule_count = run_options.env_rules.len(),
+            directory_rule_count = run_options.directory_rules.len(),
+            enable_cgroups = self.enable_cgroups
+        )
+    )]
     async fn execute(
         &self,
         box_id: &str,
@@ -449,6 +471,18 @@ fn is_transient_exec_failure(result: &ExecutionResult) -> bool {
 }
 
 impl IsolateSandboxManager {
+    #[tracing::instrument(
+        name = "isolate_execute_once",
+        skip(self, argv, run_options),
+        fields(
+            box_id = %box_id,
+            argv_len = argv.len(),
+            wait = run_options.wait,
+            env_rule_count = run_options.env_rules.len(),
+            directory_rule_count = run_options.directory_rules.len(),
+            enable_cgroups = self.enable_cgroups
+        )
+    )]
     async fn execute_once(
         &self,
         box_id: &str,

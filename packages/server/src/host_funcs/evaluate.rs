@@ -82,6 +82,8 @@ fn start_evaluate_batch_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("start_evaluate_batch", &caller_plugin_id);
+    let _enter = span.enter();
 
     let batch_id = tokio::runtime::Handle::current()
         .block_on(evaluate_batch::start_evaluate_batch(
@@ -117,6 +119,8 @@ fn get_next_evaluate_result_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("get_next_evaluate_result", &plugin_id);
+    let _enter = span.enter();
 
     let result = evaluate_batch::next_evaluate_result(
         &plugin_id,
@@ -147,6 +151,8 @@ fn cancel_evaluate_batch_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("cancel_evaluate_batch", &plugin_id);
+    let _enter = span.enter();
 
     if deps.cancel_primitive_enabled
         && let Some(client) = deps.redis_client.as_ref()
@@ -195,13 +201,15 @@ fn cancel_evaluate_test_cases_fn(
     let input: CancelEvaluateTestCasesInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let deps = {
+    let (plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        guard.deps.clone()
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("cancel_evaluate_test_cases", &plugin_id);
+    let _enter = span.enter();
 
     let count = deps
         .evaluate_ops_registry

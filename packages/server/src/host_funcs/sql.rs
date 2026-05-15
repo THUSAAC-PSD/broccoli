@@ -148,6 +148,8 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     let user_data_guard = user_data.get()?;
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*ctx;
+    let span = super::host_fn_span("db_execute", plugin_id);
+    let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", plugin_id, sql);
     let args = sanitize_sql_text("args", plugin_id, args);
@@ -173,6 +175,8 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     let user_data_guard = user_data.get()?;
     let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*ctx;
+    let span = super::host_fn_span("db_query", plugin_id);
+    let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", plugin_id, sql);
     let args = sanitize_sql_text("args", plugin_id, args);
@@ -202,11 +206,13 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
 });
 
 host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _input: String) -> String {
-    let (db, txn_map) = {
+    let (plugin_id, db, txn_map) = {
         let user_data_guard = user_data.get()?;
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (ctx.1.clone(), ctx.2.clone())
+        (ctx.0.clone(), ctx.1.clone(), ctx.2.clone())
     };
+    let span = super::host_fn_span("db_begin", &plugin_id);
+    let _enter = span.enter();
 
     let txn = tokio::runtime::Handle::current()
         .block_on(db.begin())
@@ -229,6 +235,8 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (ctx.0.clone(), ctx.2.clone())
     };
+    let span = super::host_fn_span("db_query_in", &plugin_id);
+    let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
     let args = sanitize_sql_text("args", &plugin_id, args);
@@ -266,6 +274,8 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (ctx.0.clone(), ctx.2.clone())
     };
+    let span = super::host_fn_span("db_execute_in", &plugin_id);
+    let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
     let args = sanitize_sql_text("args", &plugin_id, args);
@@ -289,11 +299,13 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
 });
 
 host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
-    let txn_map = {
+    let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        ctx.2.clone()
+        (ctx.0.clone(), ctx.2.clone())
     };
+    let span = super::host_fn_span("db_commit", &plugin_id);
+    let _enter = span.enter();
 
     let txn = txn_map.lock()
         .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?
@@ -312,11 +324,13 @@ host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); 
 });
 
 host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
-    let txn_map = {
+    let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
         let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        ctx.2.clone()
+        (ctx.0.clone(), ctx.2.clone())
     };
+    let span = super::host_fn_span("db_rollback", &plugin_id);
+    let _enter = span.enter();
 
     let txn = txn_map.lock()
         .map_err(|_| extism::Error::msg("Transaction map lock poisoned"))?

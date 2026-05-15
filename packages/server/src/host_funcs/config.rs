@@ -131,6 +131,8 @@ fn config_get_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         data.clone()
     };
+    let span = super::host_fn_span("config_get", &plugin_id);
+    let _enter = span.enter();
 
     let raw_namespace = input.namespace.clone();
 
@@ -197,6 +199,8 @@ fn config_set_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         data.clone()
     };
+    let span = super::host_fn_span("config_set", &plugin_id);
+    let _enter = span.enter();
 
     let ref_id = if input.scope == "plugin" {
         plugin_id.clone()

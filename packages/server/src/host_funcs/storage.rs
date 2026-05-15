@@ -57,6 +57,8 @@ host_fn!(pub blob_read_range(user_data: (String, Arc<dyn BlobStore>, BlobReadGra
         let guard = user_data.get()?;
         guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?.clone()
     };
+    let span = super::host_fn_span("blob_read_range", &plugin_id);
+    let _enter = span.enter();
 
     let parsed: BlobReadRangeInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid blob_read_range input: {e}")))?;
@@ -144,6 +146,8 @@ host_fn!(pub store_get(user_data: (String, DatabaseConnection); input: String) -
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
+    let span = super::host_fn_span("store_get", plugin_id);
+    let _enter = span.enter();
 
     let mut parsed: StoreGetInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_get input: {e}")))?;
@@ -190,6 +194,8 @@ host_fn!(pub store_set(user_data: (String, DatabaseConnection); input: String) -
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
+    let span = super::host_fn_span("store_set", plugin_id);
+    let _enter = span.enter();
 
     let mut parsed: StoreSetInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_set input: {e}")))?;
@@ -249,6 +255,8 @@ host_fn!(pub store_delete(user_data: (String, DatabaseConnection); input: String
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
+    let span = super::host_fn_span("store_delete", plugin_id);
+    let _enter = span.enter();
 
     let mut parsed: StoreDeleteInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_delete input: {e}")))?;
@@ -286,6 +294,8 @@ host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); inpu
     let user_data_guard = user_data.get()?;
     let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
     let (plugin_id, db) = &*user_data;
+    let span = super::host_fn_span("store_compare_and_set", plugin_id);
+    let _enter = span.enter();
 
     let mut parsed: StoreCasInput = serde_json::from_str(&input)
         .map_err(|e| extism::Error::msg(format!("Invalid store_compare_and_set input: {e}")))?;

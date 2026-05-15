@@ -53,6 +53,8 @@ fn run_checker_fn(
         let (id, pm, reg, grants) = &*guard;
         (id.clone(), pm.clone(), reg.clone(), grants.clone())
     };
+    let span = super::host_fn_span("run_checker", &caller_plugin_id);
+    let _enter = span.enter();
 
     let handler = tokio::runtime::Handle::current().block_on(async {
         let registry = checker_format_registry.read().await;

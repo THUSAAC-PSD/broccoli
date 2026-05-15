@@ -714,10 +714,50 @@ G testing); UP#14f before Phase B PR-E.
       `cargo clippy -p common --lib -- -D warnings`,
       `cargo clippy -p server --lib -- -D warnings -A clippy::useless_conversion -A clippy::collapsible_if -A clippy::too_many_arguments`,
       and `cargo clippy -p worker --all-targets -- -D warnings -A dead_code`.
-- [ ] **PR: tracing-spans.** UP#50 — `info_span!("host_fn", ...)` on every
-      host-fn `_fn` with explicit parent linkage (required because UP#1 moves
-      callbacks to blocking-pool threads). `#[instrument]` on isolate +
-      file-cacher functions.
+- [x] **PR: tracing-spans.** UP#50 — every server host function now enters a
+      shared `info_span!("host_fn", ...)` helper with explicit current-span
+      parent linkage, and plugin `spawn_blocking` calls re-enter the async
+      plugin-call span so blocking-pool host callbacks inherit the caller trace
+      (`packages/server/src/host_funcs/mod.rs:45-52`,
+      `packages/plugin-core/src/traits.rs:391-433`). Manual `_fn` host
+      functions are covered across dispatch/evaluate/config/checker/language
+      and registration host functions
+      (`packages/server/src/host_funcs/dispatch.rs:77-78`,
+      `packages/server/src/host_funcs/evaluate.rs:85-86`,
+      `packages/server/src/host_funcs/config.rs:134-135`,
+      `packages/server/src/host_funcs/checker.rs:56-57`,
+      `packages/server/src/host_funcs/language.rs:50-51`,
+      `packages/server/src/host_funcs/registry.rs:164-165`,
+      `packages/server/src/host_funcs/registry.rs:215-216`,
+      `packages/server/src/host_funcs/registry.rs:242-243`,
+      `packages/server/src/host_funcs/registry.rs:289-290`). Extism
+      `host_fn!` macro functions are covered for logger, storage, and SQL
+      (`packages/server/src/host_funcs/logger.rs:3-8`,
+      `packages/server/src/host_funcs/storage.rs:55-61`,
+      `packages/server/src/host_funcs/storage.rs:145-150`,
+      `packages/server/src/host_funcs/storage.rs:193-198`,
+      `packages/server/src/host_funcs/storage.rs:254-259`,
+      `packages/server/src/host_funcs/storage.rs:293-298`,
+      `packages/server/src/host_funcs/sql.rs:147-152`,
+      `packages/server/src/host_funcs/sql.rs:174-179`,
+      `packages/server/src/host_funcs/sql.rs:209-215`,
+      `packages/server/src/host_funcs/sql.rs:233-239`,
+      `packages/server/src/host_funcs/sql.rs:272-278`,
+      `packages/server/src/host_funcs/sql.rs:302-308`,
+      `packages/server/src/host_funcs/sql.rs:327-333`). Worker isolate and
+      file-cacher paths have named `#[instrument]` spans with large/non-Debug
+      fields skipped and compact fields recorded
+      (`packages/worker/src/models/operation/sandbox/isolate.rs:299-304`,
+      `packages/worker/src/models/operation/sandbox/isolate.rs:369-374`,
+      `packages/worker/src/models/operation/sandbox/isolate.rs:421-433`,
+      `packages/worker/src/models/operation/sandbox/isolate.rs:474-486`,
+      `packages/worker/src/models/operation/file_cacher.rs:288-289`,
+      `packages/worker/src/models/operation/file_cacher.rs:375-376`). Verified
+      with `cargo test -p plugin-core`, `cargo test -p server --lib`,
+      `cargo test -p worker`, `cargo fmt --check`, `git diff --check`,
+      `cargo clippy -p plugin-core -- -D warnings`,
+      `cargo clippy -p server --lib -- -D warnings -A clippy::useless_conversion -A clippy::collapsible_if -A clippy::too_many_arguments`,
+      and `cargo clippy -p worker --all-targets -- -D warnings -A dead_code`.
 - [ ] **PR: build-flags-for-profiling.** UP#51 — `debug = 1` (full DWARF),
       `RUSTFLAGS="-C force-frame-pointers=yes"`.
 - [ ] **PR: dashboard-update.** UP#52 — Grafana panels for the new metrics. Edit

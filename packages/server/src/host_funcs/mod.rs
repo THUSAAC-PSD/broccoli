@@ -18,6 +18,7 @@ use plugin_core::host::HostFunctionRegistry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Semaphore;
+use tracing::Span;
 
 // regression guard, see UP#14g
 //
@@ -39,6 +40,15 @@ pub(crate) fn record_block_in_place_regression(metrics: &Option<Metrics>, host_f
             ],
         );
     }
+}
+
+pub(crate) fn host_fn_span(host_fn: &'static str, plugin_id: &str) -> Span {
+    tracing::info_span!(
+        parent: &Span::current(),
+        "host_fn",
+        host_fn,
+        plugin_id
+    )
 }
 
 pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
@@ -322,5 +332,11 @@ mod tests {
         let _guard = crate::metrics_test_lock();
         let (metrics, _registry) = common::observability::init_metrics("broccoli-test");
         record_block_in_place_regression(&Some(metrics), "test_host_fn");
+    }
+
+    #[test]
+    fn host_fn_span_uses_stable_name() {
+        let span = host_fn_span("db_query", "test-plugin");
+        assert_eq!(span.metadata().map(|m| m.name()), Some("host_fn"));
     }
 }

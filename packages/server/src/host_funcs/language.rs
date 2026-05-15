@@ -47,6 +47,8 @@ fn resolve_language_fn(
     let ctx = guard
         .lock()
         .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+    let span = super::host_fn_span("resolve_language", &ctx.caller_plugin_id);
+    let _enter = span.enter();
 
     let resolver = tokio::runtime::Handle::current().block_on(async {
         let registry = ctx.resolver_registry.read().await;

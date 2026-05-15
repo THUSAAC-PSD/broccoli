@@ -161,6 +161,8 @@ fn register_contest_type_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (data.plugin_id.clone(), data.contest_type_registry.clone())
     };
+    let span = super::host_fn_span("register_contest_type", &plugin_id);
+    let _enter = span.enter();
 
     let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
     let input: RegisterContestTypeInput = serde_json::from_slice(&input_bytes)
@@ -210,6 +212,8 @@ fn register_evaluator_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (data.plugin_id.clone(), data.evaluator_registry.clone())
     };
+    let span = super::host_fn_span("register_evaluator", &plugin_id);
+    let _enter = span.enter();
     register_handler::<RegisterEvaluatorInput>(
         plugin,
         inputs,
@@ -235,6 +239,8 @@ fn register_checker_format_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (data.plugin_id.clone(), data.checker_format_registry.clone())
     };
+    let span = super::host_fn_span("register_checker_format", &plugin_id);
+    let _enter = span.enter();
     register_handler::<RegisterCheckerFormatInput>(
         plugin,
         inputs,
@@ -280,6 +286,8 @@ fn register_language_resolver_fn(
             data.language_resolver_registry.clone(),
         )
     };
+    let span = super::host_fn_span("register_language_resolver", &plugin_id);
+    let _enter = span.enter();
 
     let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
     let input: RegisterLanguageResolverInput = serde_json::from_slice(&input_bytes)

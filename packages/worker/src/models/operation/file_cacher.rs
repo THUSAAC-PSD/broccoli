@@ -285,6 +285,7 @@ impl BlobStoreFileCacher {
 
 #[async_trait]
 impl FileCacher for BlobStoreFileCacher {
+    #[tracing::instrument(name = "file_cacher_fetch", skip(self, dest), fields(content_hash, dest = %dest.display()))]
     async fn fetch_to_path(&self, content_hash: &str, dest: &Path) -> Result<(), String> {
         let hash = ContentHash::from_hex(content_hash).map_err(|e| e.to_string())?;
         let hash_hex = hash.to_hex();
@@ -371,6 +372,7 @@ impl FileCacher for BlobStoreFileCacher {
         Ok(())
     }
 
+    #[tracing::instrument(name = "file_cacher_upload", skip(self, src), fields(src = %src.display()))]
     async fn upload_from_path(&self, src: &Path) -> Result<String, String> {
         let meta = tokio::fs::metadata(src)
             .await

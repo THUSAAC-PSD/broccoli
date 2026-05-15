@@ -74,6 +74,8 @@ fn start_operation_batch_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("start_operation_batch", &plugin_id);
+    let _enter = span.enter();
 
     let batch_id = tokio::runtime::Handle::current()
         .block_on(operation_batch::start_operation_batch(
@@ -112,6 +114,8 @@ fn get_next_operation_result_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("get_next_operation_result", &plugin_id);
+    let _enter = span.enter();
 
     let result = operation_batch::next_operation_result(
         &plugin_id,
@@ -148,6 +152,8 @@ fn cancel_operation_batch_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("cancel_operation_batch", &plugin_id);
+    let _enter = span.enter();
 
     operation_batch::cancel_operation_batch(
         &plugin_id,
