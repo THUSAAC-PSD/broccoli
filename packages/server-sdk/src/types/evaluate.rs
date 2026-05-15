@@ -4,10 +4,12 @@ use super::operation::ResourceLimits;
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
-pub const DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS: u64 = 15 * 60 * 1000;
+pub const DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS: u64 = 0;
 pub const DEFAULT_EVALUATION_RESULT_TIMEOUT_MAX_MS: u64 = 60 * 60 * 1000;
 pub const DEFAULT_EVALUATION_CHECKER_SLACK_S: f64 = 180.0;
-pub const DEFAULT_EVALUATION_QUEUE_SLACK_S: f64 = 300.0;
+/// Deprecated compatibility constant. Queue wait no longer counts against
+/// evaluate result timeouts, so this default is now zero.
+pub const DEFAULT_EVALUATION_QUEUE_SLACK_S: f64 = 0.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct EvaluationTimeoutBudget {
@@ -22,6 +24,8 @@ pub struct EvaluationTimeoutBudget {
     pub manager_wall_time_multiplier: f64,
     pub manager_extra_time_s: f64,
     pub checker_slack_s: f64,
+    /// Deprecated compatibility field. Queue wait is tracked by the host and
+    /// no longer needs caller-side timeout padding.
     pub queue_slack_s: f64,
     pub minimum_timeout_ms: u64,
     pub maximum_timeout_ms: u64,
@@ -41,7 +45,7 @@ impl EvaluationTimeoutBudget {
             manager_wall_time_multiplier: 1.0,
             manager_extra_time_s: 0.0,
             checker_slack_s: DEFAULT_EVALUATION_CHECKER_SLACK_S,
-            queue_slack_s: DEFAULT_EVALUATION_QUEUE_SLACK_S,
+            queue_slack_s: 0.0,
             minimum_timeout_ms: DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS,
             maximum_timeout_ms: DEFAULT_EVALUATION_RESULT_TIMEOUT_MAX_MS,
         }
@@ -184,11 +188,8 @@ mod timeout_tests {
     use super::*;
 
     #[test]
-    fn default_timeout_is_generous_floor_for_normal_limits() {
-        assert_eq!(
-            default_evaluation_result_timeout_ms(2000),
-            DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS
-        );
+    fn default_timeout_has_no_queue_slack_or_minimum_floor() {
+        assert_eq!(default_evaluation_result_timeout_ms(2000), 250_000);
     }
 
     #[test]
@@ -198,7 +199,7 @@ mod timeout_tests {
             ..EvaluationTimeoutBudget::default_for_time_limit_ms(1000)
         };
 
-        assert!(budget.timeout_ms() > DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS);
+        assert_eq!(budget.timeout_ms(), 3_240_000);
     }
 
     #[test]

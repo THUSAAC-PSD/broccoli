@@ -37,10 +37,22 @@ export function DlqStatsSummary({ stats }: Props) {
       icon: Clock,
       tone: 'default' as const,
     },
+    {
+      labelKey: 'dlq.stats.stuckCodeRun',
+      value: stats.unresolved_by_message_type.stuck_code_run,
+      icon: Clock,
+      tone: 'default' as const,
+    },
+    {
+      labelKey: 'dlq.stats.stuckSubmissionJudgement',
+      value: stats.unresolved_by_message_type.stuck_submission_judgement,
+      icon: Clock,
+      tone: 'default' as const,
+    },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {items.map(({ labelKey, value, icon: Icon, tone }) => (
         <Card key={labelKey}>
           <CardContent className="pt-6">

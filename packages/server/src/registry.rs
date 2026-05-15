@@ -108,4 +108,17 @@ pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
     });
 }
 
-pub type OperationWaiters = Arc<DashMap<String, oneshot::Sender<TaskResult>>>;
+#[derive(Clone)]
+pub struct OperationWaiter {
+    pub result_tx: Arc<std::sync::Mutex<Option<oneshot::Sender<TaskResult>>>>,
+}
+
+impl OperationWaiter {
+    pub fn new(result_tx: oneshot::Sender<TaskResult>) -> Self {
+        Self {
+            result_tx: Arc::new(std::sync::Mutex::new(Some(result_tx))),
+        }
+    }
+}
+
+pub type OperationWaiters = Arc<DashMap<String, OperationWaiter>>;

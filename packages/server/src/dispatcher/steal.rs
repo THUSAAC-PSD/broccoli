@@ -958,6 +958,7 @@ mod tests {
                     steal_batch_size: 8,
                     sweep_interval_secs: 300,
                     max_dispatch_retries: 5,
+                    max_stuck_retries: 5,
                     sweeper_dry_run: true,
                     cancel_primitive_enabled: false,
                     fleet_aware_admission_enabled: false,

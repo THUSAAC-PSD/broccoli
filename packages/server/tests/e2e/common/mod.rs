@@ -430,6 +430,7 @@ impl E2eTestApp {
                 steal_batch_size: 8,
                 sweep_interval_secs: 300,
                 max_dispatch_retries: 5,
+                max_stuck_retries: 5,
                 sweeper_dry_run: true,
                 cancel_primitive_enabled: false,
                 fleet_aware_admission_enabled: false,
@@ -479,6 +480,8 @@ impl E2eTestApp {
         let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
         let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
         let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
+        let evaluate_ops_registry =
+            server::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
 
         let plugins = ServerManager::new(
             app_config.plugin.clone(),
@@ -492,6 +495,7 @@ impl E2eTestApp {
                 checker_format_registry: checker_format_registry.clone(),
                 language_resolver_registry: language_resolver_registry.clone(),
                 evaluate_batches: evaluate_batches.clone(),
+                evaluate_ops_registry: evaluate_ops_registry.clone(),
                 blob_store: blob_store.clone(),
                 config: app_config.clone(),
                 metrics: None,
@@ -544,12 +548,14 @@ impl E2eTestApp {
 
             let consumer_mq = Arc::clone(&mq);
             let consumer_waiters = operation_waiters.clone();
+            let consumer_evaluate_ops_registry = evaluate_ops_registry.clone();
             let consumer_queue = result_queue.clone();
             let consumer_metrics = e2e_metrics.clone();
             result_consumer_handle_opt = Some(tokio::spawn(async move {
                 consume_operation_results(
                     consumer_mq,
                     consumer_waiters,
+                    consumer_evaluate_ops_registry,
                     consumer_queue,
                     consumer_metrics,
                 )

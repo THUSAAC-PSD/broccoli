@@ -1,6 +1,8 @@
+use chrono::Utc;
 use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OperationRef {
@@ -11,6 +13,9 @@ pub struct OperationRef {
 #[derive(Default)]
 struct EvaluateBatchOps {
     by_test_case: DashMap<i32, Vec<OperationRef>>,
+    by_operation_task: DashMap<String, i32>,
+    started_at_by_test_case: DashMap<i32, Instant>,
+    completed_test_cases: DashSet<i32>,
     cancelled_test_cases: DashSet<i32>,
     batch_cancelled: AtomicBool,
 }
@@ -46,7 +51,11 @@ impl EvaluateBatchOpsRegistry {
             .by_test_case
             .entry(test_case_id)
             .or_default()
-            .extend(refs);
+            .extend(refs.clone());
+
+        for op in refs {
+            batch.by_operation_task.insert(op.op_task_id, test_case_id);
+        }
     }
 
     pub fn remove_operation_batch(
@@ -57,9 +66,62 @@ impl EvaluateBatchOpsRegistry {
     ) {
         if let Some(batch) = self.batches.get(evaluate_batch_id) {
             if let Some(mut refs) = batch.by_test_case.get_mut(&test_case_id) {
+                let removed = refs
+                    .iter()
+                    .filter(|op| op.op_batch_id == op_batch_id)
+                    .map(|op| op.op_task_id.clone())
+                    .collect::<Vec<_>>();
                 refs.retain(|op| op.op_batch_id != op_batch_id);
+                for op_task_id in removed {
+                    batch.by_operation_task.remove(&op_task_id);
+                }
             }
         }
+    }
+
+    pub fn mark_operation_started(&self, op_task_id: &str, started_at_unix_ms: i64) -> bool {
+        for batch in self.batches.iter() {
+            if let Some(test_case_id) = batch.by_operation_task.get(op_task_id).map(|tc| *tc) {
+                batch
+                    .started_at_by_test_case
+                    .entry(test_case_id)
+                    .or_insert_with(|| instant_from_unix_ms(started_at_unix_ms));
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn mark_test_case_completed(&self, evaluate_batch_id: &str, test_case_id: i32) {
+        if let Some(batch) = self.batches.get(evaluate_batch_id) {
+            batch.completed_test_cases.insert(test_case_id);
+        }
+    }
+
+    pub fn should_extend_wait_for_execution_timeout(
+        &self,
+        evaluate_batch_id: &str,
+        timeout: Duration,
+    ) -> bool {
+        let Some(batch) = self.batches.get(evaluate_batch_id) else {
+            return false;
+        };
+        let now = Instant::now();
+
+        batch.by_test_case.iter().any(|entry| {
+            let test_case_id = *entry.key();
+            if batch.completed_test_cases.contains(&test_case_id)
+                || batch.cancelled_test_cases.contains(&test_case_id)
+                || batch.batch_cancelled.load(Ordering::Acquire)
+            {
+                return false;
+            }
+
+            match batch.started_at_by_test_case.get(&test_case_id) {
+                Some(started_at) => now.duration_since(*started_at) < timeout,
+                None => true,
+            }
+        })
     }
 
     /// Marks the given test cases as cancelled within an existing batch and
@@ -138,6 +200,17 @@ impl EvaluateBatchOpsRegistry {
     pub fn remove_batch(&self, evaluate_batch_id: &str) {
         self.batches.remove(evaluate_batch_id);
     }
+}
+
+fn instant_from_unix_ms(started_at_unix_ms: i64) -> Instant {
+    let now = Instant::now();
+    let now_unix_ms = Utc::now().timestamp_millis();
+    let elapsed_ms = now_unix_ms.saturating_sub(started_at_unix_ms);
+    if elapsed_ms <= 0 {
+        return now;
+    }
+    now.checked_sub(Duration::from_millis(elapsed_ms as u64))
+        .unwrap_or(now)
 }
 
 #[cfg(test)]
@@ -229,6 +302,46 @@ mod tests {
         assert_eq!(
             registry.operation_task_ids_for_test_cases("eval-1", &[10]),
             vec!["op-3".to_string()]
+        );
+    }
+
+    #[test]
+    fn started_at_uses_first_started_operation_for_test_case() {
+        let registry = EvaluateBatchOpsRegistry::default();
+        registry.record_ops(
+            "eval-1",
+            10,
+            "op-batch-1",
+            ["op-1".to_string(), "op-2".to_string()],
+        );
+
+        assert!(registry.mark_operation_started("op-2", Utc::now().timestamp_millis()));
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(registry.mark_operation_started("op-1", Utc::now().timestamp_millis()));
+
+        assert!(
+            !registry.should_extend_wait_for_execution_timeout("eval-1", Duration::from_millis(10))
+        );
+    }
+
+    #[test]
+    fn queued_operation_extends_wait() {
+        let registry = EvaluateBatchOpsRegistry::default();
+        registry.record_ops("eval-1", 10, "op-batch-1", ["op-1".to_string()]);
+
+        assert!(
+            registry.should_extend_wait_for_execution_timeout("eval-1", Duration::from_millis(1))
+        );
+    }
+
+    #[test]
+    fn completed_test_case_does_not_extend_wait() {
+        let registry = EvaluateBatchOpsRegistry::default();
+        registry.record_ops("eval-1", 10, "op-batch-1", ["op-1".to_string()]);
+        registry.mark_test_case_completed("eval-1", 10);
+
+        assert!(
+            !registry.should_extend_wait_for_execution_timeout("eval-1", Duration::from_secs(60))
         );
     }
 

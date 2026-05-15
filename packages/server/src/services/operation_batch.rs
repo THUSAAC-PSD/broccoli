@@ -12,7 +12,7 @@ use opentelemetry::KeyValue;
 use uuid::Uuid;
 
 use crate::host_funcs::context::OperationHostDeps;
-use crate::registry::{BatchState, OperationBatches, OperationWaiters};
+use crate::registry::{BatchState, OperationBatches, OperationWaiter, OperationWaiters};
 
 const INLINE_FILE_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 
@@ -91,7 +91,10 @@ pub async fn start_operation_batch(
 
             // Waiter insert must precede publish for THIS op (UP#14d). These
             // two sync calls happen before the awaits below.
-            deps.operation_waiters.insert(correlation_id.clone(), op_tx);
+            deps.operation_waiters.insert(
+                correlation_id.clone(),
+                OperationWaiter::new(op_tx),
+            );
             spawn_waiter_forwarder(
                 correlation_id.clone(),
                 op_rx,
@@ -517,7 +520,7 @@ mod tests {
                 poisoned: AtomicBool::new(false),
             },
         );
-        waiters.insert("task-1".to_string(), waiter_tx);
+        waiters.insert("task-1".to_string(), OperationWaiter::new(waiter_tx));
 
         cancel_operation_batch("plugin", &batches, &waiters, None, "batch-1");
 

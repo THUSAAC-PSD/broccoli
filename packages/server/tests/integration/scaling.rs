@@ -6,7 +6,8 @@ use dashmap::DashMap;
 use mq::{MqConfig, init_mq};
 use server::config::per_replica_result_queue_name;
 use server::consumers::consume_operation_results;
-use server::registry::OperationWaiters;
+use server::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry;
+use server::registry::{OperationWaiter, OperationWaiters};
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::redis::Redis;
 use tokio::sync::oneshot;
@@ -58,20 +59,23 @@ async fn per_replica_result_queue_delivers_to_originating_replica_only() {
 
     let waiters_a: OperationWaiters = Arc::new(DashMap::new());
     let waiters_b: OperationWaiters = Arc::new(DashMap::new());
+    let evaluate_ops_registry = EvaluateBatchOpsRegistry::default();
     let (tx_a, rx_a) = oneshot::channel();
     let (tx_b, rx_b) = oneshot::channel();
-    waiters_a.insert("task-1".to_string(), tx_a);
-    waiters_b.insert("task-1".to_string(), tx_b);
+    waiters_a.insert("task-1".to_string(), OperationWaiter::new(tx_a));
+    waiters_b.insert("task-1".to_string(), OperationWaiter::new(tx_b));
 
     let consumer_a = tokio::spawn(consume_operation_results(
         Arc::clone(&mq_a),
         Arc::clone(&waiters_a),
+        evaluate_ops_registry.clone(),
         queue_a.clone(),
         metrics.clone(),
     ));
     let consumer_b = tokio::spawn(consume_operation_results(
         Arc::clone(&mq_b),
         Arc::clone(&waiters_b),
+        evaluate_ops_registry,
         queue_b,
         metrics,
     ));

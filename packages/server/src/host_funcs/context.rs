@@ -24,6 +24,7 @@ pub struct HostFunctionSystemDeps {
     pub checker_format_registry: CheckerFormatRegistry,
     pub language_resolver_registry: LanguageResolverRegistry,
     pub evaluate_batches: EvaluateBatches,
+    pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
     pub blob_store: Arc<dyn BlobStore>,
     pub config: AppConfig,
     pub metrics: Option<common::metrics::Metrics>,
@@ -75,10 +76,7 @@ impl HostFunctionSystemDeps {
         }
     }
 
-    pub fn operation_deps(
-        &self,
-        evaluate_ops_registry: EvaluateBatchOpsRegistry,
-    ) -> OperationHostDeps {
+    pub fn operation_deps(&self) -> OperationHostDeps {
         OperationHostDeps {
             mq: self.mq.clone(),
             operation_batches: self.operation_batches.clone(),
@@ -87,7 +85,7 @@ impl HostFunctionSystemDeps {
             operation_result_queue_name: self.config.mq.operation_result_queue_name.clone(),
             blob_store: self.blob_store.clone(),
             metrics: self.metrics.clone(),
-            evaluate_ops_registry,
+            evaluate_ops_registry: self.evaluate_ops_registry.clone(),
             operation_batch_publish_concurrency: self
                 .config
                 .server
@@ -102,7 +100,6 @@ impl HostFunctionDeps {
         &self,
         evaluator_slots: Arc<Semaphore>,
         fanout_slots: crate::dispatcher::fanout::FanoutSemaphore,
-        evaluate_ops_registry: EvaluateBatchOpsRegistry,
     ) -> EvaluateHostDeps {
         EvaluateHostDeps {
             db: self.system.db.clone(),
@@ -113,7 +110,7 @@ impl HostFunctionDeps {
             plugin_manager: self.plugin_manager.clone(),
             blob_store: self.system.blob_store.clone(),
             metrics: self.system.metrics.clone(),
-            evaluate_ops_registry,
+            evaluate_ops_registry: self.system.evaluate_ops_registry.clone(),
             redis_client: self.system.redis_client.clone(),
             cancel_primitive_enabled: self.system.config.server.cancel_primitive_enabled,
         }

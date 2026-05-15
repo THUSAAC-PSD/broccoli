@@ -118,6 +118,11 @@ pub struct ServerConfig {
     pub sweep_interval_secs: u64,
     #[serde(default = "default_max_dispatch_retries")]
     pub max_dispatch_retries: u32,
+    /// Retry budget for the global stuck detector. Rows with
+    /// `retry_count <= max_stuck_retries` are left for claim/lease-steal
+    /// recovery; rows above the budget are finalized as SystemError.
+    #[serde(default = "default_max_stuck_retries")]
+    pub max_stuck_retries: u32,
     /// When true, log ghost reply queues and debounce them without deleting
     /// the Redis keys. Defaults to false now that the sweeper has soaked in
     /// dry-run through earlier UP rollouts; flip back to true if you need to
@@ -257,6 +262,10 @@ fn default_sweep_interval_secs() -> u64 {
 }
 
 fn default_max_dispatch_retries() -> u32 {
+    5
+}
+
+fn default_max_stuck_retries() -> u32 {
     5
 }
 
@@ -560,6 +569,7 @@ impl AppConfig {
             .set_default("server.steal_batch_size", 8_i64)?
             .set_default("server.sweep_interval_secs", 300_i64)?
             .set_default("server.max_dispatch_retries", 5_i64)?
+            .set_default("server.max_stuck_retries", 5_i64)?
             .set_default("server.sweeper_dry_run", false)?
             .set_default("server.cancel_primitive_enabled", false)?
             .set_default("server.fleet_aware_admission_enabled", false)?
@@ -727,6 +737,7 @@ mod tests {
             steal_batch_size: default_steal_batch_size(),
             sweep_interval_secs: default_sweep_interval_secs(),
             max_dispatch_retries: default_max_dispatch_retries(),
+            max_stuck_retries: default_max_stuck_retries(),
             sweeper_dry_run: default_sweeper_dry_run(),
             cancel_primitive_enabled: false,
             fleet_aware_admission_enabled: false,
@@ -777,6 +788,12 @@ mod tests {
         let resolved = cfg.effective_max_blocking_threads();
         assert_eq!(resolved, auto_max_blocking_threads());
         assert!((512..=8192).contains(&resolved));
+    }
+
+    #[test]
+    fn server_config_defaults_max_stuck_retries_to_five() {
+        let cfg = server_config_fixture(None);
+        assert_eq!(cfg.max_stuck_retries, 5);
     }
 
     #[test]

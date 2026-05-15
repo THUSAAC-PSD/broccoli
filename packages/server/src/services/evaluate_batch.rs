@@ -26,6 +26,7 @@ use crate::host_funcs::context::EvaluateHostDeps;
 use crate::registry::{BatchState, EvaluateBatches};
 
 const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
+const EVALUATE_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
 
 pub async fn start_evaluate_batch(
     caller_plugin_id: String,
@@ -251,44 +252,114 @@ pub fn next_evaluate_result(
     };
 
     let wait_start = Instant::now();
-    let result = result_rx.recv_timeout(timeout);
-
-    match result {
-        Ok(verdict) => {
-            if let Some(metrics) = metrics {
-                let attrs = [
-                    KeyValue::new("batch.kind", "evaluate"),
-                    KeyValue::new("plugin.id", plugin_id.to_string()),
-                    KeyValue::new("outcome", "result"),
-                    KeyValue::new("verdict", verdict.verdict.to_string()),
-                ];
-                metrics
-                    .batch_wait_duration
-                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
-                metrics.batch_results_total.add(1, &attrs);
-            }
-            tracing::debug!(
-                plugin_id = %plugin_id,
-                batch_id = %batch_id,
-                test_case_id = verdict.test_case_id,
-                verdict = %verdict.verdict,
-                "Evaluate result received"
-            );
-
-            if pending_count.load(Ordering::SeqCst) == 0
-                && result_rx.is_empty()
-                && batches.remove(batch_id).is_some()
-            {
-                evaluate_ops_registry.remove_batch(batch_id);
-                if let Some(metrics) = metrics {
-                    metrics
-                        .batch_active
-                        .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+    if timeout.is_zero() {
+        return handle_evaluate_receive(
+            plugin_id,
+            batches,
+            metrics,
+            evaluate_ops_registry,
+            batch_id,
+            &result_rx,
+            &pending_count,
+            wait_start,
+            result_rx.try_recv().map_err(|err| match err {
+                crossbeam::channel::TryRecvError::Empty => {
+                    crossbeam::channel::RecvTimeoutError::Timeout
                 }
-            }
+                crossbeam::channel::TryRecvError::Disconnected => {
+                    crossbeam::channel::RecvTimeoutError::Disconnected
+                }
+            }),
+        );
+    }
 
-            Ok(Some(verdict))
+    loop {
+        match result_rx.recv_timeout(next_evaluate_wait_tick(timeout)) {
+            Ok(verdict) => {
+                return handle_evaluate_verdict(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    evaluate_ops_registry,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                    verdict,
+                );
+            }
+            Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
+                if pending_count.load(Ordering::SeqCst) > 0
+                    && evaluate_ops_registry
+                        .should_extend_wait_for_execution_timeout(batch_id, timeout)
+                {
+                    tracing::debug!(
+                        plugin_id = %plugin_id,
+                        batch_id = %batch_id,
+                        timeout_ms = timeout.as_millis(),
+                        "Evaluate result wait extended while operation execution budget remains"
+                    );
+                    continue;
+                }
+
+                if let Some(metrics) = metrics {
+                    let attrs = [
+                        KeyValue::new("batch.kind", "evaluate"),
+                        KeyValue::new("plugin.id", plugin_id.to_string()),
+                        KeyValue::new("outcome", "timeout"),
+                    ];
+                    metrics
+                        .batch_wait_duration
+                        .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                    metrics.batch_results_total.add(1, &attrs);
+                }
+                return Ok(None);
+            }
+            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
+                if let Some(metrics) = metrics {
+                    let attrs = [
+                        KeyValue::new("batch.kind", "evaluate"),
+                        KeyValue::new("plugin.id", plugin_id.to_string()),
+                        KeyValue::new("outcome", "disconnected"),
+                    ];
+                    metrics
+                        .batch_wait_duration
+                        .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                    metrics.batch_results_total.add(1, &attrs);
+                }
+                return Err(anyhow!("Evaluate batch channel disconnected"));
+            }
         }
+    }
+}
+
+fn next_evaluate_wait_tick(timeout: Duration) -> Duration {
+    timeout.min(EVALUATE_RESULT_WAIT_TICK)
+}
+
+fn handle_evaluate_receive(
+    plugin_id: &str,
+    batches: &EvaluateBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
+    batch_id: &str,
+    result_rx: &crossbeam::channel::Receiver<TestCaseVerdict>,
+    pending_count: &Arc<AtomicUsize>,
+    wait_start: Instant,
+    result: Result<TestCaseVerdict, crossbeam::channel::RecvTimeoutError>,
+) -> anyhow::Result<Option<TestCaseVerdict>> {
+    match result {
+        Ok(verdict) => handle_evaluate_verdict(
+            plugin_id,
+            batches,
+            metrics,
+            evaluate_ops_registry,
+            batch_id,
+            result_rx,
+            pending_count,
+            wait_start,
+            verdict,
+        ),
         Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
             if let Some(metrics) = metrics {
                 let attrs = [
@@ -318,6 +389,53 @@ pub fn next_evaluate_result(
             Err(anyhow!("Evaluate batch channel disconnected"))
         }
     }
+}
+
+fn handle_evaluate_verdict(
+    plugin_id: &str,
+    batches: &EvaluateBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
+    batch_id: &str,
+    result_rx: &crossbeam::channel::Receiver<TestCaseVerdict>,
+    pending_count: &Arc<AtomicUsize>,
+    wait_start: Instant,
+    verdict: TestCaseVerdict,
+) -> anyhow::Result<Option<TestCaseVerdict>> {
+    evaluate_ops_registry.mark_test_case_completed(batch_id, verdict.test_case_id);
+    if let Some(metrics) = metrics {
+        let attrs = [
+            KeyValue::new("batch.kind", "evaluate"),
+            KeyValue::new("plugin.id", plugin_id.to_string()),
+            KeyValue::new("outcome", "result"),
+            KeyValue::new("verdict", verdict.verdict.to_string()),
+        ];
+        metrics
+            .batch_wait_duration
+            .record(wait_start.elapsed().as_secs_f64(), &attrs);
+        metrics.batch_results_total.add(1, &attrs);
+    }
+    tracing::debug!(
+        plugin_id = %plugin_id,
+        batch_id = %batch_id,
+        test_case_id = verdict.test_case_id,
+        verdict = %verdict.verdict,
+        "Evaluate result received"
+    );
+
+    if pending_count.load(Ordering::SeqCst) == 0
+        && result_rx.is_empty()
+        && batches.remove(batch_id).is_some()
+    {
+        evaluate_ops_registry.remove_batch(batch_id);
+        if let Some(metrics) = metrics {
+            metrics
+                .batch_active
+                .add(-1, &[KeyValue::new("batch.kind", "evaluate")]);
+        }
+    }
+
+    Ok(Some(verdict))
 }
 
 pub fn cancel_evaluate_batch(
@@ -683,6 +801,148 @@ mod tests {
     use common::storage::filesystem::FilesystemBlobStore;
 
     use super::*;
+
+    #[test]
+    fn next_result_extends_timeout_until_tracked_operation_execution_budget_expires() {
+        let batches = EvaluateBatches::default();
+        let registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let pending_count = Arc::new(AtomicUsize::new(1));
+        let batch_id = "eval-timeout-started";
+
+        batches.insert(
+            batch_id.to_string(),
+            BatchState {
+                result_rx: rx,
+                pending_count: pending_count.clone(),
+                created_at: Instant::now(),
+                cleanup_keys: Arc::new(Vec::new()),
+                poisoned: AtomicBool::new(false),
+            },
+        );
+        registry.record_ops(batch_id, 10, "op-batch-1", ["op-1".to_string()]);
+
+        let batches_for_waiter = batches.clone();
+        let registry_for_waiter = registry.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = next_evaluate_result(
+                "plugin",
+                &batches_for_waiter,
+                None,
+                &registry_for_waiter,
+                batch_id,
+                Duration::from_millis(25),
+            )
+            .unwrap();
+            done_tx.send(result).unwrap();
+        });
+
+        std::thread::sleep(Duration::from_millis(40));
+        assert!(
+            done_rx.try_recv().is_err(),
+            "queued operation should silently extend the first timeout"
+        );
+
+        registry.mark_operation_started("op-1", chrono::Utc::now().timestamp_millis());
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            done_rx.try_recv().is_err(),
+            "started operation should keep waiting until execution timeout elapses"
+        );
+
+        assert!(
+            done_rx
+                .recv_timeout(Duration::from_millis(80))
+                .unwrap()
+                .is_none()
+        );
+        drop(tx);
+    }
+
+    #[test]
+    fn next_result_uses_first_started_operation_for_multi_op_test_case() {
+        let batches = EvaluateBatches::default();
+        let registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (_tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let pending_count = Arc::new(AtomicUsize::new(1));
+        let batch_id = "eval-timeout-multi-op";
+
+        batches.insert(
+            batch_id.to_string(),
+            BatchState {
+                result_rx: rx,
+                pending_count: pending_count.clone(),
+                created_at: Instant::now(),
+                cleanup_keys: Arc::new(Vec::new()),
+                poisoned: AtomicBool::new(false),
+            },
+        );
+        registry.record_ops(
+            batch_id,
+            10,
+            "op-batch-1",
+            ["op-1".to_string(), "op-2".to_string()],
+        );
+
+        registry.mark_operation_started("op-1", chrono::Utc::now().timestamp_millis());
+        std::thread::sleep(Duration::from_millis(30));
+
+        assert!(
+            next_evaluate_result(
+                "plugin",
+                &batches,
+                None,
+                &registry,
+                batch_id,
+                Duration::from_millis(20),
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn next_result_zero_timeout_is_nonblocking_even_when_operation_is_queued() {
+        let batches = EvaluateBatches::default();
+        let registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (_tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let pending_count = Arc::new(AtomicUsize::new(1));
+        let batch_id = "eval-timeout-zero";
+
+        batches.insert(
+            batch_id.to_string(),
+            BatchState {
+                result_rx: rx,
+                pending_count,
+                created_at: Instant::now(),
+                cleanup_keys: Arc::new(Vec::new()),
+                poisoned: AtomicBool::new(false),
+            },
+        );
+        registry.record_ops(batch_id, 10, "op-batch-1", ["op-1".to_string()]);
+
+        let start = Instant::now();
+        assert!(
+            next_evaluate_result(
+                "plugin",
+                &batches,
+                None,
+                &registry,
+                batch_id,
+                Duration::ZERO,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            start.elapsed() < Duration::from_millis(20),
+            "timeout=0 must preserve the SDK's nonblocking poll contract"
+        );
+    }
 
     #[test]
     fn dispatch_guard_drains_remaining_on_drop() {

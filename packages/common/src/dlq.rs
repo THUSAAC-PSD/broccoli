@@ -40,6 +40,8 @@ impl std::fmt::Display for DlqErrorCode {
 pub enum DlqMessageType {
     OperationTask,
     StuckSubmission,
+    StuckCodeRun,
+    StuckSubmissionJudgement,
 }
 
 impl DlqMessageType {
@@ -47,6 +49,8 @@ impl DlqMessageType {
         match self {
             Self::OperationTask => "operation_task",
             Self::StuckSubmission => "stuck_submission",
+            Self::StuckCodeRun => "stuck_code_run",
+            Self::StuckSubmissionJudgement => "stuck_submission_judgement",
         }
     }
 }
@@ -64,8 +68,10 @@ impl std::str::FromStr for DlqMessageType {
         match s {
             "operation_task" => Ok(Self::OperationTask),
             "stuck_submission" => Ok(Self::StuckSubmission),
+            "stuck_code_run" => Ok(Self::StuckCodeRun),
+            "stuck_submission_judgement" => Ok(Self::StuckSubmissionJudgement),
             _ => Err(format!(
-                "Invalid message_type '{}'. Must be 'operation_task' or 'stuck_submission'",
+                "Invalid message_type '{}'. Must be 'operation_task', 'stuck_submission', 'stuck_code_run', or 'stuck_submission_judgement'",
                 s
             )),
         }
@@ -81,4 +87,38 @@ pub struct DlqEnvelope {
     pub error_code: DlqErrorCode,
     pub error_message: String,
     pub retry_history: Vec<RetryAttempt>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dlq_message_type_round_trips_all_public_values() {
+        let cases = [
+            (DlqMessageType::OperationTask, "operation_task"),
+            (DlqMessageType::StuckSubmission, "stuck_submission"),
+            (DlqMessageType::StuckCodeRun, "stuck_code_run"),
+            (
+                DlqMessageType::StuckSubmissionJudgement,
+                "stuck_submission_judgement",
+            ),
+        ];
+
+        for (message_type, value) in cases {
+            assert_eq!(message_type.as_str(), value);
+            assert_eq!(message_type.to_string(), value);
+            assert_eq!(value.parse::<DlqMessageType>().unwrap(), message_type);
+        }
+    }
+
+    #[test]
+    fn dlq_message_type_validation_names_all_allowed_values() {
+        let err = "invalid".parse::<DlqMessageType>().unwrap_err();
+
+        assert!(err.contains("operation_task"));
+        assert!(err.contains("stuck_submission"));
+        assert!(err.contains("stuck_code_run"));
+        assert!(err.contains("stuck_submission_judgement"));
+    }
 }

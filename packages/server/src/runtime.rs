@@ -156,6 +156,8 @@ impl ServerRuntime {
         let operation_batches = Arc::new(DashMap::new());
         let operation_waiters = Arc::new(DashMap::new());
         let evaluate_batches = Arc::new(DashMap::new());
+        let evaluate_ops_registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
 
         let batch_max_age = Duration::from_secs(app_config.batch_max_age_secs);
         let reaper_mq = mq.clone();
@@ -192,23 +194,28 @@ impl ServerRuntime {
                 }
             },
         );
+        let evaluate_ops_registry_for_reaper = evaluate_ops_registry.clone();
         registry::spawn_batch_reaper(
             "evaluate",
             evaluate_batches.clone(),
             batch_max_age,
             Some(metrics.clone()),
-            |_batch_id, _batch| {},
+            move |batch_id, _batch| {
+                evaluate_ops_registry_for_reaper.remove_batch(batch_id);
+            },
         );
 
         if let Some(ref mq_arc) = mq {
             let op_consumer_mq = Arc::clone(mq_arc);
             let op_result_queue = app_config.mq.operation_result_queue_name.clone();
             let op_waiters = operation_waiters.clone();
+            let op_evaluate_ops_registry = evaluate_ops_registry.clone();
             let op_result_metrics = metrics.clone();
             tokio::spawn(async move {
                 consume_operation_results(
                     op_consumer_mq,
                     op_waiters,
+                    op_evaluate_ops_registry,
                     op_result_queue,
                     op_result_metrics,
                 )
@@ -232,6 +239,7 @@ impl ServerRuntime {
                 checker_format_registry: checker_format_registry.clone(),
                 language_resolver_registry: language_resolver_registry.clone(),
                 evaluate_batches: evaluate_batches.clone(),
+                evaluate_ops_registry: evaluate_ops_registry.clone(),
                 blob_store: blob_store.clone(),
                 config: app_config.clone(),
                 metrics: Some(metrics.clone()),

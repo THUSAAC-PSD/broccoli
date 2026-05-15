@@ -417,13 +417,96 @@ G testing); UP#14f before Phase B PR-E.
         because OrbStack's daemon would not start in this environment
         (`SocketNotFoundError`); the workspace `cargo     build` and
         `cargo test -p server --lib` are both green.
-- [ ] **PR: backpressure-on-post.** UP#39 — 503 + `Retry-After` when
-      queued-count exceeds `max_queued_submissions` (default 5000).
-- [ ] **PR: queue-wait-vs-exec-timeout.** UP#40 — plugin's `next_result` polling
+- [x] **PR: backpressure-on-post.** UP#39 — 503 + `Retry-After` when
+      queued-count exceeds `max_queued_submissions` (default 5000). Verified
+      landed in commits `ae33f2d9`, `7f84fb2b`, and `17910b11`. The durable
+      queue-depth helper counts `Queued` rows across `submission`, `code_run`,
+      and `submission_judgement`, enforces the configured cap before inserts,
+      and returns `AppError::Overloaded` with a positive `Retry-After`
+      (`packages/server/src/dispatcher/queue_depth.rs:1-24`, `:76-92`,
+      `:118-145`). `AppError::Overloaded` maps to `503` and
+      `QUEUE_OVERLOADED` while preserving `Retry-After`
+      (`packages/server/src/error.rs:275-298`). The admission gate is wired at
+      submission create/rejudge/contest submit/bulk rejudge/admin fan-out,
+      code-run create/contest run, and DLQ single/bulk retry
+      (`packages/server/src/handlers/submission.rs:918-920`, `:1468-1473`,
+      `:1620-1621`, `:1848-1853`, `:2002-2008`,
+      `packages/server/src/handlers/code_run.rs:166-170`, `:255-256`,
+      `packages/server/src/handlers/dlq.rs:162-165`, `:318-323`). Integration
+      coverage exercises reject, accept-below-cap, code-run, rejudge, and
+      cap-disabled cases (`packages/server/tests/integration/submission.rs:2082-2181`,
+      `:2184-2248`, `:2251-2320`). Verified locally with
+      `cargo test -p server overloaded_maps_to_503_with_retry_after --lib`,
+      `cargo test -p server rate_limited_still_maps_to_429_with_retry_after --lib`,
+      and `cargo test -p server backpressure --tests --no-run`.
+- [x] **PR: queue-wait-vs-exec-timeout.** UP#40 — plugin's `next_result` polling
       sees only execution time, not queue wait. Edit
       `packages/server/src/host_funcs/evaluate.rs:564` clock semantics.
-- [ ] **PR: stuck-detector-reenqueue.** UP#41 — `retry_count > 5` →
-      SystemError + DLQ; otherwise lease/steal handles recovery.
+      Implemented with an explicit operation reply protocol that carries
+      fire-and-forget Started notifications plus backwards-compatible completed
+      results (`packages/common/src/worker.rs:95-150`,
+      `packages/worker/src/task_runner.rs:24-53`, `:86-125`). The operation
+      result consumer now handles Started and Completed independently, writes
+      Started into the shared evaluate operation registry, and labels reply
+      metrics by reply type (`packages/server/src/consumers/operation_result.rs:10-15`,
+      `:34-52`, `:54-87`). The evaluate operation registry maps op task ids to
+      test cases, records the first Started timestamp per test case, ignores
+      completed/cancelled cases for extension, and is cleaned up by the
+      evaluate batch reaper (`packages/server/src/host_funcs/evaluate_ops_registry.rs:13-24`,
+      `:29-58`, `:82-124`, `:205-214`,
+      `packages/server/src/runtime.rs:197-205`). `next_evaluate_result` now
+      preserves `timeout=0` as a true nonblocking probe, otherwise polls in
+      short ticks and silently extends while queued or within execution budget
+      (`packages/server/src/services/evaluate_batch.rs:254-337`, `:340-430`).
+      Regression coverage includes queued extension, first-start wins for
+      multi-op test cases, and nonblocking zero-timeout polls
+      (`packages/server/src/services/evaluate_batch.rs:805-945`,
+      `packages/server/src/host_funcs/evaluate_ops_registry.rs:308-345`). SDK
+      queue slack and the old 15-minute floor are removed from defaults, plugin
+      result-timeout defaults are lowered, and operator notes document the
+      changed budget semantics (`packages/server-sdk/src/types/evaluate.rs:7-12`,
+      `:27-30`, `:47-71`, `:190-202`,
+      `plugins/batch-evaluator/plugin.toml:134-141`,
+      `plugins/communication-evaluator/plugin.toml:137-144`,
+      `UPGRADE-NOTES.md:7-32`). Verified locally with `cargo fmt --check`,
+      `git diff --check`, `cargo test -p broccoli-server-sdk --lib`,
+      `cargo test -p common --lib`, `cargo test -p server --lib`
+      (145 passed, 1 ignored), and `cargo test -p worker --lib`
+      (30 passed, 1 ignored). A final subagent review approved the UP#40
+      semantics after the zero-timeout regression fix.
+- [x] **PR: stuck-detector-reenqueue.** UP#41 — `retry_count > 5` →
+      SystemError + DLQ; otherwise lease/steal handles recovery. Implemented
+      with `server.max_stuck_retries` default/config plumbing
+      (`packages/server/src/config.rs:121-125`, `:268-269`, `:571-572`).
+      The stuck detector now scans `submission`, `code_run`, and
+      `submission_judgement` with the shared stale owner/heartbeat predicate
+      and re-checks it under `FOR UPDATE`
+      (`packages/server/src/dlq/stuck.rs:57-70`, `:86-108`, `:136-158`,
+      `:181-208`, `:273-294`, `:413-434`, `:523-545`). Exhausted rows use the
+      strict `retry_count > max_stuck_retries` helper and emit terminal
+      `Exceeded N retries` errors plus DLQ visibility
+      (`packages/server/src/dlq/stuck.rs:298-363`, `:438-472`, `:549-614`,
+      `:1192-1197`). Non-exhausted rows are left to lease/steal when that path
+      owns recovery; `Queued` or lease/steal-disabled rows use guarded direct
+      recovery with epoch bumps, partial-result cleanup, and post-commit
+      redispatch (`packages/server/src/dlq/stuck.rs:363-365`, `:473-476`,
+      `:615-618`, `:662-757`, `:759-853`, `:855-1018`). New DLQ message types
+      and stats/schema/UI labels cover stuck code runs and stuck judgements
+      (`packages/common/src/dlq.rs:40-78`,
+      `packages/server/src/dlq/service.rs:20-27`, `:216-242`,
+      `packages/server/src/models/dlq.rs:126-158`,
+      `packages/web-sdk/src/api/schema.ts:978-1044`, `:2967-2987`,
+      `packages/web/src/features/dlq/utils/messageType.ts:24-38`,
+      `packages/web/src/features/dlq/components/DlqStatsSummary.tsx:40-55`,
+      `packages/web/src/lib/i18n/en.ts:897-944`). Code-run dispatch
+      SystemError paths now carry `judge_epoch` guards so stale tasks cannot
+      clobber a recovered epoch
+      (`packages/server/src/services/code_run_dispatch.rs:47-57`, `:69-88`,
+      `:97-105`, `:149-156`, `:202-212`, `:229-238`, `:250-268`). Verified
+      locally with `cargo fmt --check`, `cargo test -p common --lib`,
+      `cargo test -p server --lib` (139 passed, 1 ignored), and
+      `cargo test -p server --tests --no-run`; frontend build/lint was not run
+      because `pnpm`, `npm`, and `corepack` are unavailable on this shell PATH.
 
 ### Phase E — status semantics + score correctness
 

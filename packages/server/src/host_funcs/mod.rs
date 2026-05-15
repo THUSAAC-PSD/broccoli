@@ -251,15 +251,12 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         fanout_concurrency,
         deps.system.metrics.clone(),
     );
-    let evaluate_ops_registry =
-        crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
-    let eval_deps =
-        deps.evaluate_deps(evaluator_slots, fanout_slots, evaluate_ops_registry.clone());
+    let eval_deps = deps.evaluate_deps(evaluator_slots, fanout_slots);
     hr.register_many("evaluator:evaluate", move |plugin_id| {
         evaluate::create_evaluate_functions(plugin_id.to_string(), eval_deps.clone())
     });
 
-    let dispatch_deps = deps.system.operation_deps(evaluate_ops_registry);
+    let dispatch_deps = deps.system.operation_deps();
     hr.register_many("operations:dispatch", move |plugin_id| {
         dispatch::create_dispatch_functions(plugin_id.to_string(), dispatch_deps.clone())
     });

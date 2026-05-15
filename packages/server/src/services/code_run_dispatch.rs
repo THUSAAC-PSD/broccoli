@@ -6,7 +6,7 @@ use broccoli_server_sdk::types::{
 use sea_orm::EntityTrait;
 use tracing::{Instrument, error, info, instrument, warn};
 
-use crate::consumers::mark_code_run_system_error;
+use crate::consumers::mark_code_run_system_error_with_epoch;
 use crate::entity::{code_run, problem};
 use crate::models::code_run::CustomTestCaseInput;
 use crate::state::AppState;
@@ -44,7 +44,7 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
                 contest_type = %code_run.contest_type,
                 "No plugin registered for contest type"
             );
-            let _ = mark_code_run_system_error(
+            let _ = mark_code_run_system_error_with_epoch(
                 &state.db,
                 code_run.id,
                 "NO_HANDLER_REGISTERED",
@@ -52,6 +52,7 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
                     "No plugin registered for contest type {:?}",
                     code_run.contest_type
                 ),
+                Some(code_run.judge_epoch),
             )
             .await;
             return;
@@ -65,22 +66,24 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
         Ok(Some(p)) => p,
         Ok(None) => {
             error!(problem_id = code_run.problem_id, "Problem not found");
-            let _ = mark_code_run_system_error(
+            let _ = mark_code_run_system_error_with_epoch(
                 &state.db,
                 code_run.id,
                 "PROBLEM_NOT_FOUND",
                 &format!("Problem {} not found", code_run.problem_id),
+                Some(code_run.judge_epoch),
             )
             .await;
             return;
         }
         Err(e) => {
             error!(error = %e, "DB error fetching problem");
-            let _ = mark_code_run_system_error(
+            let _ = mark_code_run_system_error_with_epoch(
                 &state.db,
                 code_run.id,
                 "DATABASE_ERROR",
                 &format!("Failed to fetch problem: {}", e),
+                Some(code_run.judge_epoch),
             )
             .await;
             return;
@@ -91,11 +94,12 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
         Ok(f) => f,
         Err(e) => {
             error!(error = %e, "Failed to parse code run files");
-            let _ = mark_code_run_system_error(
+            let _ = mark_code_run_system_error_with_epoch(
                 &state.db,
                 code_run.id,
                 "INVALID_FILES",
                 &format!("Failed to parse code run files: {}", e),
+                Some(code_run.judge_epoch),
             )
             .await;
             return;
@@ -142,11 +146,12 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
         Ok(b) => b,
         Err(e) => {
             error!(error = %e, "Failed to serialize code run input");
-            let _ = mark_code_run_system_error(
+            let _ = mark_code_run_system_error_with_epoch(
                 &state.db,
                 code_run.id,
                 "SERIALIZATION_ERROR",
                 &format!("Failed to serialize input: {}", e),
+                Some(code_run.judge_epoch),
             )
             .await;
             return;
@@ -158,6 +163,7 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
     let plugins = state.plugins.clone();
     let db = state.db.clone();
     let code_run_id = code_run.id;
+    let judge_epoch = code_run.judge_epoch;
 
     info!(
         code_run_id,
@@ -193,7 +199,7 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
                         timeout_secs = CODE_RUN_DISPATCH_TIMEOUT.as_secs(),
                         "Code run dispatch timed out"
                     );
-                    let _ = mark_code_run_system_error(
+                    let _ = mark_code_run_system_error_with_epoch(
                         &db,
                         code_run_id,
                         "DISPATCH_TIMEOUT",
@@ -201,6 +207,7 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
                             "Code run dispatch exceeded {}s timeout",
                             CODE_RUN_DISPATCH_TIMEOUT.as_secs()
                         ),
+                        Some(judge_epoch),
                     )
                     .await;
                     return;
@@ -219,13 +226,14 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
                                 error = ?output.error_message,
                                 "Plugin reported failure"
                             );
-                            let _ = mark_code_run_system_error(
+                            let _ = mark_code_run_system_error_with_epoch(
                                 &db,
                                 code_run_id,
                                 "PLUGIN_ERROR",
                                 &output
                                     .error_message
                                     .unwrap_or_else(|| "Unknown plugin error".to_string()),
+                                Some(judge_epoch),
                             )
                             .await;
                         } else {
@@ -239,22 +247,24 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
                     }
                     Err(e) => {
                         error!(code_run_id, problem_id, contest_id = ?contest_id, error = %e, "Failed to parse plugin output");
-                        let _ = mark_code_run_system_error(
+                        let _ = mark_code_run_system_error_with_epoch(
                             &db,
                             code_run_id,
                             "PLUGIN_INVALID_OUTPUT",
                             &format!("Plugin returned invalid output: {}", e),
+                            Some(judge_epoch),
                         )
                         .await;
                     }
                 },
                 Err(e) => {
                     error!(code_run_id, problem_id, contest_id = ?contest_id, error = %e, "Plugin execution failed");
-                    let _ = mark_code_run_system_error(
+                    let _ = mark_code_run_system_error_with_epoch(
                         &db,
                         code_run_id,
                         "PLUGIN_EXECUTION_ERROR",
                         &e.to_string(),
+                        Some(judge_epoch),
                     )
                     .await;
                 }
