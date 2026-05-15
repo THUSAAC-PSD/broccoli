@@ -346,6 +346,7 @@ mod tests {
         assert_eq!(updates.len(), 2);
         assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
         assert_eq!(updates[1].status, Some(SubmissionStatus::CompilationError));
+        assert_eq!(updates[1].verdict, Some(None));
         assert!(
             updates
                 .iter()

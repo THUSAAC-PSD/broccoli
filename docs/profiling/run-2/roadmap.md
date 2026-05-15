@@ -555,9 +555,28 @@ G testing); UP#14f before Phase B PR-E.
       locally with `cargo test -p server dlq::stuck::tests --lib`,
       `cargo test -p server --lib` (154 passed, 1 ignored),
       `cargo fmt --check`, and `git diff --check`.
-- [ ] **PR: ioi-compile-error-fill.** UP#44 — IOI fills remaining testcases with
-      `Verdict::Skipped` on `CompileError` (matching ICPC's `is_known_failure`
-      branch). Same fix for `code-run`.
+- [x] **PR: ioi-compile-error-fill.** UP#44 — verified already landed. IOI's
+      `evaluate_all` compile-error path suppresses refill, records the
+      `CompileError`, fills all uncollected testcases with
+      `Verdict::Skipped`/`SKIPPED_SHORT_CIRCUIT`, and cancels the batch
+      (`plugins/ioi/src/evaluate_batch.rs:127-131`, `:151-190`). The matching
+      IOI regression asserts ten outcomes, the first as `CompileError`, all
+      remaining outcomes as `Skipped`, one initial window, persisted result
+      rows, cancellation, and no `Running` transition
+      (`plugins/ioi/src/evaluate_batch.rs:665-681`). The shared code-run
+      evaluator has the same compile-error fill/cancel behavior and finalizes as
+      `CompilationError` with no DB verdict
+      (`packages/server-sdk/src/evaluator/run.rs:89-105`, `:246-267`), covered
+      by a focused code-run regression
+      (`packages/server-sdk/src/evaluator/run.rs:325-349`). The ICPC reference
+      behavior remains pinned by its `is_known_failure` branch and matching test
+      (`plugins/icpc/src/evaluate.rs:161-176`, `:232-248`, `:525-539`).
+      Verified locally with `cargo test --manifest-path plugins/ioi/Cargo.toml
+      compile_error_does_not_refill_but_fills_remaining_cases`, `cargo test -p
+      broccoli-server-sdk --features guest
+      compile_error_fills_remaining_code_run_cases_with_skipped`, and `cargo
+      test --manifest-path plugins/icpc/Cargo.toml
+      compile_error_fills_skipped_not_system_error`.
 - [ ] **PR: score-display-fix.** UP#45 — render submission_score as "—" / "in
       progress" when `status != Judged`.
 - [ ] **PR: ioi-feedback-comment.** UP#46 — doc-only clarifying comment at
