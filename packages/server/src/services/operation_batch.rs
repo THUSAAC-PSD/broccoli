@@ -16,6 +16,62 @@ use crate::registry::{BatchState, OperationBatches, OperationWaiter, OperationWa
 
 const INLINE_FILE_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OperationResultE2eLabels {
+    task_type: String,
+    operation: String,
+    worker_id: String,
+    outcome: &'static str,
+}
+
+fn operation_result_e2e_labels(
+    task_result: &TaskResult,
+    outcome: &'static str,
+) -> OperationResultE2eLabels {
+    OperationResultE2eLabels {
+        task_type: task_result
+            .task_type
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        operation: task_result
+            .operation
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        worker_id: task_result
+            .worker_id
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        outcome,
+    }
+}
+
+fn record_operation_result_e2e(
+    metrics: Option<&common::metrics::Metrics>,
+    task_result: &TaskResult,
+    outcome: &'static str,
+) {
+    let Some(metrics) = metrics else {
+        return;
+    };
+    let Some(enqueued_at_unix_ms) = task_result.enqueued_at_unix_ms else {
+        return;
+    };
+
+    let labels = operation_result_e2e_labels(task_result, outcome);
+    let now = chrono::Utc::now().timestamp_millis();
+    let duration_seconds = now.saturating_sub(enqueued_at_unix_ms) as f64 / 1_000.0;
+    let attrs = [
+        KeyValue::new("task_type", labels.task_type),
+        KeyValue::new("operation", labels.operation),
+        KeyValue::new("worker.id", labels.worker_id),
+        KeyValue::new("outcome", labels.outcome),
+        KeyValue::new("task_success", task_result.success.to_string()),
+    ];
+    metrics
+        .operation_result_e2e_duration
+        .record(duration_seconds, &attrs);
+}
+
 pub async fn start_operation_batch(
     plugin_id: String,
     deps: OperationHostDeps,
@@ -204,6 +260,7 @@ pub fn next_operation_result(
 
     match result {
         Ok(task_result) => {
+            record_operation_result_e2e(metrics, &task_result, "delivered");
             if let Some(metrics) = metrics {
                 let attrs = [
                     KeyValue::new("batch.kind", "operation"),
@@ -326,6 +383,10 @@ fn spawn_waiter_forwarder(
                     success: false,
                     output: serde_json::json!({}),
                     error: Some("Operation cancelled or timed out".into()),
+                    task_type: Some("operation".to_string()),
+                    operation: Some("operation".to_string()),
+                    worker_id: None,
+                    enqueued_at_unix_ms: None,
                 };
                 let _ = batch_tx.send(error_result);
                 pending_count.fetch_sub(1, Ordering::SeqCst);
@@ -414,6 +475,27 @@ mod tests {
     use common::storage::filesystem::FilesystemBlobStore;
 
     use super::*;
+
+    #[test]
+    fn operation_result_e2e_labels_prefer_result_metadata() {
+        let result = TaskResult {
+            task_id: "op-1".to_string(),
+            success: true,
+            output: serde_json::json!({}),
+            error: None,
+            task_type: Some("operation".to_string()),
+            operation: Some("compile".to_string()),
+            worker_id: Some("worker-a".to_string()),
+            enqueued_at_unix_ms: Some(1_234),
+        };
+
+        let labels = operation_result_e2e_labels(&result, "delivered");
+
+        assert_eq!(labels.task_type, "operation");
+        assert_eq!(labels.operation, "compile");
+        assert_eq!(labels.worker_id, "worker-a");
+        assert_eq!(labels.outcome, "delivered");
+    }
 
     fn operation_with_file(file: SessionFile) -> OperationTask {
         OperationTask {

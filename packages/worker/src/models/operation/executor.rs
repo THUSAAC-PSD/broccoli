@@ -35,7 +35,8 @@ impl OperationTaskExecutor {
             worker_toolchain_fingerprint = %fingerprint,
             "Computed toolchain fingerprint for compile cache key"
         );
-        let sandbox_manager = Self::sandbox_manager_from_config(Some(config));
+        let sandbox_manager =
+            Self::sandbox_manager_from_config(Some(config), Some(metrics.clone()));
         let (file_cacher, task_cache) = Self::caching_from_config(config, metrics.clone()).await?;
         let cache_leader = Self::cache_leader_from_config(config);
         let follower_poll = Duration::from_millis(config.worker.cache_follower_poll_interval_ms);
@@ -103,6 +104,7 @@ impl OperationTaskExecutor {
 
     fn sandbox_manager_from_config(
         config: Option<&WorkerAppConfig>,
+        metrics: Option<common::metrics::Metrics>,
     ) -> Box<dyn SandboxManager + Send + Sync> {
         let backend = config
             .map(|c| c.worker.sandbox_backend.clone())
@@ -126,7 +128,11 @@ impl OperationTaskExecutor {
                 .map(|c| c.worker.isolate_bin.clone())
                 .unwrap_or_else(|| "isolate".to_string());
             let enable_cgroups = config.map(|c| c.worker.enable_cgroups).unwrap_or(false);
-            Box::new(IsolateSandboxManager::new(isolate_bin, enable_cgroups))
+            Box::new(IsolateSandboxManager::new_with_metrics(
+                isolate_bin,
+                enable_cgroups,
+                metrics,
+            ))
         }
     }
 
@@ -240,12 +246,20 @@ impl Executor for OperationTaskExecutor {
                             .unwrap_or_else(|| "Operation failed".into()),
                     )
                 },
+                task_type: None,
+                operation: None,
+                worker_id: None,
+                enqueued_at_unix_ms: None,
             }),
             Err(e) => Ok(TaskResult {
                 task_id: task.id,
                 success: false,
                 output: serde_json::json!({ "error": format!("{e:#}") }),
                 error: Some(format!("{e:#}")),
+                task_type: None,
+                operation: None,
+                worker_id: None,
+                enqueued_at_unix_ms: None,
             }),
         }
     }

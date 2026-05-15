@@ -659,9 +659,61 @@ G testing); UP#14f before Phase B PR-E.
       sampled state counts rather than brittle SQL parsing. Pending age uses
       the row lease timestamp when present, avoiding queued wait time after
       claim.
-- [ ] **PR: worker-metrics.** UP#49 — `worker_permits_*`, `sandbox_*`,
-      `file_materialization_copy_seconds`,
-      `worker_compile_cache_redundancy_total`, `operation_result_e2e_duration`.
+- [x] **PR: worker-metrics.** UP#49 — worker-side metric instruments are
+      registered in the shared metrics surface: `worker_permits_in_flight`,
+      `worker_permits_max`, `sandbox_init_duration`,
+      `sandbox_cleanup_duration`, `file_materialization_copy_seconds`,
+      `worker_compile_cache_redundancy_total`, and
+      `operation_result_e2e_duration`
+      (`packages/common/src/metrics.rs:15-23`,
+      `packages/common/src/metrics.rs:58-60`,
+      `packages/common/src/metrics.rs:79-85`,
+      `packages/common/src/metrics.rs:179-220`,
+      `packages/common/src/metrics.rs:403-410`,
+      `packages/common/src/metrics.rs:485-518`). Worker permit max is emitted
+      at runtime startup, and permit in-flight is recorded by a guard at the
+      worker handler boundary (the closest local boundary because the MQ crate
+      owns the actual semaphore permit)
+      (`packages/worker/src/runtime.rs:60-68`,
+      `packages/worker/src/metrics.rs:11-30`,
+      `packages/worker/src/consumer.rs:62-83`). Isolate init/cleanup now record
+      success/error durations with `enable_cgroups` labels
+      (`packages/worker/src/models/operation/sandbox/isolate.rs:20-59`,
+      `packages/worker/src/models/operation/sandbox/isolate.rs:299-361`,
+      `packages/worker/src/models/operation/sandbox/isolate.rs:364-408`,
+      `packages/worker/src/models/operation/executor.rs:38-40`,
+      `packages/worker/src/models/operation/executor.rs:105-135`).
+      File-materialization metrics now include `path_kind` for source/input and
+      cached-output restores while preserving the existing operation
+      materialization metric
+      (`packages/worker/src/models/operation/handler.rs:220-235`,
+      `packages/worker/src/models/operation/handler.rs:492-588`,
+      `packages/worker/src/models/operation/handler.rs:900-938`).
+      Compile-cache stores return inserted/already-existing outcomes from
+      insert affected-row counts so redundant cross-worker compile stores
+      increment `worker_compile_cache_redundancy_total` without changing leader
+      result payload behavior; the cache leader test now gets `build.out`
+      through the normal `collect` path
+      (`packages/worker/src/models/operation/task_cache.rs:8-23`,
+      `packages/worker/src/models/operation/task_cache.rs:84-107`,
+      `packages/worker/src/models/operation/handler.rs:800-813`,
+      `packages/worker/src/models/operation/handler.rs:1080-1097`,
+      `packages/worker/tests/cache_leader_election.rs:322-414`).
+      Operation task results carry optional metadata for E2E timing, workers
+      attach it before publishing, and the server records enqueue-to-plugin
+      delivery duration in `next_operation_result`
+      (`packages/common/src/worker.rs:87-109`,
+      `packages/common/src/worker.rs:222-245`,
+      `packages/worker/src/task_runner.rs:12-53`,
+      `packages/worker/src/consumer.rs:317-325`,
+      `packages/server/src/services/operation_batch.rs:19-73`,
+      `packages/server/src/services/operation_batch.rs:261-274`,
+      `packages/server/src/services/operation_batch.rs:479-498`). Verified with
+      `cargo test -p common --lib`, `cargo test -p worker`,
+      `cargo test -p server --lib`, `cargo fmt --check`, `git diff --check`,
+      `cargo clippy -p common --lib -- -D warnings`,
+      `cargo clippy -p server --lib -- -D warnings -A clippy::useless_conversion -A clippy::collapsible_if -A clippy::too_many_arguments`,
+      and `cargo clippy -p worker --all-targets -- -D warnings -A dead_code`.
 - [ ] **PR: tracing-spans.** UP#50 — `info_span!("host_fn", ...)` on every
       host-fn `_fn` with explicit parent linkage (required because UP#1 moves
       callbacks to blocking-pool threads). `#[instrument]` on isolate +

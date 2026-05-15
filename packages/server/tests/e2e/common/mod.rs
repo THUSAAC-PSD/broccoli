@@ -594,6 +594,10 @@ impl E2eTestApp {
                                             success: false,
                                             output: serde_json::Value::String(err_str.clone()),
                                             error: Some(err_str),
+                                            task_type: Some(task.task_type.clone()),
+                                            operation: Some(task.executor_name.clone()),
+                                            worker_id: None,
+                                            enqueued_at_unix_ms: task.enqueued_at_unix_ms,
                                         }
                                     }
                                 };

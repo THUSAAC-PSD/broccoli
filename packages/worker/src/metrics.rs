@@ -8,6 +8,28 @@ pub struct TaskMetricGuard {
     worker_attrs: Vec<KeyValue>,
 }
 
+pub struct WorkerPermitMetricGuard {
+    metrics: Metrics,
+    attrs: [KeyValue; 1],
+}
+
+impl WorkerPermitMetricGuard {
+    pub fn new(metrics: &Metrics, worker_id: &str) -> Self {
+        let attrs = [KeyValue::new("worker_id", worker_id.to_string())];
+        metrics.worker_permits_in_flight.add(1, &attrs);
+        Self {
+            metrics: metrics.clone(),
+            attrs,
+        }
+    }
+}
+
+impl Drop for WorkerPermitMetricGuard {
+    fn drop(&mut self) {
+        self.metrics.worker_permits_in_flight.add(-1, &self.attrs);
+    }
+}
+
 impl TaskMetricGuard {
     pub fn new(metrics: &Metrics, attrs: Vec<KeyValue>, worker_attrs: Vec<KeyValue>) -> Self {
         metrics.task_in_flight.add(1, &attrs);
@@ -102,4 +124,30 @@ pub fn spawn_metrics_server(registry: prometheus::Registry) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_permit_guard_records_in_flight_with_worker_label() {
+        let (metrics, registry) =
+            common::observability::init_metrics("broccoli-worker-permit-test");
+
+        {
+            let _guard = WorkerPermitMetricGuard::new(&metrics, "worker-a");
+            let families = registry.gather();
+            let permits = families
+                .iter()
+                .find(|family| family.name() == "broccoli_worker_permits_in_flight")
+                .expect("worker permits in-flight metric should be exported");
+            assert!(permits.get_metric().iter().any(|metric| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == "worker_id" && label.value() == "worker-a")
+            }));
+        }
+    }
 }

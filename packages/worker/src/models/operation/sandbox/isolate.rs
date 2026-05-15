@@ -2,6 +2,8 @@ use super::error::SandboxError;
 use super::{DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions, SandboxManager};
 use crate::config::WorkerAppConfig;
 use async_trait::async_trait;
+use common::metrics::Metrics;
+use opentelemetry::KeyValue;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -15,20 +17,45 @@ use tokio::sync::RwLock;
 
 const INLINE_OUTPUT_PREVIEW_BYTES: usize = 64 * 1024;
 
-#[derive(Debug)]
 pub struct IsolateSandboxManager {
     isolate_bin: String,
     enable_cgroups: bool,
     sandboxes: Arc<RwLock<HashMap<String, PathBuf>>>,
+    metrics: Option<Metrics>,
+}
+
+impl std::fmt::Debug for IsolateSandboxManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IsolateSandboxManager")
+            .field("isolate_bin", &self.isolate_bin)
+            .field("enable_cgroups", &self.enable_cgroups)
+            .finish_non_exhaustive()
+    }
 }
 
 impl IsolateSandboxManager {
     pub fn new(isolate_bin: String, enable_cgroups: bool) -> Self {
+        Self::new_with_metrics(isolate_bin, enable_cgroups, None)
+    }
+
+    pub fn new_with_metrics(
+        isolate_bin: String,
+        enable_cgroups: bool,
+        metrics: Option<Metrics>,
+    ) -> Self {
         Self {
             isolate_bin,
             enable_cgroups,
             sandboxes: Arc::new(RwLock::new(HashMap::new())),
+            metrics,
         }
+    }
+
+    fn metric_attrs(&self, outcome: &'static str) -> [KeyValue; 2] {
+        [
+            KeyValue::new("enable_cgroups", self.enable_cgroups.to_string()),
+            KeyValue::new("outcome", outcome),
+        ]
     }
 }
 
@@ -42,6 +69,7 @@ impl Default for IsolateSandboxManager {
                 .unwrap_or_else(|| "isolate".to_string()),
             enable_cgroups: cfg.map(|c| c.worker.enable_cgroups).unwrap_or(false),
             sandboxes: Arc::new(RwLock::new(HashMap::new())),
+            metrics: None,
         }
     }
 }
@@ -269,6 +297,7 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
 #[async_trait]
 impl SandboxManager for IsolateSandboxManager {
     async fn create_sandbox(&self, id: Option<&str>) -> Result<PathBuf, SandboxError> {
+        let start = std::time::Instant::now();
         let mut command = Command::new(&self.isolate_bin);
         if let Some(box_id) = id {
             command.arg(format!("--box-id={box_id}"));
@@ -278,11 +307,26 @@ impl SandboxManager for IsolateSandboxManager {
         }
         command.arg("--init");
 
-        let output = command.output().await.map_err(|err| {
-            SandboxError::Initialization(format!("failed to execute isolate --init: {err}"))
-        })?;
+        let output = match command.output().await {
+            Ok(output) => output,
+            Err(err) => {
+                if let Some(metrics) = &self.metrics {
+                    metrics
+                        .sandbox_init_duration
+                        .record(start.elapsed().as_secs_f64(), &self.metric_attrs("error"));
+                }
+                return Err(SandboxError::Initialization(format!(
+                    "failed to execute isolate --init: {err}"
+                )));
+            }
+        };
 
         if !output.status.success() {
+            if let Some(metrics) = &self.metrics {
+                metrics
+                    .sandbox_init_duration
+                    .record(start.elapsed().as_secs_f64(), &self.metric_attrs("error"));
+            }
             return Err(SandboxError::Initialization(format!(
                 "isolate --init failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
@@ -291,6 +335,11 @@ impl SandboxManager for IsolateSandboxManager {
 
         let path_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if path_text.is_empty() {
+            if let Some(metrics) = &self.metrics {
+                metrics
+                    .sandbox_init_duration
+                    .record(start.elapsed().as_secs_f64(), &self.metric_attrs("error"));
+            }
             return Err(SandboxError::Initialization(
                 "isolate --init did not return sandbox path".to_string(),
             ));
@@ -303,10 +352,17 @@ impl SandboxManager for IsolateSandboxManager {
             .await
             .insert(box_id, working_dir.clone());
 
+        if let Some(metrics) = &self.metrics {
+            metrics
+                .sandbox_init_duration
+                .record(start.elapsed().as_secs_f64(), &self.metric_attrs("success"));
+        }
+
         Ok(working_dir)
     }
 
     async fn remove_sandbox(&self, id: &str) -> Result<(), SandboxError> {
+        let start = std::time::Instant::now();
         let box_id = parse_box_id(Some(id))?;
         self.sandboxes.write().await.remove(&box_id);
 
@@ -317,15 +373,36 @@ impl SandboxManager for IsolateSandboxManager {
         }
         command.arg("--cleanup");
 
-        let output = command.output().await.map_err(|err| {
-            SandboxError::Execution(format!("failed to execute isolate --cleanup: {err}"))
-        })?;
+        let output = match command.output().await {
+            Ok(output) => output,
+            Err(err) => {
+                if let Some(metrics) = &self.metrics {
+                    metrics
+                        .sandbox_cleanup_duration
+                        .record(start.elapsed().as_secs_f64(), &self.metric_attrs("error"));
+                }
+                return Err(SandboxError::Execution(format!(
+                    "failed to execute isolate --cleanup: {err}"
+                )));
+            }
+        };
 
         if !output.status.success() {
+            if let Some(metrics) = &self.metrics {
+                metrics
+                    .sandbox_cleanup_duration
+                    .record(start.elapsed().as_secs_f64(), &self.metric_attrs("error"));
+            }
             return Err(SandboxError::Execution(format!(
                 "isolate --cleanup failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             )));
+        }
+
+        if let Some(metrics) = &self.metrics {
+            metrics
+                .sandbox_cleanup_duration
+                .record(start.elapsed().as_secs_f64(), &self.metric_attrs("success"));
         }
 
         Ok(())

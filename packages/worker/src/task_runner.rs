@@ -14,6 +14,7 @@ pub async fn process_task(
     worker: &Arc<Worker>,
     mq: &Arc<mq::Mq>,
     metrics: &Metrics,
+    worker_id: &str,
 ) -> Result<TaskResult, WorkerError> {
     info!(
         job_id = %task.id,
@@ -35,7 +36,7 @@ pub async fn process_task(
 
     let worker = Arc::clone(worker);
     let task_clone = task.clone();
-    let result = tokio::spawn(async move { worker.execute_task(task_clone).await })
+    let mut result = tokio::spawn(async move { worker.execute_task(task_clone).await })
         .await
         .map_err(|e| {
             if e.is_panic() {
@@ -44,6 +45,7 @@ pub async fn process_task(
                 WorkerError::Internal(format!("Task join error: {e}"))
             }
         })??;
+    result.attach_worker_metadata(task, worker_id);
 
     let publish_start = std::time::Instant::now();
     let reply = TaskReply::Completed {

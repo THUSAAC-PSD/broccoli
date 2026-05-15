@@ -90,6 +90,23 @@ pub struct TaskResult {
     pub output: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enqueued_at_unix_ms: Option<i64>,
+}
+
+impl TaskResult {
+    pub fn attach_worker_metadata(&mut self, task: &Task, worker_id: &str) {
+        self.task_type = Some(task.task_type.clone());
+        self.operation = Some(task.executor_name.clone());
+        self.worker_id = Some(worker_id.to_string());
+        self.enqueued_at_unix_ms = task.enqueued_at_unix_ms;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +199,10 @@ mod reply_tests {
                 success: true,
                 output: serde_json::json!({ "ok": true }),
                 error: None,
+                task_type: None,
+                operation: None,
+                worker_id: None,
+                enqueued_at_unix_ms: None,
             },
         };
 
@@ -194,6 +215,33 @@ mod reply_tests {
                     "success": true,
                     "output": { "ok": true }
                 }
+            })
+        );
+    }
+
+    #[test]
+    fn task_result_metadata_serializes_when_present() {
+        let result = TaskResult {
+            task_id: "op-1".to_string(),
+            success: true,
+            output: serde_json::json!({ "ok": true }),
+            error: None,
+            task_type: Some("operation".to_string()),
+            operation: Some("operation".to_string()),
+            worker_id: Some("worker-a".to_string()),
+            enqueued_at_unix_ms: Some(1_234),
+        };
+
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            serde_json::json!({
+                "task_id": "op-1",
+                "success": true,
+                "output": { "ok": true },
+                "task_type": "operation",
+                "operation": "operation",
+                "worker_id": "worker-a",
+                "enqueued_at_unix_ms": 1_234
             })
         );
     }

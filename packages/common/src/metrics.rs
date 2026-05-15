@@ -12,11 +12,15 @@ pub struct Metrics {
     pub task_queue_wait_duration: Histogram<f64>,
     pub task_in_flight: UpDownCounter<i64>,
     pub worker_active_tasks: UpDownCounter<i64>,
+    pub worker_permits_in_flight: UpDownCounter<i64>,
+    pub worker_permits_max: UpDownCounter<i64>,
     pub tasks_received_total: Counter<u64>,
     pub tasks_completed_total: Counter<u64>,
     pub step_duration: Histogram<f64>,
     pub step_results_total: Counter<u64>,
     pub sandbox_executions_total: Counter<u64>,
+    pub sandbox_init_duration: Histogram<f64>,
+    pub sandbox_cleanup_duration: Histogram<f64>,
     pub sandbox_time_used: Histogram<f64>,
     pub sandbox_wall_time_used: Histogram<f64>,
     pub sandbox_memory_used: Histogram<f64>,
@@ -53,6 +57,7 @@ pub struct Metrics {
 
     pub operation_result_messages_total: Counter<u64>,
     pub operation_result_consume_duration: Histogram<f64>,
+    pub operation_result_e2e_duration: Histogram<f64>,
 
     pub mq_publish_duration: Histogram<f64>,
     pub mq_publish_messages_total: Counter<u64>,
@@ -72,10 +77,12 @@ pub struct Metrics {
     pub blob_cache_evictions_total: Counter<u64>,
 
     pub operation_file_materialization_duration: Histogram<f64>,
+    pub file_materialization_copy_seconds: Histogram<f64>,
     pub operation_file_materialization_bytes: Counter<u64>,
 
     pub task_cache_operation_duration: Histogram<f64>,
     pub task_cache_operations_total: Counter<u64>,
+    pub worker_compile_cache_redundancy_total: Counter<u64>,
 
     pub mq_queue_depth: UpDownCounter<i64>,
 }
@@ -169,6 +176,14 @@ impl Metrics {
                 .i64_up_down_counter("broccoli.worker.active_tasks")
                 .with_description("Number of tasks currently active on each worker")
                 .build(),
+            worker_permits_in_flight: meter
+                .i64_up_down_counter("broccoli.worker.permits.in_flight")
+                .with_description("Number of worker MQ concurrency permits currently in use")
+                .build(),
+            worker_permits_max: meter
+                .i64_up_down_counter("broccoli.worker.permits.max")
+                .with_description("Configured maximum worker MQ concurrency permits")
+                .build(),
             tasks_received_total: meter
                 .u64_counter("broccoli.task.received")
                 .with_description("Total number of worker tasks received")
@@ -190,6 +205,18 @@ impl Metrics {
             sandbox_executions_total: meter
                 .u64_counter("broccoli.sandbox.executions")
                 .with_description("Total number of sandbox executions")
+                .build(),
+            sandbox_init_duration: meter
+                .f64_histogram("broccoli.sandbox.init.duration")
+                .with_unit("s")
+                .with_description("Duration of isolate sandbox initialization")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            sandbox_cleanup_duration: meter
+                .f64_histogram("broccoli.sandbox.cleanup.duration")
+                .with_unit("s")
+                .with_description("Duration of isolate sandbox cleanup")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
             sandbox_time_used: meter
                 .f64_histogram("broccoli.sandbox.time_used")
@@ -373,6 +400,14 @@ impl Metrics {
                 .with_description("Duration spent handling operation result messages")
                 .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
                 .build(),
+            operation_result_e2e_duration: meter
+                .f64_histogram("broccoli.operation_result.e2e.duration")
+                .with_unit("s")
+                .with_description(
+                    "Duration from operation task enqueue to result delivery to the server waiter",
+                )
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
 
             mq_publish_duration: meter
                 .f64_histogram("broccoli.mq.publish.duration")
@@ -453,6 +488,12 @@ impl Metrics {
                 .with_description("Duration spent materializing operation files into sandboxes")
                 .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
+            file_materialization_copy_seconds: meter
+                .f64_histogram("broccoli.file_materialization.copy")
+                .with_unit("s")
+                .with_description("Duration spent copying or linking files into operation sandboxes")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
             operation_file_materialization_bytes: meter
                 .u64_counter("broccoli.operation.file_materialization.bytes")
                 .with_unit("By")
@@ -468,6 +509,12 @@ impl Metrics {
             task_cache_operations_total: meter
                 .u64_counter("broccoli.task_cache.operations")
                 .with_description("Total number of worker task cache operations")
+                .build(),
+            worker_compile_cache_redundancy_total: meter
+                .u64_counter("broccoli.worker.compile_cache.redundancy")
+                .with_description(
+                    "Total compile-cache stores skipped because another worker populated the cache first",
+                )
                 .build(),
 
             mq_queue_depth: meter

@@ -91,6 +91,10 @@ async fn per_replica_result_queue_delivers_to_originating_replica_only() {
                 success: true,
                 output: serde_json::json!({ "replica": "a" }),
                 error: None,
+                task_type: Some("operation".to_string()),
+                operation: Some("operation".to_string()),
+                worker_id: Some("worker-a".to_string()),
+                enqueued_at_unix_ms: Some(1_234),
             },
             None,
         )

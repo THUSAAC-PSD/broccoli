@@ -13,7 +13,9 @@ use common::cancel::RedisCancelChecker;
 
 use crate::dedup::{ClaimOutcome, RedisTaskDedup};
 use crate::heartbeat::InFlightCounter;
-use crate::metrics::{TaskMetricGuard, record_mq_consume, record_mq_publish};
+use crate::metrics::{
+    TaskMetricGuard, WorkerPermitMetricGuard, record_mq_consume, record_mq_publish,
+};
 use crate::models::worker::Worker;
 use crate::task_runner::process_task;
 
@@ -70,6 +72,8 @@ impl WorkerConsumer {
             let in_flight = in_flight.clone();
             let shutdown = shutdown.clone();
             Box::pin(async move {
+                let _worker_permit_guard =
+                    WorkerPermitMetricGuard::new(&consumer.metrics, &consumer.worker_id);
                 if shutdown.load(std::sync::atomic::Ordering::Relaxed) {
                     return Err(BroccoliError::Consume(
                         "worker is shutting down; requeuing".into(),
@@ -200,7 +204,15 @@ impl WorkerConsumer {
         let mut cleanup_guard = RetryCleanupGuard::new(&self.retry_tracker, &task_id);
 
         loop {
-            match process_task(&task, &self.worker, &self.mq, &self.metrics).await {
+            match process_task(
+                &task,
+                &self.worker,
+                &self.mq,
+                &self.metrics,
+                &self.worker_id,
+            )
+            .await
+            {
                 Ok(result) => {
                     let mut completion_attrs = task_attrs.clone();
                     completion_attrs.push(KeyValue::new(
@@ -311,6 +323,10 @@ impl WorkerConsumer {
                 history.len(),
                 error_str
             )),
+            task_type: Some(task.task_type.clone()),
+            operation: Some(task.executor_name.clone()),
+            worker_id: Some(self.worker_id.clone()),
+            enqueued_at_unix_ms: task.enqueued_at_unix_ms,
         };
         let publish_start = std::time::Instant::now();
         if let Err(e) = self

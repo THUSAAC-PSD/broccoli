@@ -4,9 +4,10 @@ use super::models::*;
 use super::sandbox::{
     DirectoryOptions, DirectoryRule, ExecutionResult, RunOptions, SandboxManager,
 };
-use super::task_cache::{TaskCacheStore, compute_cache_key};
+use super::task_cache::{TaskCachePutOutcome, TaskCacheStore, compute_cache_key};
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
+use opentelemetry::KeyValue;
 use std::collections::{HashMap, HashSet};
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -77,8 +78,12 @@ fn sandbox_status_label(result: &ExecutionResult) -> String {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{ExecutionResult, sandbox_exit_kind, sandbox_status_label, step_kind};
+    use super::{
+        ExecutionResult, cached_output_materialization_path_kind, materialization_path_kind,
+        sandbox_exit_kind, sandbox_status_label, step_kind,
+    };
     use crate::models::operation::models::{IOConfig, RunOptions, Step, StepKind};
+    use broccoli_server_sdk::types::SessionFile;
 
     #[test]
     fn classifies_sandbox_exit_kind_for_metrics() {
@@ -109,6 +114,29 @@ mod tests {
 
         result.status = "TO".to_string();
         assert_eq!(sandbox_status_label(&result), "TO");
+    }
+
+    #[test]
+    fn classifies_materialization_path_kind_for_metrics() {
+        assert_eq!(
+            materialization_path_kind(
+                "main.cpp",
+                &SessionFile::Content {
+                    content: "int main() {}".to_string(),
+                }
+            ),
+            "source"
+        );
+        assert_eq!(
+            materialization_path_kind(
+                "input.txt",
+                &SessionFile::Blob {
+                    hash: "a".repeat(64),
+                }
+            ),
+            "input"
+        );
+        assert_eq!(cached_output_materialization_path_kind(), "output");
     }
 
     #[test]
@@ -187,6 +215,24 @@ fn session_file_kind(source: &SessionFile) -> &'static str {
         SessionFile::Content { .. } => "content",
         SessionFile::Blob { .. } => "blob",
     }
+}
+
+fn materialization_path_kind(target_path: &str, source: &SessionFile) -> &'static str {
+    match source {
+        SessionFile::Blob { .. } => "input",
+        SessionFile::Content { .. } | SessionFile::Path { .. } => {
+            let lower = target_path.to_ascii_lowercase();
+            if lower.contains("input") || lower.ends_with(".in") {
+                "input"
+            } else {
+                "source"
+            }
+        }
+    }
+}
+
+fn cached_output_materialization_path_kind() -> &'static str {
+    "output"
 }
 
 fn step_kind(step: &Step) -> &'static str {
@@ -452,6 +498,7 @@ impl OperationHandler {
         for (target_path, source) in files {
             let start = std::time::Instant::now();
             let source_kind = session_file_kind(source);
+            let path_kind = materialization_path_kind(target_path, source);
             let dest = safe_join(working_dir, target_path)?;
             if let Some(parent) = dest.parent() {
                 tokio::fs::create_dir_all(parent)
@@ -463,7 +510,13 @@ impl OperationHandler {
                     let bytes = tokio::fs::copy(src, &dest).await.with_context(|| {
                         format!("Failed to copy file {} -> {}", src, dest.display())
                     })?;
-                    self.record_file_materialization(start, source_kind, "success", bytes);
+                    self.record_file_materialization(
+                        start,
+                        source_kind,
+                        path_kind,
+                        "success",
+                        bytes,
+                    );
                 }
                 SessionFile::Content { content } => {
                     tokio::fs::write(&dest, content).await.with_context(|| {
@@ -472,6 +525,7 @@ impl OperationHandler {
                     self.record_file_materialization(
                         start,
                         source_kind,
+                        path_kind,
                         "success",
                         content.len() as u64,
                     );
@@ -485,7 +539,13 @@ impl OperationHandler {
                         .await
                         .map(|m| m.len())
                         .unwrap_or(0);
-                    self.record_file_materialization(start, source_kind, "success", bytes);
+                    self.record_file_materialization(
+                        start,
+                        source_kind,
+                        path_kind,
+                        "success",
+                        bytes,
+                    );
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
@@ -506,6 +566,7 @@ impl OperationHandler {
         &self,
         start: std::time::Instant,
         source_kind: &'static str,
+        path_kind: &'static str,
         outcome: &'static str,
         bytes: u64,
     ) {
@@ -513,10 +574,14 @@ impl OperationHandler {
 
         let attrs = [
             KeyValue::new("source.kind", source_kind),
+            KeyValue::new("path_kind", path_kind),
             KeyValue::new("outcome", outcome),
         ];
         self.metrics
             .operation_file_materialization_duration
+            .record(start.elapsed().as_secs_f64(), &attrs);
+        self.metrics
+            .file_materialization_copy_seconds
             .record(start.elapsed().as_secs_f64(), &attrs);
         self.metrics
             .operation_file_materialization_bytes
@@ -851,6 +916,7 @@ impl OperationHandler {
                 warn!(step_id = %step.id, error = %e, "Failed to create parent dir for cached output");
                 return None;
             }
+            let materialization_start = std::time::Instant::now();
             if let Err(e) = self.file_cacher.fetch_to_path(content_hash, &dest).await {
                 warn!(
                     step_id = %step.id,
@@ -860,6 +926,14 @@ impl OperationHandler {
                 );
                 return None;
             }
+            self.metrics.file_materialization_copy_seconds.record(
+                materialization_start.elapsed().as_secs_f64(),
+                &[
+                    KeyValue::new("source.kind", "blob"),
+                    KeyValue::new("path_kind", cached_output_materialization_path_kind()),
+                    KeyValue::new("outcome", "success"),
+                ],
+            );
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -1004,12 +1078,22 @@ impl OperationHandler {
         }
 
         let cache_start = std::time::Instant::now();
-        if let Err(e) = self.task_cache.put(&cache_key, output_hashes).await {
-            self.record_task_cache_metric(cache_start, "put", "error");
-            warn!(step_id = %step.id, error = %e, "Failed to store task cache entry");
-        } else {
-            self.record_task_cache_metric(cache_start, "put", "success");
-            info!(step_id = %step.id, cache_key = %cache_key, "Stored step outputs in task cache");
+        match self.task_cache.put(&cache_key, output_hashes).await {
+            Ok(TaskCachePutOutcome::Inserted) => {
+                self.record_task_cache_metric(cache_start, "put", "success");
+                info!(step_id = %step.id, cache_key = %cache_key, "Stored step outputs in task cache");
+            }
+            Ok(TaskCachePutOutcome::AlreadyExists) => {
+                self.record_task_cache_metric(cache_start, "put", "already_exists");
+                self.metrics
+                    .worker_compile_cache_redundancy_total
+                    .add(1, &[KeyValue::new("step.kind", step_kind(step))]);
+                info!(step_id = %step.id, cache_key = %cache_key, "Skipped redundant compile-cache store");
+            }
+            Err(e) => {
+                self.record_task_cache_metric(cache_start, "put", "error");
+                warn!(step_id = %step.id, error = %e, "Failed to store task cache entry");
+            }
         }
     }
 

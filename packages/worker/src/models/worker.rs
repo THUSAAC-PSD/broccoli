@@ -95,6 +95,10 @@ impl Worker {
                         success: false,
                         output: serde_json::json!({ "error": error_msg }),
                         error: Some(error_msg),
+                        task_type: None,
+                        operation: None,
+                        worker_id: None,
+                        enqueued_at_unix_ms: None,
                     }
                 }
             }
@@ -105,6 +109,10 @@ impl Worker {
                 success: false,
                 output: serde_json::json!({ "error": &error_msg }),
                 error: Some(error_msg),
+                task_type: None,
+                operation: None,
+                worker_id: None,
+                enqueued_at_unix_ms: None,
             });
         };
 

@@ -322,7 +322,7 @@ async fn build_test_handler(
 /// "compile" that sleeps 500ms then writes `build.out`). At the end:
 ///
 /// 1. The shared sandbox executed exactly once.
-/// 2. All three handlers returned success with the same `collected_outputs`.
+/// 2. All three handlers returned success with the same collected `build.out`.
 /// 3. Followers' results match the leader's (i.e., they read the cached
 ///    blob back rather than producing their own).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -404,7 +404,7 @@ async fn end_to_end_concurrent_compile_runs_once() {
             ],
             conf: RunOptions::default(),
             io: IOConfig::default(),
-            collect: vec![],
+            collect: vec!["build.out".to_string()],
             depends_on: vec![],
             cache: Some(StepCacheConfig {
                 key_inputs: vec!["src.txt".to_string()],

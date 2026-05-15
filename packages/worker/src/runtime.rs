@@ -59,6 +59,14 @@ impl WorkerRuntime {
 
         let (metrics, prometheus_registry) =
             common::observability::init_metrics(&config.observability.otlp.service_name);
+        let queue_consumer_count = 2;
+        metrics.worker_permits_max.add(
+            (capacity.max_concurrency * queue_consumer_count) as i64,
+            &[opentelemetry::KeyValue::new(
+                "worker_id",
+                config.worker.id.clone(),
+            )],
+        );
 
         spawn_metrics_server(prometheus_registry);
 
