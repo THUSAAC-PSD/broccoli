@@ -510,9 +510,32 @@ G testing); UP#14f before Phase B PR-E.
 
 ### Phase E — status semantics + score correctness
 
-- [ ] **PR: redefine-pending-running.** UP#42 — `Running` set only after first
+- [x] **PR: redefine-pending-running.** UP#42 — `Running` set only after first
       exec result; new SDK helpers `host.submission.set_compiling()` /
-      `set_running()`.
+      `set_running()`. Implemented by adding SDK-side `Compiling` status and
+      explicit submission/code-run helper methods
+      (`packages/server-sdk/src/types/persistence.rs:27-40`,
+      `packages/server-sdk/src/sdk/submissions.rs:16-45`,
+      `packages/server-sdk/src/sdk/code_runs.rs:14-31`). ICPC and IOI now mark
+      submissions `Compiling` after a batch starts, set `Running` only once on
+      the first non-compile result, and keep compile-error-only runs out of
+      `Running` (`plugins/icpc/src/evaluate.rs:116-123`, `:161-192`,
+      `plugins/ioi/src/evaluate_batch.rs:108-115`, `:151-205`). Code-run
+      evaluation follows the same `Compiling` → first non-compile result
+      `Running` semantics (`packages/server-sdk/src/evaluator/run.rs:77-87`,
+      `:91-112`). Regression coverage asserts helper writes, non-compile
+      transitions, and compile-error-only no-`Running` paths
+      (`packages/server-sdk/src/sdk/submissions.rs:384-398`,
+      `packages/server-sdk/src/sdk/code_runs.rs:186-199`,
+      `packages/server-sdk/src/evaluator/run.rs:345-370`,
+      `plugins/icpc/src/evaluate.rs:431-435`, `:553-555`,
+      `plugins/ioi/src/evaluate_batch.rs:644-647`, `:679-681`). Verified
+      locally with `cargo fmt --check`, `git diff --check`,
+      `cargo test --manifest-path plugins/icpc/Cargo.toml`,
+      `cargo test --manifest-path plugins/ioi/Cargo.toml`, and focused SDK
+      helper/code-run tests. Full `cargo test -p broccoli-server-sdk
+      --features guest` still has the unchanged baseline failure in
+      `packages/server-sdk/src/sdk/eval.rs:751`.
 - [ ] **PR: per-state-stuck-timeouts.** UP#43 — `Queued` 5min, `Pending` 5min
       with `owner_server_id IS NULL`, `Compiling`/`Running` no time limit.
 - [ ] **PR: ioi-compile-error-fill.** UP#44 — IOI fills remaining testcases with

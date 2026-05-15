@@ -4,11 +4,31 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
-use crate::types::{CodeRunResultRow, CodeRunUpdate};
+use crate::types::{CodeRunResultRow, CodeRunUpdate, SubmissionStatus};
 
 pub struct CodeRuns {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) inner: CodeRunsMock,
+}
+
+impl CodeRuns {
+    pub fn set_compiling(&self, code_run_id: i32, judge_epoch: i32) -> Result<(), SdkError> {
+        self.update(&CodeRunUpdate {
+            code_run_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Compiling),
+            ..Default::default()
+        })
+    }
+
+    pub fn set_running(&self, code_run_id: i32, judge_epoch: i32) -> Result<(), SdkError> {
+        self.update(&CodeRunUpdate {
+            code_run_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Running),
+            ..Default::default()
+        })
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -155,5 +175,26 @@ impl CodeRuns {
 
     pub fn results(&self) -> Vec<CodeRunResultRow> {
         self.inner.results.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sdk::Host;
+    use crate::types::SubmissionStatus;
+
+    #[test]
+    fn status_helpers_write_compiling_and_running_updates() {
+        let host = Host::mock();
+
+        host.code_run.set_compiling(10, 30).unwrap();
+        host.code_run.set_running(10, 30).unwrap();
+
+        let updates = host.code_run.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].code_run_id, 10);
+        assert_eq!(updates[0].judge_epoch, 30);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
     }
 }

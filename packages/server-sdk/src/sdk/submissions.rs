@@ -4,15 +4,45 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
-#[cfg(target_arch = "wasm32")]
-use crate::types::SubmissionStatus;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::types::TestCaseBodyRef;
-use crate::types::{SubmissionUpdate, TestCaseResultRow, TestCaseRow};
+use crate::types::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow, TestCaseRow};
 
 pub struct Submissions {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) inner: SubmissionsMock,
+}
+
+impl Submissions {
+    pub fn set_compiling(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<u64, SdkError> {
+        self.update(&SubmissionUpdate {
+            submission_id,
+            judgement_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Compiling),
+            ..Default::default()
+        })
+    }
+
+    pub fn set_running(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<u64, SdkError> {
+        self.update(&SubmissionUpdate {
+            submission_id,
+            judgement_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Running),
+            ..Default::default()
+        })
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -343,5 +373,27 @@ impl Submissions {
     /// regression tests.
     pub fn insert_call_count(&self) -> usize {
         *self.inner.insert_call_count.borrow()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sdk::Host;
+    use crate::types::SubmissionStatus;
+
+    #[test]
+    fn status_helpers_write_compiling_and_running_updates() {
+        let host = Host::mock();
+
+        assert_eq!(host.submission.set_compiling(10, 20, 30).unwrap(), 1);
+        assert_eq!(host.submission.set_running(10, 20, 30).unwrap(), 1);
+
+        let updates = host.submission.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].submission_id, 10);
+        assert_eq!(updates[0].judgement_id, 20);
+        assert_eq!(updates[0].judge_epoch, 30);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
     }
 }

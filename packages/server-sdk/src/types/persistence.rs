@@ -25,6 +25,7 @@ pub fn sanitize_result_text_field(s: &str) -> Cow<'_, str> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmissionStatus {
+    Compiling,
     Running,
     Judged,
     CompilationError,
@@ -33,6 +34,7 @@ pub enum SubmissionStatus {
 impl SubmissionStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Compiling => "Compiling",
             Self::Running => "Running",
             Self::Judged => "Judged",
             Self::CompilationError => "CompilationError",

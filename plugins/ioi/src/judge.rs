@@ -264,10 +264,11 @@ mod tests {
         assert_eq!(result.submission_score, Some(100.0));
         assert_eq!(result.subtask_scores, Some(vec![100.0]));
 
-        // Running + terminal = 2 submission updates
+        // Compiling + Running + terminal = 3 submission updates
         let updates = host.submission.updates();
-        assert_eq!(updates.len(), 2);
-        assert_eq!(updates[0].status, Some(SubmissionStatus::Running));
+        assert_eq!(updates.len(), 3);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
 
         let sub = host.submission.last_update();
         assert_eq!(sub.score, Some(100.0));
@@ -587,10 +588,11 @@ mod tests {
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
 
         assert!(result.output.success);
-        // Running is set (batch starts), then CE detected -> terminal update
+        // Compile-error-only runs never enter Running; they stay in Compiling
+        // until the terminal CompilationError update.
         let updates = host.submission.updates();
         assert_eq!(updates.len(), 2);
-        assert_eq!(updates[0].status, Some(SubmissionStatus::Running));
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
 
         let sub = host.submission.last_update();
         assert_eq!(sub.status, Some(SubmissionStatus::CompilationError));

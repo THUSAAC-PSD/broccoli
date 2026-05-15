@@ -74,12 +74,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
         }
     };
 
-    host.code_run.update(&CodeRunUpdate {
-        code_run_id: req.id,
-        judge_epoch: req.judge_epoch,
-        status: Some(SubmissionStatus::Running),
-        ..Default::default()
-    })?;
+    host.code_run.set_compiling(req.id, req.judge_epoch)?;
 
     let _ = host.log.info(&format!(
         "Run: evaluating {} test case(s)",
@@ -88,6 +83,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
 
     let mut collected = 0;
     let mut timed_out = false;
+    let mut marked_running = false;
     let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
@@ -108,6 +104,10 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
                     }
                     let _ = host.eval.cancel_batch(&batch_id);
                     break;
+                }
+                if !marked_running {
+                    host.code_run.set_running(req.id, req.judge_epoch)?;
+                    marked_running = true;
                 }
                 insert_code_run_tc_result(host, req.id, req.judge_epoch, &r)?;
                 verdicts.push(r);
@@ -341,5 +341,32 @@ mod tests {
         assert_eq!(results[2].verdict, Verdict::Skipped);
         assert_eq!(results[2].message.as_deref(), Some("SKIPPED_SHORT_CIRCUIT"));
         assert!(host.eval.was_cancelled());
+
+        let updates = host.code_run.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::CompilationError));
+        assert!(
+            updates
+                .iter()
+                .all(|update| update.status != Some(SubmissionStatus::Running))
+        );
+    }
+
+    #[test]
+    fn non_compile_result_moves_code_run_from_compiling_to_running() {
+        let host = Host::mock();
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
+        let req = code_run_input(vec![test_case(1), test_case(2)]);
+
+        let output = evaluate_run(&host, &req).unwrap();
+
+        assert!(output.success);
+        let updates = host.code_run.updates();
+        assert_eq!(updates.len(), 3);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
+        assert_eq!(updates[2].status, Some(SubmissionStatus::Judged));
     }
 }

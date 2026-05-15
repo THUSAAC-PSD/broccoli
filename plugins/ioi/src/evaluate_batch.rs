@@ -105,13 +105,9 @@ pub fn evaluate_all(
         }
     };
 
-    let affected = host.submission.update(&SubmissionUpdate {
-        submission_id,
-        judgement_id: req.judgement_id,
-        judge_epoch: req.judge_epoch,
-        status: Some(SubmissionStatus::Running),
-        ..Default::default()
-    })?;
+    let affected =
+        host.submission
+            .set_compiling(submission_id, req.judgement_id, req.judge_epoch)?;
 
     if affected == 0 {
         let _ = session.cancel_all();
@@ -125,6 +121,7 @@ pub fn evaluate_all(
 
     let mut collected = 0;
     let mut timed_out = false;
+    let mut marked_running = false;
     let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
@@ -192,6 +189,19 @@ pub fn evaluate_all(
                     }
                     let _ = session.cancel_all();
                     break;
+                }
+
+                if !marked_running {
+                    let affected = host.submission.set_running(
+                        submission_id,
+                        req.judgement_id,
+                        req.judge_epoch,
+                    )?;
+                    if affected == 0 {
+                        let _ = session.cancel_all();
+                        return Err(SdkError::StaleEpoch);
+                    }
+                    marked_running = true;
                 }
 
                 record_outcome(
@@ -631,6 +641,10 @@ mod tests {
                 vec![10],
             ]
         );
+        let updates = host.submission.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
     }
 
     #[test]
@@ -662,6 +676,9 @@ mod tests {
         assert_eq!(batch_test_case_ids(&host), vec![vec![1, 2, 3, 4]]);
         assert_eq!(host.submission.results().len(), 10);
         assert!(host.eval.was_cancelled());
+        let updates = host.submission.updates();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
     }
 
     #[test]
