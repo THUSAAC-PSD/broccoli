@@ -112,3 +112,11 @@ redis = { version = "1.0", features = ["tokio-comp"] }
 [profile.release]
 debug = "line-tables-only"
 strip = "none"
+
+# Opt-in profile for profiling runs that need actionable DWARF stacks.
+# Normal release builds stay on `profile.release`; use `just build-profiling`
+# or Docker build args to select this profile and frame pointers explicitly.
+[profile.profiling]
+inherits = "release"
+debug = "full"
+strip = "none"

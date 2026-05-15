@@ -27,6 +27,39 @@ Compose project by default. If server/worker are run as bare `cargo run`
 processes, their stdout logs are not sent to Loki unless you redirect them to a
 file/journal target or run them as containers.
 
+## Opt-in profiling builds
+
+Normal `release` builds keep line tables only. The opt-in Cargo profiling
+profile keeps full DWARF debug info and no stripping. For profiling runs that
+need full Rust stacks, build server and worker with that profile and frame
+pointers:
+
+```bash
+RUSTFLAGS="-C force-frame-pointers=yes" \
+  cargo build --profile profiling -p server -p worker
+```
+
+The Just shortcut is equivalent:
+
+```bash
+just build-profiling --locked
+```
+
+For container images, pass the profiling build args explicitly. These args
+default to ordinary release builds when omitted.
+
+```bash
+docker buildx build -f Dockerfile.server \
+  --build-arg CARGO_BUILD_PROFILE=profiling \
+  --build-arg 'CARGO_BUILD_RUSTFLAGS=-C force-frame-pointers=yes' \
+  --target runtime .
+
+docker buildx build -f Dockerfile.worker \
+  --build-arg CARGO_BUILD_PROFILE=profiling \
+  --build-arg 'CARGO_BUILD_RUSTFLAGS=-C force-frame-pointers=yes' \
+  --target runtime-full .
+```
+
 Open:
 
 - Grafana: `http://localhost:3001`

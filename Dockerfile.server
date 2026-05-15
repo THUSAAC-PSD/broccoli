@@ -36,6 +36,8 @@ FROM ${RUST_IMAGE} AS rust-builder
 
 ARG USE_CN_MIRRORS=false
 ARG CARGO_BUILD_JOBS
+ARG CARGO_BUILD_PROFILE=release
+ARG CARGO_BUILD_RUSTFLAGS=
 ARG SERVER_FEATURES=""
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
@@ -72,14 +74,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
         RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
     fi && \
+    if [ -n "$CARGO_BUILD_RUSTFLAGS" ]; then \
+      export RUSTFLAGS="$CARGO_BUILD_RUSTFLAGS"; \
+    fi && \
     if [ -n "$SERVER_FEATURES" ]; then \
-      cargo build --release --locked --package server --features "$SERVER_FEATURES"; \
+      cargo build --profile "$CARGO_BUILD_PROFILE" --locked --package server --features "$SERVER_FEATURES"; \
     else \
-      cargo build --release --locked --package server; \
+      cargo build --profile "$CARGO_BUILD_PROFILE" --locked --package server; \
     fi && \
     mkdir -p /out && \
-    cp target/release/server /out/broccoli-server && \
-    strip /out/broccoli-server
+    cp "target/$CARGO_BUILD_PROFILE/server" /out/broccoli-server && \
+    if [ "$CARGO_BUILD_PROFILE" != "profiling" ]; then \
+      strip /out/broccoli-server; \
+    fi
 
 FROM ${NODE_IMAGE} AS web-builder
 

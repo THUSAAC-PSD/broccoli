@@ -758,8 +758,25 @@ G testing); UP#14f before Phase B PR-E.
       `cargo clippy -p plugin-core -- -D warnings`,
       `cargo clippy -p server --lib -- -D warnings -A clippy::useless_conversion -A clippy::collapsible_if -A clippy::too_many_arguments`,
       and `cargo clippy -p worker --all-targets -- -D warnings -A dead_code`.
-- [ ] **PR: build-flags-for-profiling.** UP#51 — `debug = 1` (full DWARF),
-      `RUSTFLAGS="-C force-frame-pointers=yes"`.
+- [x] **PR: build-flags-for-profiling.** UP#51 — full DWARF and frame-pointer
+      builds are opt-in, not the default: normal `profile.release` remains on
+      line tables only, while `profile.profiling` inherits release with
+      `debug = "full"` and no stripping
+      (`Cargo.toml:110-122`). Local profiling builds use explicit Just recipes
+      that set `RUSTFLAGS="-C force-frame-pointers=yes"` only for those commands
+      (`justfile:9-16`). Server and worker Docker builds default to
+      `CARGO_BUILD_PROFILE=release`, accept explicit `CARGO_BUILD_PROFILE` and
+      `CARGO_BUILD_RUSTFLAGS` args for profiling images, and skip binary
+      stripping only for the opt-in `profiling` profile
+      (`Dockerfile.server:37-40`, `Dockerfile.server:77-89`,
+      `Dockerfile.worker:36-38`, `Dockerfile.worker:69-77`). The profiling
+      runbook documents both local and container opt-in commands without
+      changing production release defaults
+      (`docs/profiling-observability-runbook.md:30-60`). Verified with
+      `RUSTFLAGS="-C force-frame-pointers=yes" cargo check --profile profiling -p server -p worker`,
+      `cargo check --profile release -p server -p worker`, `cargo fmt --check`,
+      and `git diff --check`; Docker and Just command execution were unavailable
+      locally because `docker` and `just` are not installed in this environment.
 - [ ] **PR: dashboard-update.** UP#52 — Grafana panels for the new metrics. Edit
       `config/grafana/provisioning/dashboards/broccoli-overview.json`.
 

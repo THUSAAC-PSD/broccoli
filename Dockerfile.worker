@@ -34,6 +34,8 @@ RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
 FROM ${RUST_IMAGE} AS rust-builder
 
 ARG USE_CN_MIRRORS=false
+ARG CARGO_BUILD_PROFILE=release
+ARG CARGO_BUILD_RUSTFLAGS=
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /app
 
@@ -64,10 +66,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
         RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
     fi && \
-    cargo build --release --locked --package worker && \
+    if [ -n "$CARGO_BUILD_RUSTFLAGS" ]; then \
+      export RUSTFLAGS="$CARGO_BUILD_RUSTFLAGS"; \
+    fi && \
+    cargo build --profile "$CARGO_BUILD_PROFILE" --locked --package worker && \
     mkdir -p /out && \
-    cp target/release/worker /out/broccoli-worker && \
-    strip /out/broccoli-worker
+    cp "target/$CARGO_BUILD_PROFILE/worker" /out/broccoli-worker && \
+    if [ "$CARGO_BUILD_PROFILE" != "profiling" ]; then \
+      strip /out/broccoli-worker; \
+    fi
 
 FROM ${DEBIAN_IMAGE} AS isolate-builder
 

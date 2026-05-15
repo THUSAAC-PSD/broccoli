@@ -6,6 +6,15 @@ default:
 build:
     cargo build
 
+# Build server and worker with opt-in profiling symbols and frame pointers.
+# This intentionally does not affect the default build/release recipes.
+build-profiling *args:
+    RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile profiling -p server -p worker {{args}}
+
+# Build a single crate with opt-in profiling symbols and frame pointers.
+build-profiling-crate crate *args:
+    RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile profiling -p {{crate}} {{args}}
+
 # Run baseline Rust workspace tests.
 # This excludes root plugins (they are intentionally not workspace members) and
 # the stress-test harness. Use test-plugins/test-stress for those opt-in suites.
