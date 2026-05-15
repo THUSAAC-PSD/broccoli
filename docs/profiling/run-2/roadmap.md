@@ -347,10 +347,9 @@ G testing); UP#14f before Phase B PR-E.
       `SubmissionStatus` at `packages/common/src/submission_status.rs` (before
       `Pending` in the lifecycle order); wired into `ALL`, `as_str()`,
       `FromStr`, and a `queued_status_round_trip_and_predicates` test that pins
-      `is_terminal/is_judged/is_error` all to `false`. `IN_PROGRESS_STATUSES` in
-      `packages/server/src/dlq/stuck.rs:19-30` bumped from `[…; 3]` to `[…; 4]`
-      with `Queued` first; comment explains that the wide-net 6h timeout (UP#19)
-      is the floor catch-all and UP#43 will layer per-state thresholds on top.
+      `is_terminal/is_judged/is_error` all to `false`. The stuck detector
+      originally included `Queued` in its in-progress sweep; UP#43 later split
+      queued backlog into observability-only handling.
       Workspace build clean — no other exhaustive-match site needed a `Queued`
       arm.
 - [x] **PR: insert-queued-on-post.** UP#37 — converted the 9 post-commit
@@ -479,16 +478,16 @@ G testing); UP#14f before Phase B PR-E.
       with `server.max_stuck_retries` default/config plumbing
       (`packages/server/src/config.rs:121-125`, `:268-269`, `:571-572`).
       The stuck detector now scans `submission`, `code_run`, and
-      `submission_judgement` with the shared stale owner/heartbeat predicate
-      and re-checks it under `FOR UPDATE`
+      `submission_judgement` for recoverable in-progress rows and re-checks
+      staleness under `FOR UPDATE`
       (`packages/server/src/dlq/stuck.rs:57-70`, `:86-108`, `:136-158`,
       `:181-208`, `:273-294`, `:413-434`, `:523-545`). Exhausted rows use the
       strict `retry_count > max_stuck_retries` helper and emit terminal
       `Exceeded N retries` errors plus DLQ visibility
       (`packages/server/src/dlq/stuck.rs:298-363`, `:438-472`, `:549-614`,
       `:1192-1197`). Non-exhausted rows are left to lease/steal when that path
-      owns recovery; `Queued` or lease/steal-disabled rows use guarded direct
-      recovery with epoch bumps, partial-result cleanup, and post-commit
+      owns recovery; lease/steal-disabled rows use guarded direct recovery with
+      epoch bumps, partial-result cleanup, and post-commit
       redispatch (`packages/server/src/dlq/stuck.rs:363-365`, `:473-476`,
       `:615-618`, `:662-757`, `:759-853`, `:855-1018`). New DLQ message types
       and stats/schema/UI labels cover stuck code runs and stuck judgements
@@ -536,8 +535,26 @@ G testing); UP#14f before Phase B PR-E.
       helper/code-run tests. Full `cargo test -p broccoli-server-sdk
       --features guest` still has the unchanged baseline failure in
       `packages/server-sdk/src/sdk/eval.rs:751`.
-- [ ] **PR: per-state-stuck-timeouts.** UP#43 — `Queued` 5min, `Pending` 5min
-      with `owner_server_id IS NULL`, `Compiling`/`Running` no time limit.
+- [x] **PR: per-state-stuck-timeouts.** UP#43 — old `Queued` rows are
+      aggregate dispatcher-health observability only, while `Pending` rows with
+      no owner are recoverable after 5 min and owned
+      `Pending`/`Compiling`/`Running` rows recover only on missing/stale lease
+      heartbeat (`packages/server/src/dlq/stuck.rs:22-33`, `:75-105`,
+      `:108-158`, `:176-203`, `:233-254`, `:279-304`). Direct detector
+      redispatch now writes a fresh detector owner lease onto submissions,
+      code-runs, deferred judgements, and the freshly inserted retry judgement
+      so the detector does not repeatedly redispatch its own work
+      (`packages/server/src/dlq/stuck.rs:42-50`, `:790-867`, `:890-917`,
+      `:1070-1137`, `:1150-1225`). Regression coverage pins queued-observe vs
+      recover policy, fresh-heartbeat immunity, stale/missing lease recovery,
+      direct-recovery routing for deferred judgements, and SQL-level lease
+      writes for submission/code-run/judgement redispatch
+      (`packages/server/src/dlq/stuck.rs:1461-1677`). The unified plan was
+      updated to match the no-queued-SystemError semantics
+      (`docs/profiling/run-2/unified-plan.md:212`, `:255`, `:272`). Verified
+      locally with `cargo test -p server dlq::stuck::tests --lib`,
+      `cargo test -p server --lib` (154 passed, 1 ignored),
+      `cargo fmt --check`, and `git diff --check`.
 - [ ] **PR: ioi-compile-error-fill.** UP#44 — IOI fills remaining testcases with
       `Verdict::Skipped` on `CompileError` (matching ICPC's `is_known_failure`
       branch). Same fix for `code-run`.

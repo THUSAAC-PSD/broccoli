@@ -4,8 +4,8 @@ use chrono::Utc;
 use common::{DlqConfig, DlqErrorCode, DlqMessageType, SubmissionDlqErrorCode, SubmissionStatus};
 use sea_orm::sea_query::LockType;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseTransaction, EntityTrait, QueryFilter, QuerySelect,
-    TransactionTrait,
+    ColumnTrait, Condition, DatabaseConnection, DatabaseTransaction, EntityTrait, PaginatorTrait,
+    QueryFilter, QuerySelect, TransactionTrait,
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -19,18 +19,36 @@ use crate::state::AppState;
 
 use super::DlqService;
 
-// `Queued` is in-progress from the stuck-detector's perspective — a row
-// stranded in `Queued` because every server's claim fiber is dead is a
-// genuine system-stuck condition the wide-net 6h timeout (UP#19) must
-// catch. UP#43 will layer a 5min per-state threshold on top so the
-// detector escalates `Queued` orphans faster than the 6h global, but
-// inclusion in this list is the floor.
-const IN_PROGRESS_STATUSES: [SubmissionStatus; 4] = [
-    SubmissionStatus::Queued,
+// Rows in these states have been claimed by a dispatcher and are either
+// waiting for plugin-side dispatch or already evaluating. `Queued` is
+// deliberately excluded: a deep durable queue is backlog, not a row-level
+// failure. UP#43 observes old queued rows as an aggregate dispatcher-health
+// signal without mutating them.
+const STUCK_RECOVERY_STATUSES: [SubmissionStatus; 3] = [
     SubmissionStatus::Pending,
     SubmissionStatus::Compiling,
     SubmissionStatus::Running,
 ];
+const QUEUED_OBSERVABILITY_THRESHOLD_SECS: i64 = 5 * 60;
+const PENDING_ORPHAN_TIMEOUT_SECS: i64 = 5 * 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StuckDisposition {
+    Ignore,
+    ObserveQueued,
+    Recover,
+}
+
+fn detector_retry_lease(
+    server_id: &str,
+    now: chrono::DateTime<Utc>,
+) -> (Option<String>, Option<chrono::DateTime<Utc>>) {
+    (Some(server_id.to_string()), Some(now))
+}
+
+fn should_recover_directly(lease_steal_enabled: bool, judgement_is_current: Option<bool>) -> bool {
+    !lease_steal_enabled || judgement_is_current == Some(false)
+}
 
 pub async fn run_stuck_job_detector(state: AppState, config: DlqConfig) {
     let scan_interval = Duration::from_secs(config.stuck_job_scan_interval_secs);
@@ -54,19 +72,90 @@ pub async fn run_stuck_job_detector(state: AppState, config: DlqConfig) {
     }
 }
 
-fn stale_by_owner(
+fn stuck_disposition(
+    status: &SubmissionStatus,
     owner_server_id: Option<&str>,
     created_at: chrono::DateTime<Utc>,
     lease_heartbeat_at: Option<chrono::DateTime<Utc>>,
-    timeout_threshold: chrono::DateTime<Utc>,
-) -> bool {
-    if owner_server_id.is_none() {
-        return created_at < timeout_threshold;
+    queued_observability_threshold: chrono::DateTime<Utc>,
+    pending_orphan_threshold: chrono::DateTime<Utc>,
+    lease_stale_threshold: chrono::DateTime<Utc>,
+) -> StuckDisposition {
+    if status == &SubmissionStatus::Queued {
+        return if owner_server_id.is_none() && created_at < queued_observability_threshold {
+            StuckDisposition::ObserveQueued
+        } else {
+            StuckDisposition::Ignore
+        };
     }
 
-    lease_heartbeat_at
-        .map(|heartbeat| heartbeat < timeout_threshold)
-        .unwrap_or(true)
+    if !STUCK_RECOVERY_STATUSES.contains(status) {
+        return StuckDisposition::Ignore;
+    }
+
+    match owner_server_id {
+        None if status == &SubmissionStatus::Pending && created_at < pending_orphan_threshold => {
+            StuckDisposition::Recover
+        }
+        None => StuckDisposition::Ignore,
+        Some(_) if lease_heartbeat_at.is_none_or(|heartbeat| heartbeat < lease_stale_threshold) => {
+            StuckDisposition::Recover
+        }
+        Some(_) => StuckDisposition::Ignore,
+    }
+}
+
+async fn observe_old_queued_backlog(
+    db: &DatabaseConnection,
+    queued_observability_threshold: chrono::DateTime<Utc>,
+) -> anyhow::Result<()> {
+    let old_submissions = submission::Entity::find()
+        .filter(submission::Column::Status.eq(SubmissionStatus::Queued))
+        .filter(submission::Column::OwnerServerId.is_null())
+        .filter(submission::Column::CreatedAt.lt(queued_observability_threshold))
+        .count(db)
+        .await?;
+
+    if old_submissions > 0 {
+        warn!(
+            count = old_submissions,
+            threshold_secs = QUEUED_OBSERVABILITY_THRESHOLD_SECS,
+            "Queued submissions are older than the dispatcher observability threshold; leaving backlog intact"
+        );
+    }
+
+    let old_code_runs = code_run::Entity::find()
+        .filter(code_run::Column::Status.eq(SubmissionStatus::Queued))
+        .filter(code_run::Column::OwnerServerId.is_null())
+        .filter(code_run::Column::CreatedAt.lt(queued_observability_threshold))
+        .count(db)
+        .await?;
+
+    if old_code_runs > 0 {
+        warn!(
+            count = old_code_runs,
+            threshold_secs = QUEUED_OBSERVABILITY_THRESHOLD_SECS,
+            "Queued code runs are older than the dispatcher observability threshold; leaving backlog intact"
+        );
+    }
+
+    let old_judgements = submission_judgement::Entity::find()
+        .filter(submission_judgement::Column::Status.eq(SubmissionStatus::Queued))
+        .filter(submission_judgement::Column::OwnerServerId.is_null())
+        .filter(submission_judgement::Column::IsFinalized.eq(false))
+        .filter(submission_judgement::Column::CreatedAt.lt(queued_observability_threshold))
+        .count(db)
+        .await?;
+
+    if old_judgements > 0 {
+        warn!(
+            count = old_judgements,
+            threshold_secs = QUEUED_OBSERVABILITY_THRESHOLD_SECS,
+            "Queued submission judgements are older than the dispatcher observability threshold; leaving backlog intact"
+        );
+    }
+
+    Ok(())
 }
 
 async fn detect_and_handle_stuck_jobs(
@@ -77,22 +166,30 @@ async fn detect_and_handle_stuck_jobs(
     let db = &state.db;
     let timeout_threshold =
         Utc::now() - chrono::Duration::seconds(config.stuck_job_timeout_secs as i64);
+    let queued_observability_threshold =
+        Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
+    let pending_orphan_threshold =
+        Utc::now() - chrono::Duration::seconds(PENDING_ORPHAN_TIMEOUT_SECS);
 
-    // Composite staleness predicate mirroring dispatcher/steal.rs:
-    // unleased rows clock from creation; leased rows clock from the last
-    // heartbeat (a leased row with NULL heartbeat is also suspect). A leased
-    // submission whose worker is heartbeating every 10s never trips this,
-    // even if its created_at is hours old.
+    observe_old_queued_backlog(db, queued_observability_threshold).await?;
+
+    // Composite recovery predicate:
+    // - Pending rows with no owner are orphaned after the 5-minute
+    //   per-state threshold.
+    // - Owned Pending/Compiling/Running rows are stale only when their
+    //   lease heartbeat is missing or older than the wide-net threshold.
+    // - Queued rows are intentionally excluded from row-level recovery.
     let stuck_submission_ids: Vec<i32> = submission::Entity::find()
         .select_only()
         .column(submission::Column::Id)
-        .filter(submission::Column::Status.is_in(IN_PROGRESS_STATUSES))
+        .filter(submission::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
         .filter(
             Condition::any()
                 .add(
                     Condition::all()
+                        .add(submission::Column::Status.eq(SubmissionStatus::Pending))
                         .add(submission::Column::OwnerServerId.is_null())
-                        .add(submission::Column::CreatedAt.lt(timeout_threshold)),
+                        .add(submission::Column::CreatedAt.lt(pending_orphan_threshold)),
                 )
                 .add(
                     Condition::all()
@@ -136,13 +233,14 @@ async fn detect_and_handle_stuck_jobs(
     let stuck_code_run_ids: Vec<i32> = code_run::Entity::find()
         .select_only()
         .column(code_run::Column::Id)
-        .filter(code_run::Column::Status.is_in(IN_PROGRESS_STATUSES))
+        .filter(code_run::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
         .filter(
             Condition::any()
                 .add(
                     Condition::all()
+                        .add(code_run::Column::Status.eq(SubmissionStatus::Pending))
                         .add(code_run::Column::OwnerServerId.is_null())
-                        .add(code_run::Column::CreatedAt.lt(timeout_threshold)),
+                        .add(code_run::Column::CreatedAt.lt(pending_orphan_threshold)),
                 )
                 .add(
                     Condition::all()
@@ -181,14 +279,15 @@ async fn detect_and_handle_stuck_jobs(
     let stuck_judgement_ids: Vec<i32> = submission_judgement::Entity::find()
         .select_only()
         .column(submission_judgement::Column::Id)
-        .filter(submission_judgement::Column::Status.is_in(IN_PROGRESS_STATUSES))
+        .filter(submission_judgement::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
         .filter(submission_judgement::Column::IsFinalized.eq(false))
         .filter(
             Condition::any()
                 .add(
                     Condition::all()
+                        .add(submission_judgement::Column::Status.eq(SubmissionStatus::Pending))
                         .add(submission_judgement::Column::OwnerServerId.is_null())
-                        .add(submission_judgement::Column::CreatedAt.lt(timeout_threshold)),
+                        .add(submission_judgement::Column::CreatedAt.lt(pending_orphan_threshold)),
                 )
                 .add(
                     Condition::all()
@@ -267,6 +366,10 @@ async fn handle_stuck_submission(
     max_stuck_retries: u32,
     timeout_threshold: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
+    let queued_observability_threshold =
+        Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
+    let pending_orphan_threshold =
+        Utc::now() - chrono::Duration::seconds(PENDING_ORPHAN_TIMEOUT_SECS);
     let db = &state.db;
     let txn = db.begin().await?;
 
@@ -281,13 +384,15 @@ async fn handle_stuck_submission(
     };
 
     if submission.status.is_terminal()
-        || !IN_PROGRESS_STATUSES.contains(&submission.status)
-        || !stale_by_owner(
+        || stuck_disposition(
+            &submission.status,
             submission.owner_server_id.as_deref(),
             submission.created_at,
             submission.lease_heartbeat_at,
+            queued_observability_threshold,
+            pending_orphan_threshold,
             timeout_threshold,
-        )
+        ) != StuckDisposition::Recover
     {
         txn.rollback().await?;
         return Ok(());
@@ -360,10 +465,8 @@ async fn handle_stuck_submission(
             .await?;
             StuckRecovery::Terminal
         }
-    } else if submission.status == SubmissionStatus::Queued
-        || !state.config.server.dispatcher_lease_steal_enabled
-    {
-        recover_stuck_submission_without_steal(&txn, &submission).await?
+    } else if should_recover_directly(state.config.server.dispatcher_lease_steal_enabled, None) {
+        recover_stuck_submission_without_steal(&txn, &submission, &state.config.server.id).await?
     } else {
         StuckRecovery::Skip
     };
@@ -407,6 +510,10 @@ async fn handle_stuck_code_run(
     max_stuck_retries: u32,
     timeout_threshold: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
+    let queued_observability_threshold =
+        Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
+    let pending_orphan_threshold =
+        Utc::now() - chrono::Duration::seconds(PENDING_ORPHAN_TIMEOUT_SECS);
     let db = &state.db;
     let txn = db.begin().await?;
 
@@ -421,13 +528,15 @@ async fn handle_stuck_code_run(
     };
 
     if run.status.is_terminal()
-        || !IN_PROGRESS_STATUSES.contains(&run.status)
-        || !stale_by_owner(
+        || stuck_disposition(
+            &run.status,
             run.owner_server_id.as_deref(),
             run.created_at,
             run.lease_heartbeat_at,
+            queued_observability_threshold,
+            pending_orphan_threshold,
             timeout_threshold,
-        )
+        ) != StuckDisposition::Recover
     {
         txn.rollback().await?;
         return Ok(());
@@ -470,10 +579,8 @@ async fn handle_stuck_code_run(
         }
         mark_code_run_system_error(&txn, run.id, "STUCK_JOB", &system_error_message).await?;
         StuckRecovery::Terminal
-    } else if run.status == SubmissionStatus::Queued
-        || !state.config.server.dispatcher_lease_steal_enabled
-    {
-        recover_stuck_code_run_without_steal(&txn, &run).await?
+    } else if should_recover_directly(state.config.server.dispatcher_lease_steal_enabled, None) {
+        recover_stuck_code_run_without_steal(&txn, &run, &state.config.server.id).await?
     } else {
         StuckRecovery::Skip
     };
@@ -517,6 +624,10 @@ async fn handle_stuck_submission_judgement(
     max_stuck_retries: u32,
     timeout_threshold: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
+    let queued_observability_threshold =
+        Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
+    let pending_orphan_threshold =
+        Utc::now() - chrono::Duration::seconds(PENDING_ORPHAN_TIMEOUT_SECS);
     let db = &state.db;
     let txn = db.begin().await?;
 
@@ -532,13 +643,15 @@ async fn handle_stuck_submission_judgement(
 
     if judgement.status.is_terminal()
         || judgement.is_finalized
-        || !IN_PROGRESS_STATUSES.contains(&judgement.status)
-        || !stale_by_owner(
+        || stuck_disposition(
+            &judgement.status,
             judgement.owner_server_id.as_deref(),
             judgement.created_at,
             judgement.lease_heartbeat_at,
+            queued_observability_threshold,
+            pending_orphan_threshold,
             timeout_threshold,
-        )
+        ) != StuckDisposition::Recover
     {
         txn.rollback().await?;
         return Ok(());
@@ -606,16 +719,17 @@ async fn handle_stuck_submission_judgement(
                 sea_orm::sea_query::Expr::cust("NOW()").into(),
             )
             .filter(submission_judgement::Column::Id.eq(judgement.id))
-            .filter(submission_judgement::Column::Status.is_in(IN_PROGRESS_STATUSES))
+            .filter(submission_judgement::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
             .filter(submission_judgement::Column::IsFinalized.eq(false))
             .exec(&txn)
             .await?;
 
         StuckRecovery::Terminal
-    } else if judgement.status == SubmissionStatus::Queued
-        || !state.config.server.dispatcher_lease_steal_enabled
-    {
-        recover_stuck_judgement_without_steal(&txn, &judgement).await?
+    } else if should_recover_directly(
+        state.config.server.dispatcher_lease_steal_enabled,
+        Some(judgement.is_current),
+    ) {
+        recover_stuck_judgement_without_steal(&txn, &judgement, &state.config.server.id).await?
     } else {
         StuckRecovery::Skip
     };
@@ -666,9 +780,12 @@ async fn handle_stuck_submission_judgement(
 async fn recover_stuck_submission_without_steal(
     txn: &DatabaseTransaction,
     submission: &submission::Model,
+    server_id: &str,
 ) -> anyhow::Result<StuckRecovery> {
     let new_retry_count = submission.retry_count.saturating_add(1);
     let new_epoch = submission.judge_epoch.saturating_add(1);
+    let lease_heartbeat_at = Utc::now();
+    let (owner_server_id, lease_heartbeat_at) = detector_retry_lease(server_id, lease_heartbeat_at);
 
     let affected = submission::Entity::update_many()
         .col_expr(
@@ -685,11 +802,11 @@ async fn recover_stuck_submission_without_steal(
         )
         .col_expr(
             submission::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
+            sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
         )
         .col_expr(
             submission::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
         .col_expr(
             submission::Column::Verdict,
@@ -725,7 +842,7 @@ async fn recover_stuck_submission_without_steal(
         )
         .filter(submission::Column::Id.eq(submission.id))
         .filter(submission::Column::JudgeEpoch.eq(submission.judge_epoch))
-        .filter(submission::Column::Status.is_in(IN_PROGRESS_STATUSES))
+        .filter(submission::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
         .exec(txn)
         .await?;
 
@@ -733,14 +850,21 @@ async fn recover_stuck_submission_without_steal(
         return Ok(StuckRecovery::Skip);
     }
 
-    open_retry_submission_judgement(txn, submission, new_epoch).await?;
+    open_retry_submission_judgement(
+        txn,
+        submission,
+        new_epoch,
+        owner_server_id.clone(),
+        lease_heartbeat_at,
+    )
+    .await?;
 
     let mut redispatch_model = submission.clone();
     redispatch_model.status = SubmissionStatus::Pending;
     redispatch_model.retry_count = new_retry_count;
     redispatch_model.judge_epoch = new_epoch;
-    redispatch_model.owner_server_id = None;
-    redispatch_model.lease_heartbeat_at = None;
+    redispatch_model.owner_server_id = owner_server_id;
+    redispatch_model.lease_heartbeat_at = lease_heartbeat_at;
     redispatch_model.verdict = None;
     redispatch_model.compile_output = None;
     redispatch_model.error_code = None;
@@ -759,9 +883,12 @@ async fn recover_stuck_submission_without_steal(
 async fn recover_stuck_code_run_without_steal(
     txn: &DatabaseTransaction,
     run: &code_run::Model,
+    server_id: &str,
 ) -> anyhow::Result<StuckRecovery> {
     let new_retry_count = run.retry_count.saturating_add(1);
     let new_epoch = run.judge_epoch.saturating_add(1);
+    let lease_heartbeat_at = Utc::now();
+    let (owner_server_id, lease_heartbeat_at) = detector_retry_lease(server_id, lease_heartbeat_at);
 
     code_run_result::Entity::delete_many()
         .filter(code_run_result::Column::CodeRunId.eq(run.id))
@@ -783,11 +910,11 @@ async fn recover_stuck_code_run_without_steal(
         )
         .col_expr(
             code_run::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
+            sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
         )
         .col_expr(
             code_run::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
         .col_expr(
             code_run::Column::Verdict,
@@ -823,7 +950,7 @@ async fn recover_stuck_code_run_without_steal(
         )
         .filter(code_run::Column::Id.eq(run.id))
         .filter(code_run::Column::JudgeEpoch.eq(run.judge_epoch))
-        .filter(code_run::Column::Status.is_in(IN_PROGRESS_STATUSES))
+        .filter(code_run::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
         .exec(txn)
         .await?;
 
@@ -835,8 +962,8 @@ async fn recover_stuck_code_run_without_steal(
     redispatch_model.status = SubmissionStatus::Pending;
     redispatch_model.retry_count = new_retry_count;
     redispatch_model.judge_epoch = new_epoch;
-    redispatch_model.owner_server_id = None;
-    redispatch_model.lease_heartbeat_at = None;
+    redispatch_model.owner_server_id = owner_server_id;
+    redispatch_model.lease_heartbeat_at = lease_heartbeat_at;
     redispatch_model.verdict = None;
     redispatch_model.compile_output = None;
     redispatch_model.error_code = None;
@@ -855,9 +982,12 @@ async fn recover_stuck_code_run_without_steal(
 async fn recover_stuck_judgement_without_steal(
     txn: &DatabaseTransaction,
     judgement: &submission_judgement::Model,
+    server_id: &str,
 ) -> anyhow::Result<StuckRecovery> {
     let new_retry_count = judgement.retry_count.saturating_add(1);
     let new_epoch = judgement.judge_epoch.saturating_add(1);
+    let lease_heartbeat_at = Utc::now();
+    let (owner_server_id, lease_heartbeat_at) = detector_retry_lease(server_id, lease_heartbeat_at);
 
     let Some(mut sub) = submission::Entity::find_by_id(judgement.submission_id)
         .one(txn)
@@ -882,11 +1012,11 @@ async fn recover_stuck_judgement_without_steal(
             )
             .col_expr(
                 submission::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
+                sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
             )
             .col_expr(
                 submission::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+                sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
             )
             .col_expr(
                 submission::Column::Verdict,
@@ -922,7 +1052,7 @@ async fn recover_stuck_judgement_without_steal(
             )
             .filter(submission::Column::Id.eq(sub.id))
             .filter(submission::Column::JudgeEpoch.eq(judgement.judge_epoch))
-            .filter(submission::Column::Status.is_in(IN_PROGRESS_STATUSES))
+            .filter(submission::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
             .exec(txn)
             .await?;
         if affected.rows_affected == 0 {
@@ -950,11 +1080,11 @@ async fn recover_stuck_judgement_without_steal(
         )
         .col_expr(
             submission_judgement::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
+            sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
         )
         .col_expr(
             submission_judgement::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
         .col_expr(
             submission_judgement::Column::Verdict,
@@ -990,7 +1120,7 @@ async fn recover_stuck_judgement_without_steal(
         )
         .filter(submission_judgement::Column::Id.eq(judgement.id))
         .filter(submission_judgement::Column::JudgeEpoch.eq(judgement.judge_epoch))
-        .filter(submission_judgement::Column::Status.is_in(IN_PROGRESS_STATUSES))
+        .filter(submission_judgement::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
         .filter(submission_judgement::Column::IsFinalized.eq(false))
         .exec(txn)
         .await?;
@@ -1003,8 +1133,8 @@ async fn recover_stuck_judgement_without_steal(
     sub.status = SubmissionStatus::Pending;
     sub.judge_epoch = new_epoch;
     sub.retry_count = new_retry_count;
-    sub.owner_server_id = None;
-    sub.lease_heartbeat_at = None;
+    sub.owner_server_id = owner_server_id;
+    sub.lease_heartbeat_at = lease_heartbeat_at;
     if let Some(target) = judgement.target_worker_id.clone() {
         sub.target_worker_id = Some(target);
     }
@@ -1023,6 +1153,8 @@ async fn open_retry_submission_judgement(
     txn: &DatabaseTransaction,
     submission: &submission::Model,
     new_epoch: i32,
+    owner_server_id: Option<String>,
+    lease_heartbeat_at: Option<chrono::DateTime<Utc>>,
 ) -> anyhow::Result<()> {
     use sea_orm::{ActiveModelTrait, QueryOrder, Set};
 
@@ -1083,6 +1215,8 @@ async fn open_retry_submission_judgement(
         error_code: Set(None),
         error_message: Set(None),
         judge_epoch: Set(new_epoch),
+        owner_server_id: Set(owner_server_id),
+        lease_heartbeat_at: Set(lease_heartbeat_at),
         created_at: Set(chrono::Utc::now()),
         finalized_at: Set(None),
         ..Default::default()
@@ -1145,6 +1279,127 @@ fn stuck_retries_exceeded_message(max_stuck_retries: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm::{DbBackend, MockDatabase, MockExecResult};
+
+    fn mock_exec() -> MockExecResult {
+        MockExecResult {
+            last_insert_id: 0,
+            rows_affected: 1,
+        }
+    }
+
+    fn base_submission(id: i32, now: chrono::DateTime<Utc>) -> submission::Model {
+        submission::Model {
+            id,
+            files: serde_json::json!({}),
+            language: "rust".to_string(),
+            user_id: 1,
+            problem_id: 2,
+            contest_id: None,
+            contest_type: "ioi".to_string(),
+            status: SubmissionStatus::Pending,
+            verdict: None,
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+            score: None,
+            time_used: None,
+            memory_used: None,
+            judge_epoch: 4,
+            target_worker_id: None,
+            owner_server_id: None,
+            lease_heartbeat_at: None,
+            retry_count: 1,
+            created_at: now - chrono::Duration::minutes(10),
+            judged_at: None,
+        }
+    }
+
+    fn base_code_run(id: i32, now: chrono::DateTime<Utc>) -> code_run::Model {
+        code_run::Model {
+            id,
+            files: serde_json::json!({}),
+            language: "rust".to_string(),
+            user_id: 1,
+            problem_id: 2,
+            contest_id: None,
+            contest_type: "ioi".to_string(),
+            status: SubmissionStatus::Pending,
+            verdict: None,
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+            score: None,
+            time_used: None,
+            memory_used: None,
+            custom_test_cases: serde_json::json!([]),
+            owner_server_id: None,
+            lease_heartbeat_at: None,
+            retry_count: 1,
+            judge_epoch: 4,
+            created_at: now - chrono::Duration::minutes(10),
+            judged_at: None,
+        }
+    }
+
+    fn base_judgement(
+        id: i32,
+        submission_id: i32,
+        now: chrono::DateTime<Utc>,
+    ) -> submission_judgement::Model {
+        submission_judgement::Model {
+            id,
+            submission_id,
+            version: 2,
+            is_current: false,
+            is_finalized: false,
+            triggered_by_user_id: None,
+            target_worker_id: None,
+            note: None,
+            status: SubmissionStatus::Pending,
+            verdict: None,
+            score: None,
+            time_used: None,
+            memory_used: None,
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+            judge_epoch: 4,
+            owner_server_id: None,
+            lease_heartbeat_at: None,
+            retry_count: 1,
+            created_at: now - chrono::Duration::minutes(10),
+            finalized_at: None,
+        }
+    }
+
+    fn assert_log_sets_detector_lease(log: &str, table: &str) {
+        assert!(
+            log.contains(&format!("UPDATE \\\"{table}\\\" SET")),
+            "expected update for {table}, got:\n{log}"
+        );
+        assert!(
+            log.contains("\\\"owner_server_id\\\""),
+            "expected owner_server_id write, got:\n{log}"
+        );
+        assert!(
+            log.contains("\\\"lease_heartbeat_at\\\""),
+            "expected lease_heartbeat_at write, got:\n{log}"
+        );
+        assert!(
+            log.contains("server-1"),
+            "expected detector server id bind, got:\n{log}"
+        );
+    }
+
+    fn assert_retry_judgement_insert_claims_detector_lease(log: &str) {
+        assert!(
+            log.contains("INSERT INTO \\\"submission_judgement\\\"")
+                && log.contains("\\\"owner_server_id\\\"")
+                && log.contains("\\\"lease_heartbeat_at\\\""),
+            "expected retry judgement insert to claim detector lease, got:\n{log}"
+        );
+    }
 
     #[test]
     fn stuck_detector_terminalizes_only_after_retry_threshold() {
@@ -1187,5 +1442,238 @@ mod tests {
             DlqMessageType::StuckSubmissionJudgement.as_str(),
             "stuck_submission_judgement"
         );
+    }
+
+    #[test]
+    fn old_queued_rows_are_observed_not_recovered() {
+        let now = Utc::now();
+        let queued_threshold = now - chrono::Duration::seconds(300);
+        let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+        let lease_threshold = now - chrono::Duration::hours(6);
+
+        assert_eq!(
+            stuck_disposition(
+                &SubmissionStatus::Queued,
+                None,
+                now - chrono::Duration::minutes(10),
+                None,
+                queued_threshold,
+                orphan_pending_threshold,
+                lease_threshold,
+            ),
+            StuckDisposition::ObserveQueued
+        );
+    }
+
+    #[test]
+    fn old_pending_without_owner_is_recovered_after_orphan_timeout() {
+        let now = Utc::now();
+        let queued_threshold = now - chrono::Duration::seconds(300);
+        let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+        let lease_threshold = now - chrono::Duration::hours(6);
+
+        assert_eq!(
+            stuck_disposition(
+                &SubmissionStatus::Pending,
+                None,
+                now - chrono::Duration::minutes(10),
+                None,
+                queued_threshold,
+                orphan_pending_threshold,
+                lease_threshold,
+            ),
+            StuckDisposition::Recover
+        );
+    }
+
+    #[test]
+    fn owned_execution_state_with_fresh_lease_is_ignored_even_when_old() {
+        let now = Utc::now();
+        let queued_threshold = now - chrono::Duration::seconds(300);
+        let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+        let lease_threshold = now - chrono::Duration::hours(6);
+
+        assert_eq!(
+            stuck_disposition(
+                &SubmissionStatus::Running,
+                Some("server-1"),
+                now - chrono::Duration::hours(12),
+                Some(now - chrono::Duration::seconds(10)),
+                queued_threshold,
+                orphan_pending_threshold,
+                lease_threshold,
+            ),
+            StuckDisposition::Ignore
+        );
+    }
+
+    #[test]
+    fn owned_rows_with_stale_or_missing_lease_are_recovered() {
+        let now = Utc::now();
+        let queued_threshold = now - chrono::Duration::seconds(300);
+        let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+        let lease_threshold = now - chrono::Duration::hours(6);
+
+        assert_eq!(
+            stuck_disposition(
+                &SubmissionStatus::Compiling,
+                Some("server-1"),
+                now - chrono::Duration::seconds(30),
+                Some(now - chrono::Duration::hours(7)),
+                queued_threshold,
+                orphan_pending_threshold,
+                lease_threshold,
+            ),
+            StuckDisposition::Recover
+        );
+        assert_eq!(
+            stuck_disposition(
+                &SubmissionStatus::Pending,
+                Some("server-1"),
+                now - chrono::Duration::seconds(30),
+                None,
+                queued_threshold,
+                orphan_pending_threshold,
+                lease_threshold,
+            ),
+            StuckDisposition::Recover
+        );
+    }
+
+    #[test]
+    fn detector_owned_redispatch_rows_get_fresh_owner_lease() {
+        let now = Utc::now();
+        let (owner_server_id, lease_heartbeat_at) = detector_retry_lease("server-1", now);
+
+        assert_eq!(owner_server_id.as_deref(), Some("server-1"));
+        assert_eq!(lease_heartbeat_at, Some(now));
+    }
+
+    #[test]
+    fn direct_recovery_policy_keeps_current_rows_on_lease_steal_but_handles_deferred_judgements() {
+        assert!(!should_recover_directly(true, None));
+        assert!(!should_recover_directly(true, Some(true)));
+        assert!(should_recover_directly(true, Some(false)));
+        assert!(should_recover_directly(false, None));
+        assert!(should_recover_directly(false, Some(true)));
+    }
+
+    #[tokio::test]
+    async fn direct_submission_recovery_sql_claims_detector_lease() {
+        let now = Utc::now();
+        let submission = base_submission(42, now);
+        let inserted_judgement = submission_judgement::Model {
+            id: 101,
+            submission_id: submission.id,
+            version: 3,
+            is_current: true,
+            is_finalized: false,
+            triggered_by_user_id: None,
+            target_worker_id: None,
+            note: None,
+            status: SubmissionStatus::Pending,
+            verdict: None,
+            score: None,
+            time_used: None,
+            memory_used: None,
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+            judge_epoch: submission.judge_epoch + 1,
+            owner_server_id: None,
+            lease_heartbeat_at: None,
+            retry_count: 0,
+            created_at: now,
+            finalized_at: None,
+        };
+
+        let db = MockDatabase::new(DbBackend::Postgres)
+            .append_exec_results([mock_exec(), mock_exec()])
+            .append_query_results([vec![inserted_judgement.clone()], vec![inserted_judgement]])
+            .into_connection();
+        let txn = db.begin().await.expect("begin mock transaction");
+
+        let recovery = recover_stuck_submission_without_steal(&txn, &submission, "server-1")
+            .await
+            .expect("recover submission");
+
+        txn.commit().await.expect("commit mock transaction");
+
+        let StuckRecovery::RedispatchSubmission { model, retry_count } = recovery else {
+            panic!("expected submission redispatch");
+        };
+        assert_eq!(retry_count, submission.retry_count + 1);
+        assert_eq!(model.owner_server_id.as_deref(), Some("server-1"));
+        assert!(model.lease_heartbeat_at.is_some());
+
+        let log = format!("{:?}", db.into_transaction_log());
+        assert_log_sets_detector_lease(&log, "submission");
+        assert_retry_judgement_insert_claims_detector_lease(&log);
+    }
+
+    #[tokio::test]
+    async fn direct_code_run_recovery_sql_claims_detector_lease() {
+        let now = Utc::now();
+        let code_run = base_code_run(77, now);
+        let db = MockDatabase::new(DbBackend::Postgres)
+            .append_exec_results([mock_exec(), mock_exec()])
+            .into_connection();
+        let txn = db.begin().await.expect("begin mock transaction");
+
+        let recovery = recover_stuck_code_run_without_steal(&txn, &code_run, "server-1")
+            .await
+            .expect("recover code run");
+
+        txn.commit().await.expect("commit mock transaction");
+
+        let StuckRecovery::RedispatchCodeRun { model, retry_count } = recovery else {
+            panic!("expected code run redispatch");
+        };
+        assert_eq!(retry_count, code_run.retry_count + 1);
+        assert_eq!(model.owner_server_id.as_deref(), Some("server-1"));
+        assert!(model.lease_heartbeat_at.is_some());
+
+        let log = format!("{:?}", db.into_transaction_log());
+        assert_log_sets_detector_lease(&log, "code_run");
+    }
+
+    #[tokio::test]
+    async fn direct_deferred_judgement_recovery_sql_claims_detector_lease() {
+        let now = Utc::now();
+        let submission = base_submission(42, now);
+        let judgement = base_judgement(88, submission.id, now);
+        let db = MockDatabase::new(DbBackend::Postgres)
+            .append_query_results([vec![submission.clone()]])
+            .append_exec_results([mock_exec(), mock_exec()])
+            .into_connection();
+        let txn = db.begin().await.expect("begin mock transaction");
+
+        let recovery = recover_stuck_judgement_without_steal(&txn, &judgement, "server-1")
+            .await
+            .expect("recover deferred judgement");
+
+        txn.commit().await.expect("commit mock transaction");
+
+        let StuckRecovery::RedispatchJudgement {
+            submission: model,
+            judgement_id,
+            fire_after_judging,
+            retry_count,
+        } = recovery
+        else {
+            panic!("expected judgement redispatch");
+        };
+        assert_eq!(judgement_id, judgement.id);
+        assert!(!fire_after_judging);
+        assert_eq!(retry_count, judgement.retry_count + 1);
+        assert_eq!(model.owner_server_id.as_deref(), Some("server-1"));
+        assert!(model.lease_heartbeat_at.is_some());
+
+        let log = format!("{:?}", db.into_transaction_log());
+        assert!(
+            !log.contains("UPDATE \\\"submission\\\" SET"),
+            "deferred judgement recovery should not mutate parent submission directly:\n{log}"
+        );
+        assert_log_sets_detector_lease(&log, "submission_judgement");
     }
 }
