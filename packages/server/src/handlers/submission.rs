@@ -237,6 +237,7 @@ async fn build_submission_list_items(
         let problem_model = problems
             .get(&sub.problem_id)
             .ok_or_else(|| AppError::Internal("Problem not found".into()))?;
+        let score = submission_score_for_status(&sub.status, sub.score);
 
         data.push(SubmissionListItem {
             id: sub.id,
@@ -252,7 +253,7 @@ async fn build_submission_list_items(
             judge_epoch: sub.judge_epoch,
             target_worker_id: sub.target_worker_id,
             created_at: sub.created_at,
-            score: sub.score,
+            score,
             time_used: sub.time_used,
             memory_used: sub.memory_used,
         });
@@ -484,7 +485,7 @@ async fn build_submission_response(
         } else {
             Some(JudgeResultResponse {
                 verdict: sub.verdict,
-                score: sub.score,
+                score: submission_score_for_status(&sub.status, sub.score),
                 time_used: sub.time_used,
                 memory_used: sub.memory_used,
                 compile_output: if show_compile_output {
@@ -641,6 +642,7 @@ async fn build_judgement_response(
             }
         })
         .collect();
+    let score = submission_score_for_status(&judgement.status, judgement.score);
 
     Ok(SubmissionJudgementResponse {
         id: judgement.id,
@@ -650,7 +652,7 @@ async fn build_judgement_response(
         is_finalized: judgement.is_finalized,
         status: judgement.status,
         verdict: judgement.verdict,
-        score: judgement.score,
+        score,
         time_used: judgement.time_used,
         memory_used: judgement.memory_used,
         compile_output: if show_compile_output {
@@ -786,7 +788,7 @@ async fn apply_filter_to_judgement_response(
         if response.status.is_terminal() || response.status == SubmissionStatus::Running {
             Some(JudgeResultResponse {
                 verdict: response.verdict,
-                score: response.score,
+                score: submission_score_for_status(&response.status, response.score),
                 time_used: response.time_used,
                 memory_used: response.memory_used,
                 compile_output: response.compile_output.clone(),
@@ -825,7 +827,7 @@ async fn apply_filter_to_judgement_response(
     match filtered_submission.result {
         Some(result) => {
             response.verdict = result.verdict;
-            response.score = result.score;
+            response.score = submission_score_for_status(&response.status, result.score);
             response.time_used = result.time_used;
             response.memory_used = result.memory_used;
             response.compile_output = result.compile_output;
@@ -849,6 +851,14 @@ async fn apply_filter_to_judgement_response(
     }
 
     Ok(response)
+}
+
+fn submission_score_for_status(status: &SubmissionStatus, score: Option<f64>) -> Option<f64> {
+    if status == &SubmissionStatus::Judged {
+        score
+    } else {
+        None
+    }
 }
 
 async fn apply_filter_to_list(
@@ -2129,4 +2139,41 @@ pub async fn admin_fan_out_submission(
             submissions: responses,
         }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn submission_score_is_visible_only_for_judged_status() {
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::Judged, Some(98.0)),
+            Some(98.0)
+        );
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::CompilationError, Some(98.0)),
+            None
+        );
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::SystemError, Some(98.0)),
+            None
+        );
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::Running, Some(98.0)),
+            None
+        );
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::Compiling, Some(98.0)),
+            None
+        );
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::Pending, Some(98.0)),
+            None
+        );
+        assert_eq!(
+            submission_score_for_status(&SubmissionStatus::Queued, Some(98.0)),
+            None
+        );
+    }
 }

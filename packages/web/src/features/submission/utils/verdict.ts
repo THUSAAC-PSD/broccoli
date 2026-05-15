@@ -5,6 +5,8 @@ type BadgeVariant = NonNullable<BadgeProps['variant']>;
 
 function getStatusLabel(status: SubmissionStatus, t: (key: string) => string) {
   switch (status) {
+    case 'Queued':
+      return t('result.queued');
     case 'Pending':
       return t('result.pending');
     case 'Compiling':

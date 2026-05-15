@@ -577,10 +577,33 @@ G testing); UP#14f before Phase B PR-E.
       compile_error_fills_remaining_code_run_cases_with_skipped`, and `cargo
       test --manifest-path plugins/icpc/Cargo.toml
       compile_error_fills_skipped_not_system_error`.
-- [ ] **PR: score-display-fix.** UP#45 — render submission_score as "—" / "in
-      progress" when `status != Judged`.
-- [ ] **PR: ioi-feedback-comment.** UP#46 — doc-only clarifying comment at
-      `plugins/ioi/src/lib.rs:472`. Rides UP#44.
+- [x] **PR: score-display-fix.** UP#45 — response shaping now exposes
+      submission-level scores only for `Judged`; list rows, detail
+      `JudgeResultResponse`, judgement-history DTOs, and plugin-filtered
+      judgement history all route through the same status gate
+      (`packages/server/src/handlers/submission.rs:240-256`, `:486-489`,
+      `:645-655`, `:787-831`, `:856-862`). Regression coverage pins that every
+      non-`Judged` status returns no score even if the cached DB value is
+      non-null (`packages/server/src/handlers/submission.rs:2149-2177`). The web
+      score display now renders real points only for judged submissions, "In
+      progress" for queued/pending/compiling/running rows, and "—" for terminal
+      non-judged rows; the same helper is used by the submission detail header
+      and recent overview (`packages/web/src/features/submission/utils/score-display.ts:19-38`,
+      `packages/web/src/features/submission/components/SubmissionDetailView.tsx:64-94`,
+      `packages/web/src/features/submission/components/RecentSubmissionOverview.tsx:203-258`,
+      `packages/web/src/lib/i18n/en.ts:170-197`). `Queued` also has an explicit
+      status label in the shared verdict badge helper
+      (`packages/web/src/features/submission/utils/verdict.ts:6-18`). Verified
+      with `cargo test -p server submission_score_is_visible_only_for_judged_status
+      --lib`, `cargo test -p server --lib` (155 passed, 1 ignored),
+      focused ESLint/Prettier checks on touched web files, `tsc -p
+      packages/web/tsconfig.json --noEmit`, `cargo fmt --check`, and `git diff
+      --check`; full React Router `typegen` is still blocked locally by the
+      existing Rolldown native-binding code-signature error.
+- [x] **PR: ioi-feedback-comment.** UP#46 — verified already landed: the IOI
+      feedback redaction path now documents that rewriting hidden testcase rows
+      to `Skipped`/`0.0` is presentation redaction only, not an execution skip
+      (`plugins/ioi/src/lib.rs:468-477`). No additional code change needed.
 
 ### Phase F — observability
 
