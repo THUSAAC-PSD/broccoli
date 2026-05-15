@@ -1029,6 +1029,7 @@ mod tests {
 
     #[test]
     fn evaluator_semaphore_wait_metric_records_success_and_closed_outcomes() {
+        let _guard = crate::metrics_test_lock();
         let (metrics, registry) =
             common::observability::init_metrics("broccoli-evaluator-semaphore-test");
 

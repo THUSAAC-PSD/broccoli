@@ -319,6 +319,7 @@ mod tests {
     /// OTLP harness — non-panic is the contract under test here).
     #[test]
     fn record_block_in_place_regression_with_metrics_runs() {
+        let _guard = crate::metrics_test_lock();
         let (metrics, _registry) = common::observability::init_metrics("broccoli-test");
         record_block_in_place_regression(&Some(metrics), "test_host_fn");
     }

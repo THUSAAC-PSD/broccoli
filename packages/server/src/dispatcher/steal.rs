@@ -899,6 +899,7 @@ mod tests {
 
     #[tokio::test]
     async fn scan_once_skips_claims_when_dispatcher_queue_is_full() {
+        let _guard = crate::metrics_test_lock();
         let dispatcher_permits = DispatcherSemaphore::new(true, 1, 0);
         let held_slot = dispatcher_permits
             .reserve()

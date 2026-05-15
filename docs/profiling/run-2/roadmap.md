@@ -626,9 +626,39 @@ G testing); UP#14f before Phase B PR-E.
       `packages/server/src/services/evaluate_batch.rs:1030-1068`). Verified
       with `cargo test -p plugin-core --lib`, `cargo test -p server --lib`,
       and `cargo test -p server evaluator_semaphore_wait_metric_records_success_and_closed_outcomes --lib`.
-- [ ] **PR: submission-lifecycle-metrics.** UP#48 —
+- [x] **PR: submission-lifecycle-metrics.** UP#48 —
       `submission_state_transition_duration`, `submission_in_flight`,
-      `submission_judge_queue_depth`, `submission_age_in_pending_seconds`.
+      `submission_judge_queue_depth`, and
+      `submission_age_in_pending_seconds` are registered in the shared
+      metrics surface (`packages/common/src/metrics.rs:48-52`,
+      `packages/common/src/metrics.rs:339-362`). The claim fiber records
+      durable `Queued` → `Pending` transition duration with `from`, `to`, and
+      `problem_type` labels for submissions, code-runs, and deferred
+      judgements (`packages/server/src/dispatcher/claim.rs:36-60`,
+      `packages/server/src/dispatcher/claim.rs:220-222`,
+      `packages/server/src/dispatcher/claim.rs:279-281`,
+      `packages/server/src/dispatcher/claim.rs:376-380`,
+      `packages/server/src/dispatcher/claim.rs:418-484`). The existing
+      queue-depth sampler now also samples DB-backed submission lifecycle
+      metrics: in-flight rows by state/kind, durable judge queue depth from
+      `status='Queued'`, and pending-row age histograms
+      (`packages/server/src/handlers/system.rs:132-149`,
+      `packages/server/src/handlers/system.rs:172-217`,
+      `packages/server/src/handlers/system.rs:272-358`). Unit coverage verifies
+      transition labels, in-flight deltas, queue-depth deltas, and exported
+      sampler labels (`packages/server/src/dispatcher/claim.rs:564-603`,
+      `packages/server/src/handlers/system.rs:671-775`), with metric-export
+      tests serialized around the global OpenTelemetry provider
+      (`packages/server/src/lib.rs:51-59`). Verified with
+      `cargo test -p server --lib`, `cargo test -p common --lib`,
+      `cargo fmt --check`, `git diff --check`,
+      `cargo clippy -p common --lib -- -D warnings`, and
+      `cargo clippy -p server --lib -- -D warnings -A clippy::useless_conversion -A clippy::collapsible_if -A clippy::too_many_arguments`.
+      Note: plugin-side `Compiling`/`Running`/terminal
+      writes still flow through raw SDK SQL; this PR keeps those visible via
+      sampled state counts rather than brittle SQL parsing. Pending age uses
+      the row lease timestamp when present, avoiding queued wait time after
+      claim.
 - [ ] **PR: worker-metrics.** UP#49 — `worker_permits_*`, `sandbox_*`,
       `file_materialization_copy_seconds`,
       `worker_compile_cache_redundancy_total`, `operation_result_e2e_duration`.

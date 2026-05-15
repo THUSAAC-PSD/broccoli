@@ -12,22 +12,52 @@
 //! pin a deployment to the pre-UP#37 behavior during incident response;
 //! production should always run with the fiber enabled.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use common::SubmissionStatus;
+use opentelemetry::KeyValue;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseTransaction, DbBackend, EntityTrait, ExprTrait,
     QueryFilter, QueryResult, Statement, TransactionTrait,
 };
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::entity::{code_run, submission, submission_judgement};
+use crate::entity::{code_run, problem, submission, submission_judgement};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct QueuedRow {
     id: i32,
+}
+
+fn transition_duration_seconds(created_at: DateTime<Utc>, transitioned_at: DateTime<Utc>) -> f64 {
+    std::cmp::max(
+        transitioned_at
+            .signed_duration_since(created_at)
+            .num_milliseconds(),
+        0,
+    ) as f64
+        / 1_000.0
+}
+
+fn record_submission_state_transition(
+    metrics: &common::metrics::Metrics,
+    from: &SubmissionStatus,
+    to: &SubmissionStatus,
+    problem_type: &str,
+    duration_seconds: f64,
+) {
+    metrics.submission_state_transition_duration.record(
+        duration_seconds,
+        &[
+            KeyValue::new("from", from.to_string()),
+            KeyValue::new("to", to.to_string()),
+            KeyValue::new("problem_type", problem_type.to_string()),
+        ],
+    );
 }
 
 /// Long-running fiber loop. Polls every `interval_ms` until the cancel
@@ -187,7 +217,9 @@ async fn claim_queued_submissions(
         .all(&txn)
         .await?;
 
+    let transitioned_at = Utc::now();
     txn.commit().await?;
+    record_submission_claim_transitions(state, &models, transitioned_at).await;
 
     if !models.is_empty() {
         info!(
@@ -244,7 +276,9 @@ async fn claim_queued_code_runs(
         .all(&txn)
         .await?;
 
+    let transitioned_at = Utc::now();
     txn.commit().await?;
+    record_code_run_claim_transitions(state, &models, transitioned_at).await;
 
     if !models.is_empty() {
         info!(
@@ -320,9 +354,6 @@ async fn claim_queued_judgements(
         .all(&txn)
         .await?;
 
-    txn.commit().await?;
-
-    use std::collections::HashMap;
     let sub_by_id: HashMap<i32, submission::Model> =
         submissions.into_iter().map(|s| (s.id, s)).collect();
 
@@ -342,7 +373,11 @@ async fn claim_queued_judgements(
         }
     }
 
+    let transitioned_at = Utc::now();
+    txn.commit().await?;
+
     if !pairs.is_empty() {
+        record_judgement_claim_transitions(state, &pairs, transitioned_at).await;
         info!(
             server_id,
             claimed = pairs.len(),
@@ -351,6 +386,102 @@ async fn claim_queued_judgements(
     }
 
     Ok(pairs)
+}
+
+async fn problem_types_by_problem_id(
+    state: &AppState,
+    problem_ids: impl IntoIterator<Item = i32>,
+) -> HashMap<i32, String> {
+    let mut ids: Vec<i32> = problem_ids.into_iter().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return HashMap::new();
+    }
+
+    match problem::Entity::find()
+        .filter(problem::Column::Id.is_in(ids))
+        .all(&state.db)
+        .await
+    {
+        Ok(problems) => problems
+            .into_iter()
+            .map(|problem| (problem.id, problem.problem_type))
+            .collect(),
+        Err(e) => {
+            warn!(error = %e, "Failed to load problem types for submission transition metrics");
+            HashMap::new()
+        }
+    }
+}
+
+async fn record_submission_claim_transitions(
+    state: &AppState,
+    models: &[submission::Model],
+    transitioned_at: DateTime<Utc>,
+) {
+    let problem_types =
+        problem_types_by_problem_id(state, models.iter().map(|model| model.problem_id)).await;
+
+    for model in models {
+        let problem_type = problem_types
+            .get(&model.problem_id)
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        record_submission_state_transition(
+            &state.metrics,
+            &SubmissionStatus::Queued,
+            &SubmissionStatus::Pending,
+            problem_type,
+            transition_duration_seconds(model.created_at, transitioned_at),
+        );
+    }
+}
+
+async fn record_code_run_claim_transitions(
+    state: &AppState,
+    models: &[code_run::Model],
+    transitioned_at: DateTime<Utc>,
+) {
+    let problem_types =
+        problem_types_by_problem_id(state, models.iter().map(|model| model.problem_id)).await;
+
+    for model in models {
+        let problem_type = problem_types
+            .get(&model.problem_id)
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        record_submission_state_transition(
+            &state.metrics,
+            &SubmissionStatus::Queued,
+            &SubmissionStatus::Pending,
+            problem_type,
+            transition_duration_seconds(model.created_at, transitioned_at),
+        );
+    }
+}
+
+async fn record_judgement_claim_transitions(
+    state: &AppState,
+    pairs: &[(submission::Model, submission_judgement::Model)],
+    transitioned_at: DateTime<Utc>,
+) {
+    let problem_types =
+        problem_types_by_problem_id(state, pairs.iter().map(|(sub, _)| sub.problem_id)).await;
+
+    for (sub, judgement) in pairs {
+        let problem_type = problem_types
+            .get(&sub.problem_id)
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        record_submission_state_transition(
+            &state.metrics,
+            &SubmissionStatus::Queued,
+            &SubmissionStatus::Pending,
+            problem_type,
+            transition_duration_seconds(judgement.created_at, transitioned_at),
+        );
+    }
 }
 
 /// Selects a bounded batch of `Queued` rows from the named table with
@@ -428,5 +559,48 @@ mod tests {
         // follow.
         let row = QueuedRow { id: 42 };
         assert_eq!(row.id, 42);
+    }
+
+    #[test]
+    fn transition_duration_clamps_future_created_at_to_zero() {
+        let now = chrono::Utc::now();
+        let created_at = now + chrono::Duration::seconds(5);
+
+        assert_eq!(transition_duration_seconds(created_at, now), 0.0);
+    }
+
+    #[test]
+    fn transition_metric_records_from_to_and_problem_type_labels() {
+        let _guard = crate::metrics_test_lock();
+        let (metrics, registry) =
+            common::observability::init_metrics("broccoli-claim-transition-test");
+
+        record_submission_state_transition(
+            &metrics,
+            &SubmissionStatus::Queued,
+            &SubmissionStatus::Pending,
+            "ioi",
+            1.5,
+        );
+
+        let families = registry.gather();
+        let transition_duration = families
+            .iter()
+            .find(|family| family.name() == "broccoli_submission_state_transition_duration_seconds")
+            .expect("submission transition duration should be exported");
+
+        for (label_name, label_value) in [
+            ("from", "Queued"),
+            ("to", "Pending"),
+            ("problem_type", "ioi"),
+        ] {
+            assert!(
+                transition_duration.get_metric().iter().any(|metric| metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == label_name && label.value() == label_value)),
+                "transition duration should include {label_name}={label_value}"
+            );
+        }
     }
 }

@@ -48,6 +48,16 @@ use crate::state::AppState;
 const X_REQUEST_ID: &str = "x-request-id";
 const X_BROCCOLI_STRESS_RUN_ID: &str = "x-broccoli-stress-run-id";
 
+#[cfg(test)]
+pub(crate) static METRICS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn metrics_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    METRICS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[derive(OpenApi)]
 #[openapi(
     info(

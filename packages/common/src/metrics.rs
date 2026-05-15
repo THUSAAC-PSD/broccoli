@@ -46,6 +46,10 @@ pub struct Metrics {
     pub batch_evaluator_fanout_saturated_total: Counter<u64>,
 
     pub submission_dispatch_failure_total: Counter<u64>,
+    pub submission_state_transition_duration: Histogram<f64>,
+    pub submission_in_flight: UpDownCounter<i64>,
+    pub submission_judge_queue_depth: UpDownCounter<i64>,
+    pub submission_age_in_pending_seconds: Histogram<f64>,
 
     pub operation_result_messages_total: Counter<u64>,
     pub operation_result_consume_duration: Histogram<f64>,
@@ -331,6 +335,30 @@ impl Metrics {
                     "Total submissions that hit a dispatch failure. Labels: error_code \
                      (cause), recovered (true if SystemError was persisted to DB).",
                 )
+                .build(),
+            submission_state_transition_duration: meter
+                .f64_histogram("broccoli.submission.state_transition.duration")
+                .with_unit("s")
+                .with_description(
+                    "Duration between durable submission lifecycle state transitions",
+                )
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
+                .build(),
+            submission_in_flight: meter
+                .i64_up_down_counter("broccoli.submission.in_flight")
+                .with_description("Number of durable submission lifecycle rows by state")
+                .build(),
+            submission_judge_queue_depth: meter
+                .i64_up_down_counter("broccoli.submission.judge_queue.depth")
+                .with_description(
+                    "Durable judging queue depth from status=Queued rows across submissions, code runs, and submission judgements",
+                )
+                .build(),
+            submission_age_in_pending_seconds: meter
+                .f64_histogram("broccoli.submission.age_in_pending")
+                .with_unit("s")
+                .with_description("Age of rows currently in Pending state")
+                .with_boundaries(JUDGE_BUCKETS_SECONDS.to_vec())
                 .build(),
 
             operation_result_messages_total: meter
