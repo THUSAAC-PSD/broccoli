@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::operation::ResourceLimits;
+use super::operation::{OperationResult, OperationTask, ResourceLimits};
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
@@ -317,6 +317,23 @@ pub struct BuildEvalOpsInput {
     /// routes the operation to the pinned worker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_worker_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreparedEvaluateCase {
+    pub operations: Vec<OperationTask>,
+    pub result_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluateOperationResultInput {
+    pub case: BuildEvalOpsInput,
+    pub operation_results: Vec<OperationResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluateOperationResultsInput {
+    pub results: Vec<EvaluateOperationResultInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

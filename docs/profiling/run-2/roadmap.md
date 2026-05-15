@@ -797,13 +797,32 @@ G testing); UP#14f before Phase B PR-E.
 Highest per-item complexity. UP#14b (Tranche 2) must land first so the
 batch-evaluator host-fanout is bounded before introducing callback semantics.
 
-- [ ] **PR: sketch-d-batch-evaluator.** UP#53 — replace
-      `host.operations.get_next_operation_result` polling with host-driven
-      callback-on-result. K=4 coalescing.
-  - **File:** `packages/server/src/host_funcs/dispatch.rs`, batch-evaluator
-    plugin.
+- [x] **PR: sketch-d-batch-evaluator.** UP#53 — batch-evaluator no longer
+      pins an evaluator plugin instance while worker operations run: the
+      service detects the batch-evaluator path and switches to a server-owned
+      continuation (`packages/server/src/services/evaluate_batch.rs:123-134`),
+      uses shared prepare/callback wire types
+      (`packages/server-sdk/src/types/evaluate.rs:322-337`), exposes short
+      `prepare_evaluate_case` and `on_operation_results` plugin exports while
+      keeping the legacy `evaluate_batch` wrapper
+      (`plugins/batch-evaluator/src/lib.rs:33-79`), starts prepared operation
+      batches directly from the server and waits outside the evaluator pool
+      (`packages/server/src/services/evaluate_batch.rs:419-551`), and flushes
+      callback batches at K=4
+      (`packages/server/src/services/evaluate_batch.rs:554-603`). `EvaluateHostDeps`
+      now carries the existing operation host deps so this path reuses the
+      operation-batch implementation instead of adding a parallel dispatcher
+      (`packages/server/src/host_funcs/context.rs:57-69`,
+      `packages/server/src/host_funcs/context.rs:100-112`). Verified with
+      `cargo test -p server services::evaluate_batch::tests::callback_ --lib`,
+      `cargo check -p server`, `cargo check -p broccoli-server-sdk`,
+      `cargo check --manifest-path plugins/batch-evaluator/Cargo.toml --target wasm32-wasip1`,
+      and `cargo fmt --check`.
+  - **File:** `packages/server/src/services/evaluate_batch.rs`,
+    `packages/server-sdk/src/types/evaluate.rs`, batch-evaluator plugin.
   - [ ] Criterion benchmark: confirm ~100ms slot-time per testcase (vs 1–5s pin
-        baseline). Target: 20–50× reduction.
+        baseline). Target: 20–50× reduction. The implementation path is in
+        place; the dedicated Criterion benchmark harness is still pending.
 - [ ] **PR: sketch-d-icpc.** UP#54 — replace `while next_result()` with
       `host.eval.run_batch(batch_id, on_K_results_handler)` in
       `plugins/icpc/src/evaluate.rs:120-174`. ICPC short-circuit preserved via

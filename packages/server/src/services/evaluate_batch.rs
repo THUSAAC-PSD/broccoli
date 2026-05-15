@@ -11,22 +11,30 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, FileRef, JudgeFile, SourceFile, StartEvaluateBatchInput,
-    StartEvaluateCaseInput, TestCaseBodyRef, TestCaseVerdict, Verdict as SdkVerdict,
+    BuildEvalOpsInput, EvaluateOperationResultInput, EvaluateOperationResultsInput, FileRef,
+    JudgeFile, OperationResult, OperationTask, PreparedEvaluateCase, SourceFile,
+    StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseBodyRef, TestCaseVerdict,
+    Verdict as SdkVerdict,
 };
 use common::storage::{BlobStore, ContentHash};
 use opentelemetry::KeyValue;
 use plugin_core::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::host_funcs::context::EvaluateHostDeps;
-use crate::registry::{BatchState, EvaluateBatches};
+use crate::registry::{BatchState, EvaluateBatches, PluginHandler};
 
 const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 const EVALUATE_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
+const BATCH_EVALUATOR_PLUGIN_ID: &str = "batch-evaluator";
+const BATCH_EVALUATOR_LEGACY_FN: &str = "evaluate_batch";
+const BATCH_EVALUATOR_PREPARE_FN: &str = "prepare_evaluate_case";
+const BATCH_EVALUATOR_CALLBACK_FN: &str = "on_operation_results";
+const BATCH_EVALUATOR_CALLBACK_COALESCE: usize = 4;
 
 fn record_evaluator_semaphore_wait(
     metrics: Option<&common::metrics::Metrics>,
@@ -110,6 +118,19 @@ pub async fn start_evaluate_batch(
             test_case_count as i64,
             &[KeyValue::new("batch.kind", "evaluate")],
         );
+    }
+
+    if is_batch_evaluator_callback_path(&evaluator) {
+        spawn_batch_evaluator_callback_dispatch(
+            deps,
+            batch_id.clone(),
+            resolved_inputs,
+            batch_tx,
+            pending_count,
+            evaluator.plugin_id.clone(),
+            problem_type,
+        );
+        return Ok(batch_id);
     }
 
     // Bounded fan-out (UP#14b): a dedicated dispatcher task acquires one fan-out
@@ -278,6 +299,416 @@ pub async fn start_evaluate_batch(
     });
 
     Ok(batch_id)
+}
+
+fn is_batch_evaluator_callback_path(evaluator: &PluginHandler) -> bool {
+    evaluator.plugin_id == BATCH_EVALUATOR_PLUGIN_ID
+        && evaluator.function_name == BATCH_EVALUATOR_LEGACY_FN
+}
+
+fn spawn_batch_evaluator_callback_dispatch(
+    deps: EvaluateHostDeps,
+    batch_id: String,
+    resolved_inputs: Vec<BuildEvalOpsInput>,
+    batch_tx: crossbeam::channel::Sender<TestCaseVerdict>,
+    pending_count: Arc<AtomicUsize>,
+    evaluator_plugin_id: String,
+    problem_type: String,
+) {
+    let fanout = deps.fanout_slots.clone();
+    let pm = deps.plugin_manager.clone();
+    let evaluator_slots = deps.evaluator_slots.clone();
+    let metrics = deps.metrics.clone();
+    let operation_deps = deps.operation_deps.clone();
+    let (ready_tx, ready_rx) =
+        mpsc::channel::<EvaluateOperationResultInput>(BATCH_EVALUATOR_CALLBACK_COALESCE * 2);
+    let undispatched_tc_ids: Vec<i32> = resolved_inputs.iter().map(|tc| tc.test_case_id).collect();
+
+    tokio::spawn(run_batch_evaluator_callback_aggregator(
+        evaluator_plugin_id.clone(),
+        problem_type.clone(),
+        pm.clone(),
+        evaluator_slots.clone(),
+        ready_rx,
+        batch_tx.clone(),
+        pending_count.clone(),
+        metrics.clone(),
+    ));
+
+    tokio::spawn(async move {
+        let mut guard = DispatchGuard {
+            pending: undispatched_tc_ids,
+            batch_tx: batch_tx.clone(),
+            pending_count: pending_count.clone(),
+            metrics: metrics.clone(),
+        };
+
+        for tc_input in resolved_inputs {
+            let tc_id = tc_input.test_case_id;
+            let permit = match fanout.acquire().await {
+                Ok(p) => p,
+                Err(_) => {
+                    send_system_error(
+                        &batch_tx,
+                        tc_id,
+                        "Fan-out semaphore closed (server shutting down)".into(),
+                    );
+                    decrement_pending(&pending_count, metrics.as_ref());
+                    guard.claim(tc_id);
+                    continue;
+                }
+            };
+
+            guard.claim(tc_id);
+
+            let pm = pm.clone();
+            let evaluator_slots = evaluator_slots.clone();
+            let metrics = metrics.clone();
+            let operation_deps = operation_deps.clone();
+            let ready_tx = ready_tx.clone();
+            let batch_tx = batch_tx.clone();
+            let pending = pending_count.clone();
+            let evaluator_plugin_id = evaluator_plugin_id.clone();
+            let problem_type = problem_type.clone();
+            let batch_id = batch_id.clone();
+
+            let span = tracing::info_span!(
+                "batch_evaluator_callback_test_case",
+                test_case_id = tc_id,
+                evaluator_plugin = %evaluator_plugin_id
+            );
+
+            tokio::spawn(
+                async move {
+                    let _fanout_permit = permit;
+                    let result = run_batch_evaluator_case_continuation(
+                        pm.as_ref(),
+                        evaluator_slots,
+                        operation_deps,
+                        evaluator_plugin_id.clone(),
+                        problem_type,
+                        batch_id,
+                        tc_input,
+                        metrics.as_ref(),
+                    )
+                    .await;
+
+                    match result {
+                        Ok(ready_case) => {
+                            if ready_tx.send(ready_case).await.is_err() {
+                                send_system_error(
+                                    &batch_tx,
+                                    tc_id,
+                                    "Batch-evaluator callback aggregator stopped".into(),
+                                );
+                                decrement_pending(&pending, metrics.as_ref());
+                            }
+                        }
+                        Err(e) => {
+                            send_system_error(&batch_tx, tc_id, e.to_string());
+                            decrement_pending(&pending, metrics.as_ref());
+                        }
+                    }
+                }
+                .instrument(span),
+            );
+        }
+    });
+}
+
+async fn run_batch_evaluator_case_continuation(
+    pm: &dyn plugin_core::traits::PluginManager,
+    evaluator_slots: Arc<tokio::sync::Semaphore>,
+    operation_deps: crate::host_funcs::context::OperationHostDeps,
+    evaluator_plugin_id: String,
+    problem_type: String,
+    evaluate_batch_id: String,
+    tc_input: BuildEvalOpsInput,
+    metrics: Option<&common::metrics::Metrics>,
+) -> anyhow::Result<EvaluateOperationResultInput> {
+    let prepare_wait_start = Instant::now();
+    let _prepare_permit = evaluator_slots
+        .acquire()
+        .await
+        .map_err(|_| anyhow!("Evaluator dispatcher is shutting down"))?;
+    record_evaluator_semaphore_wait(
+        metrics,
+        &evaluator_plugin_id,
+        BATCH_EVALUATOR_PREPARE_FN,
+        &problem_type,
+        "success",
+        prepare_wait_start.elapsed(),
+    );
+
+    let input_bytes = serde_json::to_vec(&tc_input)
+        .with_context(|| "Failed to serialize batch-evaluator prepare input")?;
+    let prepared_bytes = call_raw_with_pool_retry(
+        pm,
+        &evaluator_plugin_id,
+        BATCH_EVALUATOR_PREPARE_FN,
+        input_bytes,
+        PoolRetryPolicy::default(),
+    )
+    .await
+    .with_context(|| "Batch-evaluator prepare callback failed")?;
+    drop(_prepare_permit);
+
+    let mut prepared = serde_json::from_slice::<PreparedEvaluateCase>(&prepared_bytes)
+        .with_context(|| "Failed to deserialize batch-evaluator prepared case")?;
+    if prepared.operations.is_empty() {
+        return Err(anyhow!("Batch-evaluator prepared no operations"));
+    }
+    tag_operation_tasks_for_evaluate_batch(
+        &mut prepared.operations,
+        &evaluate_batch_id,
+        tc_input.test_case_id,
+    );
+
+    let operation_count = prepared.operations.len();
+    let operation_batch_id = crate::services::operation_batch::start_operation_batch(
+        evaluator_plugin_id.clone(),
+        operation_deps.clone(),
+        prepared.operations,
+    )
+    .await
+    .with_context(|| "Failed to start prepared operation batch")?;
+
+    let operation_results = wait_for_operation_results(
+        evaluator_plugin_id,
+        operation_deps,
+        operation_batch_id,
+        operation_count,
+        Duration::from_millis(prepared.result_timeout_ms),
+    )
+    .await?;
+
+    Ok(EvaluateOperationResultInput {
+        case: tc_input,
+        operation_results,
+    })
+}
+
+async fn wait_for_operation_results(
+    plugin_id: String,
+    operation_deps: crate::host_funcs::context::OperationHostDeps,
+    operation_batch_id: String,
+    expected_count: usize,
+    timeout: Duration,
+) -> anyhow::Result<Vec<OperationResult>> {
+    let batches = operation_deps.operation_batches.clone();
+    let waiters = operation_deps.operation_waiters.clone();
+    let metrics = operation_deps.metrics.clone();
+    let task_results = tokio::task::spawn_blocking(move || {
+        let started = Instant::now();
+        let mut results = Vec::with_capacity(expected_count);
+        for _ in 0..expected_count {
+            let remaining = timeout
+                .checked_sub(started.elapsed())
+                .unwrap_or(Duration::ZERO);
+            if remaining.is_zero() {
+                crate::services::operation_batch::cancel_operation_batch(
+                    &plugin_id,
+                    &batches,
+                    &waiters,
+                    metrics.as_ref(),
+                    &operation_batch_id,
+                );
+                return Err(anyhow!(
+                    "Operation batch {} timed out waiting for {} result(s)",
+                    operation_batch_id,
+                    expected_count
+                ));
+            }
+            match crate::services::operation_batch::next_operation_result(
+                &plugin_id,
+                &batches,
+                metrics.as_ref(),
+                &operation_batch_id,
+                remaining,
+            )? {
+                Some(result) => results.push(result),
+                None => {
+                    crate::services::operation_batch::cancel_operation_batch(
+                        &plugin_id,
+                        &batches,
+                        &waiters,
+                        metrics.as_ref(),
+                        &operation_batch_id,
+                    );
+                    return Err(anyhow!(
+                        "Operation batch {} timed out waiting for {} result(s)",
+                        operation_batch_id,
+                        expected_count
+                    ));
+                }
+            }
+        }
+        Ok(results)
+    })
+    .await
+    .map_err(|e| anyhow!("Operation result waiter task failed: {e}"))??;
+
+    operation_results_from_task_results(task_results)
+}
+
+async fn run_batch_evaluator_callback_aggregator(
+    evaluator_plugin_id: String,
+    problem_type: String,
+    pm: Arc<dyn plugin_core::traits::PluginManager>,
+    evaluator_slots: Arc<tokio::sync::Semaphore>,
+    mut ready_rx: mpsc::Receiver<EvaluateOperationResultInput>,
+    batch_tx: crossbeam::channel::Sender<TestCaseVerdict>,
+    pending_count: Arc<AtomicUsize>,
+    metrics: Option<common::metrics::Metrics>,
+) {
+    let mut pending = Vec::with_capacity(BATCH_EVALUATOR_CALLBACK_COALESCE);
+    while let Some(ready_case) = ready_rx.recv().await {
+        if let Some(items) = push_ready_case_for_callback(&mut pending, ready_case) {
+            flush_batch_evaluator_callback(
+                &evaluator_plugin_id,
+                &problem_type,
+                pm.as_ref(),
+                evaluator_slots.clone(),
+                &batch_tx,
+                &pending_count,
+                metrics.as_ref(),
+                items,
+            )
+            .await;
+        }
+    }
+
+    if !pending.is_empty() {
+        flush_batch_evaluator_callback(
+            &evaluator_plugin_id,
+            &problem_type,
+            pm.as_ref(),
+            evaluator_slots,
+            &batch_tx,
+            &pending_count,
+            metrics.as_ref(),
+            std::mem::take(&mut pending),
+        )
+        .await;
+    }
+}
+
+fn push_ready_case_for_callback<T>(pending: &mut Vec<T>, item: T) -> Option<Vec<T>> {
+    pending.push(item);
+    if pending.len() >= BATCH_EVALUATOR_CALLBACK_COALESCE {
+        Some(std::mem::take(pending))
+    } else {
+        None
+    }
+}
+
+async fn flush_batch_evaluator_callback(
+    evaluator_plugin_id: &str,
+    problem_type: &str,
+    pm: &dyn plugin_core::traits::PluginManager,
+    evaluator_slots: Arc<tokio::sync::Semaphore>,
+    batch_tx: &crossbeam::channel::Sender<TestCaseVerdict>,
+    pending_count: &AtomicUsize,
+    metrics: Option<&common::metrics::Metrics>,
+    items: Vec<EvaluateOperationResultInput>,
+) {
+    let callback_wait_start = Instant::now();
+    let permit = match evaluator_slots.acquire().await {
+        Ok(permit) => {
+            record_evaluator_semaphore_wait(
+                metrics,
+                evaluator_plugin_id,
+                BATCH_EVALUATOR_CALLBACK_FN,
+                problem_type,
+                "success",
+                callback_wait_start.elapsed(),
+            );
+            permit
+        }
+        Err(_) => {
+            for item in items {
+                send_system_error(
+                    batch_tx,
+                    item.case.test_case_id,
+                    "Evaluator dispatcher is shutting down".into(),
+                );
+                decrement_pending(pending_count, metrics);
+            }
+            return;
+        }
+    };
+
+    let result = call_batch_evaluator_callback(evaluator_plugin_id, pm, items.clone()).await;
+    drop(permit);
+
+    let mut verdicts_by_case = match result {
+        Ok(verdicts) => verdicts
+            .into_iter()
+            .map(|verdict| (verdict.test_case_id, verdict))
+            .collect::<HashMap<_, _>>(),
+        Err(e) => {
+            for item in items {
+                send_system_error(batch_tx, item.case.test_case_id, e.to_string());
+                decrement_pending(pending_count, metrics);
+            }
+            return;
+        }
+    };
+
+    for item in items {
+        let verdict = verdicts_by_case
+            .remove(&item.case.test_case_id)
+            .unwrap_or_else(|| {
+                system_error_verdict(
+                    item.case.test_case_id,
+                    "Batch-evaluator callback omitted testcase verdict",
+                )
+            });
+        let _ = batch_tx.send(verdict);
+        decrement_pending(pending_count, metrics);
+    }
+
+    for extra in verdicts_by_case.into_values() {
+        tracing::warn!(
+            test_case_id = extra.test_case_id,
+            "Batch-evaluator callback returned an unexpected testcase verdict"
+        );
+    }
+}
+
+async fn call_batch_evaluator_callback(
+    evaluator_plugin_id: &str,
+    pm: &dyn plugin_core::traits::PluginManager,
+    items: Vec<EvaluateOperationResultInput>,
+) -> anyhow::Result<Vec<TestCaseVerdict>> {
+    let input = EvaluateOperationResultsInput { results: items };
+    let input_bytes = serde_json::to_vec(&input)
+        .with_context(|| "Failed to serialize batch-evaluator callback input")?;
+    let output_bytes = call_raw_with_pool_retry(
+        pm,
+        evaluator_plugin_id,
+        BATCH_EVALUATOR_CALLBACK_FN,
+        input_bytes,
+        PoolRetryPolicy::default(),
+    )
+    .await
+    .with_context(|| "Batch-evaluator result callback failed")?;
+
+    serde_json::from_slice::<Vec<TestCaseVerdict>>(&output_bytes)
+        .with_context(|| "Failed to deserialize batch-evaluator callback verdicts")
+}
+
+fn system_error_verdict(test_case_id: i32, message: impl Into<String>) -> TestCaseVerdict {
+    TestCaseVerdict {
+        test_case_id,
+        verdict: SdkVerdict::SystemError,
+        score: 0.0,
+        time_used_ms: None,
+        memory_used_kb: None,
+        message: Some(message.into()),
+        stdout: None,
+        stderr: None,
+    }
 }
 
 pub fn next_evaluate_result(
@@ -774,6 +1205,39 @@ fn file_ref(filename: &str, blob_hash: String) -> FileRef {
     }
 }
 
+fn tag_operation_tasks_for_evaluate_batch(
+    operations: &mut [OperationTask],
+    evaluate_batch_id: &str,
+    test_case_id: i32,
+) {
+    for operation in operations {
+        operation.evaluate_batch_id = Some(evaluate_batch_id.to_string());
+        operation.test_case_id = Some(test_case_id);
+    }
+}
+
+fn operation_results_from_task_results(
+    task_results: Vec<common::worker::TaskResult>,
+) -> anyhow::Result<Vec<OperationResult>> {
+    task_results
+        .into_iter()
+        .map(|task_result| {
+            serde_json::from_value::<OperationResult>(task_result.output.clone()).map_err(|_| {
+                let error_msg = task_result
+                    .error
+                    .as_deref()
+                    .or_else(|| task_result.output.get("error").and_then(|e| e.as_str()))
+                    .unwrap_or("Unknown operation error");
+                anyhow!(
+                    "Operation task {} did not contain a valid operation output: {}",
+                    task_result.task_id,
+                    error_msg
+                )
+            })
+        })
+        .collect()
+}
+
 fn send_system_error(
     batch_tx: &crossbeam::channel::Sender<TestCaseVerdict>,
     test_case_id: i32,
@@ -840,9 +1304,12 @@ impl Drop for DispatchGuard {
 mod tests {
     use std::sync::Arc;
 
-    use broccoli_server_sdk::types::{SourceFile, StartEvaluateCaseInput};
+    use broccoli_server_sdk::types::{
+        OperationResult, OperationTask, SourceFile, StartEvaluateCaseInput,
+    };
     use common::storage::BlobStore;
     use common::storage::filesystem::FilesystemBlobStore;
+    use common::worker::TaskResult;
 
     use super::*;
 
@@ -1066,6 +1533,88 @@ mod tests {
                 "evaluator semaphore wait should include outcome={outcome}"
             );
         }
+    }
+
+    #[test]
+    fn callback_path_tags_operation_tasks_with_evaluate_context() {
+        let mut ops = vec![OperationTask {
+            environments: vec![],
+            tasks: vec![],
+            channels: vec![],
+            priority: None,
+            target_worker_id: None,
+            evaluate_batch_id: None,
+            test_case_id: None,
+        }];
+
+        tag_operation_tasks_for_evaluate_batch(&mut ops, "eval-batch-1", 42);
+
+        assert_eq!(ops[0].evaluate_batch_id.as_deref(), Some("eval-batch-1"));
+        assert_eq!(ops[0].test_case_id, Some(42));
+    }
+
+    #[test]
+    fn callback_path_decodes_operation_results_from_task_result_output() {
+        let operation_result = OperationResult {
+            success: true,
+            task_results: Default::default(),
+            error: None,
+        };
+        let task_result = TaskResult {
+            task_id: "op-1".to_string(),
+            success: true,
+            output: serde_json::to_value(&operation_result).unwrap(),
+            error: None,
+            task_type: Some("operation".to_string()),
+            operation: Some("operation".to_string()),
+            worker_id: Some("worker-1".to_string()),
+            enqueued_at_unix_ms: None,
+        };
+
+        let decoded = operation_results_from_task_results(vec![task_result]).unwrap();
+
+        assert_eq!(decoded.len(), 1);
+        assert!(decoded[0].success);
+    }
+
+    #[test]
+    fn callback_path_rejects_task_result_without_operation_output() {
+        let task_result = TaskResult {
+            task_id: "op-1".to_string(),
+            success: false,
+            output: serde_json::Value::Null,
+            error: Some("worker failed".to_string()),
+            task_type: Some("operation".to_string()),
+            operation: Some("operation".to_string()),
+            worker_id: Some("worker-1".to_string()),
+            enqueued_at_unix_ms: None,
+        };
+
+        let err = operation_results_from_task_results(vec![task_result]).unwrap_err();
+
+        assert!(
+            err.to_string().contains("worker failed"),
+            "worker error should be preserved in callback decode error: {err}"
+        );
+    }
+
+    #[test]
+    fn callback_coalescing_uses_chunks_of_four() {
+        let mut pending = Vec::new();
+        let mut chunks = Vec::new();
+        for id in 1..=10 {
+            if let Some(chunk) = push_ready_case_for_callback(&mut pending, id) {
+                chunks.push(chunk);
+            }
+        }
+        if !pending.is_empty() {
+            chunks.push(pending);
+        }
+
+        assert_eq!(
+            chunks,
+            vec![vec![1, 2, 3, 4], vec![5, 6, 7, 8], vec![9, 10]]
+        );
     }
 
     fn case(problem_id: i32, language: &str) -> StartEvaluateCaseInput {
