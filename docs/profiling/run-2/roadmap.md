@@ -777,8 +777,18 @@ G testing); UP#14f before Phase B PR-E.
       `cargo check --profile release -p server -p worker`, `cargo fmt --check`,
       and `git diff --check`; Docker and Just command execution were unavailable
       locally because `docker` and `just` are not installed in this environment.
-- [ ] **PR: dashboard-update.** UP#52 — Grafana panels for the new metrics. Edit
-      `config/grafana/provisioning/dashboards/broccoli-overview.json`.
+- [x] **PR: dashboard-update.** UP#52 — Grafana panels for the new metrics
+      are wired into the overview dashboard: host-fn P50/P95/P99 by function
+      (`config/grafana/provisioning/dashboards/broccoli-overview.json:185-204`),
+      plugin instance acquire P99, plugin pool contention rate, and worker
+      permit usage vs configured max
+      (`config/grafana/provisioning/dashboards/broccoli-overview.json:209-253`),
+      submission state transition P95 and operation-result e2e P50/P95/P99
+      (`config/grafana/provisioning/dashboards/broccoli-overview.json:256-291`),
+      plus blob cache hit ratio and cache size
+      (`config/grafana/provisioning/dashboards/broccoli-overview.json:294-331`).
+      Verified with `jq empty`, a `jq` required-panel assertion, and a `jq`
+      required-metric assertion against the dashboard JSON.
 
 ---
 
