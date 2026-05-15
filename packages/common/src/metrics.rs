@@ -27,6 +27,8 @@ pub struct Metrics {
     pub plugin_call_duration: Histogram<f64>,
     pub plugin_instance_acquire_duration: Histogram<f64>,
     pub plugin_instance_acquire_failures: Counter<u64>,
+    pub plugin_pool_contention_total: Counter<u64>,
+    pub plugin_evaluator_semaphore_wait_duration: Histogram<f64>,
     pub plugin_call_failures: Counter<u64>,
 
     pub host_fn_duration: Histogram<f64>,
@@ -233,6 +235,21 @@ impl Metrics {
                 .with_description(
                     "Total number of failed WASM plugin runtime instance acquisitions",
                 )
+                .build(),
+            plugin_pool_contention_total: meter
+                .u64_counter("broccoli.plugin.pool.contention")
+                .with_description(
+                    "Total number of slow WASM plugin runtime instance acquisitions by latency bucket",
+                )
+                .build(),
+            plugin_evaluator_semaphore_wait_duration: meter
+                .f64_histogram("broccoli.plugin.evaluator.semaphore.wait.duration")
+                .with_unit("s")
+                .with_description(
+                    "Duration spent waiting for the server-wide evaluator semaphore before \
+                     invoking an evaluator plugin",
+                )
+                .with_boundaries(PLUGIN_BUCKETS_SECONDS.to_vec())
                 .build(),
             plugin_call_failures: meter
                 .u64_counter("broccoli.plugin.call.failures")

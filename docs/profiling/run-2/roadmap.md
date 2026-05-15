@@ -607,10 +607,25 @@ G testing); UP#14f before Phase B PR-E.
 
 ### Phase F — observability
 
-- [ ] **PR: plugin-pool-metrics.** UP#47 —
-      `plugin_evaluator_semaphore_wait_duration`,
-      `plugin_pool_contention_total`, verify `plugin_instance_acquire_duration`
-      on every pool.get path.
+- [x] **PR: plugin-pool-metrics.** UP#47 —
+      `plugin_evaluator_semaphore_wait_duration` and
+      `plugin_pool_contention_total` are registered beside the existing
+      `plugin_instance_acquire_duration`
+      (`packages/common/src/metrics.rs:27-31`,
+      `packages/common/src/metrics.rs:239-253`). Evaluator semaphore waits are
+      measured at the inner `evaluator_slots.acquire_owned()` path with
+      success/closed outcomes (`packages/server/src/services/evaluate_batch.rs:31-53`,
+      `packages/server/src/services/evaluate_batch.rs:192-213`). The single
+      `pool.get(timeout)` site now records acquire duration for success,
+      timeout, and error through a shared helper, and slow acquires increment
+      the contention counter by latency bucket
+      (`packages/plugin-core/src/traits.rs:41-96`,
+      `packages/plugin-core/src/traits.rs:432-461`). Unit coverage verifies
+      bucket selection plus exported Prometheus metric names
+      (`packages/plugin-core/src/traits.rs:551-649`,
+      `packages/server/src/services/evaluate_batch.rs:1030-1068`). Verified
+      with `cargo test -p plugin-core --lib`, `cargo test -p server --lib`,
+      and `cargo test -p server evaluator_semaphore_wait_metric_records_success_and_closed_outcomes --lib`.
 - [ ] **PR: submission-lifecycle-metrics.** UP#48 —
       `submission_state_transition_duration`, `submission_in_flight`,
       `submission_judge_queue_depth`, `submission_age_in_pending_seconds`.

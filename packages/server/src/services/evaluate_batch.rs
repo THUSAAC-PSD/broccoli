@@ -28,6 +28,30 @@ use crate::registry::{BatchState, EvaluateBatches};
 const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 const EVALUATE_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
 
+fn record_evaluator_semaphore_wait(
+    metrics: Option<&common::metrics::Metrics>,
+    evaluator_plugin_id: &str,
+    evaluator_function: &str,
+    problem_type: &str,
+    outcome: &'static str,
+    elapsed: Duration,
+) {
+    let Some(metrics) = metrics else {
+        return;
+    };
+
+    metrics.plugin_evaluator_semaphore_wait_duration.record(
+        elapsed.as_secs_f64(),
+        &[
+            KeyValue::new("batch.kind", "evaluate"),
+            KeyValue::new("evaluator.plugin.id", evaluator_plugin_id.to_string()),
+            KeyValue::new("evaluator.function", evaluator_function.to_string()),
+            KeyValue::new("problem.type", problem_type.to_string()),
+            KeyValue::new("outcome", outcome),
+        ],
+    );
+}
+
 pub async fn start_evaluate_batch(
     caller_plugin_id: String,
     deps: EvaluateHostDeps,
@@ -147,6 +171,7 @@ pub async fn start_evaluate_batch(
             let pm = pm.clone();
             let eval_plugin_id = eval_plugin_id.clone();
             let eval_fn_name = eval_fn_name.clone();
+            let problem_type = problem_type.clone();
             let evaluator_slots = evaluator_slots.clone();
             let batch_tx = batch_tx_for_dispatcher.clone();
             let pending = pending_for_dispatcher.clone();
@@ -164,9 +189,28 @@ pub async fn start_evaluate_batch(
                     // Hold the fan-out permit for the lifetime of this task.
                     let _fanout_permit = permit;
 
+                    let evaluator_wait_start = Instant::now();
                     let _permit = match evaluator_slots.acquire_owned().await {
-                        Ok(permit) => permit,
+                        Ok(permit) => {
+                            record_evaluator_semaphore_wait(
+                                metrics.as_ref(),
+                                &eval_plugin_id,
+                                &eval_fn_name,
+                                &problem_type,
+                                "success",
+                                evaluator_wait_start.elapsed(),
+                            );
+                            permit
+                        }
                         Err(_) => {
+                            record_evaluator_semaphore_wait(
+                                metrics.as_ref(),
+                                &eval_plugin_id,
+                                &eval_fn_name,
+                                &problem_type,
+                                "closed",
+                                evaluator_wait_start.elapsed(),
+                            );
                             send_system_error(
                                 &batch_tx,
                                 tc_id,
@@ -981,6 +1025,46 @@ mod tests {
         }
         assert_eq!(pending.load(Ordering::SeqCst), 2, "no decrement on empty");
         assert!(rx.try_recv().is_err(), "no verdicts on empty drain");
+    }
+
+    #[test]
+    fn evaluator_semaphore_wait_metric_records_success_and_closed_outcomes() {
+        let (metrics, registry) =
+            common::observability::init_metrics("broccoli-evaluator-semaphore-test");
+
+        record_evaluator_semaphore_wait(
+            Some(&metrics),
+            "evaluator",
+            "evaluate",
+            "ioi",
+            "success",
+            Duration::from_millis(3),
+        );
+        record_evaluator_semaphore_wait(
+            Some(&metrics),
+            "evaluator",
+            "evaluate",
+            "ioi",
+            "closed",
+            Duration::from_millis(4),
+        );
+
+        let families = registry.gather();
+        let wait_duration = families
+            .iter()
+            .find(|family| {
+                family.name() == "broccoli_plugin_evaluator_semaphore_wait_duration_seconds"
+            })
+            .expect("evaluator semaphore wait duration should be exported");
+        for outcome in ["success", "closed"] {
+            assert!(
+                wait_duration.get_metric().iter().any(|metric| metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == "outcome" && label.value() == outcome)),
+                "evaluator semaphore wait should include outcome={outcome}"
+            );
+        }
     }
 
     fn case(problem_id: i32, language: &str) -> StartEvaluateCaseInput {

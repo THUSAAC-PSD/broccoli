@@ -13,6 +13,89 @@ use crate::i18n::{I18nRegistry, TranslationMap};
 use crate::manifest::PluginManifest;
 use crate::registry::{PluginEntry, PluginInfo, PluginRegistry, PluginStatus};
 
+#[derive(Clone, Copy)]
+enum PoolAcquireOutcome {
+    Success,
+    Timeout,
+    Error,
+}
+
+impl PoolAcquireOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Timeout => "timeout",
+            Self::Error => "error",
+        }
+    }
+
+    fn failure_kind(self) -> Option<&'static str> {
+        match self {
+            Self::Success => None,
+            Self::Timeout => Some("timeout"),
+            Self::Error => Some("error"),
+        }
+    }
+}
+
+fn pool_contention_bucket(elapsed: Duration) -> Option<&'static str> {
+    let elapsed_ms = elapsed.as_secs_f64() * 1_000.0;
+    if elapsed_ms >= 5_000.0 {
+        Some("5s")
+    } else if elapsed_ms >= 1_000.0 {
+        Some("1s")
+    } else if elapsed_ms >= 200.0 {
+        Some("200ms")
+    } else if elapsed_ms >= 50.0 {
+        Some("50ms")
+    } else {
+        None
+    }
+}
+
+fn record_pool_acquire_metrics(
+    metrics: Option<&common::metrics::Metrics>,
+    plugin_id: &str,
+    func_name: &str,
+    outcome: PoolAcquireOutcome,
+    elapsed: Duration,
+) {
+    let Some(metrics) = metrics else {
+        return;
+    };
+
+    metrics.plugin_instance_acquire_duration.record(
+        elapsed.as_secs_f64(),
+        &[
+            KeyValue::new("plugin.id", plugin_id.to_string()),
+            KeyValue::new("plugin.function", func_name.to_string()),
+            KeyValue::new("outcome", outcome.as_str()),
+        ],
+    );
+
+    if let Some(failure_kind) = outcome.failure_kind() {
+        metrics.plugin_instance_acquire_failures.add(
+            1,
+            &[
+                KeyValue::new("plugin.id", plugin_id.to_string()),
+                KeyValue::new("plugin.function", func_name.to_string()),
+                KeyValue::new("failure.kind", failure_kind),
+            ],
+        );
+    }
+
+    if let Some(bucket) = pool_contention_bucket(elapsed) {
+        metrics.plugin_pool_contention_total.add(
+            1,
+            &[
+                KeyValue::new("plugin.id", plugin_id.to_string()),
+                KeyValue::new("plugin.function", func_name.to_string()),
+                KeyValue::new("bucket", bucket),
+            ],
+        );
+    }
+}
+
 #[async_trait]
 pub trait PluginManager: Send + Sync {
     fn get_registry(&self) -> &PluginRegistry;
@@ -349,58 +432,33 @@ pub trait PluginManager: Send + Sync {
                     let acquire_start = std::time::Instant::now();
                     let plugin = match pool.get(timeout) {
                         Ok(Some(plugin)) => {
-                            if let Some(metrics) = metrics.as_ref() {
-                                metrics.plugin_instance_acquire_duration.record(
-                                    acquire_start.elapsed().as_secs_f64(),
-                                    &[
-                                        KeyValue::new("plugin.id", plugin_id.clone()),
-                                        KeyValue::new("plugin.function", func_name.clone()),
-                                        KeyValue::new("outcome", "success"),
-                                    ],
-                                );
-                            }
+                            record_pool_acquire_metrics(
+                                metrics.as_ref(),
+                                &plugin_id,
+                                &func_name,
+                                PoolAcquireOutcome::Success,
+                                acquire_start.elapsed(),
+                            );
                             plugin
                         }
                         Ok(None) => {
-                            if let Some(metrics) = metrics.as_ref() {
-                                metrics.plugin_instance_acquire_duration.record(
-                                    acquire_start.elapsed().as_secs_f64(),
-                                    &[
-                                        KeyValue::new("plugin.id", plugin_id.clone()),
-                                        KeyValue::new("plugin.function", func_name.clone()),
-                                        KeyValue::new("outcome", "timeout"),
-                                    ],
-                                );
-                                metrics.plugin_instance_acquire_failures.add(
-                                    1,
-                                    &[
-                                        KeyValue::new("plugin.id", plugin_id.clone()),
-                                        KeyValue::new("plugin.function", func_name.clone()),
-                                        KeyValue::new("failure.kind", "timeout"),
-                                    ],
-                                );
-                            }
+                            record_pool_acquire_metrics(
+                                metrics.as_ref(),
+                                &plugin_id,
+                                &func_name,
+                                PoolAcquireOutcome::Timeout,
+                                acquire_start.elapsed(),
+                            );
                             return Err(PluginError::PoolTimeout(plugin_id.clone()));
                         }
                         Err(e) => {
-                            if let Some(metrics) = metrics.as_ref() {
-                                metrics.plugin_instance_acquire_duration.record(
-                                    acquire_start.elapsed().as_secs_f64(),
-                                    &[
-                                        KeyValue::new("plugin.id", plugin_id.clone()),
-                                        KeyValue::new("plugin.function", func_name.clone()),
-                                        KeyValue::new("outcome", "error"),
-                                    ],
-                                );
-                                metrics.plugin_instance_acquire_failures.add(
-                                    1,
-                                    &[
-                                        KeyValue::new("plugin.id", plugin_id.clone()),
-                                        KeyValue::new("plugin.function", func_name.clone()),
-                                        KeyValue::new("failure.kind", "error"),
-                                    ],
-                                );
-                            }
+                            record_pool_acquire_metrics(
+                                metrics.as_ref(),
+                                &plugin_id,
+                                &func_name,
+                                PoolAcquireOutcome::Error,
+                                acquire_start.elapsed(),
+                            );
                             return Err(PluginError::Internal(format!(
                                 "Failed to acquire runtime instance for plugin '{}': {}",
                                 plugin_id, e
@@ -483,3 +541,110 @@ pub trait PluginManagerExt: PluginManager {
 }
 
 impl<T: ?Sized + PluginManager> PluginManagerExt for T {}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn pool_contention_bucket_ignores_fast_acquires() {
+        assert_eq!(pool_contention_bucket(Duration::from_millis(49)), None);
+    }
+
+    #[test]
+    fn pool_contention_bucket_uses_largest_exceeded_threshold() {
+        assert_eq!(
+            pool_contention_bucket(Duration::from_millis(50)),
+            Some("50ms")
+        );
+        assert_eq!(
+            pool_contention_bucket(Duration::from_millis(250)),
+            Some("200ms")
+        );
+        assert_eq!(
+            pool_contention_bucket(Duration::from_millis(1_500)),
+            Some("1s")
+        );
+        assert_eq!(
+            pool_contention_bucket(Duration::from_millis(5_500)),
+            Some("5s")
+        );
+    }
+
+    #[test]
+    fn pool_acquire_metrics_records_all_pool_get_outcomes() {
+        let (metrics, registry) =
+            common::observability::init_metrics("broccoli-plugin-core-pool-test");
+
+        record_pool_acquire_metrics(
+            Some(&metrics),
+            "evaluator",
+            "evaluate",
+            PoolAcquireOutcome::Success,
+            Duration::from_millis(1),
+        );
+        record_pool_acquire_metrics(
+            Some(&metrics),
+            "evaluator",
+            "evaluate",
+            PoolAcquireOutcome::Timeout,
+            Duration::from_millis(250),
+        );
+        record_pool_acquire_metrics(
+            Some(&metrics),
+            "evaluator",
+            "evaluate",
+            PoolAcquireOutcome::Error,
+            Duration::from_millis(5),
+        );
+
+        let families = registry.gather();
+        let acquire_duration = families
+            .iter()
+            .find(|family| family.name() == "broccoli_plugin_instance_acquire_duration_seconds")
+            .expect("plugin instance acquire duration should be exported");
+        for outcome in ["success", "timeout", "error"] {
+            assert!(
+                acquire_duration.get_metric().iter().any(|metric| metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == "outcome" && label.value() == outcome)),
+                "acquire duration should include outcome={outcome}"
+            );
+        }
+
+        let acquire_failures = families
+            .iter()
+            .find(|family| family.name() == "broccoli_plugin_instance_acquire_failures_total")
+            .expect("plugin instance acquire failures should be exported");
+        for failure_kind in ["timeout", "error"] {
+            assert!(
+                acquire_failures
+                    .get_metric()
+                    .iter()
+                    .any(|metric| metric.get_label().iter().any(|label| label.name()
+                        == "failure_kind"
+                        && label.value() == failure_kind)),
+                "acquire failures should include failure_kind={failure_kind}"
+            );
+        }
+
+        let pool_contention = families
+            .iter()
+            .find(|family| family.name() == "broccoli_plugin_pool_contention_total")
+            .expect("plugin pool contention counter should be exported");
+        let bucketed_counter = pool_contention
+            .get_metric()
+            .iter()
+            .find(|metric| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == "bucket" && label.value() == "200ms")
+            })
+            .expect("pool contention should include bucket=200ms");
+        assert_eq!(bucketed_counter.get_counter().value(), 1.0);
+    }
+}
