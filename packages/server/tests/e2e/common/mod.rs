@@ -18,7 +18,7 @@ use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::redis::Redis;
-use tokio::sync::{Mutex, OnceCell, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock, watch};
 use tokio::task::JoinHandle;
 use worker::models::operation::OperationTaskExecutor;
 use worker::models::operation::sandbox::isolate::IsolateSandboxManager;
@@ -264,6 +264,8 @@ pub struct E2eTestApp {
     pub client: Client,
     pub db: DatabaseConnection,
     server_handle: Option<JoinHandle<()>>,
+    claim_cancel: Option<watch::Sender<bool>>,
+    claim_handle: Option<JoinHandle<()>>,
     worker_handle: Option<JoinHandle<()>>,
     result_consumer_handle: Option<JoinHandle<()>>,
 }
@@ -271,6 +273,12 @@ pub struct E2eTestApp {
 impl Drop for E2eTestApp {
     fn drop(&mut self) {
         if let Some(h) = self.server_handle.take() {
+            h.abort();
+        }
+        if let Some(tx) = self.claim_cancel.take() {
+            let _ = tx.send(true);
+        }
+        if let Some(h) = self.claim_handle.take() {
             h.abort();
         }
         if let Some(h) = self.worker_handle.take() {
@@ -355,6 +363,8 @@ impl E2eTestApp {
             client,
             db,
             server_handle: None,
+            claim_cancel: None,
+            claim_handle: None,
             worker_handle: None,
             result_consumer_handle: None,
         }
@@ -482,6 +492,7 @@ impl E2eTestApp {
         let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
         let evaluate_ops_registry =
             server::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let hook_registry = server::hooks::new_shared_registry();
 
         let plugins = ServerManager::new(
             app_config.plugin.clone(),
@@ -497,6 +508,7 @@ impl E2eTestApp {
                 evaluate_batches: evaluate_batches.clone(),
                 evaluate_ops_registry: evaluate_ops_registry.clone(),
                 blob_store: blob_store.clone(),
+                hook_registry: hook_registry.clone(),
                 config: app_config.clone(),
                 metrics: None,
                 redis_client: None,
@@ -514,7 +526,7 @@ impl E2eTestApp {
             config: app_config,
             mq: Some(Arc::clone(&mq)),
             redis_client: None,
-            blob_store,
+            blob_store: blob_store.clone(),
             registries: server::state::RegistryState {
                 contest_type_registry,
                 evaluator_registry,
@@ -523,7 +535,7 @@ impl E2eTestApp {
                 operation_batches,
                 operation_waiters: operation_waiters.clone(),
                 evaluate_batches,
-                hook_registry: server::hooks::new_shared_registry(),
+                hook_registry,
             },
             device_codes: Arc::new(dashmap::DashMap::new()),
             metrics: e2e_metrics.clone(),
@@ -532,6 +544,8 @@ impl E2eTestApp {
         };
 
         let mut result_consumer_handle_opt = None;
+        let mut claim_cancel_opt = None;
+        let mut claim_handle_opt = None;
         let mut worker_handle_opt = None;
 
         if load_plugins {
@@ -562,11 +576,29 @@ impl E2eTestApp {
                 .await;
             }));
 
+            let (claim_cancel_tx, claim_cancel_rx) = watch::channel(false);
+            claim_cancel_opt = Some(claim_cancel_tx);
+            claim_handle_opt = Some(tokio::spawn(server::dispatcher::claim::run(
+                state.clone(),
+                format!("e2e-{test_id}"),
+                state.config.server.claim_poll_interval_ms,
+                state.config.server.claim_batch_size,
+                claim_cancel_rx,
+            )));
+
             let sandbox_manager = create_sandbox_manager();
-            let executor = Arc::new(OperationTaskExecutor::new_with_sandbox_manager(
-                sandbox_manager,
-                e2e_metrics.clone(),
-            ));
+            let worker_cache_dir =
+                std::env::temp_dir().join(format!("broccoli-e2e-worker-cache-{test_id}"));
+            let executor = Arc::new(
+                OperationTaskExecutor::new_with_sandbox_manager_and_blob_store(
+                    sandbox_manager,
+                    blob_store.clone(),
+                    worker_cache_dir,
+                    e2e_metrics.clone(),
+                )
+                .await
+                .expect("Failed to initialize e2e operation executor"),
+            );
             let worker_queue = operation_queue.clone();
             let worker_mq = Arc::clone(&mq);
             let worker_mq_for_publish = Arc::clone(&mq);
@@ -667,6 +699,8 @@ impl E2eTestApp {
                 .expect("Failed to build reqwest client"),
             db,
             server_handle: Some(server_handle),
+            claim_cancel: claim_cancel_opt,
+            claim_handle: claim_handle_opt,
             worker_handle: worker_handle_opt,
             result_consumer_handle: result_consumer_handle_opt,
         }

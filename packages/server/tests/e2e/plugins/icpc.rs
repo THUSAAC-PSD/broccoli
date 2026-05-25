@@ -424,3 +424,77 @@ async fn icpc_config_penalty_minutes() {
         Some(true)
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker-backed e2e services plus a non-mock judge sandbox and C++ toolchain"]
+async fn icpc_short_circuits_after_first_wrong_answer() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("icpc_short_admin1", "password", "admin")
+        .await;
+    let contestant = app
+        .create_authenticated_user("icpc_short_user1", "password")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "ICPC Short Circuit").await;
+    let tc1 = app
+        .create_test_case_with(problem_id, "1\n", "1\n", 10, true, &admin)
+        .await;
+    let tc2 = app
+        .create_test_case_with(problem_id, "2\n", "0\n", 10, false, &admin)
+        .await;
+    let tc3 = app
+        .create_test_case_with(problem_id, "3\n", "0\n", 10, false, &admin)
+        .await;
+
+    let contest_id = app
+        .create_typed_contest(&admin, "ICPC Short Circuit Contest", "icpc", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant).await;
+
+    let always_zero = r#"
+#include <iostream>
+int main() {
+    std::cout << 0 << std::endl;
+    return 0;
+}
+"#;
+    let sub_id = app
+        .create_contest_submission(contest_id, problem_id, &contestant, "cpp", always_zero)
+        .await;
+    let res = app.wait_for_submission_terminal(sub_id, &admin, 120).await;
+
+    assert_eq!(
+        res.body["status"].as_str(),
+        Some("Judged"),
+        "ICPC short-circuit submission should judge cleanly: {}",
+        res.text
+    );
+    assert_eq!(
+        res.body["result"]["verdict"].as_str(),
+        Some("WrongAnswer"),
+        "ICPC short-circuit submission should stop on first WA: {}",
+        res.text
+    );
+
+    let results = res.body["result"]["test_case_results"]
+        .as_array()
+        .expect("submission response should include testcase results");
+    assert_eq!(results.len(), 3, "{}", res.text);
+
+    for (test_case_id, verdict) in [(tc1, "WrongAnswer"), (tc2, "Skipped"), (tc3, "Skipped")] {
+        let row = results
+            .iter()
+            .find(|row| row["test_case_id"].as_i64() == Some(test_case_id as i64))
+            .unwrap_or_else(|| panic!("missing testcase result for {test_case_id}: {}", res.text));
+        assert_eq!(
+            row["verdict"].as_str(),
+            Some(verdict),
+            "unexpected testcase verdict for {test_case_id}: {}",
+            res.text
+        );
+    }
+}

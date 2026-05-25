@@ -18,6 +18,28 @@ fn multi_file_submission_body() -> serde_json::Value {
     })
 }
 
+async fn poll_submission_until_status(
+    app: &TestApp,
+    submission_id: i32,
+    expected: common::SubmissionStatus,
+    budget: std::time::Duration,
+) -> server::entity::submission::Model {
+    use sea_orm::EntityTrait;
+
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        let sub = server::entity::submission::Entity::find_by_id(submission_id)
+            .one(&app.db)
+            .await
+            .expect("load submission")
+            .expect("submission should exist");
+        if sub.status == expected || tokio::time::Instant::now() >= deadline {
+            return sub;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 mod submission_creation {
     use super::*;
 
@@ -1434,6 +1456,7 @@ mod contest_submissions {
 
 mod bulk_rejudge {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn admin_can_bulk_rejudge_by_submission_ids() {
@@ -1540,7 +1563,11 @@ mod bulk_rejudge {
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         use server::entity::submission;
 
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_options(crate::common::SpawnOptions {
+            start_dispatcher: true,
+            ..Default::default()
+        })
+        .await;
         let admin_token = app
             .create_user_with_role("admin_brj_custom", "pass1234", "admin")
             .await;
@@ -1607,11 +1634,13 @@ mod bulk_rejudge {
             "terminal submission verdict should have been cleared after rejudge dispatch"
         );
 
-        let pending = submission::Entity::find_by_id(pending_id)
-            .one(&app.db)
-            .await
-            .expect("load pending submission")
-            .expect("pending submission should exist");
+        let pending = poll_submission_until_status(
+            &app,
+            pending_id,
+            SubmissionStatus::Pending,
+            Duration::from_secs(5),
+        )
+        .await;
         assert_eq!(pending.status, SubmissionStatus::Pending);
         assert_eq!(pending.verdict, None);
         assert!(
@@ -1889,7 +1918,11 @@ mod claim_fiber {
     /// `Pending` (or further) without any other actor intervening.
     #[tokio::test]
     async fn claim_fiber_promotes_queued_submission_to_pending() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_options(crate::common::SpawnOptions {
+            start_dispatcher: true,
+            ..Default::default()
+        })
+        .await;
         let admin_token = app
             .create_user_with_role("admin1", "pass1234", "admin")
             .await;
@@ -1942,7 +1975,11 @@ mod claim_fiber {
     /// subprocess control over the api.
     #[tokio::test]
     async fn claim_fiber_recovers_directly_inserted_queued_row() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_options(crate::common::SpawnOptions {
+            start_dispatcher: true,
+            ..Default::default()
+        })
+        .await;
         let admin_token = app
             .create_user_with_role("admin1", "pass1234", "admin")
             .await;
@@ -1987,7 +2024,11 @@ mod claim_fiber {
     async fn claim_fiber_recovers_directly_inserted_queued_judgement() {
         use server::entity::submission_judgement;
 
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_options(crate::common::SpawnOptions {
+            start_dispatcher: true,
+            ..Default::default()
+        })
+        .await;
         let admin_token = app
             .create_user_with_role("admin1", "pass1234", "admin")
             .await;
@@ -2088,7 +2129,7 @@ mod claim_fiber {
 mod backpressure {
     use super::*;
     use crate::common::SpawnOptions;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
     use server::entity::submission;
 
@@ -2111,7 +2152,7 @@ mod backpressure {
                 problem_id: Set(problem_id),
                 contest_id: Set(None),
                 contest_type: Set("standard".into()),
-                created_at: Set(Utc::now()),
+                created_at: Set(Utc::now() - Duration::minutes(2)),
                 ..Default::default()
             };
             row.insert(&app.db).await.expect("stage queued row");
@@ -2140,6 +2181,7 @@ mod backpressure {
         let app = TestApp::spawn_with_options(SpawnOptions {
             max_queued_submissions: Some(1),
             disable_claim_fiber: true,
+            ..Default::default()
         })
         .await;
         let admin_token = app
@@ -2191,6 +2233,7 @@ mod backpressure {
         let app = TestApp::spawn_with_options(SpawnOptions {
             max_queued_submissions: Some(10),
             disable_claim_fiber: true,
+            ..Default::default()
         })
         .await;
         let admin_token = app
@@ -2224,6 +2267,7 @@ mod backpressure {
         let app = TestApp::spawn_with_options(SpawnOptions {
             max_queued_submissions: Some(1),
             disable_claim_fiber: true,
+            ..Default::default()
         })
         .await;
         let admin_token = app
@@ -2259,6 +2303,7 @@ mod backpressure {
         let app = TestApp::spawn_with_options(SpawnOptions {
             max_queued_submissions: Some(1),
             disable_claim_fiber: true,
+            ..Default::default()
         })
         .await;
         let admin_token = app
@@ -2319,6 +2364,7 @@ mod backpressure {
         let app = TestApp::spawn_with_options(SpawnOptions {
             max_queued_submissions: Some(0),
             disable_claim_fiber: true,
+            ..Default::default()
         })
         .await;
         let admin_token = app

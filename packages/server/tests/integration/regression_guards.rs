@@ -17,6 +17,14 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use futures::future::join_all;
+use serde_json::json;
+
+use crate::common::{TestApp, routes};
 
 /// Returns the path to `packages/server/src/host_funcs/` from the
 /// crate manifest dir of the `server` package.
@@ -149,6 +157,221 @@ fn host_funcs_must_not_use_tokio_block_in_place() {
         msg.push_str("If this is legitimate, document the rationale and remove this test.");
         panic!("{msg}");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "60s runtime stress-wave guard; run explicitly for pre-release regression checks"]
+async fn host_fn_stress_wave_does_not_spawn_thread_storm() {
+    let duration = env_duration_secs("BROCCOLI_STRESS_WAVE_SECS", 60);
+    let concurrency = env_usize("BROCCOLI_STRESS_WAVE_CONCURRENCY", 48);
+    let allowed_thread_growth = env_usize(
+        "BROCCOLI_STRESS_WAVE_MAX_THREAD_GROWTH",
+        concurrency.saturating_add(32),
+    );
+
+    let app = TestApp::spawn_with_plugins().await;
+    let route = routes::plugin_proxy("server-plugin", "kv/runtime-cascade-warmup");
+    let warmup = app
+        .post_without_token(&route, &json!({ "value": "warmup" }))
+        .await;
+    assert_eq!(warmup.status, 200, "warmup plugin host-fn call failed");
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let baseline_metrics = app.get_without_token("/metrics").await;
+    assert_eq!(baseline_metrics.status, 200);
+    let baseline_host_fn_calls =
+        prometheus_counter_sum(&baseline_metrics.text, "broccoli_host_fn_calls_total");
+    let baseline_block_in_place = prometheus_counter_sum(
+        &baseline_metrics.text,
+        "broccoli_host_fn_block_in_place_total",
+    );
+    let baseline_plugin_call_failures = prometheus_counter_sum(
+        &baseline_metrics.text,
+        "broccoli_plugin_call_failures_total",
+    );
+    let baseline_threads = process_thread_count();
+    let max_threads_seen = Arc::new(AtomicUsize::new(baseline_threads.unwrap_or(0)));
+
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let failure_count = Arc::new(AtomicUsize::new(0));
+    let started = Instant::now();
+    let kv_url_prefix = format!(
+        "http://{}{}",
+        app.addr,
+        routes::plugin_proxy("server-plugin", "kv/runtime-cascade")
+    );
+    let sql_url = format!(
+        "http://{}{}",
+        app.addr,
+        routes::plugin_proxy("server-plugin", "sql/params")
+    );
+    let client = app.client.clone();
+    let sampler_max_threads = max_threads_seen.clone();
+    let sampler = tokio::spawn(async move {
+        while started.elapsed() < duration {
+            if let Some(count) = process_thread_count() {
+                update_max(&sampler_max_threads, count);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if let Some(count) = process_thread_count() {
+            update_max(&sampler_max_threads, count);
+        }
+    });
+
+    let tasks = (0..concurrency)
+        .map(|worker_idx| {
+            let client = client.clone();
+            let request_count = request_count.clone();
+            let failure_count = failure_count.clone();
+            let kv_url_prefix = kv_url_prefix.clone();
+            let sql_url = sql_url.clone();
+            tokio::spawn(async move {
+                let mut sequence = 0usize;
+                while started.elapsed() < duration {
+                    let response = if sequence % 5 == 0 {
+                        client
+                            .post(&sql_url)
+                            .json(&json!({ "name": format!("stress-{worker_idx}-{sequence}") }))
+                            .send()
+                            .await
+                    } else {
+                        let url = format!("{kv_url_prefix}-{worker_idx}-{sequence}");
+                        client
+                            .post(url)
+                            .json(&json!({ "value": format!("{worker_idx}-{sequence}") }))
+                            .send()
+                            .await
+                    };
+                    match response {
+                        Ok(resp) if resp.status().is_success() => {
+                            request_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Ok(resp) => {
+                            failure_count.fetch_add(1, Ordering::Relaxed);
+                            let _ = resp.text().await;
+                        }
+                        Err(_) => {
+                            failure_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    sequence += 1;
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for task in join_all(tasks).await {
+        task.expect("stress-wave task panicked");
+    }
+    sampler.await.expect("thread-count sampler panicked");
+
+    let completed = request_count.load(Ordering::Relaxed);
+    let failures = failure_count.load(Ordering::Relaxed);
+    assert_eq!(failures, 0, "stress wave had {failures} failed requests");
+    assert!(
+        completed >= concurrency,
+        "stress wave did not exercise enough plugin calls: completed={completed}, concurrency={concurrency}"
+    );
+
+    let metrics = app.get_without_token("/metrics").await;
+    assert_eq!(metrics.status, 200);
+    let host_fn_calls = prometheus_counter_sum(&metrics.text, "broccoli_host_fn_calls_total");
+    let host_fn_calls_delta = host_fn_calls - baseline_host_fn_calls;
+    assert!(
+        host_fn_calls_delta >= completed as f64,
+        "host_fn call metric did not observe the wave: before={baseline_host_fn_calls}, after={host_fn_calls}, completed={completed}"
+    );
+    let block_in_place_total =
+        prometheus_counter_sum(&metrics.text, "broccoli_host_fn_block_in_place_total");
+    assert_eq!(
+        block_in_place_total, baseline_block_in_place,
+        "host_fn block_in_place regression counter changed during stress wave"
+    );
+    let plugin_call_failures =
+        prometheus_counter_sum(&metrics.text, "broccoli_plugin_call_failures_total");
+    assert_eq!(
+        plugin_call_failures, baseline_plugin_call_failures,
+        "plugin call failures were recorded during stress wave"
+    );
+
+    if let Some(before) = baseline_threads {
+        let max_seen = max_threads_seen.load(Ordering::Relaxed);
+        let growth = max_seen.saturating_sub(before);
+        assert!(
+            growth <= allowed_thread_growth,
+            "thread-count blow-up during host-fn wave: before={before}, max_seen={max_seen}, growth={growth}, allowed={allowed_thread_growth}, completed={completed}"
+        );
+    }
+}
+
+fn update_max(max: &AtomicUsize, candidate: usize) {
+    let mut current = max.load(Ordering::Relaxed);
+    while candidate > current {
+        match max.compare_exchange_weak(current, candidate, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(next_current) => current = next_current,
+        }
+    }
+}
+
+fn env_duration_secs(name: &str, default_secs: u64) -> Duration {
+    Duration::from_secs(
+        std::env::var(name)
+            .ok()
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(default_secs),
+    )
+}
+
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn prometheus_counter_sum(metrics_text: &str, metric_name: &str) -> f64 {
+    metrics_text
+        .lines()
+        .filter(|line| line.starts_with(metric_name))
+        .filter_map(|line| line.rsplit_once(' '))
+        .filter_map(|(_, value)| value.parse::<f64>().ok())
+        .sum()
+}
+
+#[cfg(target_os = "linux")]
+fn process_thread_count() -> Option<usize> {
+    std::fs::read_dir("/proc/self/task").ok().map(|entries| {
+        entries
+            .filter(|entry| entry.as_ref().is_ok_and(|entry| entry.path().is_dir()))
+            .count()
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn process_thread_count() -> Option<usize> {
+    let output = std::process::Command::new("ps")
+        .args(["-M", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let count = stdout
+        .lines()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    (count > 0).then_some(count)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_thread_count() -> Option<usize> {
+    None
 }
 
 #[cfg(test)]

@@ -478,12 +478,16 @@ pub struct TestApp {
     pub client: Client,
     pub db: DatabaseConnection,
     server_handle: Option<tokio::task::JoinHandle<()>>,
+    dispatcher: Option<server::dispatcher::Dispatcher>,
 }
 
 impl Drop for TestApp {
     fn drop(&mut self) {
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
+        }
+        if let Some(mut dispatcher) = self.dispatcher.take() {
+            dispatcher.abort();
         }
         close_database_pool(self.db.clone());
     }
@@ -529,6 +533,11 @@ pub struct SpawnOptions {
     /// tests that pre-stage `Queued` rows directly — otherwise the
     /// fiber drains them before the test can observe the cap.
     pub disable_claim_fiber: bool,
+    /// Start the UP#38 claim fiber in this integration fixture. Most
+    /// handler tests assert API commit state only; claim-fiber tests
+    /// opt in so the shared test database is not hammered by hundreds
+    /// of background pollers during parallel integration runs.
+    pub start_dispatcher: bool,
 }
 
 impl TestApp {
@@ -650,8 +659,11 @@ impl TestApp {
         let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
         let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
         let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
+        let hook_registry = server::hooks::new_shared_registry();
         let evaluate_ops_registry =
             server::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (test_metrics, test_prom_registry) =
+            common::observability::init_metrics("broccoli-test");
 
         let server_plugins = ServerManager::new(
             app_config.plugin.clone(),
@@ -667,11 +679,12 @@ impl TestApp {
                 evaluate_batches: evaluate_batches.clone(),
                 evaluate_ops_registry,
                 blob_store: blob_store.clone(),
+                hook_registry: hook_registry.clone(),
                 config: app_config.clone(),
-                metrics: None,
+                metrics: Some(test_metrics.clone()),
                 redis_client: None,
             },
-            None,
+            Some(test_metrics.clone()),
         )
         .expect("Failed to initialize plugin manager");
         let plugins: Arc<dyn PluginManager> = Arc::new(TestPluginManager {
@@ -728,9 +741,6 @@ impl TestApp {
             }
         }
 
-        let (test_metrics, test_prom_registry) =
-            common::observability::init_metrics("broccoli-test");
-
         let state = AppState {
             plugins,
             db: db.clone(),
@@ -746,13 +756,22 @@ impl TestApp {
                 operation_batches,
                 operation_waiters,
                 evaluate_batches,
-                hook_registry: server::hooks::new_shared_registry(),
+                hook_registry,
             },
             device_codes: std::sync::Arc::new(dashmap::DashMap::new()),
             metrics: test_metrics.clone(),
             prometheus_registry: test_prom_registry.clone(),
             dispatcher_permits: server::dispatcher::permits::DispatcherSemaphore::default(),
         };
+        let dispatcher = options.start_dispatcher.then(|| {
+            server::dispatcher::Dispatcher::spawn(server::dispatcher::DispatcherDeps {
+                state: state.clone(),
+                redis_client: None,
+                server_id: "integration-test-server".to_string(),
+                operation_result_queue_base: "operation_results".to_string(),
+                config: state.config.server.clone(),
+            })
+        });
         if load_plugins {
             let failures = sync_plugins(&state).await.expect("Failed to sync plugins");
             assert!(
@@ -792,6 +811,7 @@ impl TestApp {
                 .expect("Failed to build reqwest client"),
             db,
             server_handle: Some(server_handle),
+            dispatcher,
         }
     }
 
