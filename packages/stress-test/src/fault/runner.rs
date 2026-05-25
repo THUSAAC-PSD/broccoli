@@ -8,11 +8,14 @@
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::redis::Redis;
 
-use crate::cli::{BurstArgs, CancelStormArgs, FaultArgs, FaultScenario, KillServerRecoveryArgs};
+use crate::cli::{
+    BurstArgs, CancelStormArgs, FaultArgs, FaultScenario, KillServerRecoveryArgs,
+    RollingWorkerRestartArgs,
+};
 use crate::client::AuthCreds;
 use crate::fault::scenarios::{
     Scenario, ScenarioContext, burst::Burst, cancel_storm::CancelStorm,
-    kill_server_recovery::KillServerRecovery,
+    kill_server_recovery::KillServerRecovery, rolling_worker_restart::RollingWorkerRestart,
 };
 
 /// Run the fault subcommand. Returns the exit code (0 = pass, 1 = scenario
@@ -21,6 +24,7 @@ pub async fn run(args: FaultArgs) -> u8 {
     let result = match &args.scenario {
         FaultScenario::CancelStorm(s) => run_cancel_storm(s).await,
         FaultScenario::KillServerRecovery(s) => run_kill_server_recovery(s).await,
+        FaultScenario::RollingWorkerRestart(s) => run_rolling_worker_restart(s).await,
         FaultScenario::Burst(s) => run_burst(s).await,
     };
 
@@ -31,6 +35,43 @@ pub async fn run(args: FaultArgs) -> u8 {
             2
         }
     }
+}
+
+async fn run_rolling_worker_restart(args: &RollingWorkerRestartArgs) -> anyhow::Result<u8> {
+    let (redis_url, _container) = match args.redis_url.clone() {
+        Some(url) => (url, None),
+        None => {
+            tracing::info!("no --redis-url provided; starting ephemeral Redis testcontainer");
+            let container = Redis::default().start().await?;
+            let port = container.get_host_port_ipv4(6379).await?;
+            (format!("redis://127.0.0.1:{port}"), Some(container))
+        }
+    };
+
+    let ctx = ScenarioContext {
+        redis_url,
+        db_url: None,
+        server_url: None,
+        admin_token: None,
+        kill_command: args.restart_command.clone(),
+    };
+
+    let outcome = RollingWorkerRestart {
+        leader_ttl_secs: args.leader_ttl_secs,
+        leader_hold_ms: args.leader_hold_ms,
+        follower_poll_interval_ms: args.follower_poll_interval_ms,
+    }
+    .run(&ctx)
+    .await?;
+
+    outcome.transcript.write_json(&args.out)?;
+    tracing::info!(
+        path = %args.out.display(),
+        passed = outcome.passed,
+        "wrote transcript"
+    );
+
+    Ok(if outcome.passed { 0 } else { 1 })
 }
 
 async fn run_cancel_storm(args: &CancelStormArgs) -> anyhow::Result<u8> {
@@ -98,6 +139,12 @@ async fn run_burst(args: &BurstArgs) -> anyhow::Result<u8> {
         type_weights,
         strict: args.strict,
         terminal_deadline_secs: args.terminal_deadline_secs,
+        metrics_url: args.metrics_url.clone(),
+        fanout_test_cases_per_problem: args.fanout_test_cases_per_problem,
+        baseline_plugin_pool_contention_delta: args.baseline_plugin_pool_contention_delta,
+        max_plugin_pool_contention_baseline_ratio: args.max_plugin_pool_contention_baseline_ratio,
+        max_plugin_pool_contention_delta: args.max_plugin_pool_contention_delta,
+        require_fanout_saturation: args.require_fanout_saturation,
         keep_fixtures: args.keep_fixtures,
         contest_type: args.contest_type.clone(),
         problem_type: args.problem_type.clone(),

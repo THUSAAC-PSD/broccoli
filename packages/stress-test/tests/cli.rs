@@ -26,6 +26,87 @@ fn fault_subcommand_skips_top_level_validation() {
 }
 
 #[test]
+fn rolling_worker_restart_fault_args_parse() {
+    use stress_test::cli::{Command, FaultScenario};
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "fault",
+        "rolling-worker-restart",
+        "--redis-url",
+        "redis://127.0.0.1:6379",
+        "--restart-command",
+        "docker compose restart worker",
+        "--leader-ttl-secs",
+        "2",
+        "--leader-hold-ms",
+        "250",
+        "--follower-poll-interval-ms",
+        "25",
+    ])
+    .unwrap();
+
+    let Some(Command::Fault(args)) = cli.command else {
+        panic!("expected fault command");
+    };
+    let FaultScenario::RollingWorkerRestart(args) = args.scenario else {
+        panic!("expected rolling-worker-restart scenario");
+    };
+    assert_eq!(args.redis_url.as_deref(), Some("redis://127.0.0.1:6379"));
+    assert_eq!(
+        args.restart_command.as_deref(),
+        Some("docker compose restart worker")
+    );
+    assert_eq!(args.leader_ttl_secs, 2);
+    assert_eq!(args.leader_hold_ms, 250);
+    assert_eq!(args.follower_poll_interval_ms, 25);
+}
+
+#[test]
+fn burst_fault_args_parse_fanout_metrics_guards() {
+    use stress_test::cli::{Command, FaultScenario};
+    let cli = Cli::try_parse_from([
+        "broccoli-stress-test",
+        "fault",
+        "burst",
+        "--server-url",
+        "http://localhost:3000",
+        "--admin-token",
+        "abc",
+        "--submission-count",
+        "1000",
+        "--fanout-test-cases-per-problem",
+        "20",
+        "--metrics-url",
+        "http://localhost:3000/metrics",
+        "--baseline-plugin-pool-contention-delta",
+        "200",
+        "--max-plugin-pool-contention-baseline-ratio",
+        "0.1",
+        "--max-plugin-pool-contention-delta",
+        "15",
+        "--require-fanout-saturation",
+    ])
+    .unwrap();
+
+    let Some(Command::Fault(args)) = cli.command else {
+        panic!("expected fault command");
+    };
+    let FaultScenario::Burst(args) = args.scenario else {
+        panic!("expected burst scenario");
+    };
+    assert_eq!(args.submission_count, 1000);
+    assert_eq!(args.fanout_test_cases_per_problem, 20);
+    assert_eq!(
+        args.metrics_url.as_deref(),
+        Some("http://localhost:3000/metrics")
+    );
+    assert_eq!(args.baseline_plugin_pool_contention_delta, Some(200));
+    assert_eq!(args.max_plugin_pool_contention_baseline_ratio, 0.1);
+    assert_eq!(args.max_plugin_pool_contention_delta, 15);
+    assert!(args.require_fanout_saturation);
+}
+
+#[test]
 fn rejects_token_and_username_password_both_missing() {
     let cli =
         Cli::try_parse_from(["broccoli-stress-test", "--url", "http://localhost:3000"]).unwrap();

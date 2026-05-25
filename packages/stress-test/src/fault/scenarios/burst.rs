@@ -47,6 +47,12 @@ pub struct Burst {
     pub type_weights: Vec<(String, u32)>,
     pub strict: bool,
     pub terminal_deadline_secs: u64,
+    pub metrics_url: Option<String>,
+    pub fanout_test_cases_per_problem: usize,
+    pub baseline_plugin_pool_contention_delta: Option<u64>,
+    pub max_plugin_pool_contention_baseline_ratio: f64,
+    pub max_plugin_pool_contention_delta: u64,
+    pub require_fanout_saturation: bool,
     pub keep_fixtures: bool,
     pub contest_type: Option<String>,
     pub problem_type: Option<String>,
@@ -66,6 +72,12 @@ impl Default for Burst {
             type_weights: Vec::new(),
             strict: false,
             terminal_deadline_secs: 300,
+            metrics_url: None,
+            fanout_test_cases_per_problem: 1,
+            baseline_plugin_pool_contention_delta: None,
+            max_plugin_pool_contention_baseline_ratio: 0.2,
+            max_plugin_pool_contention_delta: 10,
+            require_fanout_saturation: false,
             keep_fixtures: false,
             contest_type: None,
             problem_type: None,
@@ -198,6 +210,80 @@ fn new_hist() -> Histogram<u64> {
     Histogram::<u64>::new_with_bounds(1, 1_800_000, 3).expect("static histogram bounds are valid")
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MetricsSnapshot {
+    plugin_pool_contention: u64,
+    fanout_saturated: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MetricsDelta {
+    plugin_pool_contention: u64,
+    fanout_saturated: u64,
+}
+
+impl MetricsSnapshot {
+    async fn scrape(url: &str) -> anyhow::Result<Self> {
+        let text = reqwest::get(url).await?.error_for_status()?.text().await?;
+        Ok(Self {
+            plugin_pool_contention: prometheus_counter_sum(
+                &text,
+                "broccoli_plugin_pool_contention_total",
+            )?,
+            fanout_saturated: prometheus_counter_sum(
+                &text,
+                "broccoli_batch_evaluator_fanout_saturated_total",
+            )?,
+        })
+    }
+
+    fn delta(self, before: &Self) -> MetricsDelta {
+        MetricsDelta {
+            plugin_pool_contention: self
+                .plugin_pool_contention
+                .saturating_sub(before.plugin_pool_contention),
+            fanout_saturated: self
+                .fanout_saturated
+                .saturating_sub(before.fanout_saturated),
+        }
+    }
+}
+
+fn prometheus_counter_sum(metrics_text: &str, metric_name: &str) -> anyhow::Result<u64> {
+    let mut saw_sample = false;
+    let mut sum = 0u64;
+    for line in metrics_text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if !line.starts_with(metric_name) {
+            continue;
+        }
+        let Some((series, value)) = line.rsplit_once(char::is_whitespace) else {
+            continue;
+        };
+        let series_name = series
+            .split_once('{')
+            .map(|(name, _)| name)
+            .unwrap_or(series)
+            .trim();
+        if series_name != metric_name {
+            continue;
+        }
+        saw_sample = true;
+        let value = value
+            .parse::<f64>()
+            .map_err(|e| anyhow::anyhow!("invalid Prometheus value for {metric_name}: {e}"))?;
+        sum = sum.saturating_add(value as u64);
+    }
+
+    if !saw_sample {
+        anyhow::bail!("required Prometheus counter {metric_name} is missing");
+    }
+    Ok(sum)
+}
+
 impl Burst {
     pub fn name(&self) -> &'static str {
         "burst"
@@ -209,7 +295,16 @@ impl Burst {
             .with_param("concurrency", self.concurrency.into())
             .with_param("strict", self.strict.into())
             .with_param("terminal_deadline_secs", self.terminal_deadline_secs.into())
+            .with_param(
+                "fanout_test_cases_per_problem",
+                self.fanout_test_cases_per_problem.into(),
+            )
             .with_param("keep_fixtures", self.keep_fixtures.into());
+        if let Some(metrics_url) = &self.metrics_url {
+            transcript
+                .params
+                .insert("metrics_url".into(), serde_json::json!(metrics_url));
+        }
 
         // ---- Setup: client, registries, type-mix validation. -----------
         let client = match Client::new(self.server_url.clone(), self.creds.clone()).await {
@@ -242,6 +337,25 @@ impl Burst {
                     transcript,
                 });
             }
+        };
+
+        let metrics_before = match self.metrics_url.as_deref() {
+            Some(url) => match MetricsSnapshot::scrape(url).await {
+                Ok(snapshot) => Some(snapshot),
+                Err(e) => {
+                    transcript.record(
+                        EventKind::Setup,
+                        Severity::Error,
+                        format!("metrics scrape before burst failed: {e}"),
+                    );
+                    transcript.finish(false);
+                    return Ok(ScenarioOutcome {
+                        passed: false,
+                        transcript,
+                    });
+                }
+            },
+            None => None,
         };
 
         // Honor --contest-type when --type-weights is absent: it overrides the
@@ -376,26 +490,30 @@ impl Burst {
                 }
             };
 
-            let tc_req = CreateTestCaseRequest {
-                input: scenario.test_input.to_string(),
-                expected_output: scenario.test_expected_output.to_string(),
-                score: 100,
-                is_sample: false,
-                label: None,
-            };
-            if let Err(e) = client.create_test_case(problem.id, &tc_req).await {
-                transcript.record(
-                    EventKind::Setup,
-                    Severity::Error,
-                    format!("create_test_case({ctype}) failed: {e}"),
-                );
-                contest_ids.insert(ctype.clone(), contest.id);
-                self.cleanup_contests(&client, &contest_ids).await;
-                transcript.finish(false);
-                return Ok(ScenarioOutcome {
-                    passed: false,
-                    transcript,
-                });
+            let testcase_count = self.fanout_test_cases_per_problem.max(1);
+            let testcase_score = (100 / testcase_count as i32).max(1);
+            for case_idx in 0..testcase_count {
+                let tc_req = CreateTestCaseRequest {
+                    input: scenario.test_input.to_string(),
+                    expected_output: scenario.test_expected_output.to_string(),
+                    score: testcase_score,
+                    is_sample: false,
+                    label: Some(format!("fanout_{}", case_idx + 1)),
+                };
+                if let Err(e) = client.create_test_case(problem.id, &tc_req).await {
+                    transcript.record(
+                        EventKind::Setup,
+                        Severity::Error,
+                        format!("create_test_case({ctype}, #{}) failed: {e}", case_idx + 1),
+                    );
+                    contest_ids.insert(ctype.clone(), contest.id);
+                    self.cleanup_contests(&client, &contest_ids).await;
+                    transcript.finish(false);
+                    return Ok(ScenarioOutcome {
+                        passed: false,
+                        transcript,
+                    });
+                }
             }
 
             let attach = AddContestProblemRequest {
@@ -665,7 +783,45 @@ impl Burst {
         } else {
             0.0
         };
-        let passed = terminal_rate >= PASS_TERMINAL_RATE;
+        let mut metrics_required_failed = false;
+        let metrics_delta = match (self.metrics_url.as_deref(), metrics_before.as_ref()) {
+            (Some(url), Some(before)) => match MetricsSnapshot::scrape(url).await {
+                Ok(after) => {
+                    let delta = after.delta(before);
+                    transcript.record_with(
+                        EventKind::Observe,
+                        Severity::Info,
+                        "metrics delta captured",
+                        BTreeMap::from_iter([
+                            (
+                                "plugin_pool_contention_delta".into(),
+                                serde_json::json!(delta.plugin_pool_contention),
+                            ),
+                            (
+                                "fanout_saturated_delta".into(),
+                                serde_json::json!(delta.fanout_saturated),
+                            ),
+                        ]),
+                    );
+                    Some(delta)
+                }
+                Err(e) => {
+                    transcript.record(
+                        EventKind::Assertion,
+                        Severity::Error,
+                        format!("metrics scrape after burst failed: {e}"),
+                    );
+                    metrics_required_failed = true;
+                    None
+                }
+            },
+            _ => None,
+        };
+
+        let mut passed = terminal_rate >= PASS_TERMINAL_RATE;
+        if metrics_required_failed {
+            passed = false;
+        }
         if passed {
             transcript.record(
                 EventKind::Assertion,
@@ -692,6 +848,46 @@ impl Burst {
                     PASS_TERMINAL_RATE * 100.0,
                 ),
             );
+        }
+
+        if let Some(delta) = metrics_delta {
+            let mut contention_cap = self.max_plugin_pool_contention_delta;
+            if let Some(baseline) = self.baseline_plugin_pool_contention_delta {
+                let baseline_cap = ((baseline as f64)
+                    * self.max_plugin_pool_contention_baseline_ratio)
+                    .ceil() as u64;
+                contention_cap = contention_cap.min(baseline_cap.max(1));
+            }
+
+            if delta.plugin_pool_contention > contention_cap {
+                passed = false;
+                transcript.record(
+                    EventKind::Assertion,
+                    Severity::Error,
+                    format!(
+                        "plugin_pool_contention_total delta {} exceeds cap {}",
+                        delta.plugin_pool_contention, contention_cap
+                    ),
+                );
+            } else {
+                transcript.record(
+                    EventKind::Assertion,
+                    Severity::Info,
+                    format!(
+                        "plugin_pool_contention_total delta {} within cap {}",
+                        delta.plugin_pool_contention, contention_cap
+                    ),
+                );
+            }
+
+            if self.require_fanout_saturation && delta.fanout_saturated == 0 {
+                passed = false;
+                transcript.record(
+                    EventKind::Assertion,
+                    Severity::Error,
+                    "fanout saturation was not observed; burst did not prove semaphore engagement",
+                );
+            }
         }
 
         // ---- Recover: tear down fixtures unless keep_fixtures. -------------
@@ -787,8 +983,14 @@ impl Burst {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use serde_json::json;
+    use wiremock::matchers::{method, path, path_regex};
+    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
     #[test]
     fn parse_type_weights_happy_path() {
@@ -953,6 +1155,217 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(weighted_pick(&mut rng, &mix, total), 0);
         }
+    }
+
+    #[test]
+    fn prometheus_counter_sum_requires_present_exact_counter() {
+        let metrics = r#"
+# HELP broccoli_plugin_pool_contention_total total contention events
+# TYPE broccoli_plugin_pool_contention_total counter
+broccoli_plugin_pool_contention_total{plugin="ioi"} 2
+broccoli_plugin_pool_contention_total{plugin="icpc"} 3
+broccoli_plugin_pool_contention_total_created 123
+"#;
+
+        assert_eq!(
+            prometheus_counter_sum(metrics, "broccoli_plugin_pool_contention_total").unwrap(),
+            5
+        );
+
+        let err =
+            prometheus_counter_sum(metrics, "broccoli_batch_evaluator_fanout_saturated_total")
+                .unwrap_err();
+        assert!(
+            format!("{err}").contains("required Prometheus counter"),
+            "got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn burst_1000_submission_metrics_guard_runs_against_fake_server() {
+        let server = MockServer::start().await;
+        let metrics_calls = Arc::new(AtomicUsize::new(0));
+        let submission_ids = Arc::new(AtomicI32::new(10_000));
+
+        Mock::given(method("GET"))
+            .and(path("/api/v1/plugins/registries"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "problem_types": ["batch"],
+                "checker_formats": ["exact"],
+                "contest_types": ["icpc"],
+                "languages": []
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/metrics"))
+            .respond_with({
+                let metrics_calls = Arc::clone(&metrics_calls);
+                move |_request: &Request| {
+                    let call = metrics_calls.fetch_add(1, Ordering::SeqCst);
+                    let (contention, fanout) = if call == 0 { (100, 0) } else { (105, 1) };
+                    ResponseTemplate::new(200).set_body_string(format!(
+                        "\
+# TYPE broccoli_plugin_pool_contention_total counter
+broccoli_plugin_pool_contention_total{{plugin_id=\"ioi\"}} {contention}
+# TYPE broccoli_batch_evaluator_fanout_saturated_total counter
+broccoli_batch_evaluator_fanout_saturated_total{{problem_type=\"batch\"}} {fanout}
+"
+                    ))
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": 7,
+                "title": "burst contest",
+                "contest_type": "icpc"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/problems"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": 11,
+                "title": "burst problem",
+                "time_limit": 1000,
+                "memory_limit": 262144,
+                "problem_type": "batch",
+                "checker_format": "exact",
+                "default_contest_type": "icpc"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/problems/11/test-cases"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": 21,
+                "input": "1\n1\n",
+                "expected_output": "1\n",
+                "score": 5,
+                "label": "fanout",
+                "is_sample": false,
+                "position": 0,
+                "problem_id": 11
+            })))
+            .expect(20)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests/7/problems"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "contest_id": 7,
+                "problem_id": 11,
+                "label": "A",
+                "position": 0,
+                "problem_title": "burst problem"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/contests/7/problems/11/submissions"))
+            .respond_with({
+                let submission_ids = Arc::clone(&submission_ids);
+                move |_request: &Request| {
+                    let id = submission_ids.fetch_add(1, Ordering::SeqCst);
+                    ResponseTemplate::new(201).set_body_json(json!({
+                        "id": id,
+                        "language": "cpp",
+                        "status": "Pending",
+                        "user_id": 1,
+                        "username": "admin",
+                        "problem_id": 11,
+                        "problem_title": "burst problem",
+                        "contest_id": 7,
+                        "contest_type": "icpc",
+                        "judge_epoch": 1,
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "result": null
+                    }))
+                }
+            })
+            .expect(1000)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/api/v1/submissions/\d+$"))
+            .respond_with(|request: &Request| {
+                let id = request
+                    .url
+                    .path()
+                    .rsplit('/')
+                    .next()
+                    .and_then(|value| value.parse::<i32>().ok())
+                    .unwrap_or(0);
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "id": id,
+                    "language": "cpp",
+                    "status": "Judged",
+                    "user_id": 1,
+                    "username": "admin",
+                    "problem_id": 11,
+                    "problem_title": "burst problem",
+                    "contest_id": 7,
+                    "contest_type": "icpc",
+                    "judge_epoch": 1,
+                    "created_at": "2026-05-01T00:00:00Z",
+                    "result": null
+                }))
+            })
+            .expect(1000)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("DELETE"))
+            .and(path("/api/v1/contests/7"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let outcome = Burst {
+            server_url: server.uri(),
+            metrics_url: Some(format!("{}/metrics", server.uri())),
+            creds: AuthCreds::Token("test-token".into()),
+            submission_count: 1000,
+            concurrency: 128,
+            contest_type: Some("icpc".into()),
+            problem_type: Some("batch".into()),
+            fanout_test_cases_per_problem: 20,
+            baseline_plugin_pool_contention_delta: Some(100),
+            require_fanout_saturation: true,
+            ..Burst::default()
+        }
+        .run()
+        .await
+        .expect("burst scenario should run");
+
+        assert!(outcome.passed, "transcript: {:#?}", outcome.transcript);
+        assert_eq!(outcome.transcript.summary["terminal"], json!(1000));
+        assert!(outcome.transcript.events.iter().any(|event| {
+            event.message == "metrics delta captured"
+                && event.fields.get("plugin_pool_contention_delta") == Some(&json!(5))
+                && event.fields.get("fanout_saturated_delta") == Some(&json!(1))
+        }));
+        assert!(outcome.transcript.events.iter().any(|event| {
+            event
+                .message
+                .contains("plugin_pool_contention_total delta 5 within cap")
+        }));
     }
 
     #[test]

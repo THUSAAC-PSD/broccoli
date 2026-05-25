@@ -1,6 +1,7 @@
 pub mod burst;
 pub mod cancel_storm;
 pub mod kill_server_recovery;
+pub mod rolling_worker_restart;
 
 use async_trait::async_trait;
 

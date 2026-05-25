@@ -31,6 +31,9 @@ pub enum FaultScenario {
     CancelStorm(CancelStormArgs),
     /// Kill a server replica mid-judgement; assert lease/steal recovery.
     KillServerRecovery(KillServerRecoveryArgs),
+    /// Simulate a worker restart while a compile cache leader is active; assert
+    /// followers poll first, then take over after the abandoned lease expires.
+    RollingWorkerRestart(RollingWorkerRestartArgs),
     /// Post a burst of N submissions across a configurable contest-type mix and
     /// assert that ≥95% reach a terminal verdict within the deadline.
     Burst(BurstArgs),
@@ -86,6 +89,26 @@ pub struct BurstArgs {
     /// Maximum seconds to wait for all submissions to reach a terminal state.
     #[arg(long, default_value_t = 300)]
     pub terminal_deadline_secs: u64,
+    /// Optional Prometheus metrics URL to snapshot before/after the burst.
+    #[arg(long)]
+    pub metrics_url: Option<String>,
+    /// Number of testcases to create per scratch problem. Values >1 exercise
+    /// evaluator fanout pressure; use 20 for Signpost-class ICPC pressure.
+    #[arg(long, default_value_t = 1)]
+    pub fanout_test_cases_per_problem: usize,
+    /// Optional no-semaphore or unbounded-fanout contention delta to compare
+    /// against when --metrics-url is provided.
+    #[arg(long)]
+    pub baseline_plugin_pool_contention_delta: Option<u64>,
+    /// Maximum allowed fraction of the baseline contention delta.
+    #[arg(long, default_value_t = 0.2)]
+    pub max_plugin_pool_contention_baseline_ratio: f64,
+    /// Absolute plugin-pool-contention delta cap when --metrics-url is provided.
+    #[arg(long, default_value_t = 10)]
+    pub max_plugin_pool_contention_delta: u64,
+    /// Require fanout saturation to be observed, proving the semaphore engaged.
+    #[arg(long, default_value_t = false)]
+    pub require_fanout_saturation: bool,
     /// If set, keep the scratch contests after the run for inspection.
     #[arg(long, default_value_t = false)]
     pub keep_fixtures: bool,
@@ -129,6 +152,29 @@ pub struct KillServerRecoveryArgs {
     /// Problem id to submit against. Must be pre-seeded.
     #[arg(long, default_value_t = 1)]
     pub problem_id: i32,
+    /// Path to write the transcript JSON.
+    #[arg(long, default_value = "transcript.json")]
+    pub out: PathBuf,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct RollingWorkerRestartArgs {
+    /// Redis URL. If omitted, an ephemeral testcontainer is started.
+    #[arg(long)]
+    pub redis_url: Option<String>,
+    /// Optional shell command executed under `sh -c` while the leader lease is
+    /// held, e.g. `docker compose restart worker-1`.
+    #[arg(long)]
+    pub restart_command: Option<String>,
+    /// Leader lease TTL in seconds. Keep this short for harness runs.
+    #[arg(long, default_value_t = 3)]
+    pub leader_ttl_secs: u64,
+    /// How long the leader holds the lease before the restart/simulated death.
+    #[arg(long, default_value_t = 500)]
+    pub leader_hold_ms: u64,
+    /// Follower poll interval while waiting for the abandoned lease to expire.
+    #[arg(long, default_value_t = 100)]
+    pub follower_poll_interval_ms: u64,
     /// Path to write the transcript JSON.
     #[arg(long, default_value = "transcript.json")]
     pub out: PathBuf,
