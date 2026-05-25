@@ -1,4 +1,7 @@
-use broccoli_server_sdk::types::{StartEvaluateBatchInput, TestCaseVerdict};
+use broccoli_server_sdk::types::{
+    DetachedEvaluateSession, StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput,
+    TestCaseVerdict,
+};
 use extism::{Function, UserData, Val, ValType};
 use serde::Deserialize;
 use std::time::Duration;
@@ -42,6 +45,13 @@ pub fn create_evaluate_functions(plugin_id: String, deps: EvaluateHostDeps) -> V
             start_evaluate_batch_fn,
         ),
         Function::new(
+            "start_detached_windowed_evaluate",
+            [ValType::I64],
+            [ValType::I64],
+            user_data.clone(),
+            start_detached_windowed_evaluate_fn,
+        ),
+        Function::new(
             "get_next_evaluate_result",
             [ValType::I64],
             [ValType::I64],
@@ -63,6 +73,31 @@ pub fn create_evaluate_functions(plugin_id: String, deps: EvaluateHostDeps) -> V
             cancel_evaluate_test_cases_fn,
         ),
     ]
+}
+
+fn start_detached_windowed_evaluate_fn(
+    plugin: &mut extism::CurrentPlugin,
+    inputs: &[Val],
+    outputs: &mut [Val],
+    user_data: UserData<EvaluateUserData>,
+) -> Result<(), extism::Error> {
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: StartDetachedWindowedEvaluateInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let (caller_plugin_id, deps) = {
+        let user_data_guard = user_data.get()?;
+        let guard = user_data_guard
+            .lock()
+            .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        (guard.plugin_id.clone(), guard.deps.clone())
+    };
+    let span = super::host_fn_span("start_detached_windowed_evaluate", &caller_plugin_id);
+    let _enter = span.enter();
+
+    let session = evaluate_batch::start_detached_windowed_evaluate(caller_plugin_id, deps, input)
+        .map_err(|e| extism::Error::msg(e.to_string()))?;
+    write_session(plugin, outputs, session)
 }
 
 fn start_evaluate_batch_fn(
@@ -250,6 +285,18 @@ fn write_result(
     let response = serde_json::json!({ "result": result });
     let output_bytes = serde_json::to_vec(&response)
         .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
+    Ok(())
+}
+
+fn write_session(
+    plugin: &mut extism::CurrentPlugin,
+    outputs: &mut [Val],
+    session: DetachedEvaluateSession,
+) -> Result<(), extism::Error> {
+    let output_bytes = serde_json::to_vec(&session)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize session: {}", e)))?;
     let offset = plugin.memory_new(&output_bytes)?;
     outputs[0] = Val::I64(offset.offset() as i64);
     Ok(())

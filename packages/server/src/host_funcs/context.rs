@@ -7,11 +7,13 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Semaphore;
 
 use crate::config::AppConfig;
+use crate::hooks::SharedHookRegistry;
 use crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry;
 use crate::registry::{
     CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
+use crate::services::operation_batch::{MqOperationTaskPublisher, OperationTaskPublisher};
 
 #[derive(Clone)]
 pub struct HostFunctionSystemDeps {
@@ -26,6 +28,7 @@ pub struct HostFunctionSystemDeps {
     pub evaluate_batches: EvaluateBatches,
     pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
     pub blob_store: Arc<dyn BlobStore>,
+    pub hook_registry: SharedHookRegistry,
     pub config: AppConfig,
     pub metrics: Option<common::metrics::Metrics>,
     pub redis_client: Option<Arc<redis::Client>>,
@@ -39,7 +42,8 @@ pub struct HostFunctionDeps {
 
 #[derive(Clone)]
 pub struct OperationHostDeps {
-    pub mq: Option<Arc<MqQueue>>,
+    pub plugin_manager: Option<Arc<dyn PluginManager>>,
+    pub operation_publisher: Option<Arc<dyn OperationTaskPublisher>>,
     pub operation_batches: OperationBatches,
     pub operation_waiters: OperationWaiters,
     pub operation_queue_name: String,
@@ -63,6 +67,7 @@ pub struct EvaluateHostDeps {
     pub fanout_slots: crate::dispatcher::fanout::FanoutSemaphore,
     pub plugin_manager: Arc<dyn PluginManager>,
     pub blob_store: Arc<dyn BlobStore>,
+    pub hook_registry: SharedHookRegistry,
     pub metrics: Option<common::metrics::Metrics>,
     pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
     pub redis_client: Option<Arc<redis::Client>>,
@@ -79,7 +84,10 @@ impl HostFunctionSystemDeps {
 
     pub fn operation_deps(&self) -> OperationHostDeps {
         OperationHostDeps {
-            mq: self.mq.clone(),
+            plugin_manager: None,
+            operation_publisher: self.mq.clone().map(|mq| {
+                Arc::new(MqOperationTaskPublisher::new(mq)) as Arc<dyn OperationTaskPublisher>
+            }),
             operation_batches: self.operation_batches.clone(),
             operation_waiters: self.operation_waiters.clone(),
             operation_queue_name: self.config.mq.operation_queue_name.clone(),
@@ -106,15 +114,26 @@ impl HostFunctionDeps {
             db: self.system.db.clone(),
             evaluator_registry: self.system.evaluator_registry.clone(),
             evaluate_batches: self.system.evaluate_batches.clone(),
-            operation_deps: self.system.operation_deps(),
+            operation_deps: {
+                let mut deps = self.system.operation_deps();
+                deps.plugin_manager = Some(self.plugin_manager.clone());
+                deps
+            },
             evaluator_slots,
             fanout_slots,
             plugin_manager: self.plugin_manager.clone(),
             blob_store: self.system.blob_store.clone(),
+            hook_registry: self.system.hook_registry.clone(),
             metrics: self.system.metrics.clone(),
             evaluate_ops_registry: self.system.evaluate_ops_registry.clone(),
             redis_client: self.system.redis_client.clone(),
             cancel_primitive_enabled: self.system.config.server.cancel_primitive_enabled,
         }
+    }
+
+    pub fn operation_deps(&self) -> OperationHostDeps {
+        let mut deps = self.system.operation_deps();
+        deps.plugin_manager = Some(self.plugin_manager.clone());
+        deps
     }
 }

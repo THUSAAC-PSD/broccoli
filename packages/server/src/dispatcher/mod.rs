@@ -142,4 +142,20 @@ impl Dispatcher {
             let _ = handle.await;
         }
     }
+
+    pub fn abort(&mut self) {
+        if let Some(tx) = self.cancel.take() {
+            let _ = tx.send(true);
+        }
+
+        for handle in self.handles.drain(..) {
+            handle.abort();
+        }
+    }
+}
+
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        self.abort();
+    }
 }

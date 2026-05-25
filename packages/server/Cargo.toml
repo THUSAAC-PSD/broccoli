@@ -7,6 +7,7 @@ build = "build.rs"
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
+async-trait.workspace = true
 broccoli-server-sdk.workspace = true
 common = { workspace = true, features = ["sea-orm", "object-storage"] }
 crossbeam.workspace = true
@@ -73,8 +74,12 @@ tower_governor = { version = "0.8", default-features = false, features = ["axum"
 default = []
 bundled-stress-test = []
 
+[[bench]]
+name = "batch_evaluator_continuation"
+harness = false
+
 [dev-dependencies]
-async-trait.workspace = true
+criterion = { version = "0.5", features = ["async_tokio"] }
 libc = "0.2"
 reqwest = { version = "0.12", features = ["cookies", "json", "multipart"] }
 sea-orm = { workspace = true, features = ["mock"] }

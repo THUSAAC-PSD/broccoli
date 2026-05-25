@@ -1,20 +1,64 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
-use broccoli_server_sdk::types::{OperationTask, SessionFile};
+use async_trait::async_trait;
+use broccoli_server_sdk::types::{
+    DetachedOperationCallbackAction, DetachedOperationCallbackEvent,
+    DetachedOperationCallbackInput, DetachedOperationCallbackOutput, DetachedOperationSession,
+    OperationResult, OperationTask, SessionFile, StartDetachedWindowedOperationInput,
+};
 use common::storage::BlobStore;
 use common::worker::{Task, TaskResult};
 use futures::stream::{self, StreamExt, TryStreamExt};
-use mq::config::PublishConfig;
+use mq::{MqQueue, config::PublishConfig};
 use opentelemetry::KeyValue;
+use plugin_core::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::host_funcs::context::OperationHostDeps;
 use crate::registry::{BatchState, OperationBatches, OperationWaiter, OperationWaiters};
 
 const INLINE_FILE_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
+
+#[async_trait]
+pub trait OperationTaskPublisher: Send + Sync {
+    async fn publish_operation_task(
+        &self,
+        target_queue: &str,
+        task: &Task,
+        publish_config: Option<PublishConfig>,
+    ) -> anyhow::Result<()>;
+}
+
+pub struct MqOperationTaskPublisher {
+    mq: Arc<MqQueue>,
+}
+
+impl MqOperationTaskPublisher {
+    pub fn new(mq: Arc<MqQueue>) -> Self {
+        Self { mq }
+    }
+}
+
+#[async_trait]
+impl OperationTaskPublisher for MqOperationTaskPublisher {
+    async fn publish_operation_task(
+        &self,
+        target_queue: &str,
+        task: &Task,
+        publish_config: Option<PublishConfig>,
+    ) -> anyhow::Result<()> {
+        self.mq
+            .publish(target_queue, None, task, publish_config)
+            .await
+            .map(|_| ())
+            .with_context(|| "MQ publish error")
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct OperationResultE2eLabels {
@@ -81,7 +125,7 @@ pub async fn start_operation_batch(
     // per-op future also re-checks (since they clone `deps`), but rejecting
     // here preserves the early-return semantic (and avoids registering a
     // BatchState whose ops can never publish).
-    deps.mq
+    deps.operation_publisher
         .as_ref()
         .ok_or_else(|| anyhow!("MQ not available"))?;
 
@@ -95,6 +139,15 @@ pub async fn start_operation_batch(
             .map(|_| Uuid::new_v4().to_string())
             .collect::<Vec<_>>(),
     );
+    let evaluate_refs = operations
+        .iter()
+        .filter_map(|op| {
+            op.evaluate_batch_id
+                .clone()
+                .zip(op.test_case_id)
+                .map(|(evaluate_batch_id, test_case_id)| (evaluate_batch_id, test_case_id))
+        })
+        .collect::<Vec<_>>();
 
     deps.operation_batches.insert(
         batch_id.clone(),
@@ -198,15 +251,14 @@ pub async fn start_operation_batch(
                 enqueued_at_unix_ms: Some(chrono::Utc::now().timestamp_millis()),
             };
 
-            let mq = deps
-                .mq
+            let publisher = deps
+                .operation_publisher
                 .as_ref()
                 .ok_or_else(|| anyhow!("MQ not available"))?;
             let publish_start = Instant::now();
-            let publish_result = mq
-                .publish(
+            let publish_result = publisher
+                .publish_operation_task(
                     &target_queue,
-                    None,
                     &task,
                     task.priority
                         .map(|p| PublishConfig::builder().priority(p).build()),
@@ -236,9 +288,433 @@ pub async fn start_operation_batch(
     }))
     .buffer_unordered(publish_concurrency)
     .try_collect::<Vec<()>>()
-    .await?;
+    .await
+    .inspect_err(|_| {
+        cleanup_failed_operation_batch(
+            &deps,
+            &batch_id,
+            cleanup_keys.as_ref(),
+            &evaluate_refs,
+            plugin_id.as_str(),
+        );
+    })?;
 
     Ok(batch_id)
+}
+
+fn cleanup_failed_operation_batch(
+    deps: &OperationHostDeps,
+    batch_id: &str,
+    cleanup_keys: &[String],
+    evaluate_refs: &[(String, i32)],
+    plugin_id: &str,
+) {
+    deps.operation_batches.remove(batch_id);
+    for correlation_id in cleanup_keys {
+        deps.operation_waiters.remove(correlation_id);
+    }
+    for (evaluate_batch_id, test_case_id) in evaluate_refs {
+        deps.evaluate_ops_registry.remove_operation_batch(
+            evaluate_batch_id,
+            *test_case_id,
+            batch_id,
+        );
+    }
+    if let Some(metrics) = deps.metrics.as_ref() {
+        metrics.batch_active.add(
+            -1,
+            &[
+                KeyValue::new("batch.kind", "operation"),
+                KeyValue::new("plugin.id", plugin_id.to_string()),
+            ],
+        );
+    }
+}
+
+pub fn start_detached_windowed_operation(
+    plugin_id: String,
+    plugin_manager: Arc<dyn plugin_core::traits::PluginManager>,
+    deps: OperationHostDeps,
+    input: StartDetachedWindowedOperationInput,
+) -> anyhow::Result<DetachedOperationSession> {
+    if input.callback_fn.trim().is_empty() {
+        return Err(anyhow!("Detached operation callback_fn cannot be empty"));
+    }
+
+    let session_id = Uuid::new_v4().to_string();
+    let session = DetachedOperationSession {
+        session_id: session_id.clone(),
+    };
+    tokio::spawn(run_detached_windowed_operation(
+        plugin_id,
+        plugin_manager,
+        deps,
+        session_id,
+        input,
+    ));
+    Ok(session)
+}
+
+#[derive(Debug)]
+struct DetachedOperationResult {
+    operation_index: usize,
+    batch_id: String,
+    result: anyhow::Result<Option<TaskResult>>,
+}
+
+async fn run_detached_windowed_operation(
+    plugin_id: String,
+    plugin_manager: Arc<dyn plugin_core::traits::PluginManager>,
+    deps: OperationHostDeps,
+    session_id: String,
+    input: StartDetachedWindowedOperationInput,
+) {
+    let total = input.operations.len();
+    let concurrency = input.concurrency.max(1);
+    let timeout = Duration::from_millis(input.result_timeout_ms);
+    let mut pending = input.operations.into_iter().enumerate().collect::<Vec<_>>();
+    pending.reverse();
+    let mut active = Vec::<(usize, String)>::new();
+    let (tx, mut rx) = mpsc::channel::<DetachedOperationResult>(concurrency * 2);
+    let mut state = input.state;
+    let mut completed = 0usize;
+
+    while active.len() < concurrency {
+        let Some((operation_index, operation)) = pending.pop() else {
+            break;
+        };
+        match start_detached_operation_slot(
+            &plugin_id,
+            deps.clone(),
+            tx.clone(),
+            operation_index,
+            operation,
+            timeout,
+        )
+        .await
+        {
+            Ok(batch_id) => active.push((operation_index, batch_id)),
+            Err(e) => {
+                let callback = DetachedOperationCallbackInput {
+                    session_id: session_id.clone(),
+                    state: state.clone(),
+                    event: DetachedOperationCallbackEvent::Timeout {
+                        message: e.to_string(),
+                    },
+                    completed,
+                    total,
+                };
+                let _ = call_detached_operation_callback(
+                    plugin_manager.as_ref(),
+                    &plugin_id,
+                    &input.callback_fn,
+                    callback,
+                )
+                .await;
+                cancel_active_operation_slots(&plugin_id, &deps, &active);
+                return;
+            }
+        }
+    }
+
+    if active.is_empty() {
+        send_detached_operation_exhausted(
+            plugin_manager.as_ref(),
+            &plugin_id,
+            &input.callback_fn,
+            session_id,
+            state,
+            completed,
+            total,
+        )
+        .await;
+        return;
+    }
+
+    while let Some(item) = rx.recv().await {
+        if !remove_active_operation_slot_by_batch_id(&mut active, &item.batch_id) {
+            continue;
+        }
+        completed += 1;
+
+        let event = match item.result {
+            Ok(Some(task_result)) => match operation_result_from_task_result(task_result) {
+                Ok(result) => DetachedOperationCallbackEvent::Result {
+                    operation_index: item.operation_index,
+                    result,
+                },
+                Err(e) => DetachedOperationCallbackEvent::Timeout {
+                    message: e.to_string(),
+                },
+            },
+            Ok(None) => DetachedOperationCallbackEvent::Timeout {
+                message: format!("Operation {} timed out", item.operation_index),
+            },
+            Err(e) => DetachedOperationCallbackEvent::Timeout {
+                message: e.to_string(),
+            },
+        };
+
+        let callback = DetachedOperationCallbackInput {
+            session_id: session_id.clone(),
+            state: state.clone(),
+            event,
+            completed,
+            total,
+        };
+
+        let output = match call_detached_operation_callback(
+            plugin_manager.as_ref(),
+            &plugin_id,
+            &input.callback_fn,
+            callback,
+        )
+        .await
+        {
+            Ok(output) => output,
+            Err(e) => {
+                tracing::error!(%plugin_id, %session_id, error = %e, "Detached operation callback failed");
+                cancel_active_operation_slots(&plugin_id, &deps, &active);
+                return;
+            }
+        };
+
+        state = output.state;
+        let refill_enabled = output.refill;
+
+        if !output.cancel_operation_indices.is_empty() {
+            let cancel_set: HashSet<usize> =
+                output.cancel_operation_indices.iter().copied().collect();
+            cancel_operation_indices(&plugin_id, &deps, &mut active, &cancel_set);
+            pending.retain(|(idx, _)| !cancel_set.contains(idx));
+        }
+
+        match output.action {
+            DetachedOperationCallbackAction::Continue => {}
+            DetachedOperationCallbackAction::Finish | DetachedOperationCallbackAction::Cancel => {
+                cancel_active_operation_slots(&plugin_id, &deps, &active);
+                return;
+            }
+        }
+
+        while refill_enabled && active.len() < concurrency {
+            let Some((operation_index, operation)) = pending.pop() else {
+                break;
+            };
+            match start_detached_operation_slot(
+                &plugin_id,
+                deps.clone(),
+                tx.clone(),
+                operation_index,
+                operation,
+                timeout,
+            )
+            .await
+            {
+                Ok(batch_id) => active.push((operation_index, batch_id)),
+                Err(e) => {
+                    tracing::error!(%plugin_id, %session_id, operation_index, error = %e, "Failed to refill detached operation slot");
+                    let callback = DetachedOperationCallbackInput {
+                        session_id: session_id.clone(),
+                        state: state.clone(),
+                        event: DetachedOperationCallbackEvent::Timeout {
+                            message: e.to_string(),
+                        },
+                        completed,
+                        total,
+                    };
+                    let output = match call_detached_operation_callback(
+                        plugin_manager.as_ref(),
+                        &plugin_id,
+                        &input.callback_fn,
+                        callback,
+                    )
+                    .await
+                    {
+                        Ok(output) => output,
+                        Err(e) => {
+                            tracing::error!(%plugin_id, %session_id, error = %e, "Detached operation callback failed after refill start failure");
+                            cancel_active_operation_slots(&plugin_id, &deps, &active);
+                            return;
+                        }
+                    };
+                    state = output.state;
+                    match output.action {
+                        DetachedOperationCallbackAction::Continue => {}
+                        DetachedOperationCallbackAction::Finish
+                        | DetachedOperationCallbackAction::Cancel => {
+                            cancel_active_operation_slots(&plugin_id, &deps, &active);
+                            return;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if active.is_empty() && (!refill_enabled || pending.is_empty()) {
+            break;
+        }
+    }
+
+    send_detached_operation_exhausted(
+        plugin_manager.as_ref(),
+        &plugin_id,
+        &input.callback_fn,
+        session_id,
+        state,
+        completed,
+        total,
+    )
+    .await;
+}
+
+async fn send_detached_operation_exhausted(
+    plugin_manager: &dyn plugin_core::traits::PluginManager,
+    plugin_id: &str,
+    callback_fn: &str,
+    session_id: String,
+    state: serde_json::Value,
+    completed: usize,
+    total: usize,
+) {
+    let callback = DetachedOperationCallbackInput {
+        session_id,
+        state,
+        event: DetachedOperationCallbackEvent::Exhausted,
+        completed,
+        total,
+    };
+    let _ =
+        call_detached_operation_callback(plugin_manager, plugin_id, callback_fn, callback).await;
+}
+
+async fn start_detached_operation_slot(
+    plugin_id: &str,
+    deps: OperationHostDeps,
+    tx: mpsc::Sender<DetachedOperationResult>,
+    operation_index: usize,
+    operation: OperationTask,
+    timeout: Duration,
+) -> anyhow::Result<String> {
+    let batch_id =
+        start_operation_batch(plugin_id.to_string(), deps.clone(), vec![operation]).await?;
+    let wait_batch_id = batch_id.clone();
+    let wait_plugin_id = plugin_id.to_string();
+    tokio::spawn(async move {
+        let batches = deps.operation_batches.clone();
+        let metrics = deps.metrics.clone();
+        let batch_id_for_wait = wait_batch_id.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            next_operation_result(
+                &wait_plugin_id,
+                &batches,
+                metrics.as_ref(),
+                &batch_id_for_wait,
+                timeout,
+            )
+        })
+        .await
+        .map_err(|e| anyhow!("Operation waiter task failed: {e}"))
+        .and_then(|result| result);
+        let _ = tx
+            .send(DetachedOperationResult {
+                operation_index,
+                batch_id: wait_batch_id,
+                result,
+            })
+            .await;
+    });
+    Ok(batch_id)
+}
+
+async fn call_detached_operation_callback(
+    plugin_manager: &dyn plugin_core::traits::PluginManager,
+    plugin_id: &str,
+    callback_fn: &str,
+    input: DetachedOperationCallbackInput,
+) -> anyhow::Result<DetachedOperationCallbackOutput> {
+    let input_bytes = serde_json::to_vec(&input)
+        .with_context(|| "Failed to serialize detached operation callback input")?;
+    let output_bytes = call_raw_with_pool_retry(
+        plugin_manager,
+        plugin_id,
+        callback_fn,
+        input_bytes,
+        PoolRetryPolicy::default(),
+    )
+    .await
+    .with_context(|| "Detached operation callback failed")?;
+    serde_json::from_slice::<DetachedOperationCallbackOutput>(&output_bytes)
+        .with_context(|| "Failed to deserialize detached operation callback output")
+}
+
+fn operation_result_from_task_result(task_result: TaskResult) -> anyhow::Result<OperationResult> {
+    serde_json::from_value::<OperationResult>(task_result.output).map_err(|_| {
+        anyhow!(
+            "{}",
+            task_result
+                .error
+                .unwrap_or_else(|| "Worker did not return an OperationResult".to_string())
+        )
+    })
+}
+
+fn cancel_active_operation_slots(
+    plugin_id: &str,
+    deps: &OperationHostDeps,
+    active: &[(usize, String)],
+) {
+    for (_, batch_id) in active {
+        cancel_operation_batch(
+            plugin_id,
+            &deps.operation_batches,
+            &deps.operation_waiters,
+            deps.metrics.as_ref(),
+            batch_id,
+        );
+    }
+}
+
+fn cancel_operation_indices(
+    plugin_id: &str,
+    deps: &OperationHostDeps,
+    active: &mut Vec<(usize, String)>,
+    indices: &HashSet<usize>,
+) {
+    let mut cancelled = Vec::new();
+    active.retain(|(idx, batch_id)| {
+        if indices.contains(idx) {
+            cancel_operation_batch(
+                plugin_id,
+                &deps.operation_batches,
+                &deps.operation_waiters,
+                deps.metrics.as_ref(),
+                batch_id,
+            );
+            cancelled.push(*idx);
+            false
+        } else {
+            true
+        }
+    });
+    if !cancelled.is_empty() {
+        tracing::debug!(?cancelled, "Detached operation slots cancelled by callback");
+    }
+}
+
+fn remove_active_operation_slot_by_batch_id(
+    active: &mut Vec<(usize, String)>,
+    batch_id: &str,
+) -> bool {
+    let Some(index) = active
+        .iter()
+        .position(|(_, active_batch_id)| active_batch_id == batch_id)
+    else {
+        return false;
+    };
+    active.swap_remove(index);
+    true
 }
 
 pub fn next_operation_result(
@@ -477,6 +953,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn detached_operation_ignores_results_for_cancelled_slots() {
+        let mut active = vec![(0, "batch-1".to_string()), (1, "batch-2".to_string())];
+
+        assert!(remove_active_operation_slot_by_batch_id(
+            &mut active,
+            "batch-1"
+        ));
+        assert!(!remove_active_operation_slot_by_batch_id(
+            &mut active,
+            "batch-1"
+        ));
+        assert_eq!(active, vec![(1, "batch-2".to_string())]);
+    }
+
+    #[test]
     fn operation_result_e2e_labels_prefer_result_metadata() {
         let result = TaskResult {
             task_id: "op-1".to_string(),
@@ -566,7 +1057,8 @@ mod tests {
                 .unwrap(),
         );
         let deps = OperationHostDeps {
-            mq: None,
+            plugin_manager: None,
+            operation_publisher: None,
             operation_batches: Arc::new(dashmap::DashMap::new()),
             operation_waiters: Arc::new(dashmap::DashMap::new()),
             operation_queue_name: "ops".to_string(),
@@ -582,6 +1074,65 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("MQ not available"));
+    }
+
+    #[tokio::test]
+    async fn failed_operation_batch_cleanup_removes_batch_waiters_and_eval_refs() {
+        let temp = tempfile::tempdir().unwrap();
+        let blob_store = Arc::new(
+            FilesystemBlobStore::new(temp.path().to_path_buf(), 2_000_000)
+                .await
+                .unwrap(),
+        );
+        let operation_batches = Arc::new(dashmap::DashMap::new());
+        let operation_waiters = Arc::new(dashmap::DashMap::new());
+        let evaluate_ops_registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let cleanup_keys = vec!["op-1".to_string(), "op-2".to_string()];
+        let (_batch_tx, batch_rx) = crossbeam::channel::unbounded();
+        let (waiter_tx, _waiter_rx) = tokio::sync::oneshot::channel();
+
+        operation_batches.insert(
+            "batch-1".to_string(),
+            BatchState {
+                result_rx: batch_rx,
+                pending_count: Arc::new(AtomicUsize::new(2)),
+                created_at: Instant::now(),
+                cleanup_keys: Arc::new(cleanup_keys.clone()),
+                poisoned: AtomicBool::new(false),
+            },
+        );
+        operation_waiters.insert("op-1".to_string(), OperationWaiter::new(waiter_tx));
+        evaluate_ops_registry.record_ops("eval-1", 10, "batch-1", cleanup_keys.clone());
+
+        let deps = OperationHostDeps {
+            plugin_manager: None,
+            operation_publisher: None,
+            operation_batches: operation_batches.clone(),
+            operation_waiters: operation_waiters.clone(),
+            operation_queue_name: "ops".to_string(),
+            operation_result_queue_name: "ops-results".to_string(),
+            blob_store,
+            metrics: None,
+            evaluate_ops_registry: evaluate_ops_registry.clone(),
+            operation_batch_publish_concurrency: 32,
+        };
+
+        cleanup_failed_operation_batch(
+            &deps,
+            "batch-1",
+            &cleanup_keys,
+            &[("eval-1".to_string(), 10)],
+            "plugin",
+        );
+
+        assert!(operation_batches.get("batch-1").is_none());
+        assert!(operation_waiters.get("op-1").is_none());
+        assert!(
+            evaluate_ops_registry
+                .operation_task_ids_for_test_cases("eval-1", &[10])
+                .is_empty()
+        );
     }
 
     #[test]

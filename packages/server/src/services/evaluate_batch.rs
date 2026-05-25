@@ -4,17 +4,19 @@
 // integration suite. The FanoutSemaphore introduced for UP#14b is tested in
 // `crate::dispatcher::fanout` and the end-to-end bounded fan-out behaviour
 // relies on the integration suite + stress-test harness for verification.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, EvaluateOperationResultInput, EvaluateOperationResultsInput, FileRef,
-    JudgeFile, OperationResult, OperationTask, PreparedEvaluateCase, SourceFile,
-    StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseBodyRef, TestCaseVerdict,
-    Verdict as SdkVerdict,
+    BuildEvalOpsInput, DetachedEvaluateCallbackAction, DetachedEvaluateCallbackEvent,
+    DetachedEvaluateCallbackInput, DetachedEvaluateCallbackOutput, DetachedEvaluateSession,
+    EvaluateOperationResultInput, EvaluateOperationResultsInput, FileRef, JudgeFile,
+    OperationResult, OperationTask, PreparedEvaluateCase, SourceFile,
+    StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput, StartEvaluateCaseInput,
+    TestCaseBodyRef, TestCaseVerdict, Verdict as SdkVerdict,
 };
 use common::storage::{BlobStore, ContentHash};
 use opentelemetry::KeyValue;
@@ -27,6 +29,7 @@ use uuid::Uuid;
 use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::host_funcs::context::EvaluateHostDeps;
 use crate::registry::{BatchState, EvaluateBatches, PluginHandler};
+use crate::services::submission_dispatch::fire_after_judging_hooks_for_detached_completion;
 
 const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 const EVALUATE_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
@@ -301,6 +304,488 @@ pub async fn start_evaluate_batch(
     Ok(batch_id)
 }
 
+pub fn start_detached_windowed_evaluate(
+    caller_plugin_id: String,
+    deps: EvaluateHostDeps,
+    input: StartDetachedWindowedEvaluateInput,
+) -> anyhow::Result<DetachedEvaluateSession> {
+    if input.callback_fn.trim().is_empty() {
+        return Err(anyhow!("Detached evaluate callback_fn cannot be empty"));
+    }
+
+    let session_id = Uuid::new_v4().to_string();
+    let session = DetachedEvaluateSession {
+        session_id: session_id.clone(),
+    };
+    tokio::spawn(run_detached_windowed_evaluate(
+        caller_plugin_id,
+        deps,
+        session_id,
+        input,
+    ));
+    Ok(session)
+}
+
+#[derive(Debug)]
+struct DetachedEvaluateResult {
+    test_case_id: i32,
+    batch_id: String,
+    result: anyhow::Result<Option<TestCaseVerdict>>,
+}
+
+async fn run_detached_windowed_evaluate(
+    caller_plugin_id: String,
+    deps: EvaluateHostDeps,
+    session_id: String,
+    input: StartDetachedWindowedEvaluateInput,
+) {
+    let total = input.batch.test_cases.len();
+    let concurrency = input.concurrency.max(1);
+    let timeout = Duration::from_millis(input.result_timeout_ms);
+    let submission_completion = input.submission_completion.clone();
+    let problem_type = input.batch.problem_type.clone();
+    let mut pending = input.batch.test_cases.into_iter().rev().collect::<Vec<_>>();
+    let mut active = Vec::<(i32, String)>::new();
+    let (tx, mut rx) = mpsc::channel::<DetachedEvaluateResult>(concurrency * 2);
+    let mut state = input.state;
+    let mut completed = 0usize;
+
+    while active.len() < concurrency {
+        let Some(test_case) = pending.pop() else {
+            break;
+        };
+        match start_detached_evaluate_slot(
+            &caller_plugin_id,
+            deps.clone(),
+            tx.clone(),
+            problem_type.clone(),
+            test_case,
+            timeout,
+        )
+        .await
+        {
+            Ok((test_case_id, batch_id)) => active.push((test_case_id, batch_id)),
+            Err(e) => {
+                let callback = DetachedEvaluateCallbackInput {
+                    session_id: session_id.clone(),
+                    state: state.clone(),
+                    event: DetachedEvaluateCallbackEvent::Timeout {
+                        message: e.to_string(),
+                    },
+                    completed,
+                    total,
+                };
+                let output = call_detached_evaluate_callback(
+                    deps.plugin_manager.as_ref(),
+                    &caller_plugin_id,
+                    &input.callback_fn,
+                    callback,
+                )
+                .await
+                .ok();
+                cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
+                let action = output
+                    .map(|output| output.action)
+                    .unwrap_or(DetachedEvaluateCallbackAction::Cancel);
+                fire_detached_evaluate_completion_hooks(
+                    &deps,
+                    detached_evaluate_completion(submission_completion.as_ref(), action),
+                )
+                .await;
+                return;
+            }
+        }
+    }
+
+    if active.is_empty() {
+        if let Some(output) = send_detached_evaluate_exhausted(
+            deps.plugin_manager.as_ref(),
+            &caller_plugin_id,
+            &input.callback_fn,
+            session_id,
+            state,
+            completed,
+            total,
+        )
+        .await
+        {
+            fire_detached_evaluate_completion_hooks(
+                &deps,
+                detached_evaluate_completion(submission_completion.as_ref(), output.action),
+            )
+            .await;
+        }
+        return;
+    }
+
+    while let Some(item) = rx.recv().await {
+        if !remove_active_evaluate_slot_by_batch_id(&mut active, &item.batch_id) {
+            continue;
+        }
+        completed += 1;
+
+        let event = match item.result {
+            Ok(Some(result)) => DetachedEvaluateCallbackEvent::Result { result },
+            Ok(None) => DetachedEvaluateCallbackEvent::Timeout {
+                message: format!("Test case {} timed out", item.test_case_id),
+            },
+            Err(e) => DetachedEvaluateCallbackEvent::Timeout {
+                message: e.to_string(),
+            },
+        };
+
+        let callback = DetachedEvaluateCallbackInput {
+            session_id: session_id.clone(),
+            state: state.clone(),
+            event,
+            completed,
+            total,
+        };
+        let output = match call_detached_evaluate_callback(
+            deps.plugin_manager.as_ref(),
+            &caller_plugin_id,
+            &input.callback_fn,
+            callback,
+        )
+        .await
+        {
+            Ok(output) => output,
+            Err(e) => {
+                tracing::error!(%caller_plugin_id, %session_id, error = %e, "Detached evaluate callback failed");
+                cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
+                return;
+            }
+        };
+
+        state = output.state;
+        let refill_enabled = output.refill;
+
+        if !output.cancel_test_case_ids.is_empty() {
+            let cancel_set: HashSet<i32> = output.cancel_test_case_ids.iter().copied().collect();
+            cancel_evaluate_test_case_ids(&caller_plugin_id, &deps, &mut active, &cancel_set).await;
+            pending.retain(|case| !cancel_set.contains(&case.test_case_id));
+        }
+
+        match output.action {
+            DetachedEvaluateCallbackAction::Continue => {}
+            DetachedEvaluateCallbackAction::Finish | DetachedEvaluateCallbackAction::Cancel => {
+                cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
+                fire_detached_evaluate_completion_hooks(
+                    &deps,
+                    detached_evaluate_completion(submission_completion.as_ref(), output.action),
+                )
+                .await;
+                return;
+            }
+        }
+
+        while refill_enabled && active.len() < concurrency {
+            let Some(test_case) = pending.pop() else {
+                break;
+            };
+            match start_detached_evaluate_slot(
+                &caller_plugin_id,
+                deps.clone(),
+                tx.clone(),
+                problem_type.clone(),
+                test_case,
+                timeout,
+            )
+            .await
+            {
+                Ok((test_case_id, batch_id)) => active.push((test_case_id, batch_id)),
+                Err(e) => {
+                    tracing::error!(%caller_plugin_id, %session_id, error = %e, "Failed to refill detached evaluate slot");
+                    let callback = DetachedEvaluateCallbackInput {
+                        session_id: session_id.clone(),
+                        state: state.clone(),
+                        event: DetachedEvaluateCallbackEvent::Timeout {
+                            message: e.to_string(),
+                        },
+                        completed,
+                        total,
+                    };
+                    let output = match call_detached_evaluate_callback(
+                        deps.plugin_manager.as_ref(),
+                        &caller_plugin_id,
+                        &input.callback_fn,
+                        callback,
+                    )
+                    .await
+                    {
+                        Ok(output) => output,
+                        Err(e) => {
+                            tracing::error!(%caller_plugin_id, %session_id, error = %e, "Detached evaluate callback failed after refill start failure");
+                            cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
+                            return;
+                        }
+                    };
+                    state = output.state;
+                    match output.action {
+                        DetachedEvaluateCallbackAction::Continue => {}
+                        DetachedEvaluateCallbackAction::Finish
+                        | DetachedEvaluateCallbackAction::Cancel => {
+                            cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
+                            fire_detached_evaluate_completion_hooks(
+                                &deps,
+                                detached_evaluate_completion(
+                                    submission_completion.as_ref(),
+                                    output.action,
+                                ),
+                            )
+                            .await;
+                            return;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if active.is_empty() && (!refill_enabled || pending.is_empty()) {
+            break;
+        }
+    }
+
+    if let Some(output) = send_detached_evaluate_exhausted(
+        deps.plugin_manager.as_ref(),
+        &caller_plugin_id,
+        &input.callback_fn,
+        session_id,
+        state,
+        completed,
+        total,
+    )
+    .await
+    {
+        fire_detached_evaluate_completion_hooks(
+            &deps,
+            detached_evaluate_completion(submission_completion.as_ref(), output.action),
+        )
+        .await;
+    }
+}
+
+async fn send_detached_evaluate_exhausted(
+    plugin_manager: &dyn plugin_core::traits::PluginManager,
+    caller_plugin_id: &str,
+    callback_fn: &str,
+    session_id: String,
+    state: serde_json::Value,
+    completed: usize,
+    total: usize,
+) -> Option<DetachedEvaluateCallbackOutput> {
+    let callback = DetachedEvaluateCallbackInput {
+        session_id,
+        state,
+        event: DetachedEvaluateCallbackEvent::Exhausted,
+        completed,
+        total,
+    };
+    call_detached_evaluate_callback(plugin_manager, caller_plugin_id, callback_fn, callback)
+        .await
+        .ok()
+}
+
+fn detached_evaluate_completion(
+    completion: Option<&broccoli_server_sdk::types::DetachedSubmissionCompletion>,
+    action: DetachedEvaluateCallbackAction,
+) -> Option<broccoli_server_sdk::types::DetachedSubmissionCompletion> {
+    match action {
+        DetachedEvaluateCallbackAction::Finish | DetachedEvaluateCallbackAction::Cancel => {
+            completion
+                .filter(|completion| completion.fire_after_judging)
+                .cloned()
+        }
+        DetachedEvaluateCallbackAction::Continue => None,
+    }
+}
+
+async fn fire_detached_evaluate_completion_hooks(
+    deps: &EvaluateHostDeps,
+    completion: Option<broccoli_server_sdk::types::DetachedSubmissionCompletion>,
+) {
+    let Some(completion) = completion else {
+        return;
+    };
+    fire_after_judging_hooks_for_detached_completion(
+        &deps.db,
+        deps.hook_registry.clone(),
+        &completion,
+    )
+    .await;
+}
+
+async fn start_detached_evaluate_slot(
+    caller_plugin_id: &str,
+    deps: EvaluateHostDeps,
+    tx: mpsc::Sender<DetachedEvaluateResult>,
+    problem_type: String,
+    test_case: StartEvaluateCaseInput,
+    timeout: Duration,
+) -> anyhow::Result<(i32, String)> {
+    let test_case_id = test_case.test_case_id;
+    let batch_id = start_evaluate_batch(
+        caller_plugin_id.to_string(),
+        deps.clone(),
+        StartEvaluateBatchInput {
+            problem_type,
+            test_cases: vec![test_case],
+        },
+    )
+    .await?;
+    let wait_batch_id = batch_id.clone();
+    let wait_plugin_id = caller_plugin_id.to_string();
+    tokio::spawn(async move {
+        let batches = deps.evaluate_batches.clone();
+        let registry = deps.evaluate_ops_registry.clone();
+        let metrics = deps.metrics.clone();
+        let batch_id_for_wait = wait_batch_id.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            next_evaluate_result(
+                &wait_plugin_id,
+                &batches,
+                metrics.as_ref(),
+                &registry,
+                &batch_id_for_wait,
+                timeout,
+            )
+        })
+        .await
+        .map_err(|e| anyhow!("Evaluate waiter task failed: {e}"))
+        .and_then(|result| result);
+        let _ = tx
+            .send(DetachedEvaluateResult {
+                test_case_id,
+                batch_id: wait_batch_id,
+                result,
+            })
+            .await;
+    });
+    Ok((test_case_id, batch_id))
+}
+
+async fn call_detached_evaluate_callback(
+    plugin_manager: &dyn plugin_core::traits::PluginManager,
+    plugin_id: &str,
+    callback_fn: &str,
+    input: DetachedEvaluateCallbackInput,
+) -> anyhow::Result<DetachedEvaluateCallbackOutput> {
+    let input_bytes = serde_json::to_vec(&input)
+        .with_context(|| "Failed to serialize detached evaluate callback input")?;
+    let output_bytes = call_raw_with_pool_retry(
+        plugin_manager,
+        plugin_id,
+        callback_fn,
+        input_bytes,
+        PoolRetryPolicy::default(),
+    )
+    .await
+    .with_context(|| "Detached evaluate callback failed")?;
+    serde_json::from_slice::<DetachedEvaluateCallbackOutput>(&output_bytes)
+        .with_context(|| "Failed to deserialize detached evaluate callback output")
+}
+
+async fn cancel_active_evaluate_slots(
+    plugin_id: &str,
+    deps: &EvaluateHostDeps,
+    active: &[(i32, String)],
+) {
+    for (_, batch_id) in active {
+        set_evaluate_cancel_op_keys(plugin_id, deps, batch_id, None).await;
+        cancel_evaluate_batch(
+            plugin_id,
+            &deps.evaluate_batches,
+            deps.metrics.as_ref(),
+            &deps.evaluate_ops_registry,
+            batch_id,
+        );
+    }
+}
+
+async fn cancel_evaluate_test_case_ids(
+    plugin_id: &str,
+    deps: &EvaluateHostDeps,
+    active: &mut Vec<(i32, String)>,
+    test_case_ids: &HashSet<i32>,
+) {
+    let cancelled = active
+        .iter()
+        .filter(|(test_case_id, _)| test_case_ids.contains(test_case_id))
+        .map(|(_, batch_id)| batch_id.clone())
+        .collect::<Vec<_>>();
+
+    for batch_id in &cancelled {
+        set_evaluate_cancel_op_keys(plugin_id, deps, batch_id, Some(test_case_ids)).await;
+    }
+
+    active.retain(|(test_case_id, batch_id)| {
+        if test_case_ids.contains(test_case_id) {
+            cancel_evaluate_batch(
+                plugin_id,
+                &deps.evaluate_batches,
+                deps.metrics.as_ref(),
+                &deps.evaluate_ops_registry,
+                batch_id,
+            );
+            false
+        } else {
+            true
+        }
+    });
+}
+
+async fn set_evaluate_cancel_op_keys(
+    plugin_id: &str,
+    deps: &EvaluateHostDeps,
+    batch_id: &str,
+    test_case_ids: Option<&HashSet<i32>>,
+) {
+    if !deps.cancel_primitive_enabled {
+        return;
+    }
+    let Some(client) = deps.redis_client.as_ref() else {
+        return;
+    };
+
+    let op_task_ids = match test_case_ids {
+        Some(test_case_ids) => {
+            let ids = test_case_ids.iter().copied().collect::<Vec<_>>();
+            deps.evaluate_ops_registry
+                .operation_task_ids_for_test_cases(batch_id, &ids)
+        }
+        None => deps
+            .evaluate_ops_registry
+            .operation_task_ids_for_batch(batch_id),
+    };
+    if op_task_ids.is_empty() {
+        return;
+    }
+
+    if let Err(e) = common::cancel::set_cancel_op_keys(client, &op_task_ids).await {
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            batch_id = %batch_id,
+            error = %e,
+            "Failed to set Redis op cancel keys for detached evaluate cancellation"
+        );
+    }
+}
+
+fn remove_active_evaluate_slot_by_batch_id(
+    active: &mut Vec<(i32, String)>,
+    batch_id: &str,
+) -> bool {
+    let Some(index) = active
+        .iter()
+        .position(|(_, active_batch_id)| active_batch_id == batch_id)
+    else {
+        return false;
+    };
+    active.swap_remove(index);
+    true
+}
+
 fn is_batch_evaluator_callback_path(evaluator: &PluginHandler) -> bool {
     evaluator.plugin_id == BATCH_EVALUATOR_PLUGIN_ID
         && evaluator.function_name == BATCH_EVALUATOR_LEGACY_FN
@@ -405,7 +890,7 @@ fn spawn_batch_evaluator_callback_dispatch(
                             }
                         }
                         Err(e) => {
-                            send_system_error(&batch_tx, tc_id, e.to_string());
+                            send_system_error(&batch_tx, tc_id, format!("{e:#}"));
                             decrement_pending(&pending, metrics.as_ref());
                         }
                     }
@@ -648,7 +1133,7 @@ async fn flush_batch_evaluator_callback(
             .collect::<HashMap<_, _>>(),
         Err(e) => {
             for item in items {
-                send_system_error(batch_tx, item.case.test_case_id, e.to_string());
+                send_system_error(batch_tx, item.case.test_case_id, format!("{e:#}"));
                 decrement_pending(pending_count, metrics);
             }
             return;
@@ -1312,6 +1797,68 @@ mod tests {
     use common::worker::TaskResult;
 
     use super::*;
+
+    #[test]
+    fn detached_evaluate_ignores_results_for_cancelled_slots() {
+        let mut active = vec![(1, "batch-1".to_string()), (2, "batch-2".to_string())];
+
+        assert!(remove_active_evaluate_slot_by_batch_id(
+            &mut active,
+            "batch-1"
+        ));
+        assert!(!remove_active_evaluate_slot_by_batch_id(
+            &mut active,
+            "batch-1"
+        ));
+        assert_eq!(active, vec![(2, "batch-2".to_string())]);
+    }
+
+    #[test]
+    fn detached_evaluate_completion_hooks_only_follow_terminal_callback_actions() {
+        let input = StartDetachedWindowedEvaluateInput {
+            batch: StartEvaluateBatchInput {
+                problem_type: "icpc".into(),
+                test_cases: Vec::new(),
+            },
+            concurrency: 1,
+            result_timeout_ms: 1000,
+            callback_fn: "on_result".into(),
+            state: serde_json::json!({}),
+            submission_completion: Some(broccoli_server_sdk::types::DetachedSubmissionCompletion {
+                submission_id: 42,
+                judgement_id: 7,
+                judge_epoch: 9,
+                fire_after_judging: true,
+            }),
+        };
+        let completion = input.submission_completion.as_ref();
+
+        assert_eq!(
+            detached_evaluate_completion(completion, DetachedEvaluateCallbackAction::Finish)
+                .map(|completion| completion.submission_id),
+            Some(42)
+        );
+        assert_eq!(
+            detached_evaluate_completion(completion, DetachedEvaluateCallbackAction::Cancel)
+                .map(|completion| completion.judgement_id),
+            Some(7)
+        );
+        assert_eq!(
+            detached_evaluate_completion(completion, DetachedEvaluateCallbackAction::Continue),
+            None
+        );
+
+        let muted = broccoli_server_sdk::types::DetachedSubmissionCompletion {
+            submission_id: 42,
+            judgement_id: 7,
+            judge_epoch: 9,
+            fire_after_judging: false,
+        };
+        assert_eq!(
+            detached_evaluate_completion(Some(&muted), DetachedEvaluateCallbackAction::Finish),
+            None
+        );
+    }
 
     #[test]
     fn next_result_extends_timeout_until_tracked_operation_execution_budget_expires() {

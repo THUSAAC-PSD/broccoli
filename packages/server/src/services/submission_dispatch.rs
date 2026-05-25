@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
-    AfterJudgingEvent, OnSubmissionInput, OnSubmissionOutput, SourceFile, TestCaseBodyRef,
-    TestCaseRow,
+    AfterJudgingEvent, DetachedSubmissionCompletion, OnSubmissionInput, OnSubmissionOutput,
+    SourceFile, TestCaseBodyRef, TestCaseRow,
 };
 use chrono::Utc;
 use common::SubmissionStatus;
@@ -51,8 +51,84 @@ pub(crate) async fn fire_after_judging_hooks(
         return;
     }
 
+    dispatch_after_judging_hooks(db, hook_registry, &sub, user_id, problem_id, contest_id).await;
+}
+
+pub(crate) async fn fire_after_judging_hooks_for_detached_completion(
+    db: &DatabaseConnection,
+    hook_registry: hooks::SharedHookRegistry,
+    completion: &DetachedSubmissionCompletion,
+) {
+    if !completion.fire_after_judging {
+        return;
+    }
+
+    let sub = match submission::Entity::find_by_id(completion.submission_id)
+        .one(db)
+        .await
+    {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            warn!(
+                submission_id = completion.submission_id,
+                "Submission not found for after_judging hook"
+            );
+            return;
+        }
+        Err(e) => {
+            warn!(submission_id = completion.submission_id, error = %e, "DB error reading submission for after_judging hook");
+            return;
+        }
+    };
+
+    if sub.judge_epoch != completion.judge_epoch || !sub.status.is_terminal() {
+        return;
+    }
+
+    let current_judgement = submission_judgement::Entity::find_by_id(completion.judgement_id)
+        .filter(submission_judgement::Column::SubmissionId.eq(completion.submission_id))
+        .filter(submission_judgement::Column::JudgeEpoch.eq(completion.judge_epoch))
+        .filter(submission_judgement::Column::IsCurrent.eq(true))
+        .filter(submission_judgement::Column::IsFinalized.eq(true))
+        .one(db)
+        .await;
+    match current_judgement {
+        Ok(Some(_)) => {}
+        Ok(None) => return,
+        Err(e) => {
+            warn!(
+                submission_id = completion.submission_id,
+                judgement_id = completion.judgement_id,
+                judge_epoch = completion.judge_epoch,
+                error = %e,
+                "DB error validating detached after_judging completion"
+            );
+            return;
+        }
+    }
+
+    dispatch_after_judging_hooks(
+        db,
+        hook_registry,
+        &sub,
+        sub.user_id,
+        sub.problem_id,
+        sub.contest_id,
+    )
+    .await;
+}
+
+async fn dispatch_after_judging_hooks(
+    db: &DatabaseConnection,
+    hook_registry: hooks::SharedHookRegistry,
+    sub: &submission::Model,
+    user_id: i32,
+    problem_id: i32,
+    contest_id: Option<i32>,
+) {
     let verdict = sub
         .verdict
+        .as_ref()
         .map(|v| v.to_string())
         .unwrap_or_else(|| sub.status.to_string());
 
@@ -67,7 +143,7 @@ pub(crate) async fn fire_after_judging_hooks(
 
     hooks::dispatch_hooks_background_typed(
         AfterJudgingEvent {
-            submission_id,
+            submission_id: sub.id,
             user_id,
             problem_id,
             contest_id,
@@ -76,10 +152,7 @@ pub(crate) async fn fire_after_judging_hooks(
         },
         enabled_plugins,
         hook_registry,
-        Some(format!(
-            "after_judging:{}:{}",
-            submission_id, sub.judge_epoch
-        )),
+        Some(format!("after_judging:{}:{}", sub.id, sub.judge_epoch)),
     );
 }
 
@@ -394,6 +467,7 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
     let input = OnSubmissionInput {
         submission_id: submission.id,
         judgement_id,
+        fire_after_judging,
         user_id: submission.user_id,
         problem_id: submission.problem_id,
         contest_id: submission.contest_id,

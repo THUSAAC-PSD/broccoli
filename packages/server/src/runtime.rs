@@ -227,6 +227,8 @@ impl ServerRuntime {
             );
         }
 
+        let hook_registry = crate::hooks::new_shared_registry();
+
         let manager = ServerManager::new(
             app_config.plugin.clone(),
             HostFunctionSystemDeps {
@@ -241,6 +243,7 @@ impl ServerRuntime {
                 evaluate_batches: evaluate_batches.clone(),
                 evaluate_ops_registry: evaluate_ops_registry.clone(),
                 blob_store: blob_store.clone(),
+                hook_registry: hook_registry.clone(),
                 config: app_config.clone(),
                 metrics: Some(metrics.clone()),
                 redis_client: redis_client.clone(),
@@ -295,7 +298,7 @@ impl ServerRuntime {
                 operation_batches: operation_batches.clone(),
                 operation_waiters: operation_waiters.clone(),
                 evaluate_batches: evaluate_batches.clone(),
-                hook_registry: crate::hooks::new_shared_registry(),
+                hook_registry,
             },
             device_codes,
             metrics,

@@ -266,7 +266,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         evaluate::create_evaluate_functions(plugin_id.to_string(), eval_deps.clone())
     });
 
-    let dispatch_deps = deps.system.operation_deps();
+    let dispatch_deps = deps.operation_deps();
     hr.register_many("operations:dispatch", move |plugin_id| {
         dispatch::create_dispatch_functions(plugin_id.to_string(), dispatch_deps.clone())
     });

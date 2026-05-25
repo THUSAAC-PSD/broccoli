@@ -1,6 +1,8 @@
 use crate::host_funcs::context::OperationHostDeps;
 use crate::services::operation_batch;
-use broccoli_server_sdk::types::OperationTask;
+use broccoli_server_sdk::types::{
+    DetachedOperationSession, OperationTask, StartDetachedWindowedOperationInput,
+};
 use common::worker::TaskResult;
 use extism::{Function, UserData, Val, ValType};
 use serde::{Deserialize, Serialize};
@@ -41,6 +43,13 @@ pub fn create_dispatch_functions(plugin_id: String, deps: OperationHostDeps) -> 
             start_operation_batch_fn,
         ),
         Function::new(
+            "start_detached_windowed_operation",
+            [ValType::I64],
+            [ValType::I64],
+            user_data.clone(),
+            start_detached_windowed_operation_fn,
+        ),
+        Function::new(
             "get_next_operation_result",
             [ValType::I64],
             [ValType::I64],
@@ -55,6 +64,37 @@ pub fn create_dispatch_functions(plugin_id: String, deps: OperationHostDeps) -> 
             cancel_operation_batch_fn,
         ),
     ]
+}
+
+fn start_detached_windowed_operation_fn(
+    plugin: &mut extism::CurrentPlugin,
+    inputs: &[Val],
+    outputs: &mut [Val],
+    user_data: UserData<DispatchUserData>,
+) -> Result<(), extism::Error> {
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: StartDetachedWindowedOperationInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let (plugin_id, deps) = {
+        let user_data_guard = user_data.get()?;
+        let guard = user_data_guard
+            .lock()
+            .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        (guard.plugin_id.clone(), guard.deps.clone())
+    };
+    let span = super::host_fn_span("start_detached_windowed_operation", &plugin_id);
+    let _enter = span.enter();
+
+    let manager = deps
+        .plugin_manager
+        .clone()
+        .ok_or_else(|| extism::Error::msg("Plugin manager not available for detached operation"))?;
+    let session =
+        operation_batch::start_detached_windowed_operation(plugin_id, manager, deps, input)
+            .map_err(|e| extism::Error::msg(e.to_string()))?;
+
+    write_session(plugin, outputs, session)
 }
 
 fn start_operation_batch_fn(
@@ -163,5 +203,17 @@ fn cancel_operation_batch_fn(
         &input.batch_id,
     );
 
+    Ok(())
+}
+
+fn write_session(
+    plugin: &mut extism::CurrentPlugin,
+    outputs: &mut [Val],
+    session: DetachedOperationSession,
+) -> Result<(), extism::Error> {
+    let output_bytes = serde_json::to_vec(&session)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize session: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
     Ok(())
 }
