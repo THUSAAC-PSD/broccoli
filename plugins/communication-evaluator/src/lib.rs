@@ -116,15 +116,19 @@ pub fn evaluate_communication(input: String) -> FnResult<String> {
         comm_config.manager_time_limit_s,
     );
 
-    let batch_id = host
+    let mut results = host
         .operations
-        .start_batch(&operations)
+        .windowed(&operations)
+        .collect(result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
-
-    let result = host
-        .operations
-        .next_result(&batch_id, result_timeout_ms)
-        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    if results.len() != 1 {
+        return Err(extism_pdk::Error::msg(format!(
+            "expected exactly one operation result, got {}",
+            results.len()
+        ))
+        .into());
+    }
+    let result = results.remove(0);
 
     let memory_limit_kb = u32::try_from(req.memory_limit_kb).unwrap_or(u32::MAX);
     let verdict = interpret::interpret_result(

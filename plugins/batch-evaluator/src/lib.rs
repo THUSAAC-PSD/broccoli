@@ -35,15 +35,19 @@ pub fn evaluate_batch(input: String) -> FnResult<String> {
     let req: BuildEvalOpsInput = serde_json::from_str(&input)?;
     let prepared = prepare_case(&host, &req)?;
 
-    let batch_id = host
+    let mut results = host
         .operations
-        .start_batch(&prepared.operations)
+        .windowed(&prepared.operations)
+        .collect(prepared.result_timeout_ms)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
-
-    let result = host
-        .operations
-        .next_result(&batch_id, prepared.result_timeout_ms)
-        .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    if results.len() != 1 {
+        return Err(extism_pdk::Error::msg(format!(
+            "expected exactly one operation result, got {}",
+            results.len()
+        ))
+        .into());
+    }
+    let result = results.remove(0);
 
     let verdict = interpret_case_result(&host, &req, &result)
         .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;

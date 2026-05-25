@@ -17,7 +17,8 @@ use crate::config::{
     ContestConfig, FeedbackLevel, ScoreboardTiebreaker, ScoreboardVisibility, ScoringMode,
     SubtaskDef, TaskConfig, TokenMode, resolve_tc_label, round_score,
 };
-use crate::judge::{JudgeContext, judge_with_context};
+use crate::evaluate_batch::handle_detached_eval_callback;
+use crate::judge::{JudgeContext, judge_with_context_detached};
 use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
 use crate::subtasks::{build_default_subtasks, score_all_subtasks};
 use crate::tokens::{TokenState, available_tokens, next_regen_elapsed_min};
@@ -383,6 +384,15 @@ pub fn handle_ioi_code_run(input: String) -> FnResult<String> {
     )?)
 }
 
+#[cfg(target_arch = "wasm32")]
+#[plugin_fn]
+pub fn on_ioi_eval_result(input: String) -> FnResult<String> {
+    let host = Host::new();
+    let input: DetachedEvaluateCallbackInput = serde_json::from_str(&input)?;
+    let output = handle_detached_eval_callback(&host, input)?;
+    Ok(serde_json::to_string(&output)?)
+}
+
 #[derive(Deserialize)]
 struct FilterSubmissionInput {
     submission: serde_json::Value,
@@ -538,7 +548,7 @@ fn run_judge(
         subtask_defs,
     };
 
-    let result = judge_with_context(host, req, &ctx)?;
+    let result = judge_with_context_detached(host, req, &ctx)?;
 
     Ok(result.output)
 }

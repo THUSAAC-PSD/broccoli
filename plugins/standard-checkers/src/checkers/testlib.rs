@@ -328,6 +328,8 @@ fn build_testlib_checker_operations(
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     }]
 }
 
@@ -405,8 +407,8 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         &config,
     );
 
-    let batch_id = match host.operations.start_batch(&operations) {
-        Ok(id) => id,
+    let mut op_results = match host.operations.windowed(&operations).collect(30000) {
+        Ok(results) => results,
         Err(e) => {
             return CheckerVerdict {
                 verdict: Verdict::SystemError,
@@ -416,13 +418,24 @@ pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> Checker
         }
     };
 
-    let op_result = match host.operations.next_result(&batch_id, 30000) {
-        Ok(r) => r,
-        Err(e) => {
+    if op_results.len() != 1 {
+        return CheckerVerdict {
+            verdict: Verdict::SystemError,
+            score: 0.0,
+            message: Some(format!(
+                "Failed to get checker result: expected exactly one operation result, got {}",
+                op_results.len()
+            )),
+        };
+    }
+
+    let op_result = match op_results.pop() {
+        Some(r) => r,
+        None => {
             return CheckerVerdict {
                 verdict: Verdict::SystemError,
                 score: 0.0,
-                message: Some(format!("Failed to get checker result: {:?}", e)),
+                message: Some("Failed to get checker result: no operation result".to_string()),
             };
         }
     };

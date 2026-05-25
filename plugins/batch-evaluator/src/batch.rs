@@ -119,7 +119,7 @@ fn limit_if_positive(value: u32) -> Option<u32> {
 
 /// Build a sandbox OperationTask from enriched evaluator input.
 ///
-/// Returns `Vec<OperationTask>` ready for `host.operations.start_batch()`.
+/// Returns `Vec<OperationTask>` ready for `host.operations.windowed(...).collect(...)`.
 pub fn build_operation(
     req: &BuildEvalOpsInput,
     lang: &ResolveLanguageOutput,

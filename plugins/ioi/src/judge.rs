@@ -1,13 +1,22 @@
-use std::collections::{HashMap, HashSet};
+#[cfg(test)]
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 use broccoli_server_sdk::prelude::*;
 
-use crate::config::{ContestConfig, SubtaskDef, TaskConfig, round_score};
+#[cfg(test)]
+use crate::config::round_score;
+use crate::config::{ContestConfig, SubtaskDef, TaskConfig};
+#[cfg(test)]
 use crate::evaluate_batch::evaluate_all;
+use crate::evaluate_batch::evaluate_all_detached;
+#[cfg(test)]
 use crate::persist::persist_results;
 use crate::subtasks::{
-    compute_scoring_test_case_ids, score_all_subtasks, test_case_reference_keys,
+    compute_scoring_test_case_ids,
 };
+#[cfg(test)]
+use crate::subtasks::{score_all_subtasks, test_case_reference_keys};
 
 /// Context gathered from host functions, passed to pure judge logic.
 pub struct JudgeContext {
@@ -27,6 +36,7 @@ pub struct JudgeResult {
     pub subtask_scores: Option<Vec<f64>>,
 }
 
+#[cfg(test)]
 pub fn judge_with_context(
     host: &Host,
     req: &OnSubmissionInput,
@@ -168,6 +178,98 @@ pub fn judge_with_context(
     })
 }
 
+pub fn judge_with_context_detached(
+    host: &Host,
+    req: &OnSubmissionInput,
+    ctx: &JudgeContext,
+) -> Result<JudgeResult, SdkError> {
+    if ctx.test_cases.is_empty() {
+        let _ = host
+            .log
+            .info("No test cases found, marking as judged with score 0");
+        let affected = host.submission.update(&SubmissionUpdate {
+            submission_id: ctx.submission_id,
+            judgement_id: req.judgement_id,
+            judge_epoch: req.judge_epoch,
+            status: Some(SubmissionStatus::Judged),
+            verdict: Some(Some(Verdict::Accepted)),
+            score: Some(0.0),
+            time_used: Some(None),
+            memory_used: Some(None),
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+        })?;
+        if affected == 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        return Ok(JudgeResult {
+            output: OnSubmissionOutput {
+                success: true,
+                error_message: None,
+            },
+            submission_score: Some(0.0),
+            subtask_scores: Some(vec![]),
+        });
+    }
+
+    let scoring_test_case_ids: HashSet<i32> =
+        compute_scoring_test_case_ids(&ctx.subtask_defs, &ctx.test_cases)
+            .into_iter()
+            .collect();
+    let scoring_test_cases: Vec<TestCaseRow> = ctx
+        .test_cases
+        .iter()
+        .filter(|tc| scoring_test_case_ids.contains(&tc.id))
+        .cloned()
+        .collect();
+
+    if scoring_test_cases.is_empty() {
+        let _ =
+            host.submission
+                .delete_results(ctx.submission_id, req.judgement_id, req.judge_epoch);
+        let affected = host.submission.update(&SubmissionUpdate {
+            submission_id: ctx.submission_id,
+            judgement_id: req.judgement_id,
+            judge_epoch: req.judge_epoch,
+            status: Some(SubmissionStatus::Judged),
+            verdict: Some(Some(Verdict::Accepted)),
+            score: Some(0.0),
+            time_used: Some(None),
+            memory_used: Some(None),
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+        })?;
+        if affected == 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        return Ok(JudgeResult {
+            output: OnSubmissionOutput {
+                success: true,
+                error_message: None,
+            },
+            submission_score: Some(0.0),
+            subtask_scores: Some(vec![0.0; ctx.subtask_defs.len()]),
+        });
+    }
+
+    let output = evaluate_all_detached(
+        host,
+        req,
+        &ctx.test_cases,
+        &scoring_test_cases,
+        ctx.submission_id,
+        &ctx.subtask_defs,
+    )?;
+
+    Ok(JudgeResult {
+        output,
+        submission_score: None,
+        subtask_scores: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +279,7 @@ mod tests {
         OnSubmissionInput {
             submission_id: 1,
             judgement_id: 1,
+            fire_after_judging: true,
             user_id: 1,
             problem_id: 10,
             contest_id: Some(1),

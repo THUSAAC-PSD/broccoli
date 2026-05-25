@@ -51,9 +51,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use crate::config::{ContestConfig, ProblemState};
 #[cfg(target_arch = "wasm32")]
-use crate::evaluate::evaluate_short_circuit;
-#[cfg(target_arch = "wasm32")]
-use crate::persist::persist_and_track;
+use crate::evaluate::{evaluate_short_circuit_detached, handle_detached_eval_callback};
 #[cfg(target_arch = "wasm32")]
 use crate::standings::{StandingsSubmission, compute_problem_states};
 
@@ -110,6 +108,15 @@ pub fn handle_icpc_code_run(input: String) -> FnResult<String> {
     )?)
 }
 
+#[cfg(target_arch = "wasm32")]
+#[plugin_fn]
+pub fn on_icpc_eval_result(input: String) -> FnResult<String> {
+    let host = Host::new();
+    let input: DetachedEvaluateCallbackInput = serde_json::from_str(&input)?;
+    let output = handle_detached_eval_callback(&host, input)?;
+    Ok(serde_json::to_string(&output)?)
+}
+
 // ── Core judging logic ──────────────────────────────────────────────────
 
 #[cfg(target_arch = "wasm32")]
@@ -142,8 +149,8 @@ fn run_judge(host: &Host, req: &OnSubmissionInput) -> Result<OnSubmissionOutput,
         });
     }
 
-    let eval = match evaluate_short_circuit(host, req, &test_cases, req.submission_id) {
-        Ok(eval) => eval,
+    match evaluate_short_circuit_detached(host, req, &test_cases, req.submission_id) {
+        Ok(out) => Ok(out),
         Err(SdkError::StaleEpoch) => {
             let _ = host.log.info(&format!(
                 "ICPC: Submission {} epoch {} is stale, stopping",
@@ -155,15 +162,7 @@ fn run_judge(host: &Host, req: &OnSubmissionInput) -> Result<OnSubmissionOutput,
             });
         }
         Err(e) => return Err(e),
-    };
-
-    persist_and_track(
-        host,
-        req.submission_id,
-        req.judgement_id,
-        req.judge_epoch,
-        &eval,
-    )
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -186,17 +185,8 @@ fn run_standalone_judge(host: &Host, req: &OnSubmissionInput) -> OnSubmissionOut
         });
     }
 
-    match evaluate_short_circuit(host, req, &req.test_cases, req.submission_id) {
-        Ok(eval) => persist_standalone(host, req, &eval).unwrap_or_else(|e| match e {
-            SdkError::StaleEpoch => OnSubmissionOutput {
-                success: true,
-                error_message: None,
-            },
-            other => OnSubmissionOutput {
-                success: false,
-                error_message: Some(format!("{other:?}")),
-            },
-        }),
+    match evaluate_short_circuit_detached(host, req, &req.test_cases, req.submission_id) {
+        Ok(out) => out,
         Err(SdkError::StaleEpoch) => OnSubmissionOutput {
             success: true,
             error_message: None,
@@ -233,72 +223,6 @@ fn persist_empty_standalone(
     if affected == 0 {
         return Err(SdkError::StaleEpoch);
     }
-
-    Ok(OnSubmissionOutput {
-        success: true,
-        error_message: None,
-    })
-}
-
-#[cfg(target_arch = "wasm32")]
-fn persist_standalone(
-    host: &Host,
-    req: &OnSubmissionInput,
-    eval: &crate::evaluate::EvalResult,
-) -> Result<OnSubmissionOutput, SdkError> {
-    let non_skipped: Vec<_> = eval
-        .outcomes
-        .iter()
-        .filter(|o| !o.verdict.is_skipped_or_cancelled())
-        .collect();
-
-    let verdict = non_skipped
-        .iter()
-        .map(|o| o.verdict.clone())
-        .max_by_key(|v| v.severity())
-        .unwrap_or(Verdict::Accepted);
-
-    let max_time = non_skipped.iter().filter_map(|o| o.time_used).max();
-    let max_memory = non_skipped.iter().filter_map(|o| o.memory_used).max();
-    let is_ce = verdict == Verdict::CompileError;
-    let status = if is_ce {
-        SubmissionStatus::CompilationError
-    } else {
-        SubmissionStatus::Judged
-    };
-    let db_verdict = if is_ce { None } else { Some(verdict.clone()) };
-    let compile_output = if is_ce {
-        eval.outcomes
-            .iter()
-            .find(|o| o.verdict == Verdict::CompileError)
-            .and_then(|o| o.message.clone())
-    } else {
-        None
-    };
-    let score = if eval.is_accepted { 1.0 } else { 0.0 };
-
-    let affected = host.submission.update(&SubmissionUpdate {
-        submission_id: req.submission_id,
-        judgement_id: req.judgement_id,
-        judge_epoch: req.judge_epoch,
-        status: Some(status),
-        verdict: Some(db_verdict),
-        score: Some(score),
-        time_used: Some(max_time),
-        memory_used: Some(max_memory),
-        compile_output: Some(compile_output),
-        error_code: None,
-        error_message: None,
-    })?;
-
-    if affected == 0 {
-        return Err(SdkError::StaleEpoch);
-    }
-
-    let _ = host.log.info(&format!(
-        "ICPC: Standalone submission {} judged: {:?}, accepted={}",
-        req.submission_id, verdict, eval.is_accepted
-    ));
 
     Ok(OnSubmissionOutput {
         success: true,

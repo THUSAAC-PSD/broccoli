@@ -3,18 +3,23 @@ use std::collections::{HashMap, HashSet};
 use broccoli_server_sdk::Host;
 use broccoli_server_sdk::error::SdkError;
 use broccoli_server_sdk::types::*;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{SubtaskDef, SubtaskScoringMethod};
+use crate::config::round_score;
+use crate::persist::persist_results;
+use crate::subtasks::score_all_subtasks;
 use crate::subtasks::test_case_reference_keys;
 
 /// Auto-flush threshold for buffered `TestCaseResultRow`s. IOI problems
 /// commonly have 20–50 testcases across many subtasks; an 8-row chunk
 /// keeps the per-submission INSERT count in the 2–6 range instead of
 /// one INSERT per testcase (UP#34).
+#[cfg(test)]
 const RESULT_BATCH_FLUSH_THRESHOLD: usize = 8;
 
 /// Per-test-case outcome from evaluation, with raw (0..1) scores.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalOutcome {
     pub test_case_id: i32,
     pub verdict: Verdict,
@@ -26,15 +31,181 @@ pub struct EvalOutcome {
     pub stderr: Option<String>,
 }
 
-pub fn evaluate_all(
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DetachedIoiState {
+    req: OnSubmissionInput,
+    all_test_cases: Vec<TestCaseRow>,
+    scoring_test_cases: Vec<TestCaseRow>,
+    subtask_defs: Vec<SubtaskDef>,
+    short_circuit: SubtaskShortCircuit,
+    outcomes: Vec<EvalOutcome>,
+    recorded_ids: HashSet<i32>,
+    marked_running: bool,
+}
+
+pub fn evaluate_all_detached(
     host: &Host,
     req: &OnSubmissionInput,
-    test_cases: &[TestCaseRow],
+    all_test_cases: &[TestCaseRow],
+    scoring_test_cases: &[TestCaseRow],
     submission_id: i32,
-    scale_score: impl Fn(f64, &TestCaseRow) -> f64,
     subtask_defs: &[SubtaskDef],
-) -> Result<Vec<EvalOutcome>, SdkError> {
-    let batch_input = StartEvaluateBatchInput {
+) -> Result<OnSubmissionOutput, SdkError> {
+    let batch_input = build_batch_input(req, scoring_test_cases);
+
+    let _ = host
+        .submission
+        .delete_results(submission_id, req.judgement_id, req.judge_epoch);
+
+    let affected =
+        host.submission
+            .set_compiling(submission_id, req.judgement_id, req.judge_epoch)?;
+    if affected == 0 {
+        return Err(SdkError::StaleEpoch);
+    }
+
+    let state = DetachedIoiState {
+        req: req.clone(),
+        all_test_cases: all_test_cases.to_vec(),
+        scoring_test_cases: scoring_test_cases.to_vec(),
+        subtask_defs: subtask_defs.to_vec(),
+        short_circuit: SubtaskShortCircuit::new(subtask_defs, scoring_test_cases),
+        outcomes: Vec::new(),
+        recorded_ids: HashSet::new(),
+        marked_running: false,
+    };
+
+    let start_result = host
+        .eval
+        .windowed(&batch_input)
+        .concurrency(4)
+        .result_timeout_ms(default_evaluation_result_timeout_ms(req.time_limit_ms))
+        .fire_after_judging_for_submission(req)
+        .start_detached("on_ioi_eval_result", serde_json::to_value(state)?);
+
+    if let Err(e) = start_result {
+        let mut state = DetachedIoiState {
+            req: req.clone(),
+            all_test_cases: all_test_cases.to_vec(),
+            scoring_test_cases: scoring_test_cases.to_vec(),
+            subtask_defs: subtask_defs.to_vec(),
+            short_circuit: SubtaskShortCircuit::new(subtask_defs, scoring_test_cases),
+            outcomes: Vec::new(),
+            recorded_ids: HashSet::new(),
+            marked_running: false,
+        };
+        fill_unrecorded_detached(
+            host,
+            &mut state,
+            Verdict::SystemError,
+            0.0,
+            &format!("BATCH_START_FAILED: {e:?}"),
+        )?;
+        finish_detached(host, &mut state)?;
+    }
+
+    Ok(OnSubmissionOutput {
+        success: true,
+        error_message: None,
+    })
+}
+
+pub fn handle_detached_eval_callback(
+    host: &Host,
+    input: DetachedEvaluateCallbackInput,
+) -> Result<DetachedEvaluateCallbackOutput, SdkError> {
+    let mut state: DetachedIoiState = serde_json::from_value(input.state.clone())?;
+
+    match &input.event {
+        DetachedEvaluateCallbackEvent::Result { result } => {
+            let normalized = normalize_raw_score(result.score);
+            let mut outcome = outcome_from_verdict(result.clone(), normalized);
+
+            if outcome.verdict == Verdict::CompileError {
+                record_detached_outcome(host, &mut state, outcome)?;
+                fill_unrecorded_detached(
+                    host,
+                    &mut state,
+                    Verdict::Skipped,
+                    0.0,
+                    "SKIPPED_SHORT_CIRCUIT",
+                )?;
+                finish_detached(host, &mut state)?;
+                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
+                    state,
+                )?));
+            }
+
+            if !state.marked_running {
+                let affected = host.submission.set_running(
+                    state.req.submission_id,
+                    state.req.judgement_id,
+                    state.req.judge_epoch,
+                )?;
+                if affected == 0 {
+                    return Err(SdkError::StaleEpoch);
+                }
+                state.marked_running = true;
+            }
+
+            let should_refill = outcome.verdict != Verdict::CompileError
+                && state
+                    .short_circuit
+                    .should_refill_after(outcome.test_case_id, normalized);
+            record_detached_outcome(host, &mut state, outcome.clone())?;
+
+            let cancel_ids =
+                state
+                    .short_circuit
+                    .cancellable_after(outcome.test_case_id, normalized, &state.outcomes);
+            if !cancel_ids.is_empty() {
+                state.short_circuit.mark_cancelled(&cancel_ids);
+                for test_case_id in &cancel_ids {
+                    outcome = EvalOutcome {
+                        test_case_id: *test_case_id,
+                        verdict: Verdict::Skipped,
+                        raw_score: 0.0,
+                        time_used: None,
+                        memory_used: None,
+                        message: Some("SKIPPED_SHORT_CIRCUIT".into()),
+                        stdout: None,
+                        stderr: None,
+                    };
+                    record_detached_outcome(host, &mut state, outcome)?;
+                }
+            }
+
+            if state.recorded_ids.len() == state.scoring_test_cases.len() {
+                finish_detached(host, &mut state)?;
+                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
+                    state,
+                )?));
+            }
+
+            Ok(DetachedEvaluateCallbackOutput::continue_with(
+                serde_json::to_value(state)?,
+            )
+            .refill(should_refill)
+            .cancel_test_case_ids(cancel_ids))
+        }
+        DetachedEvaluateCallbackEvent::Timeout { .. } | DetachedEvaluateCallbackEvent::Exhausted => {
+            fill_unrecorded_detached(
+                host,
+                &mut state,
+                Verdict::SystemError,
+                0.0,
+                "EVALUATION_TIMEOUT",
+            )?;
+            finish_detached(host, &mut state)?;
+            Ok(DetachedEvaluateCallbackOutput::cancel(serde_json::to_value(
+                state,
+            )?))
+        }
+    }
+}
+
+fn build_batch_input(req: &OnSubmissionInput, test_cases: &[TestCaseRow]) -> StartEvaluateBatchInput {
+    StartEvaluateBatchInput {
         problem_type: req.problem_type.clone(),
         test_cases: test_cases
             .iter()
@@ -59,7 +230,116 @@ pub fn evaluate_all(
                 target_worker_id: req.target_worker_id.clone(),
             })
             .collect(),
-    };
+    }
+}
+
+fn outcome_from_verdict(verdict: TestCaseVerdict, normalized: f64) -> EvalOutcome {
+    EvalOutcome {
+        test_case_id: verdict.test_case_id,
+        verdict: verdict.verdict,
+        raw_score: normalized,
+        time_used: verdict
+            .time_used_ms
+            .map(|t| t.clamp(0, i32::MAX as i64) as i32),
+        memory_used: verdict
+            .memory_used_kb
+            .map(|m| m.clamp(0, i32::MAX as i64) as i32),
+        message: verdict.message,
+        stdout: verdict.stdout,
+        stderr: verdict.stderr,
+    }
+}
+
+fn record_detached_outcome(
+    host: &Host,
+    state: &mut DetachedIoiState,
+    outcome: EvalOutcome,
+) -> Result<(), SdkError> {
+    let tc_map: HashMap<i32, &TestCaseRow> =
+        state.scoring_test_cases.iter().map(|tc| (tc.id, tc)).collect();
+    let row = build_tc_row(
+        state.req.submission_id,
+        state.req.judgement_id,
+        state.req.judge_epoch,
+        &outcome,
+        &tc_map,
+        &|raw, tc| round_score(raw * tc.score),
+    );
+    host.submission.insert_results(&[row])?;
+    state.recorded_ids.insert(outcome.test_case_id);
+    state.outcomes.push(outcome);
+    Ok(())
+}
+
+fn fill_unrecorded_detached(
+    host: &Host,
+    state: &mut DetachedIoiState,
+    verdict: Verdict,
+    raw_score: f64,
+    message: &str,
+) -> Result<(), SdkError> {
+    for tc in state.scoring_test_cases.clone() {
+        if state.recorded_ids.contains(&tc.id) {
+            continue;
+        }
+        record_detached_outcome(
+            host,
+            state,
+            EvalOutcome {
+                test_case_id: tc.id,
+                verdict: verdict.clone(),
+                raw_score,
+                time_used: None,
+                memory_used: None,
+                message: Some(message.to_string()),
+                stdout: None,
+                stderr: None,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn finish_detached(host: &Host, state: &mut DetachedIoiState) -> Result<(), SdkError> {
+    let id_to_keys: HashMap<i32, Vec<String>> = state
+        .all_test_cases
+        .iter()
+        .map(|tc| (tc.id, test_case_reference_keys(tc)))
+        .collect();
+    let tc_scores: HashMap<String, f64> = state
+        .outcomes
+        .iter()
+        .filter(|outcome| !outcome.verdict.is_skipped_or_cancelled())
+        .flat_map(|outcome| {
+            id_to_keys
+                .get(&outcome.test_case_id)
+                .into_iter()
+                .flat_map(|keys| keys.iter().cloned().map(|key| (key, outcome.raw_score)))
+        })
+        .collect();
+    let subtask_results = score_all_subtasks(&state.subtask_defs, &state.all_test_cases, &tc_scores);
+    let submission_score = round_score(subtask_results.iter().map(|result| result.score).sum());
+    persist_results(
+        host,
+        state.req.submission_id,
+        state.req.judgement_id,
+        state.req.judge_epoch,
+        &state.outcomes,
+        submission_score,
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn evaluate_all(
+    host: &Host,
+    req: &OnSubmissionInput,
+    test_cases: &[TestCaseRow],
+    submission_id: i32,
+    scale_score: impl Fn(f64, &TestCaseRow) -> f64,
+    subtask_defs: &[SubtaskDef],
+) -> Result<Vec<EvalOutcome>, SdkError> {
+    let batch_input = build_batch_input(req, test_cases);
 
     let tc_map: HashMap<i32, &TestCaseRow> = test_cases.iter().map(|tc| (tc.id, tc)).collect();
     let mut short_circuit = SubtaskShortCircuit::new(subtask_defs, test_cases);
@@ -74,7 +354,7 @@ pub fn evaluate_all(
     // return so callers see terminal verdicts in `test_case_result`.
     let mut row_buf: Vec<TestCaseResultRow> = Vec::new();
 
-    let mut session = match host.eval.start_windowed(&batch_input, 4) {
+    let mut session = match host.eval.windowed(&batch_input).concurrency(4).start() {
         Ok(session) => session,
         Err(e) => {
             for tc in test_cases {
@@ -326,6 +606,7 @@ fn normalize_raw_score(score: f64) -> f64 {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SubtaskShortCircuit {
     methods: Vec<SubtaskScoringMethod>,
     subtask_cases: Vec<HashSet<i32>>,
@@ -522,6 +803,7 @@ fn build_tc_row(
 
 /// Drain `buf` into one bulk `insert_results` call. No-op if `buf` is
 /// empty.
+#[cfg(test)]
 fn flush_results(host: &Host, buf: &mut Vec<TestCaseResultRow>) -> Result<(), SdkError> {
     if buf.is_empty() {
         return Ok(());
@@ -533,6 +815,7 @@ fn flush_results(host: &Host, buf: &mut Vec<TestCaseResultRow>) -> Result<(), Sd
 
 /// Append a row for `outcome` to `buf`; flush when the buffer reaches
 /// `RESULT_BATCH_FLUSH_THRESHOLD`.
+#[cfg(test)]
 fn record_outcome(
     host: &Host,
     buf: &mut Vec<TestCaseResultRow>,
@@ -566,6 +849,7 @@ fn test_submission(test_cases: Vec<TestCaseRow>) -> OnSubmissionInput {
     OnSubmissionInput {
         submission_id: 1,
         judgement_id: 1,
+        fire_after_judging: true,
         user_id: 10,
         problem_id: 100,
         contest_id: Some(1000),
@@ -801,6 +1085,193 @@ mod tests {
                 ("mock-batch-1".to_string(), vec![4]),
                 ("mock-batch-2".to_string(), vec![5]),
             ]
+        );
+    }
+
+    #[test]
+    fn nested_subtask_zero_score_sibling_stays_active_after_parent_failure() {
+        let host = Host::mock();
+        let mut tcs = vec![test_case(1), test_case(2), test_case(3)];
+        tcs[0].label = Some("parent_fail".into());
+        tcs[0].score = 50.0;
+        tcs[1].label = Some("child_zero".into());
+        tcs[1].score = 0.0;
+        tcs[2].label = Some("child_score".into());
+        tcs[2].score = 50.0;
+        let req = test_submission(tcs.clone());
+        let subtasks = vec![
+            crate::config::SubtaskDef {
+                name: "Parent".into(),
+                scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+                max_score: 50.0,
+                test_cases: vec![
+                    "parent_fail".into(),
+                    "child_zero".into(),
+                    "child_score".into(),
+                ],
+            },
+            crate::config::SubtaskDef {
+                name: "NestedChild".into(),
+                scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+                max_score: 50.0,
+                test_cases: vec!["child_zero".into(), "child_score".into()],
+            },
+        ];
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(1));
+        host.eval.queue_result(TestCaseVerdict::accepted(2));
+        host.eval.queue_result(TestCaseVerdict::accepted(3));
+
+        let outcomes = evaluate_all(&host, &req, &tcs, 1, |raw, _| raw, &subtasks).unwrap();
+
+        let skipped_ids = outcomes
+            .iter()
+            .filter(|outcome| outcome.verdict == Verdict::Skipped)
+            .map(|outcome| outcome.test_case_id)
+            .collect::<Vec<_>>();
+        assert!(
+            skipped_ids.is_empty(),
+            "nested child cases must not be skipped while NestedChild remains active"
+        );
+        assert!(
+            outcomes
+                .iter()
+                .any(|outcome| outcome.test_case_id == 2
+                    && outcome.verdict == Verdict::Accepted),
+            "zero-score nested sibling must still be judged"
+        );
+        assert!(
+            outcomes
+                .iter()
+                .any(|outcome| outcome.test_case_id == 3
+                    && outcome.verdict == Verdict::Accepted),
+            "scored nested sibling must still be judged"
+        );
+        assert!(
+            host.eval.testcase_cancels().is_empty(),
+            "parent failure must not cancel cases still needed by the nested child subtask"
+        );
+    }
+
+    #[test]
+    fn detached_nested_subtask_zero_score_sibling_stays_active_after_parent_failure() {
+        let host = Host::mock();
+        let mut tcs = vec![test_case(1), test_case(2), test_case(3)];
+        tcs[0].label = Some("parent_fail".into());
+        tcs[0].score = 50.0;
+        tcs[1].label = Some("child_zero".into());
+        tcs[1].score = 0.0;
+        tcs[2].label = Some("child_score".into());
+        tcs[2].score = 50.0;
+        let req = test_submission(tcs.clone());
+        let subtasks = vec![
+            crate::config::SubtaskDef {
+                name: "Parent".into(),
+                scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+                max_score: 50.0,
+                test_cases: vec![
+                    "parent_fail".into(),
+                    "child_zero".into(),
+                    "child_score".into(),
+                ],
+            },
+            crate::config::SubtaskDef {
+                name: "NestedChild".into(),
+                scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+                max_score: 50.0,
+                test_cases: vec!["child_zero".into(), "child_score".into()],
+            },
+        ];
+
+        evaluate_all_detached(&host, &req, &tcs, &tcs, req.submission_id, &subtasks).unwrap();
+        let detached = host.eval.detached_windowed_requests();
+        assert_eq!(detached.len(), 1);
+        assert_eq!(
+            detached[0]
+                .batch
+                .test_cases
+                .iter()
+                .map(|case| case.test_case_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+
+        let first = handle_detached_eval_callback(
+            &host,
+            DetachedEvaluateCallbackInput {
+                session_id: "nested-detached".into(),
+                state: detached[0].state.clone(),
+                event: DetachedEvaluateCallbackEvent::Result {
+                    result: TestCaseVerdict::wrong_answer(1),
+                },
+                completed: 1,
+                total: 3,
+            },
+        )
+        .unwrap();
+        assert_eq!(first.action, DetachedEvaluateCallbackAction::Continue);
+        assert!(
+            first.cancel_test_case_ids.is_empty(),
+            "parent failure must not cancel nested child members"
+        );
+
+        let second = handle_detached_eval_callback(
+            &host,
+            DetachedEvaluateCallbackInput {
+                session_id: "nested-detached".into(),
+                state: first.state,
+                event: DetachedEvaluateCallbackEvent::Result {
+                    result: TestCaseVerdict::accepted(2),
+                },
+                completed: 2,
+                total: 3,
+            },
+        )
+        .unwrap();
+        assert_eq!(second.action, DetachedEvaluateCallbackAction::Continue);
+        assert!(
+            second.cancel_test_case_ids.is_empty(),
+            "zero-score nested sibling completion must not cancel the scored sibling"
+        );
+
+        let third = handle_detached_eval_callback(
+            &host,
+            DetachedEvaluateCallbackInput {
+                session_id: "nested-detached".into(),
+                state: second.state,
+                event: DetachedEvaluateCallbackEvent::Result {
+                    result: TestCaseVerdict::accepted(3),
+                },
+                completed: 3,
+                total: 3,
+            },
+        )
+        .unwrap();
+        assert_eq!(third.action, DetachedEvaluateCallbackAction::Finish);
+        assert!(third.cancel_test_case_ids.is_empty());
+
+        let rows = host.submission.results();
+        let testcase_rows = rows
+            .iter()
+            .filter(|row| row.test_case_id.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(testcase_rows.len(), 3);
+        assert!(
+            testcase_rows
+                .iter()
+                .any(|row| row.test_case_id == Some(2) && row.verdict == Verdict::Accepted),
+            "zero-score nested sibling must be persisted as judged, not skipped"
+        );
+        assert!(
+            testcase_rows
+                .iter()
+                .any(|row| row.test_case_id == Some(3) && row.verdict == Verdict::Accepted),
+            "scored nested sibling must be persisted as judged, not skipped"
+        );
+        assert!(
+            testcase_rows
+                .iter()
+                .all(|row| row.verdict != Verdict::Skipped),
+            "detached callback path must not persist skipped rows for active nested siblings"
         );
     }
 

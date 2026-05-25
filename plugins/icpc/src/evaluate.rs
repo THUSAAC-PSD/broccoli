@@ -3,14 +3,16 @@ use std::collections::{HashMap, HashSet};
 use broccoli_server_sdk::Host;
 use broccoli_server_sdk::error::SdkError;
 use broccoli_server_sdk::types::*;
+use serde::{Deserialize, Serialize};
 
 /// Auto-flush threshold for buffered `TestCaseResultRow`s. With typical
 /// ICPC contests in the 15–25 testcase range this yields 2–3 bulk
 /// INSERTs per submission instead of one INSERT per testcase (UP#34).
+#[cfg(test)]
 const RESULT_BATCH_FLUSH_THRESHOLD: usize = 8;
 
 /// Per-test-case outcome from evaluation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalOutcome {
     pub test_case_id: i32,
     pub verdict: Verdict,
@@ -22,6 +24,7 @@ pub struct EvalOutcome {
 }
 
 /// Result of the evaluation phase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalResult {
     pub outcomes: Vec<EvalOutcome>,
     pub is_compile_error: bool,
@@ -29,16 +32,152 @@ pub struct EvalResult {
     pub is_accepted: bool,
 }
 
-/// Evaluate test cases with short-circuit: cancel remaining on first non-AC verdict.
-/// Unevaluated test cases are filled with `Skipped` (on failure short-circuit)
-/// or `SystemError` (on timeout/error).
-pub fn evaluate_short_circuit(
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DetachedIcpcState {
+    req: OnSubmissionInput,
+    test_cases: Vec<TestCaseRow>,
+    outcomes: Vec<EvalOutcome>,
+    recorded_ids: HashSet<i32>,
+    is_compile_error: bool,
+    marked_running: bool,
+}
+
+pub fn evaluate_short_circuit_detached(
     host: &Host,
     req: &OnSubmissionInput,
     test_cases: &[TestCaseRow],
     submission_id: i32,
-) -> Result<EvalResult, SdkError> {
-    let batch_input = StartEvaluateBatchInput {
+) -> Result<OnSubmissionOutput, SdkError> {
+    let batch_input = build_batch_input(req, test_cases);
+
+    let _ = host
+        .submission
+        .delete_results(submission_id, req.judgement_id, req.judge_epoch);
+
+    let affected =
+        host.submission
+            .set_compiling(submission_id, req.judgement_id, req.judge_epoch)?;
+    if affected == 0 {
+        return Err(SdkError::StaleEpoch);
+    }
+
+    let state = DetachedIcpcState {
+        req: req.clone(),
+        test_cases: test_cases.to_vec(),
+        outcomes: Vec::new(),
+        recorded_ids: HashSet::new(),
+        is_compile_error: false,
+        marked_running: false,
+    };
+
+    let start_result = host
+        .eval
+        .windowed(&batch_input)
+        .concurrency(1)
+        .result_timeout_ms(default_evaluation_result_timeout_ms(req.time_limit_ms))
+        .fire_after_judging_for_submission(req)
+        .start_detached("on_icpc_eval_result", serde_json::to_value(state)?);
+
+    if let Err(e) = start_result {
+        let mut state = DetachedIcpcState {
+            req: req.clone(),
+            test_cases: test_cases.to_vec(),
+            outcomes: Vec::new(),
+            recorded_ids: HashSet::new(),
+            is_compile_error: false,
+            marked_running: false,
+        };
+        fill_unrecorded(
+            host,
+            &mut state,
+            Verdict::SystemError,
+            &format!("BATCH_START_FAILED: {e:?}"),
+        )?;
+        finish_detached(host, &mut state)?;
+    }
+
+    Ok(OnSubmissionOutput {
+        success: true,
+        error_message: None,
+    })
+}
+
+pub fn handle_detached_eval_callback(
+    host: &Host,
+    input: DetachedEvaluateCallbackInput,
+) -> Result<DetachedEvaluateCallbackOutput, SdkError> {
+    let mut state: DetachedIcpcState = serde_json::from_value(input.state.clone())?;
+
+    match &input.event {
+        DetachedEvaluateCallbackEvent::Result { result } => {
+            let outcome = outcome_from_verdict(result.clone());
+            if outcome.verdict.is_skipped_or_cancelled()
+                && state.recorded_ids.contains(&outcome.test_case_id)
+            {
+                return Ok(DetachedEvaluateCallbackOutput::continue_with(
+                    serde_json::to_value(state)?,
+                )
+                .refill_while(&input, |result| result.verdict == Verdict::Accepted));
+            }
+
+            if outcome.verdict == Verdict::CompileError {
+                record_detached_outcome(host, &mut state, outcome)?;
+                state.is_compile_error = true;
+                fill_unrecorded(host, &mut state, Verdict::Skipped, "SKIPPED_SHORT_CIRCUIT")?;
+                finish_detached(host, &mut state)?;
+                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
+                    state,
+                )?));
+            }
+
+            if !state.marked_running {
+                let affected = host.submission.set_running(
+                    state.req.submission_id,
+                    state.req.judgement_id,
+                    state.req.judge_epoch,
+                )?;
+                if affected == 0 {
+                    return Err(SdkError::StaleEpoch);
+                }
+                state.marked_running = true;
+            }
+
+            let should_refill = outcome.verdict == Verdict::Accepted;
+            let is_fail = outcome.verdict != Verdict::Accepted;
+            record_detached_outcome(host, &mut state, outcome)?;
+
+            if is_fail {
+                fill_unrecorded(host, &mut state, Verdict::Skipped, "SKIPPED_SHORT_CIRCUIT")?;
+                finish_detached(host, &mut state)?;
+                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
+                    state,
+                )?));
+            }
+
+            if state.recorded_ids.len() == state.test_cases.len() {
+                finish_detached(host, &mut state)?;
+                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
+                    state,
+                )?));
+            }
+
+            Ok(DetachedEvaluateCallbackOutput::continue_with(
+                serde_json::to_value(state)?,
+            )
+            .refill(should_refill))
+        }
+        DetachedEvaluateCallbackEvent::Timeout { .. } | DetachedEvaluateCallbackEvent::Exhausted => {
+            fill_unrecorded(host, &mut state, Verdict::SystemError, "EVALUATION_TIMEOUT")?;
+            finish_detached(host, &mut state)?;
+            Ok(DetachedEvaluateCallbackOutput::cancel(serde_json::to_value(
+                state,
+            )?))
+        }
+    }
+}
+
+fn build_batch_input(req: &OnSubmissionInput, test_cases: &[TestCaseRow]) -> StartEvaluateBatchInput {
+    StartEvaluateBatchInput {
         problem_type: req.problem_type.clone(),
         test_cases: test_cases
             .iter()
@@ -63,7 +202,102 @@ pub fn evaluate_short_circuit(
                 target_worker_id: req.target_worker_id.clone(),
             })
             .collect(),
+    }
+}
+
+fn outcome_from_verdict(verdict: TestCaseVerdict) -> EvalOutcome {
+    EvalOutcome {
+        test_case_id: verdict.test_case_id,
+        verdict: verdict.verdict,
+        time_used: verdict
+            .time_used_ms
+            .map(|t| t.clamp(0, i32::MAX as i64) as i32),
+        memory_used: verdict
+            .memory_used_kb
+            .map(|m| m.clamp(0, i32::MAX as i64) as i32),
+        message: verdict.message,
+        stdout: verdict.stdout,
+        stderr: verdict.stderr,
+    }
+}
+
+fn record_detached_outcome(
+    host: &Host,
+    state: &mut DetachedIcpcState,
+    outcome: EvalOutcome,
+) -> Result<(), SdkError> {
+    let tc_map: HashMap<i32, &TestCaseRow> = state.test_cases.iter().map(|tc| (tc.id, tc)).collect();
+    let row = build_tc_row(
+        state.req.submission_id,
+        state.req.judgement_id,
+        state.req.judge_epoch,
+        &outcome,
+        &tc_map,
+    );
+    host.submission.insert_results(&[row])?;
+    state.recorded_ids.insert(outcome.test_case_id);
+    state.outcomes.push(outcome);
+    Ok(())
+}
+
+fn fill_unrecorded(
+    host: &Host,
+    state: &mut DetachedIcpcState,
+    verdict: Verdict,
+    message: &str,
+) -> Result<(), SdkError> {
+    for tc in state.test_cases.clone() {
+        if state.recorded_ids.contains(&tc.id) {
+            continue;
+        }
+        record_detached_outcome(
+            host,
+            state,
+            EvalOutcome {
+                test_case_id: tc.id,
+                verdict: verdict.clone(),
+                time_used: None,
+                memory_used: None,
+                message: Some(message.to_string()),
+                stdout: None,
+                stderr: None,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn finish_detached(host: &Host, state: &mut DetachedIcpcState) -> Result<(), SdkError> {
+    let eval = EvalResult {
+        outcomes: state.outcomes.clone(),
+        is_compile_error: state.is_compile_error,
+        is_accepted: !state.is_compile_error
+            && state
+                .outcomes
+                .iter()
+                .all(|outcome| outcome.verdict == Verdict::Accepted),
     };
+    crate::persist::persist_and_track(
+        host,
+        state.req.submission_id,
+        state.req.judgement_id,
+        state.req.judge_epoch,
+        &eval,
+    )?;
+    Ok(())
+}
+
+/// Evaluate test cases with short-circuit: cancel remaining on first non-AC verdict.
+/// Unevaluated test cases are filled with `Skipped` (on failure short-circuit)
+/// or `SystemError` (on timeout/error).
+#[cfg(test)]
+pub fn evaluate_short_circuit(
+    host: &Host,
+    req: &OnSubmissionInput,
+    test_cases: &[TestCaseRow],
+    submission_id: i32,
+) -> Result<EvalResult, SdkError> {
+    let batch_input = build_batch_input(req, test_cases);
 
     let tc_map: HashMap<i32, &TestCaseRow> = test_cases.iter().map(|tc| (tc.id, tc)).collect();
 
@@ -80,7 +314,7 @@ pub fn evaluate_short_circuit(
     let mut row_buf: Vec<TestCaseResultRow> = Vec::new();
 
     // Try to start batch
-    let mut session = match host.eval.start_windowed(&batch_input, 1) {
+    let mut session = match host.eval.windowed(&batch_input).concurrency(1).start() {
         Ok(session) => session,
         Err(e) => {
             for tc in test_cases {
@@ -295,6 +529,7 @@ fn test_submission(test_cases: Vec<TestCaseRow>) -> OnSubmissionInput {
     OnSubmissionInput {
         submission_id: 1,
         judgement_id: 1,
+        fire_after_judging: true,
         user_id: 10,
         problem_id: 100,
         contest_id: Some(1000),
@@ -365,6 +600,7 @@ fn build_tc_row(
 
 /// Drain `buf` into one bulk `insert_results` call. No-op if `buf` is
 /// empty.
+#[cfg(test)]
 fn flush_results(host: &Host, buf: &mut Vec<TestCaseResultRow>) -> Result<(), SdkError> {
     if buf.is_empty() {
         return Ok(());
@@ -378,6 +614,7 @@ fn flush_results(host: &Host, buf: &mut Vec<TestCaseResultRow>) -> Result<(), Sd
 /// `RESULT_BATCH_FLUSH_THRESHOLD`. Returns the error from the flush call
 /// if any, so the caller's existing `?` continues to short-circuit on
 /// `StaleEpoch` exactly as before.
+#[cfg(test)]
 fn record_outcome(
     host: &Host,
     buf: &mut Vec<TestCaseResultRow>,
