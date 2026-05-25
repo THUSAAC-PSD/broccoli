@@ -1,5 +1,7 @@
 use crate::registry::CheckerFormatRegistry;
-use broccoli_server_sdk::types::{CheckerParseInput, CheckerVerdict, JudgeFile, RunCheckerInput};
+use broccoli_server_sdk::types::{
+    CheckerParseInput, CheckerVerdict, JudgeFile, RunCheckerInput, Verdict,
+};
 use extism::{Function, UserData, Val, ValType};
 use plugin_core::traits::PluginManager;
 use std::sync::Arc;
@@ -61,12 +63,16 @@ fn run_checker_fn(
         registry.get(&input.format).cloned()
     });
 
-    let handler = handler.ok_or_else(|| {
-        extism::Error::msg(format!(
-            "No checker format handler registered for: {}",
-            input.format
-        ))
-    })?;
+    let Some(handler) = handler else {
+        return write_checker_verdict(
+            plugin,
+            outputs,
+            checker_system_error(format!(
+                "No checker format handler registered for: {}",
+                input.format
+            )),
+        );
+    };
 
     tracing::debug!(
         caller = %caller_plugin_id,
@@ -90,10 +96,30 @@ fn run_checker_fn(
     for token in issued_blob_tokens {
         blob_read_grants.remove(&token);
     }
-    let result_bytes = result_bytes?;
+    let result_bytes = match result_bytes {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return write_checker_verdict(
+                plugin,
+                outputs,
+                checker_system_error(format!(
+                    "Checker format handler '{}' from plugin '{}' failed: {e}",
+                    handler.function_name, handler.plugin_id
+                )),
+            );
+        }
+    };
 
-    let verdict: CheckerVerdict = serde_json::from_slice(&result_bytes)
-        .map_err(|e| extism::Error::msg(format!("Failed to deserialize checker verdict: {}", e)))?;
+    let verdict: CheckerVerdict = match serde_json::from_slice(&result_bytes) {
+        Ok(verdict) => verdict,
+        Err(e) => {
+            return write_checker_verdict(
+                plugin,
+                outputs,
+                checker_system_error(format!("Failed to deserialize checker verdict: {e}")),
+            );
+        }
+    };
 
     tracing::debug!(
         caller = %caller_plugin_id,
@@ -103,6 +129,22 @@ fn run_checker_fn(
         "Checker format handler returned verdict"
     );
 
+    write_checker_verdict(plugin, outputs, verdict)
+}
+
+fn checker_system_error(message: impl Into<String>) -> CheckerVerdict {
+    CheckerVerdict {
+        verdict: Verdict::SystemError,
+        score: 0.0,
+        message: Some(message.into()),
+    }
+}
+
+fn write_checker_verdict(
+    plugin: &mut extism::CurrentPlugin,
+    outputs: &mut [Val],
+    verdict: CheckerVerdict,
+) -> Result<(), extism::Error> {
     let output_bytes = serde_json::to_vec(&verdict)
         .map_err(|e| extism::Error::msg(format!("Failed to serialize output: {}", e)))?;
     let offset = plugin.memory_new(&output_bytes)?;
