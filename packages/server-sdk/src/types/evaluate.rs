@@ -285,6 +285,24 @@ mod timeout_tests {
         assert!(json.get("test_input_ref").is_none());
         assert!(json.get("expected_output_ref").is_none());
     }
+
+    #[test]
+    fn detached_evaluate_output_refill_while_uses_result_predicate() {
+        let input = DetachedEvaluateCallbackInput {
+            session_id: "session".to_string(),
+            state: serde_json::json!({}),
+            event: DetachedEvaluateCallbackEvent::Result {
+                result: TestCaseVerdict::accepted(1),
+            },
+            completed: 1,
+            total: 2,
+        };
+
+        let output = DetachedEvaluateCallbackOutput::continue_with(serde_json::json!({}))
+            .refill_while(&input, |result| result.verdict == Verdict::Accepted);
+
+        assert!(output.refill);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -340,6 +358,132 @@ pub struct EvaluateOperationResultsInput {
 pub struct StartEvaluateBatchInput {
     pub problem_type: String,
     pub test_cases: Vec<StartEvaluateCaseInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartDetachedWindowedEvaluateInput {
+    pub batch: StartEvaluateBatchInput,
+    pub concurrency: usize,
+    pub result_timeout_ms: u64,
+    pub callback_fn: String,
+    #[serde(default)]
+    pub state: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submission_completion: Option<DetachedSubmissionCompletion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetachedEvaluateSession {
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetachedSubmissionCompletion {
+    pub submission_id: i32,
+    pub judgement_id: i32,
+    pub judge_epoch: i32,
+    pub fire_after_judging: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetachedEvaluateCallbackInput {
+    pub session_id: String,
+    #[serde(default)]
+    pub state: serde_json::Value,
+    pub event: DetachedEvaluateCallbackEvent,
+    pub completed: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DetachedEvaluateCallbackEvent {
+    Result { result: TestCaseVerdict },
+    Timeout { message: String },
+    Exhausted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetachedEvaluateCallbackOutput {
+    #[serde(default)]
+    pub state: serde_json::Value,
+    #[serde(default)]
+    pub action: DetachedEvaluateCallbackAction,
+    #[serde(default = "default_refill")]
+    pub refill: bool,
+    #[serde(default)]
+    pub cancel_test_case_ids: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetachedEvaluateCallbackAction {
+    #[default]
+    Continue,
+    Finish,
+    Cancel,
+}
+
+impl DetachedEvaluateCallbackInput {
+    pub fn result(&self) -> Option<&TestCaseVerdict> {
+        match &self.event {
+            DetachedEvaluateCallbackEvent::Result { result } => Some(result),
+            DetachedEvaluateCallbackEvent::Timeout { .. }
+            | DetachedEvaluateCallbackEvent::Exhausted => None,
+        }
+    }
+}
+
+impl DetachedEvaluateCallbackOutput {
+    pub fn continue_with(state: serde_json::Value) -> Self {
+        Self {
+            state,
+            action: DetachedEvaluateCallbackAction::Continue,
+            refill: true,
+            cancel_test_case_ids: Vec::new(),
+        }
+    }
+
+    pub fn finish(state: serde_json::Value) -> Self {
+        Self {
+            state,
+            action: DetachedEvaluateCallbackAction::Finish,
+            refill: false,
+            cancel_test_case_ids: Vec::new(),
+        }
+    }
+
+    pub fn cancel(state: serde_json::Value) -> Self {
+        Self {
+            state,
+            action: DetachedEvaluateCallbackAction::Cancel,
+            refill: false,
+            cancel_test_case_ids: Vec::new(),
+        }
+    }
+
+    pub fn refill(mut self, refill: bool) -> Self {
+        self.refill = refill;
+        self
+    }
+
+    pub fn refill_while(
+        mut self,
+        input: &DetachedEvaluateCallbackInput,
+        predicate: impl FnOnce(&TestCaseVerdict) -> bool,
+    ) -> Self {
+        self.refill = input.result().is_some_and(predicate);
+        self
+    }
+
+    pub fn cancel_test_case_ids(mut self, ids: impl IntoIterator<Item = i32>) -> Self {
+        self.cancel_test_case_ids = ids.into_iter().collect();
+        self
+    }
+}
+
+fn default_refill() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

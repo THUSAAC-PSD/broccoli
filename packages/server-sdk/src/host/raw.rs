@@ -14,10 +14,12 @@ extern "ExtismHost" {
     pub fn db_commit(txn_id: String) -> String;
     pub fn db_rollback(txn_id: String) -> String;
     pub fn start_evaluate_batch(input: String) -> String;
+    pub fn start_detached_windowed_evaluate(input: String) -> String;
     pub fn get_next_evaluate_result(input: String) -> String;
     pub fn cancel_evaluate_batch(input: String);
     pub fn cancel_evaluate_test_cases(input: String) -> String;
     pub fn start_operation_batch(input: String) -> String;
+    pub fn start_detached_windowed_operation(input: String) -> String;
     pub fn get_next_operation_result(input: String) -> String;
     pub fn cancel_operation_batch(input: String);
     pub fn run_checker(input: String) -> String;

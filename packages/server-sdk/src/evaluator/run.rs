@@ -62,8 +62,13 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
 
     let mut verdicts: Vec<TcResult> = Vec::new();
 
-    let batch_id = match host.eval.start_batch(&batch_input) {
-        Ok(id) => id,
+    let mut eval_session = match host
+        .eval
+        .windowed(&batch_input)
+        .concurrency(test_cases.len())
+        .start()
+    {
+        Ok(session) => session,
         Err(e) => {
             for tc in test_cases {
                 let r = TcResult::system_error(tc.id, format!("BATCH_START_FAILED: {e:?}"));
@@ -87,7 +92,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
     let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
-        match host.eval.next_result(&batch_id, result_timeout_ms) {
+        match eval_session.next_result(result_timeout_ms) {
             Ok(Some(verdict)) => {
                 let r = TcResult::from_verdict(&verdict);
                 if r.verdict == Verdict::CompileError {
@@ -102,7 +107,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
                             verdicts.push(r);
                         }
                     }
-                    let _ = host.eval.cancel_batch(&batch_id);
+                    let _ = eval_session.cancel_all();
                     break;
                 }
                 if !marked_running {
@@ -139,7 +144,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
                 verdicts.push(r);
             }
         }
-        let _ = host.eval.cancel_batch(&batch_id);
+        let _ = eval_session.cancel_all();
     }
 
     finalize_code_run(host, req.id, req.judge_epoch, &verdicts)

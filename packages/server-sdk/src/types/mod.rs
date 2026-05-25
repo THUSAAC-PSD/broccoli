@@ -16,18 +16,23 @@ pub use config::{CascadeLevel, CascadeLevels, ConfigResult, ConfigSource, Effect
 pub use evaluate::{
     BuildEvalOpsInput, CompileSpec, DEFAULT_EVALUATION_CHECKER_SLACK_S,
     DEFAULT_EVALUATION_QUEUE_SLACK_S, DEFAULT_EVALUATION_RESULT_TIMEOUT_MAX_MS,
-    DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS, EvaluateOperationResultInput,
+    DEFAULT_EVALUATION_RESULT_TIMEOUT_MIN_MS, DetachedEvaluateCallbackAction,
+    DetachedEvaluateCallbackEvent, DetachedEvaluateCallbackInput, DetachedEvaluateCallbackOutput,
+    DetachedEvaluateSession, DetachedSubmissionCompletion, EvaluateOperationResultInput,
     EvaluateOperationResultsInput, EvaluationTimeoutBudget, FileRef, JudgeFile, OutputSpec,
     PreparedEvaluateCase, ResolveLanguageInput, ResolveLanguageOutput, RunSpec,
-    StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseBodyRef, TestCaseVerdict,
-    default_evaluation_result_timeout_ms, seconds_from_ms,
+    StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput, StartEvaluateCaseInput,
+    TestCaseBodyRef, TestCaseVerdict, default_evaluation_result_timeout_ms, seconds_from_ms,
 };
 pub use hook_events::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent, HookEvent};
 pub use http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
 pub use operation::{
-    Channel, DirectoryOptions, DirectoryRule, EnvRule, Environment, ExecutionResult, IOConfig,
-    IOTarget, OperationResult, OperationTask, ResourceLimits, RunOptions, SandboxResult,
-    SessionFile, Step, StepCacheConfig, StepKind, TaskExecutionResult,
+    Channel, DEFAULT_OPERATION_RESULT_TIMEOUT_MS, DetachedOperationCallbackAction,
+    DetachedOperationCallbackEvent, DetachedOperationCallbackInput,
+    DetachedOperationCallbackOutput, DetachedOperationSession, DirectoryOptions, DirectoryRule,
+    EnvRule, Environment, ExecutionResult, IOConfig, IOTarget, OperationResult, OperationTask,
+    ResourceLimits, RunOptions, SandboxResult, SessionFile, StartDetachedWindowedOperationInput,
+    Step, StepCacheConfig, StepKind, TaskExecutionResult,
 };
 pub use persistence::{
     CodeRunResultRow, CodeRunUpdate, SubmissionStatus, SubmissionUpdate, TestCaseResultRow,

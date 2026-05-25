@@ -18,6 +18,8 @@ pub struct OnSubmissionInput {
     /// and a new one on rejudge.
     #[serde(default)]
     pub judgement_id: i32,
+    #[serde(default = "default_fire_after_judging")]
+    pub fire_after_judging: bool,
     pub user_id: i32,
     pub problem_id: i32,
     pub contest_id: Option<i32>,
@@ -35,6 +37,10 @@ pub struct OnSubmissionInput {
     /// must forward it onto each `StartEvaluateCaseInput`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_worker_id: Option<String>,
+}
+
+fn default_fire_after_judging() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

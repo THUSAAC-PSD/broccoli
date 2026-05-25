@@ -6,7 +6,13 @@ use std::collections::{HashSet, VecDeque};
 use std::time::Instant;
 
 use crate::error::SdkError;
-use crate::types::{StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseVerdict};
+#[cfg(target_arch = "wasm32")]
+use crate::types::DetachedEvaluateSession;
+use crate::types::{
+    DEFAULT_EVALUATION_RESULT_TIMEOUT_MAX_MS, DetachedSubmissionCompletion, OnSubmissionInput,
+    StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput, StartEvaluateCaseInput,
+    TestCaseVerdict, default_evaluation_result_timeout_ms,
+};
 
 const WINDOWED_POLL_SLICE_MS: u64 = 50;
 
@@ -25,28 +31,86 @@ pub struct WindowedEvalSession<'a> {
     deferred_refill_error: Option<SdkError>,
 }
 
+pub struct WindowedEvalBuilder<'a> {
+    eval: &'a Eval,
+    input: StartEvaluateBatchInput,
+    concurrency: usize,
+    result_timeout_ms: u64,
+    submission_completion: Option<DetachedSubmissionCompletion>,
+}
+
 struct ActiveEvalBatch {
     batch_id: String,
     test_case_ids: Vec<i32>,
 }
 
 impl Eval {
-    pub fn start_windowed(
-        &self,
-        input: &StartEvaluateBatchInput,
-        window_size: usize,
-    ) -> Result<WindowedEvalSession<'_>, SdkError> {
-        let mut session = WindowedEvalSession {
+    pub fn windowed<'a>(&'a self, input: &StartEvaluateBatchInput) -> WindowedEvalBuilder<'a> {
+        let result_timeout_ms = input
+            .test_cases
+            .iter()
+            .map(|case| default_evaluation_result_timeout_ms(case.time_limit_ms))
+            .max()
+            .unwrap_or(DEFAULT_EVALUATION_RESULT_TIMEOUT_MAX_MS);
+        WindowedEvalBuilder {
             eval: self,
-            problem_type: input.problem_type.clone(),
-            window_size: window_size.max(1),
-            pending: input.test_cases.clone().into(),
+            input: input.clone(),
+            concurrency: 1,
+            result_timeout_ms,
+            submission_completion: None,
+        }
+    }
+}
+
+impl<'a> WindowedEvalBuilder<'a> {
+    pub fn concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency.max(1);
+        self
+    }
+
+    pub fn result_timeout_ms(mut self, result_timeout_ms: u64) -> Self {
+        self.result_timeout_ms = result_timeout_ms;
+        self
+    }
+
+    pub fn fire_after_judging_for_submission(mut self, req: &OnSubmissionInput) -> Self {
+        self.submission_completion = Some(DetachedSubmissionCompletion {
+            submission_id: req.submission_id,
+            judgement_id: req.judgement_id,
+            judge_epoch: req.judge_epoch,
+            fire_after_judging: req.fire_after_judging,
+        });
+        self
+    }
+
+    pub fn start(self) -> Result<WindowedEvalSession<'a>, SdkError> {
+        let mut session = WindowedEvalSession {
+            eval: self.eval,
+            problem_type: self.input.problem_type,
+            window_size: self.concurrency,
+            pending: self.input.test_cases.into(),
             active: Vec::new(),
             wait_cursor: 0,
             deferred_refill_error: None,
         };
         session.start_initial_batch()?;
         Ok(session)
+    }
+
+    pub fn start_detached(
+        self,
+        callback_fn: impl Into<String>,
+        state: serde_json::Value,
+    ) -> Result<String, SdkError> {
+        let input = StartDetachedWindowedEvaluateInput {
+            batch: self.input,
+            concurrency: self.concurrency,
+            result_timeout_ms: self.result_timeout_ms,
+            callback_fn: callback_fn.into(),
+            state,
+            submission_completion: self.submission_completion,
+        };
+        self.eval.start_detached_windowed(&input)
     }
 }
 
@@ -199,17 +263,20 @@ impl WindowedEvalSession<'_> {
             }
         }
 
-        self.pending
-            .retain(|case| !test_case_ids.contains(&case.test_case_id));
-        let dropped_pending = pending_before - self.pending.len();
-        cancelled += dropped_pending;
-
         self.active.retain(|batch| !batch.test_case_ids.is_empty());
         for batch_id in &batches_to_cancel {
             let _ = self.eval.cancel_batch(batch_id);
         }
-        if let Err(err) = self.refill_window() {
-            self.deferred_refill_error.get_or_insert(err);
+
+        if first_error.is_none() {
+            self.pending
+                .retain(|case| !test_case_ids.contains(&case.test_case_id));
+            let dropped_pending = pending_before - self.pending.len();
+            cancelled += dropped_pending;
+
+            if let Err(err) = self.refill_window() {
+                self.deferred_refill_error.get_or_insert(err);
+            }
         }
 
         match first_error {
@@ -331,7 +398,18 @@ impl WindowedEvalSession<'_> {
 
 #[cfg(target_arch = "wasm32")]
 impl Eval {
-    pub fn start_batch(&self, input: &StartEvaluateBatchInput) -> Result<String, SdkError> {
+    fn start_detached_windowed(
+        &self,
+        input: &StartDetachedWindowedEvaluateInput,
+    ) -> Result<String, SdkError> {
+        let input_json = serde_json::to_string(input)?;
+        let response_json =
+            unsafe { crate::host::raw::start_detached_windowed_evaluate(input_json)? };
+        let response: DetachedEvaluateSession = serde_json::from_str(&response_json)?;
+        Ok(response.session_id)
+    }
+
+    fn start_batch(&self, input: &StartEvaluateBatchInput) -> Result<String, SdkError> {
         let input_json = serde_json::to_string(input)?;
         let response_json = unsafe { crate::host::raw::start_evaluate_batch(input_json)? };
         let response: serde_json::Value = serde_json::from_str(&response_json)?;
@@ -343,7 +421,7 @@ impl Eval {
             })
     }
 
-    pub fn next_result(
+    fn next_result(
         &self,
         batch_id: &str,
         timeout_ms: u64,
@@ -362,17 +440,13 @@ impl Eval {
         }
     }
 
-    pub fn cancel_batch(&self, batch_id: &str) -> Result<(), SdkError> {
+    fn cancel_batch(&self, batch_id: &str) -> Result<(), SdkError> {
         let input = serde_json::json!({ "batch_id": batch_id });
         unsafe { crate::host::raw::cancel_evaluate_batch(serde_json::to_string(&input)?)? };
         Ok(())
     }
 
-    pub fn cancel_test_cases(
-        &self,
-        batch_id: &str,
-        test_case_ids: &[i32],
-    ) -> Result<usize, SdkError> {
+    fn cancel_test_cases(&self, batch_id: &str, test_case_ids: &[i32]) -> Result<usize, SdkError> {
         let input = serde_json::json!({
             "evaluate_batch_id": batch_id,
             "test_case_ids": test_case_ids,
@@ -402,6 +476,7 @@ pub(super) struct EvalMock {
     cancel_errors: RefCell<VecDeque<SdkError>>,
     testcase_cancels: RefCell<Vec<(String, Vec<i32>)>>,
     testcase_cancel_results: RefCell<VecDeque<Result<usize, SdkError>>>,
+    detached_windowed_requests: RefCell<Vec<StartDetachedWindowedEvaluateInput>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -418,13 +493,28 @@ impl EvalMock {
             cancel_errors: RefCell::new(VecDeque::new()),
             testcase_cancels: RefCell::new(Vec::new()),
             testcase_cancel_results: RefCell::new(VecDeque::new()),
+            detached_windowed_requests: RefCell::new(Vec::new()),
         }
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Eval {
-    pub fn start_batch(&self, input: &StartEvaluateBatchInput) -> Result<String, SdkError> {
+    fn start_detached_windowed(
+        &self,
+        input: &StartDetachedWindowedEvaluateInput,
+    ) -> Result<String, SdkError> {
+        self.inner
+            .detached_windowed_requests
+            .borrow_mut()
+            .push(input.clone());
+        Ok(format!(
+            "mock-detached-eval-{}",
+            self.inner.detached_windowed_requests.borrow().len()
+        ))
+    }
+
+    fn start_batch(&self, input: &StartEvaluateBatchInput) -> Result<String, SdkError> {
         if let Some(err) = self.inner.start_errors.borrow_mut().pop_front() {
             return Err(err);
         }
@@ -435,7 +525,7 @@ impl Eval {
         ))
     }
 
-    pub fn next_result(
+    fn next_result(
         &self,
         batch_id: &str,
         timeout_ms: u64,
@@ -458,7 +548,7 @@ impl Eval {
         Ok(self.inner.results.borrow_mut().pop_front())
     }
 
-    pub fn cancel_batch(&self, batch_id: &str) -> Result<(), SdkError> {
+    fn cancel_batch(&self, batch_id: &str) -> Result<(), SdkError> {
         self.inner.cancels.borrow_mut().push(batch_id.to_string());
         if let Some(err) = self.inner.cancel_errors.borrow_mut().pop_front() {
             return Err(err);
@@ -466,11 +556,7 @@ impl Eval {
         Ok(())
     }
 
-    pub fn cancel_test_cases(
-        &self,
-        batch_id: &str,
-        test_case_ids: &[i32],
-    ) -> Result<usize, SdkError> {
+    fn cancel_test_cases(&self, batch_id: &str, test_case_ids: &[i32]) -> Result<usize, SdkError> {
         self.inner
             .testcase_cancels
             .borrow_mut()
@@ -528,6 +614,10 @@ impl Eval {
     pub fn testcase_cancels(&self) -> Vec<(String, Vec<i32>)> {
         self.inner.testcase_cancels.borrow().clone()
     }
+
+    pub fn detached_windowed_requests(&self) -> Vec<StartDetachedWindowedEvaluateInput> {
+        self.inner.detached_windowed_requests.borrow().clone()
+    }
 }
 
 #[cfg(test)]
@@ -574,7 +664,12 @@ mod tests {
     #[test]
     fn windowed_eval_dispatches_initial_window_and_refills_one_case_per_result() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=10), 4).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=10))
+            .concurrency(4)
+            .start()
+            .unwrap();
 
         assert_eq!(batch_test_case_ids(&host.eval), vec![vec![1, 2, 3, 4]]);
 
@@ -607,9 +702,98 @@ mod tests {
     }
 
     #[test]
+    fn windowed_eval_builder_start_dispatches_initial_window() {
+        let host = Host::mock();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(2)
+            .start()
+            .unwrap();
+
+        assert_eq!(batch_test_case_ids(&host.eval), vec![vec![1, 2]]);
+        host.eval
+            .queue_result_for_batch("mock-batch-1", TestCaseVerdict::accepted(1));
+        assert_eq!(session.next_result(100).unwrap().unwrap().test_case_id, 1);
+    }
+
+    #[test]
+    fn windowed_eval_detached_builder_records_typed_request() {
+        let host = Host::mock();
+
+        let session_id = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(8)
+            .result_timeout_ms(1234)
+            .fire_after_judging_for_submission(&OnSubmissionInput {
+                submission_id: 42,
+                judgement_id: 7,
+                fire_after_judging: true,
+                user_id: 1,
+                problem_id: 2,
+                contest_id: None,
+                files: Vec::new(),
+                language: "cpp".into(),
+                time_limit_ms: 1000,
+                memory_limit_kb: 262144,
+                problem_type: "icpc".into(),
+                test_cases: Vec::new(),
+                judge_epoch: 9,
+                target_worker_id: None,
+            })
+            .start_detached("on_eval_result", serde_json::json!({ "phase": "icpc" }))
+            .unwrap();
+
+        assert_eq!(session_id, "mock-detached-eval-1");
+        let requests = host.eval.detached_windowed_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].batch.test_cases.len(), 3);
+        assert_eq!(requests[0].concurrency, 8);
+        assert_eq!(requests[0].result_timeout_ms, 1234);
+        assert_eq!(requests[0].callback_fn, "on_eval_result");
+        assert_eq!(requests[0].state["phase"], "icpc");
+        assert_eq!(
+            requests[0]
+                .submission_completion
+                .as_ref()
+                .map(|completion| completion.submission_id),
+            Some(42)
+        );
+        assert_eq!(
+            requests[0]
+                .submission_completion
+                .as_ref()
+                .map(|completion| (completion.judgement_id, completion.judge_epoch)),
+            Some((7, 9))
+        );
+    }
+
+    #[test]
+    fn windowed_eval_detached_builder_uses_evaluation_timeout_by_default() {
+        let host = Host::mock();
+
+        host.eval
+            .windowed(&input(1..=1))
+            .start_detached("on_eval_result", serde_json::json!({}))
+            .unwrap();
+
+        let requests = host.eval.detached_windowed_requests();
+        assert_eq!(
+            requests[0].result_timeout_ms,
+            default_evaluation_result_timeout_ms(1000)
+        );
+    }
+
+    #[test]
     fn windowed_eval_reads_ready_later_batch_without_waiting_on_first_batch() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=3), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(2)
+            .start()
+            .unwrap();
 
         host.eval
             .queue_result_for_batch("mock-batch-1", TestCaseVerdict::accepted(1));
@@ -624,7 +808,12 @@ mod tests {
     #[test]
     fn windowed_refill_start_error_does_not_drop_completed_result_or_pending_case() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=3), 1).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(1)
+            .start()
+            .unwrap();
 
         host.eval
             .queue_result_for_batch("mock-batch-1", TestCaseVerdict::accepted(1));
@@ -642,7 +831,12 @@ mod tests {
     #[test]
     fn windowed_successful_refill_clears_stale_deferred_refill_error() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=4), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=4))
+            .concurrency(2)
+            .start()
+            .unwrap();
 
         host.eval
             .queue_result_for_batch("mock-batch-1", TestCaseVerdict::accepted(1));
@@ -664,7 +858,12 @@ mod tests {
     #[test]
     fn windowed_refill_filter_can_stop_refill_for_terminal_result() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=3), 1).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(1)
+            .start()
+            .unwrap();
 
         host.eval
             .queue_result_for_batch("mock-batch-1", TestCaseVerdict::accepted(1));
@@ -683,7 +882,12 @@ mod tests {
     #[test]
     fn window_size_zero_behaves_like_one() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=3), 0).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(0)
+            .start()
+            .unwrap();
 
         assert_eq!(batch_test_case_ids(&host.eval), vec![vec![1]]);
 
@@ -695,7 +899,12 @@ mod tests {
     #[test]
     fn windowed_cancel_test_cases_groups_active_cancels_drops_pending_and_refills() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=5), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=5))
+            .concurrency(2)
+            .start()
+            .unwrap();
 
         assert_eq!(session.cancel_test_cases(&[2, 4]).unwrap(), 2);
 
@@ -709,7 +918,12 @@ mod tests {
     #[test]
     fn windowed_cancel_all_preserves_active_batch_on_host_error() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=2), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=2))
+            .concurrency(2)
+            .start()
+            .unwrap();
         host.eval
             .queue_cancel_error(SdkError::Other("cancel failed".into()));
 
@@ -723,7 +937,12 @@ mod tests {
     #[test]
     fn windowed_cancel_all_clears_stale_deferred_refill_error() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=3), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=3))
+            .concurrency(2)
+            .start()
+            .unwrap();
 
         host.eval
             .queue_result_for_batch("mock-batch-1", TestCaseVerdict::accepted(1));
@@ -739,7 +958,12 @@ mod tests {
     #[test]
     fn windowed_cancel_test_cases_preserves_pending_and_failed_active_on_host_error() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=4), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=4))
+            .concurrency(2)
+            .start()
+            .unwrap();
         host.eval
             .queue_testcase_cancel_result(Err(SdkError::Other("cancel failed".into())));
 
@@ -754,7 +978,12 @@ mod tests {
     #[test]
     fn windowed_cancel_test_cases_preserves_active_ids_on_count_mismatch() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=2), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=2))
+            .concurrency(2)
+            .start()
+            .unwrap();
         host.eval.queue_testcase_cancel_result(Ok(1));
 
         assert!(session.cancel_test_cases(&[1, 2]).is_err());
@@ -767,7 +996,12 @@ mod tests {
     #[test]
     fn windowed_cancel_test_cases_cancels_multi_active_batches() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=4), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=4))
+            .concurrency(2)
+            .start()
+            .unwrap();
 
         host.eval.queue_result(TestCaseVerdict::accepted(1));
         assert_eq!(session.next_result(100).unwrap().unwrap().test_case_id, 1);
@@ -788,7 +1022,12 @@ mod tests {
     #[test]
     fn windowed_cancel_test_cases_keeps_state_after_cleanup_error() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=2), 2).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=2))
+            .concurrency(2)
+            .start()
+            .unwrap();
         host.eval
             .queue_cancel_error(SdkError::Other("batch cleanup failed".into()));
 
@@ -799,7 +1038,12 @@ mod tests {
     #[test]
     fn windowed_cancel_test_cases_defers_refill_error_after_success() {
         let host = Host::mock();
-        let mut session = host.eval.start_windowed(&input(1..=2), 1).unwrap();
+        let mut session = host
+            .eval
+            .windowed(&input(1..=2))
+            .concurrency(1)
+            .start()
+            .unwrap();
         host.eval
             .queue_start_error(SdkError::Other("temporary start failure".into()));
 
