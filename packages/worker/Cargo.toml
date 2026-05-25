@@ -39,7 +39,13 @@ hostname = "0.4"
 local-ip-address = "0.6"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+hdrhistogram = { workspace = true }
 serial_test = "3"
 tempfile = "3"
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["postgres", "redis"] }
+
+[[bench]]
+name = "op_start_cancel_checker"
+harness = false

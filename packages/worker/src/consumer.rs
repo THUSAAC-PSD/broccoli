@@ -410,3 +410,124 @@ impl WorkerConsumer {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use common::cancel::{RedisCancelChecker, set_cancel_batch_key, set_cancel_op_keys};
+    use common::worker::{Executor, TaskResult};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::redis::Redis;
+
+    struct CountingExecutor {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Executor for CountingExecutor {
+        fn if_accept(&self, _task_type: &str) -> bool {
+            true
+        }
+
+        async fn execute(&self, task: Task) -> anyhow::Result<TaskResult> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(TaskResult {
+                task_id: task.id,
+                success: true,
+                output: serde_json::json!({ "executed": true }),
+                error: None,
+                task_type: None,
+                operation: None,
+                worker_id: None,
+                enqueued_at_unix_ms: None,
+            })
+        }
+    }
+
+    fn task(id: &str, batch_id: Option<&str>) -> Task {
+        Task {
+            id: id.to_string(),
+            task_type: "operation".into(),
+            executor_name: "operation".into(),
+            payload: serde_json::json!({}),
+            result_queue: "worker-cancel-test-results".into(),
+            operation_batch_id: batch_id.map(str::to_string),
+            reply_queue: None,
+            priority: None,
+            trace_context: None,
+            enqueued_at_unix_ms: None,
+        }
+    }
+
+    async fn consumer_with_cancel_checker(
+        redis_url: &str,
+        calls: Arc<AtomicUsize>,
+    ) -> WorkerConsumer {
+        let worker = Worker::with_no_executors();
+        worker.register_executor("operation", Arc::new(CountingExecutor { calls }));
+        let mq = mq::init_mq(mq::MqConfig {
+            url: redis_url.to_string(),
+            pool_size: 1,
+        })
+        .await
+        .expect("test MQ should connect to Redis");
+        let (metrics, _registry) =
+            common::observability::init_metrics("worker-cancel-consumer-test");
+
+        WorkerConsumer::new(WorkerConsumerDeps {
+            worker: Arc::new(worker),
+            mq: Arc::new(mq),
+            dlq_queue: "worker-cancel-test-dlq".into(),
+            dlq_config: DlqConfig::default(),
+            retry_tracker: Arc::new(Mutex::new(RetryTracker::default())),
+            dedup: None,
+            cancel_checker: Some(Arc::new(
+                RedisCancelChecker::new(redis_url).expect("cancel checker should connect"),
+            )),
+            metrics,
+            worker_id: "worker-cancel-test".into(),
+        })
+    }
+
+    #[tokio::test]
+    async fn redis_cancel_keys_preempt_execution() {
+        let redis = Redis::default()
+            .start()
+            .await
+            .expect("redis testcontainer should start");
+        let port = redis
+            .get_host_port_ipv4(6379)
+            .await
+            .expect("redis port should be mapped");
+        let redis_url = format!("redis://127.0.0.1:{port}");
+        let client = redis::Client::open(redis_url.as_str()).expect("redis URL should be valid");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let consumer = consumer_with_cancel_checker(&redis_url, calls.clone()).await;
+
+        let op_cancelled = task("cancelled-by-op-key", None);
+        set_cancel_op_keys(&client, std::slice::from_ref(&op_cancelled.id))
+            .await
+            .expect("op cancel key should be written");
+        consumer
+            .process_message(BrokerMessage::new(op_cancelled, None))
+            .await
+            .expect("cancelled op-key task should be acknowledged");
+
+        let batch_cancelled = task("cancelled-by-batch-key", Some("batch-cancelled"));
+        set_cancel_batch_key(&client, "batch-cancelled")
+            .await
+            .expect("batch cancel key should be written");
+        consumer
+            .process_message(BrokerMessage::new(batch_cancelled, None))
+            .await
+            .expect("cancelled batch-key task should be acknowledged");
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "cancelled tasks must not reach the executor"
+        );
+    }
+}

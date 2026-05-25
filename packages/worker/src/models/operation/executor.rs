@@ -102,6 +102,27 @@ impl OperationTaskExecutor {
         }
     }
 
+    #[allow(dead_code)]
+    pub async fn new_with_sandbox_manager_and_blob_store(
+        sandbox_manager: Box<dyn SandboxManager + Send + Sync>,
+        blob_store: Arc<dyn common::storage::BlobStore>,
+        cache_dir: PathBuf,
+        metrics: common::metrics::Metrics,
+    ) -> Result<Self> {
+        let file_cacher = BlobStoreFileCacher::new(blob_store, cache_dir, 1_000_000_000, None)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        Ok(Self {
+            operation_executor: OperationHandler::new(
+                sandbox_manager,
+                Box::new(file_cacher),
+                Box::new(NoopTaskCacheStore),
+                String::new(),
+                metrics,
+            ),
+        })
+    }
+
     fn sandbox_manager_from_config(
         config: Option<&WorkerAppConfig>,
         metrics: Option<common::metrics::Metrics>,

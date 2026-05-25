@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
 use redis::aio::MultiplexedConnection;
 use tokio::sync::Mutex;
 
 pub const CANCEL_KEY_TTL_SECS: usize = 21_600;
+const BATCH_CANCEL_NEGATIVE_CACHE_TTL: Duration = Duration::from_millis(50);
+const BATCH_CANCEL_POSITIVE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 const BULK_SET_CANCEL_KEYS_LUA: &str = r#"
 for i = 1, #KEYS do
@@ -69,17 +74,23 @@ pub async fn check_cancellation(
         return Ok(op_cancel > 0);
     };
 
-    let mut pipe = redis::pipe();
-    pipe.cmd("EXISTS").arg(cancel_batch_key(batch_id));
-    pipe.cmd("EXISTS").arg(cancel_op_key(task_id));
-
-    let (batch_cancel, op_cancel): (i64, i64) = pipe.query_async(conn).await?;
-    Ok(batch_cancel > 0 || op_cancel > 0)
+    let cancel_count: i64 = redis::cmd("EXISTS")
+        .arg(cancel_batch_key(batch_id))
+        .arg(cancel_op_key(task_id))
+        .query_async(conn)
+        .await?;
+    Ok(cancel_count > 0)
 }
 
 pub struct RedisCancelChecker {
     client: redis::Client,
     conn: Mutex<Option<MultiplexedConnection>>,
+    batch_cancel_cache: Mutex<HashMap<String, BatchCancelCacheEntry>>,
+}
+
+struct BatchCancelCacheEntry {
+    cancelled: bool,
+    expires_at: Instant,
 }
 
 impl RedisCancelChecker {
@@ -88,6 +99,7 @@ impl RedisCancelChecker {
         Ok(Self {
             client,
             conn: Mutex::new(None),
+            batch_cancel_cache: Mutex::new(HashMap::new()),
         })
     }
 
@@ -106,6 +118,83 @@ impl RedisCancelChecker {
         *guard = None;
     }
 
+    async fn cached_batch_cancel(&self, batch_id: &str) -> Option<bool> {
+        let now = Instant::now();
+        let mut guard = self.batch_cancel_cache.lock().await;
+        match guard.get(batch_id) {
+            Some(entry) if entry.expires_at > now => Some(entry.cancelled),
+            Some(_) => {
+                guard.remove(batch_id);
+                None
+            }
+            None => None,
+        }
+    }
+
+    async fn cache_batch_cancel(&self, batch_id: &str, cancelled: bool) {
+        let ttl = if cancelled {
+            BATCH_CANCEL_POSITIVE_CACHE_TTL
+        } else {
+            BATCH_CANCEL_NEGATIVE_CACHE_TTL
+        };
+        self.batch_cancel_cache.lock().await.insert(
+            batch_id.to_string(),
+            BatchCancelCacheEntry {
+                cancelled,
+                expires_at: Instant::now() + ttl,
+            },
+        );
+    }
+
+    async fn batch_cancel_exists(
+        conn: &mut MultiplexedConnection,
+        batch_id: &str,
+    ) -> Result<bool, redis::RedisError> {
+        let batch_cancel: i64 = redis::cmd("EXISTS")
+            .arg(cancel_batch_key(batch_id))
+            .query_async(conn)
+            .await?;
+        Ok(batch_cancel > 0)
+    }
+
+    async fn op_cancel_exists(
+        conn: &mut MultiplexedConnection,
+        task_id: &str,
+    ) -> Result<bool, redis::RedisError> {
+        let op_cancel: i64 = redis::cmd("EXISTS")
+            .arg(cancel_op_key(task_id))
+            .query_async(conn)
+            .await?;
+        Ok(op_cancel > 0)
+    }
+
+    async fn check_with_cache(
+        &self,
+        conn: &mut MultiplexedConnection,
+        batch_id: Option<&str>,
+        task_id: &str,
+    ) -> Result<bool, redis::RedisError> {
+        let Some(batch_id) = batch_id else {
+            return Self::op_cancel_exists(conn, task_id).await;
+        };
+
+        if let Some(cached) = self.cached_batch_cancel(batch_id).await {
+            return if cached {
+                Ok(true)
+            } else {
+                Self::op_cancel_exists(conn, task_id).await
+            };
+        }
+
+        let batch_cancelled = Self::batch_cancel_exists(conn, batch_id).await?;
+        self.cache_batch_cancel(batch_id, batch_cancelled).await;
+        if batch_cancelled {
+            return Ok(true);
+        }
+
+        Self::op_cancel_exists(conn, task_id).await
+    }
+
     pub async fn is_cancelled(
         &self,
         batch_id: Option<&str>,
@@ -118,7 +207,7 @@ impl RedisCancelChecker {
                 return Err(e);
             }
         };
-        match check_cancellation(&mut conn, batch_id, task_id).await {
+        match self.check_with_cache(&mut conn, batch_id, task_id).await {
             Ok(v) => Ok(v),
             Err(e) => {
                 self.invalidate_conn().await;
