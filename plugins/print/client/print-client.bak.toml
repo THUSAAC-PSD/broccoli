@@ -1,0 +1,11 @@
+station = "final-test"
+location = "Room A"
+poll_interval_secs = 2
+max_pages = 10
+banner = "ICPC 2026 Regional"
+[[server]]
+url = "http://127.0.0.1:3000"
+token = "tok"
+[[printer]]
+name = "main"
+command = "folder:/tmp/final-prints"
