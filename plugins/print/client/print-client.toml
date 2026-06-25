@@ -1,0 +1,18 @@
+station = "station-1"
+poll_interval_secs = 3
+max_pages = 20
+paper = "A4"
+font_size = 9.0
+banner = ""
+
+[[server]]
+url = "http://127.0.0.1:3000"
+token = "random_token"
+
+[[printer]]
+name = "nice_printer"
+command = "folder:/Users/jsph273/Desktop/random/nice_printer"
+
+[[printer]]
+name = "nice_printer_2"
+command = "folder:/Users/jsph273/Desktop/random/nice_printer_2"
