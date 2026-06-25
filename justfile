@@ -103,6 +103,7 @@ build-plugins *args:
     cargo run -p broccoli-cli -- plugin build plugins/cooldown {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/submission-limit {{args}}
     cargo run -p broccoli-cli -- plugin build plugins/icpc {{args}}
+    cargo run -p broccoli-cli -- plugin build plugins/print {{args}}
 
 # Build all WASM plugins (release)
 build-plugins-release:
@@ -112,6 +113,7 @@ build-plugins-release:
     cargo run -p broccoli-cli -- plugin build plugins/cooldown --install --release
     cargo run -p broccoli-cli -- plugin build plugins/submission-limit --install --release
     cargo run -p broccoli-cli -- plugin build plugins/icpc --install --release
+    cargo run -p broccoli-cli -- plugin build plugins/print --install --release
 
 # Build a single WASM plugin (e.g., just build-plugin plugins/standard-checkers)
 build-plugin path *args:
@@ -120,6 +122,14 @@ build-plugin path *args:
 # Build a single WASM plugin in release mode
 build-plugin-release path:
     cargo run -p broccoli-cli -- plugin build {{path}} --install --release
+
+# Build the native print-station client (release binary)
+build-print-client:
+    cargo build --release --manifest-path plugins/print/client/Cargo.toml
+
+# Run the native print-station client (e.g. just print-client setup)
+print-client *args:
+    cargo run --manifest-path plugins/print/client/Cargo.toml -- {{args}}
 
 # Start PostgreSQL, Redis, and SeaweedFS
 up:
