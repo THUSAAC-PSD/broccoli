@@ -1,9 +1,13 @@
 /*
  * Shared CSS preamble for plugin frontends. Maps host tokens to utilities
- * without declaring `:root`, so a plugin bundle stays self-contained and never
- * overrides the host theme. Plugins inline this preamble in their own
- * stylesheet rather than importing it, since postcss-import can't resolve the
- * package subpath at build time.
+ * without declaring `:root`, so plugins never override the host theme. A plugin
+ * stylesheet imports it, adds its own `@source`, then emits utilities:
+ *
+ *   @import '@broccoli/web-sdk/dist/plugin.css';
+ *   @source './**\/*.{ts,tsx}';
+ *   @layer plugin { @tailwind utilities; }
+ *
+ * The explicit dist path is needed because postcss-import ignores the exports map.
  */
 
 @import 'tailwindcss/theme.css' theme(reference);
