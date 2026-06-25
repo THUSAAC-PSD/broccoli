@@ -531,9 +531,9 @@ async fn ioi_scoreboard_uses_time_taken_as_score_tiebreaker() {
     let contest_id = app
         .create_typed_contest(&admin, "IOI Time Tie Contest", "ioi", true, true)
         .await;
-    app.add_problem_to_contest(contest_id, problem_id, &admin)
+    app.add_problem_to_contest_with_label(contest_id, problem_id, "A", &admin)
         .await;
-    app.add_problem_to_contest(contest_id, problem_id_b, &admin)
+    app.add_problem_to_contest_with_label(contest_id, problem_id_b, "B", &admin)
         .await;
     app.register_for_contest(contest_id, &slow_token).await;
     app.register_for_contest(contest_id, &fast_token).await;
