@@ -57,7 +57,8 @@ contest.
 
 ## Run a print station
 
-On the machine attached to a printer:
+On the machine attached to a printer, grab the `broccoli-print-client` binary
+for your platform from the GitHub release (or `just build-print-client`), then:
 
 ```bash
 print-client setup     # interactive: detects printers, asks for server URL(s) + token

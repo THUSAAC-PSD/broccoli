@@ -156,6 +156,105 @@ jobs:
           name: stress-test-${{ matrix.platform }}
           path: staging/*
 
+  build-print-client:
+    name: Build print-client ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            ext: ""
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            ext: ""
+          - platform: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          - platform: macos-universal
+            runner: macos-latest
+            target: universal2-apple-darwin
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain (mac universal)
+        if: matrix.platform == 'macos-universal'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install Rust toolchain (single target)
+        if: matrix.platform != 'macos-universal'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-print-client-${{ matrix.platform }}
+          workspaces: plugins/print/client
+
+      - name: Build
+        if: matrix.platform != 'macos-universal'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --manifest-path plugins/print/client/Cargo.toml --release --locked --target "$TARGET"
+
+      - name: Build mac universal
+        if: matrix.platform == 'macos-universal'
+        run: |
+          cargo build --manifest-path plugins/print/client/Cargo.toml --release --locked --target x86_64-apple-darwin
+          cargo build --manifest-path plugins/print/client/Cargo.toml --release --locked --target aarch64-apple-darwin
+          mkdir -p plugins/print/client/target/universal2-apple-darwin/release
+          lipo -create \
+            plugins/print/client/target/x86_64-apple-darwin/release/print-client \
+            plugins/print/client/target/aarch64-apple-darwin/release/print-client \
+            -output plugins/print/client/target/universal2-apple-darwin/release/print-client
+
+      - name: Stage artifact
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+          EXT: ${{ matrix.ext }}
+        run: |
+          mkdir -p staging
+          src="plugins/print/client/target/${TARGET}/release/print-client${EXT}"
+          dest="staging/broccoli-print-client-${PLATFORM}${EXT}"
+          cp "$src" "$dest"
+          sha256sum "$dest" > "$dest.sha256" 2>/dev/null || shasum -a 256 "$dest" > "$dest.sha256"
+
+      - name: Smoke test
+        if: matrix.platform == 'linux-x86_64' || matrix.platform == 'macos-universal'
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          EXT: ${{ matrix.ext }}
+        run: |
+          chmod +x "staging/broccoli-print-client-${PLATFORM}${EXT}"
+          "./staging/broccoli-print-client-${PLATFORM}${EXT}" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: print-client-${{ matrix.platform }}
+          path: staging/*
+
   build-images:
     name: Build image ${{ matrix.name }}
     needs: [cargo-test, docker-lint, build-stress-test]
@@ -489,7 +588,14 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build-images, build-stress-test, build-bundle, bundle-smoke-test]
+    needs:
+      [
+        build-images,
+        build-stress-test,
+        build-print-client,
+        build-bundle,
+        bundle-smoke-test,
+      ]
     runs-on: ubuntu-latest
     environment: release
     steps:
@@ -553,6 +659,7 @@ jobs:
           generate_release_notes: true
           files: |
             dist/broccoli-stress-test-*
+            dist/broccoli-print-client-*
             dist/broccoli-platform-${{ github.ref_name }}.tar.gz
             dist/broccoli-platform-${{ github.ref_name }}.tar.gz.sha256
             dist/manifest.json
