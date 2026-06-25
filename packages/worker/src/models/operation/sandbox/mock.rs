@@ -20,6 +20,29 @@ use tracing::{debug, warn};
 
 const INLINE_OUTPUT_PREVIEW_BYTES: usize = 64 * 1024;
 
+/// Drain a child pipe to EOF while keeping only the capped preview. Reading to
+/// the end (rather than stopping at the cap) keeps the child from taking SIGPIPE
+/// when it writes more than the preview limit.
+async fn read_capped_drain<R>(mut reader: R) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut preview = Vec::with_capacity(INLINE_OUTPUT_PREVIEW_BYTES + 1);
+    let mut chunk = [0_u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                if preview.len() <= INLINE_OUTPUT_PREVIEW_BYTES {
+                    let remaining = (INLINE_OUTPUT_PREVIEW_BYTES + 1).saturating_sub(preview.len());
+                    preview.extend_from_slice(&chunk[..remaining.min(read)]);
+                }
+            }
+        }
+    }
+    preview
+}
+
 fn text_preview_from_bytes(mut bytes: Vec<u8>, truncated: bool) -> String {
     let was_truncated = truncated || bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES;
     if bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES {
@@ -428,22 +451,8 @@ impl SandboxManager for MockSandboxManager {
         let piped_stdout_handle = child.stdout.take();
         let piped_stderr_handle = child.stderr.take();
 
-        let stdout_task = piped_stdout_handle.map(|s| {
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut limited = s.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
-                let _ = limited.read_to_end(&mut buf).await;
-                buf
-            })
-        });
-        let stderr_task = piped_stderr_handle.map(|s| {
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut limited = s.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
-                let _ = limited.read_to_end(&mut buf).await;
-                buf
-            })
-        });
+        let stdout_task = piped_stdout_handle.map(|s| tokio::spawn(read_capped_drain(s)));
+        let stderr_task = piped_stderr_handle.map(|s| tokio::spawn(read_capped_drain(s)));
 
         let time_limit_secs = run_options.resource_limits.wall_time_limit.or_else(|| {
             run_options
