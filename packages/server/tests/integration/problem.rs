@@ -716,7 +716,7 @@ mod test_case_creation {
         assert_eq!(res.body["label"], "large_input");
         assert_eq!(res.body["input"], large_input);
         assert_eq!(res.body["input_size"], large_input.len());
-        assert_eq!(res.body["input_preview"].as_str().unwrap().len(), 103);
+        assert_eq!(res.body["input_preview"].as_str().unwrap().len(), 100);
 
         let tc_id = res.id();
         let get_res = app
@@ -730,7 +730,7 @@ mod test_case_creation {
         assert_eq!(list_res.status, 200, "list body: {}", list_res.body);
         assert_eq!(
             list_res.body[0]["input_preview"].as_str().unwrap().len(),
-            103
+            100
         );
     }
 
@@ -999,8 +999,8 @@ mod test_case_listing {
 
         assert_eq!(res.status, 200);
         let preview = res.body[0]["input_preview"].as_str().unwrap();
-        assert!(preview.ends_with("..."));
-        assert!(preview.len() <= 103);
+        assert_eq!(preview.len(), 100);
+        assert!(long_input.starts_with(preview));
     }
 
     #[tokio::test]
@@ -1030,8 +1030,8 @@ mod test_case_listing {
         assert_eq!(res.status, 200);
 
         let preview = res.body[0]["input_preview"].as_str().unwrap();
-        assert!(preview.ends_with("..."));
-        assert_eq!(preview.chars().count(), 103);
+        assert_eq!(preview.chars().count(), 100);
+        assert!(unicode_input.starts_with(preview));
     }
 }
 
@@ -1209,7 +1209,7 @@ mod test_case_update {
         assert_eq!(res.status, 200, "patch body: {}", res.body);
         assert_eq!(res.body["expected_output"], large_output);
         assert_eq!(res.body["output_size"], large_output.len());
-        assert_eq!(res.body["output_preview"].as_str().unwrap().len(), 103);
+        assert_eq!(res.body["output_preview"].as_str().unwrap().len(), 100);
 
         let get_res = app
             .get_with_token(&routes::test_case(pid, tc_id), &token)
