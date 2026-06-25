@@ -10,6 +10,7 @@
     },
     "./package.json": "./package.json",
     "./tailwind-preset": "./dist/tailwind-preset.js",
+    "./plugin.css": "./dist/plugin.css",
     "./*": {
       "types": "./dist/*/index.d.ts",
       "import": "./dist/*/index.js"
@@ -30,7 +31,8 @@
     ],
     "platform": "neutral",
     "copy": [
-      "src/index.css"
+      "src/index.css",
+      "src/plugin.css"
     ]
   },
   "devDependencies": {
