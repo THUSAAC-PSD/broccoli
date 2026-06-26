@@ -77,6 +77,8 @@ fn auth_routes(rate_limit_auth: bool) -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::auth::request_device_code))
         .routes(routes!(handlers::auth::authorize_device))
         .routes(routes!(handlers::auth::poll_device_token))
+        .routes(routes!(handlers::auth::issue_cli_token))
+        .routes(routes!(handlers::auth::cli_refresh))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -402,6 +404,7 @@ fn contest_problem_routes(submission_max_size: usize) -> OpenApiRouter<AppState>
             handlers::contest::update_contest_problem,
             handlers::contest::remove_contest_problem,
         ))
+        .routes(routes!(handlers::contest::get_contest_problem_samples))
         .nest("/{problem_id}/config", contest_problem_config_routes())
         .nest(
             "/{problem_id}/submissions",
