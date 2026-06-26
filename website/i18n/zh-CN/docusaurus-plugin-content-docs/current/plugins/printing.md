@@ -4,6 +4,8 @@ sidebar_label: 打印
 sidebar_position: 1
 ---
 
+import ThemedImage from '@theme/ThemedImage';
+
 # 打印
 
 参赛者在网页界面发起打印自己代码的请求。志愿者监管一个实时队列，打印机一侧的机器上
@@ -26,7 +28,10 @@ sidebar_position: 1
 
 一个打印站可以驱动多台打印机，也可以同时服务多个比赛服务端。
 
-![浏览器与维护打印队列的 Broccoli 服务端通信；打印站轮询服务端后，在物理打印机上渲染并打印 PDF。](/img/print-architecture.zh.svg)
+<ThemedImage
+  alt="浏览器与维护打印队列的 Broccoli 服务端通信；打印站轮询服务端后，在物理打印机上渲染并打印 PDF。"
+  sources={{ light: '/img/print-architecture.zh.svg', dark: '/img/print-architecture.zh.dark.svg' }}
+/>
 
 ## 启用打印
 
@@ -188,7 +193,10 @@ print-client test-print solution.cpp --out preview.pdf
 
 ## 任务生命周期
 
-![任务依次经历 pending_approval、pending、claimed、printing、done；可能失败或被取消，已结束的任务可重新打印。](/img/print-lifecycle.zh.svg)
+<ThemedImage
+  alt="任务依次经历 pending_approval、pending、claimed、printing、done；可能失败或被取消，已结束的任务可重新打印。"
+  sources={{ light: '/img/print-lifecycle.zh.svg', dark: '/img/print-lifecycle.zh.dark.svg' }}
+/>
 
 新任务初始为 `pending`；若该比赛要求批准，则初始为 `pending_approval`，经志愿者批准后
 转为 `pending`。随后某个打印站领取该任务、打印它，并标记为 `done`。渲染或打印出错会使其
