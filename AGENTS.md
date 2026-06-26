@@ -90,7 +90,7 @@ docker compose up -d
 
 Current `docker-compose.yaml` services:
 
-- Postgres 18 on `127.0.0.1:5433`
+- Postgres 17 on `127.0.0.1:5433`
 - Redis 7 on `6379`
 - SeaweedFS on `9333` and `8333`
 

@@ -1,4 +1,4 @@
-# print — contest code printing
+# print: contest code printing
 
 On-demand printing for ICPC-style contests. Contestants print a submission or
 arbitrary pasted code; staff oversee a live queue; one or more **print
@@ -40,14 +40,14 @@ just test-plugin plugins/print                  # plugin unit tests
 
 In the contest's admin config, open **Printing**:
 
-- **Enable printing** — master switch.
-- **Require staff approval** — when on, jobs wait as _Awaiting approval_ until a
+- **Enable printing**: master switch.
+- **Require staff approval**: when on, jobs wait as _Awaiting approval_ until a
   staff member approves them on the **Print Queue** page (`/print-queue`).
-- **Max pages per job** — jobs whose estimated page count exceeds this are
+- **Max pages per job**: jobs whose estimated page count exceeds this are
   rejected at submit time.
-- **Header banner** — optional text shown on every printout (e.g. the contest
+- **Header banner**: optional text shown on every printout (e.g. the contest
   name).
-- **Station tokens** — opaque secrets that authorize print stations. Add one per
+- **Station tokens**: opaque secrets that authorize print stations. Add one per
   deployment (or per contest). A station presents it as
   `Authorization: PrintStation <token>`.
 
@@ -93,9 +93,9 @@ os_id = "HP_LaserJet_Room_A"      # CUPS / Windows queue name
 
 - **macOS / Linux:** CUPS via `lp` (printers enumerated with `lpstat`).
 - **Windows:** PowerShell's print verb (`Start-Process -Verb Print`) using the
-  OS default PDF handler — no third-party viewer.
+  OS default PDF handler, no third-party viewer.
 - **Configurable command template** (`{printer}`, `{file}`) for anything else.
-- **Folder sink** (`folder:/path`) writes the PDF to a directory — a universal
+- **Folder sink** (`folder:/path`) writes the PDF to a directory, a universal
   fallback, great for testing.
 
 Render a local file to verify output without a server:
@@ -107,8 +107,8 @@ print-client test-print solution.cpp --printer main      # actually print
 
 ### Fonts & Unicode
 
-The client embeds **Sarasa Fixed SC** (`client/assets/`, SIL OFL) — a
-fixed-width font where Latin is half-width and CJK is full-width. Combined with
+The client embeds **Sarasa Fixed SC** (`client/assets/`, SIL OFL), a fixed-width
+font where Latin is half-width and CJK is full-width. Combined with
 display-width-aware layout, it prints **Chinese/Japanese/Korean**, Greek,
 Cyrillic, and accented Latin with correct monospace alignment, plus per-token
 syntax highlighting. The embedded font adds ~25 MB to the binary; rendered PDFs

@@ -1,16 +1,57 @@
 # @broccoli/web-sdk
 
-Core SDK for the Broccoli plugin system with slot architecture.
+The frontend SDK for Broccoli. It carries three things: the plugin slot system
+that lets plugins inject React components into the app, a shared UI kit so
+plugins match the host, and the API, i18n, theming, and auth helpers a plugin
+frontend needs. The Broccoli web app and every plugin frontend build against it.
 
-## Installation
+## Install
 
 ```bash
 pnpm add @broccoli/web-sdk
 ```
 
-## Usage
+Inside this monorepo a plugin frontend depends on it by path. See
+`plugins/icpc/web` and `plugins/print/web` for working setups.
 
-### Setting up the Provider
+## Entry points
+
+The root export is empty. Import from a subpath:
+
+| Import                              | What it provides                                     |
+| ----------------------------------- | ---------------------------------------------------- |
+| `@broccoli/web-sdk/plugin`          | `PluginRegistryProvider`, `usePluginRegistry`, types |
+| `@broccoli/web-sdk/slot`            | The `Slot` component                                 |
+| `@broccoli/web-sdk/ui`              | UI kit: `Button`, `DataTable`, `Dialog`, `Tabs`, …   |
+| `@broccoli/web-sdk/api`             | `useApiFetch`, the API client and providers          |
+| `@broccoli/web-sdk/i18n`            | Translation hooks and types                          |
+| `@broccoli/web-sdk/auth`            | Auth state                                           |
+| `@broccoli/web-sdk/theme`           | Theme state                                          |
+| `@broccoli/web-sdk/tailwind-preset` | Tailwind preset for plugin styles                    |
+| `@broccoli/web-sdk/plugin.css`      | Base plugin stylesheet                               |
+
+## How slots work
+
+A slot is a named injection point in the UI. The host renders a `Slot`, and any
+active plugin that targets that slot has its component rendered there.
+
+```tsx
+import { Slot } from '@broccoli/web-sdk/slot';
+
+<Slot name="submission-result.rejection" slotProps={{ submission }} />;
+```
+
+A plugin does not register slots in frontend code. It declares them in its
+`plugin.toml`, exports the named component, and the server reports it as active.
+The provider fetches active plugins from `backendUrl` and wires them up. Slots
+carry an optional `permission` and `contest_type`, and `Slot` renders a plugin's
+component only when the current user and contest satisfy them.
+
+## Set up the provider
+
+Wrap the app once. `backendUrl` is where the registry fetches active plugins.
+`lazyPlugins` is for plugins bundled with the app and code-split with dynamic
+`import()`; remote plugins delivered by the server need no entry here.
 
 ```tsx
 import { PluginRegistryProvider } from '@broccoli/web-sdk/plugin';
@@ -24,86 +65,23 @@ function App() {
 }
 ```
 
-### Creating Slots
+## UI kit and styles
 
-```tsx
-import { Slot } from '@broccoli/web-sdk/slot';
+Build plugin UI from `@broccoli/web-sdk/ui` so it matches the app: `Button`,
+`Badge`, `Card`, `Dialog`, `Select`, `Tabs`, `Textarea`, `DataTable`,
+`FileDropZone`, `Sidebar`, `Sonner` toasts, and more. Use the Tailwind preset
+and the plugin stylesheet to pick up the same tokens:
 
-function Header() {
-  return (
-    <Slot name="slots.header" className="flex gap-4">
-      <button>Default Button</button>
-    </Slot>
-  );
-}
+```ts
+// tailwind config
+import preset from '@broccoli/web-sdk/tailwind-preset';
+export default { presets: [preset] };
 ```
 
-### Registering Plugins
+## Where to go next
 
-```tsx
-import {
-  PluginRegistryProvider,
-  type ComponentBundle,
-  type PluginModule,
-} from '@broccoli/web-sdk/plugin';
-
-function MyButton() {
-  return null;
-}
-
-const components: ComponentBundle = {
-  'components/MyButton': MyButton,
-};
-
-const plugin: PluginModule = {
-  manifest: {
-    id: 'my-plugin',
-    name: 'my-plugin',
-    version: '1.0.0',
-    components: {
-      'components/MyButton': 'MyButton',
-    },
-    slots: [
-      {
-        name: 'slots.header',
-        position: 'after',
-        component: 'components/MyButton',
-      },
-    ],
-  },
-  MyButton,
-};
-
-function App() {
-  return (
-    <PluginRegistryProvider
-      backendUrl="http://127.0.0.1:3000"
-      pluginModules={[plugin]}
-    >
-      <YourApp />
-    </PluginRegistryProvider>
-  );
-}
-```
-
-## API
-
-### Types
-
-- `ActivePluginManifest`: Plugin manifest shape
-- `SlotConfig`: Slot configuration
-- `ComponentBundle`: Component registry
-- `PluginModule`: Runtime plugin module
-
-### Components
-
-- `PluginRegistryProvider`: Context provider for plugin system
-- `Slot`: Slot component for plugin injection
-
-### Hooks
-
-- `usePluginRegistry()`: Access plugin registry
-- `usePluginComponent(name)`: Get specific plugin component
+The end-to-end plugin walkthrough lives on the docs site under Building plugins.
+`plugins/icpc/web` and `plugins/print/web` are the reference frontends.
 
 ## License
 
