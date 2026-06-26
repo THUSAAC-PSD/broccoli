@@ -15,7 +15,7 @@ admin user.
 
 - A Broccoli server reachable over HTTP and ready to accept submissions.
 - An **admin user already provisioned** in that server. The stress test cannot
-  create one — registration on Broccoli always assigns the `contestant` role
+  create one. Registration on Broccoli always assigns the `contestant` role
   only. If you don't have an admin yet, seed one via the DB or whatever
   provisioning tool your deployment uses.
 - At least one contest plugin and one evaluator (e.g. `batch-evaluator`) loaded
@@ -32,10 +32,9 @@ broccoli-stress-test \
     --admin-password '<password>'
 ```
 
-Read the final summary block. If it says
-`RESULT: PASS — System is ready for contest.`, you're good. If it says
-`RESULT: FAIL — DO NOT RUN CONTEST until these are resolved.`, the issues block
-names what broke.
+Read the final summary block. A pass prints a green
+`✓ System is ready for contest.` A fail prints a red `✗ DO NOT RUN CONTEST`
+followed by the issues that block it.
 
 ### Output modes
 
@@ -91,8 +90,8 @@ broccoli-stress-test --url ... --admin-username ... --admin-password ... \
 After the self-contained correctness + load phases pass, this fires a small
 concurrent burst against your actual contest. Asserts liveness (every submission
 reaches a terminal status within `--per-job-timeout`) and determinism (every
-submission produces the same final verdict) rather than verdict correctness — we
-don't know your problem's right answer.
+submission produces the same final verdict) rather than verdict correctness,
+because we don't know your problem's right answer.
 
 The phase auto-skips with a clear reason in any of:
 
@@ -108,7 +107,7 @@ problem within the contest; otherwise the lowest-position problem is chosen.
 
 | Code | Meaning                                              |
 | ---- | ---------------------------------------------------- |
-| `0`  | PASS — system is ready for contest.                  |
+| `0`  | PASS. System is ready for contest.                   |
 | `1`  | Correctness phase failed.                            |
 | `2`  | Load phase failed.                                   |
 | `3`  | Pass-through phase failed (liveness or determinism). |
@@ -120,7 +119,7 @@ problem within the contest; otherwise the lowest-position problem is chosen.
 
 The stress test creates 9 problems titled `stress-test:<scenario-id>` plus one
 test case per problem. After every run it deletes them unconditionally
-(best-effort) — failures here surface as warnings and exit code `5` rather than
+(best-effort). Failures here surface as warnings and exit code `5` rather than
 `0`, but never flip a passing run to FAIL.
 
 To inspect what's left after a run, pass `--keep-fixtures`. The summary will
@@ -199,7 +198,7 @@ the expected `(SubmissionStatus, Option<Verdict>)` pair. To add one:
 
 ```
 src/
-├── main.rs           # `tokio::main` shim — parses CLI, calls `runner::run`
+├── main.rs           # `tokio::main` shim: parses CLI, calls `runner::run`
 ├── runner.rs         # phase orchestration + exit-code mapping
 ├── cli.rs            # clap definitions + Cli::validate
 ├── client.rs         # reqwest wrapper + 401 auto-relogin + multipart
@@ -262,6 +261,8 @@ payload fails the test with the full stdout/stderr captured.
 
 ## For releases
 
+### Building artifacts
+
 Static musl binaries for x86_64 and aarch64 Linux ship via `cross`. Recipes live
 in the workspace `justfile`:
 
@@ -282,10 +283,11 @@ just stress-test-portability
 
 The harness is a no-op on non-Linux build hosts (cfg-gated to compile away).
 
-## Releases
+### Published binaries
 
 Pre-built binaries for Linux (x86_64, aarch64), Windows (x86_64), and macOS
-(universal) are published with each tagged version:
+(universal) are published with each tagged version. The `cross` recipes above
+build the Linux targets locally; CI publishes the full matrix.
 
 - **Recommended:** download from your Broccoli server at `<server>/downloads`.
   The binary served there is automatically version-matched to the server.

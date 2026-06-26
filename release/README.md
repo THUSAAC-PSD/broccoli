@@ -31,8 +31,8 @@ storage menu:
   S3-compatible storage. Keeps testcase blob traffic off the Postgres connection
   pool, which is what saturates first under contest concurrency.
 - `database`: store uploads/results in PostgreSQL. Only for tiny demos with no
-  S3 available — every blob fetch holds a DB connection for the entire stream,
-  so this backend cannot survive even a 50-submission burst.
+  S3 available. Every blob fetch holds a DB connection for the entire stream, so
+  this backend cannot survive even a 50-submission burst.
 
 Worker and single-host installs also present a worker image menu:
 

@@ -1,45 +1,56 @@
-# Website
+# Documentation site
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern
-static website generator.
+The Broccoli docs site, built with [Docusaurus](https://docusaurus.io/). Pages
+live in `docs/`, with the Simplified Chinese mirror under
+`i18n/zh-CN/docusaurus-plugin-content-docs/`.
 
-## Installation
+Write pages against the guides in [`../docs/authoring`](../docs/authoring):
+`house-style.md` for voice and structure, `diagrams.md` for diagrams.
 
-```bash
-yarn
-```
-
-## Local Development
+## Develop
 
 ```bash
-yarn start
+pnpm install
+pnpm start
 ```
 
-This command starts a local development server and opens up a browser window.
-Most changes are reflected live without having to restart the server.
+`pnpm start` serves the English site with hot reload. To preview the Chinese
+locale, pass it explicitly:
+
+```bash
+pnpm start --locale zh-CN
+```
 
 ## Build
 
 ```bash
-yarn build
+pnpm build
+pnpm serve
 ```
 
-This command generates static content into the `build` directory and can be
-served using any static contents hosting service.
+`pnpm build` writes the static site for every locale to `build/` and `pnpm serve`
+serves that output. The build fails on a broken internal link, because the config
+sets `onBrokenLinks: 'throw'`. Run `pnpm clear` first if a stale cache produces
+results that do not match the source.
 
-## Deployment
+## Diagrams
 
-Using SSH:
+Diagrams are generated, not drawn by hand in an editor. Edit the scene data and
+regenerate:
 
 ```bash
-USE_SSH=true yarn deploy
+pnpm diagrams
 ```
 
-Not using SSH:
+See [`diagrams/README.md`](diagrams/README.md) for the scene format and the dark
+mode contract.
+
+## Translations
+
+Heading anchors for Chinese pages come from the CJK auto-anchor, so headings need
+no explicit id. When you add UI strings or theme labels that Docusaurus owns,
+regenerate the translation stubs:
 
 ```bash
-GIT_USER=<Your GitHub username> yarn deploy
+pnpm write-translations --locale zh-CN
 ```
-
-If you are using GitHub pages for hosting, this command is a convenient way to
-build the website and push to the `gh-pages` branch.

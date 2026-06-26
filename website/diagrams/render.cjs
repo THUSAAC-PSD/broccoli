@@ -17,6 +17,12 @@ const PALETTE = {
 };
 
 const gen = rough.generator();
+
+// Deterministic seed per render so output is reproducible across runs. Without
+// this, rough.js uses fresh randomness every time and regenerating rewrites
+// every SVG. render() resets the counter, so light and dark share geometry.
+let seedState = 0;
+const nextSeed = () => ++seedState;
 const fontB64 = fs
   .readFileSync(path.join(__dirname, '..', '.fonts', 'Excalifont.woff2'))
   .toString('base64');
@@ -52,13 +58,14 @@ function pathsFor(drawable) {
 function box(b) {
   const fill = PALETTE[b.color] || PALETTE.blue;
   const d = roundedRectPath(b.x, b.y, b.w, b.h, b.r ?? 12);
-  const filled = gen.path(d, { fill, fillStyle: 'solid', stroke: 'none', roughness: 0 });
+  const filled = gen.path(d, { fill, fillStyle: 'solid', stroke: 'none', roughness: 0, seed: nextSeed() });
   const stroked = gen.path(d, {
     stroke: PALETTE.ink,
     strokeWidth: 1.6,
     roughness: 1.5,
     bowing: 1.2,
     fill: 'none',
+    seed: nextSeed(),
   });
   let svg = pathsFor(filled) + pathsFor(stroked);
   const cx = b.x + b.w / 2;
@@ -84,13 +91,14 @@ function arrowHead(x, y, angle) {
       stroke: PALETTE.ink,
       strokeWidth: 1.6,
       roughness: 1.2,
+      seed: nextSeed(),
     });
   return pathsFor(mk(angle + Math.PI - spread)) + pathsFor(mk(angle + Math.PI + spread));
 }
 
 function arrow(a) {
   const { x1, y1, x2, y2 } = a;
-  const opts = { stroke: PALETTE.ink, strokeWidth: 1.6, roughness: 1.1, bowing: a.bow ?? 1 };
+  const opts = { stroke: PALETTE.ink, strokeWidth: 1.6, roughness: 1.1, bowing: a.bow ?? 1, seed: nextSeed() };
   let line = a.curve
     ? pathsFor(gen.path(a.curve, { ...opts, fill: 'none' }))
     : pathsFor(gen.line(x1, y1, x2, y2, opts));
@@ -110,6 +118,7 @@ function arrow(a) {
 }
 
 function render(scene, dark = false) {
+  seedState = 0;
   const { width, height } = scene;
   const theme = dark
     ? { edge: '#c9c9c9', note: '#c2c2c2', chipFill: '#26262b', chipStroke: '#45454d' }

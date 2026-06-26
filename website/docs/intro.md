@@ -7,14 +7,14 @@ sidebar_position: 1
 
 # Broccoli
 
-Broccoli is a contest judge platform. Core functionality — problems, contests,
-submissions, judging — ships in the server, and optional capabilities are added
-through **plugins** that extend both the backend and the web UI.
+Broccoli is a contest judge platform. The core features ship in the server, and
+they cover problems, contests, submissions, and judging. Optional capabilities
+are added through **plugins** that extend both the backend and the web UI.
 
-These docs cover the platform's plugins and how to operate them. Start with:
+These docs cover the platform's plugins and how to operate them. Start here.
 
-- **[Printing](./plugins/printing.md)** — on-demand code printing for ICPC-style
-  contests, with a staff queue and native print stations.
+- **[Printing](./plugins/printing.md)** prints code on demand for ICPC style
+  contests, with a volunteer queue and native print stations.
 
 :::note[Languages]
 

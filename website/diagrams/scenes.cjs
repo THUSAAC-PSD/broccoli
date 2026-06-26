@@ -1,3 +1,28 @@
+const architecture = (labels) => ({
+  width: 760,
+  height: 548,
+  alt: labels.alt,
+  boxes: [
+    { x: 240, y: 24, w: 280, h: 66, color: 'blue', lines: labels.frontend },
+    { x: 240, y: 212, w: 280, h: 88, color: 'green', lines: labels.server },
+    { x: 240, y: 438, w: 280, h: 86, color: 'yellow', lines: labels.workers },
+    { x: 24, y: 214, w: 184, h: 56, color: 'gray', lines: labels.postgres },
+    { x: 24, y: 300, w: 184, h: 56, color: 'gray', lines: labels.storage },
+    { x: 552, y: 212, w: 184, h: 88, color: 'purple', lines: labels.plugins },
+  ],
+  arrows: [
+    { x1: 380, y1: 90, x2: 380, y2: 210, ax: 380, ay: 90, label: labels.rest, lx: 446, ly: 150 },
+    { x1: 380, y1: 300, x2: 380, y2: 436, ax: 380, ay: 300, label: labels.queue, lx: 452, ly: 368 },
+    { x1: 240, y1: 240, x2: 210, y2: 240, ax: 240, ay: 240 },
+    { x1: 240, y1: 272, x2: 210, y2: 326, ax: 240, ay: 272 },
+    { x1: 520, y1: 256, x2: 550, y2: 256, ax: 520, ay: 256 },
+  ],
+  notes: [
+    { x: 644, y: 192, text: labels.pluginHost },
+    { x: 380, y: 540, text: labels.linux },
+  ],
+});
+
 const printArchitecture = (labels) => ({
   width: 560,
   height: 590,
@@ -50,6 +75,19 @@ const printLifecycle = (labels) => ({
 });
 
 module.exports = {
+  architecture: architecture({
+    alt: 'The web frontend calls the Broccoli server over a REST API. The server holds state in PostgreSQL and object storage, runs plugins as WASM modules, and dispatches judging work to sandboxed workers over a Redis queue.',
+    frontend: ['Web frontend', 'React · Monaco · web-sdk slots'],
+    server: ['Broccoli server', 'Axum API · auth · contests', 'plugin host (Extism)'],
+    workers: ['Judge workers', 'isolate sandbox', 'compile · run · check'],
+    postgres: ['PostgreSQL', 'schema auto-sync'],
+    storage: ['Object storage', 'SeaweedFS · FS · DB'],
+    plugins: ['Plugins', 'WASM modules', 'hooks · routes · config'],
+    rest: 'REST API',
+    queue: 'Redis queue',
+    pluginHost: 'loaded at startup',
+    linux: 'Workers run on Linux only.',
+  }),
   'print-architecture': printArchitecture({
     alt: 'Browsers talk to the Broccoli server, which holds the print queue. Print stations poll the server, then render and print PDFs on physical printers.',
     contestants: ['Contestants', 'request prints'],
