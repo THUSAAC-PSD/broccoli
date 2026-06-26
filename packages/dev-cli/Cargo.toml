@@ -1,5 +1,5 @@
 [package]
-name = "broccoli-cli"
+name = "broccoli-dev-cli"
 version = "0.1.2"
 description = "CLI for scaffolding and building Broccoli plugins"
 license = "MIT"
@@ -11,10 +11,11 @@ edition = "2024"
 rust-version = "1.85"
 
 [[bin]]
-name = "broccoli"
+name = "broccoli-dev"
 path = "src/main.rs"
 
 [dependencies]
+broccoli-cli-core = { path = "../cli-core" }
 anyhow.workspace = true
 toml.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -32,3 +33,4 @@ rand.workspace = true
 ctrlc = "3"
 libc = "0.2"
 shlex = "1"
+ureq = { version = "3", features = ["json"] }
