@@ -109,8 +109,11 @@ function arrow(a) {
   return svg;
 }
 
-function render(scene) {
+function render(scene, dark = false) {
   const { width, height } = scene;
+  const theme = dark
+    ? { edge: '#c9c9c9', note: '#c2c2c2', chipFill: '#26262b', chipStroke: '#45454d' }
+    : { edge: '#1e1e1e', note: '#4a4a4a', chipFill: '#ffffff', chipStroke: '#e0e0e0' };
   let body = '';
   (scene.arrows || []).forEach((a) => (body += arrow(a)));
   (scene.boxes || []).forEach((b) => (body += box(b)));
@@ -120,14 +123,9 @@ function render(scene) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(scene.alt || '')}">
 <defs><style>
 @font-face{font-family:'Excalifont';src:url(data:font/woff2;base64,${fontB64}) format('woff2');font-display:swap;}
-.edge{stroke:#1e1e1e;}
-.note{fill:#4a4a4a;}
-.chip{fill:#ffffff;stroke:#e0e0e0;stroke-width:1;}
-@media (prefers-color-scheme: dark){
-  .edge{stroke:#c9c9c9;}
-  .note{fill:#c2c2c2;}
-  .chip{fill:#26262b;stroke:#45454d;}
-}
+.edge{stroke:${theme.edge};}
+.note{fill:${theme.note};}
+.chip{fill:${theme.chipFill};stroke:${theme.chipStroke};stroke-width:1;}
 </style></defs>
 ${body}
 </svg>`;
