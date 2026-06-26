@@ -10,9 +10,9 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::models::auth::{
-    DeviceAuthorizeRequest, DeviceCodeRequest, DeviceCodeResponse, DeviceTokenRequest,
-    LoginRequest, LoginResponse, MeResponse, RegisterRequest, RegisterResponse,
-    validate_login_request, validate_register_request,
+    CliRefreshRequest, CliTokenResponse, DeviceAuthorizeRequest, DeviceCodeRequest,
+    DeviceCodeResponse, DeviceTokenRequest, LoginRequest, LoginResponse, MeResponse,
+    RegisterRequest, RegisterResponse, validate_login_request, validate_register_request,
 };
 use crate::state::AppState;
 use crate::utils::soft_delete::SoftDeletable;
@@ -595,4 +595,149 @@ pub async fn poll_device_token(
         StatusCode::BAD_REQUEST,
         Json(serde_json::json!({ "error": "authorization_pending" })),
     ))
+}
+
+/// Create a refresh-token row for a user and return the opaque token string
+/// (`selector:validator`) the client should store.
+async fn mint_refresh_token<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<String, AppError> {
+    let now = chrono::Utc::now();
+    let expiry = now + chrono::Duration::days(refresh::REFRESH_TOKEN_EXPIRY_DAYS);
+    let selector = hash::generate_random_string();
+    let validator = hash::generate_random_string();
+    let validator_hash = hash::hash_password(&validator)
+        .map_err(|e| AppError::Internal(format!("Refresh token hash error: {}", e)))?;
+
+    refresh_token::ActiveModel {
+        selector: Set(selector.clone()),
+        validator: Set(validator_hash),
+        user_id: Set(user_id),
+        expires_at: Set(expiry),
+        created_at: Set(now),
+    }
+    .insert(db)
+    .await?;
+
+    Ok(refresh::construct_refresh_token(&selector, &validator))
+}
+
+#[utoipa::path(
+    post,
+    path = "/cli-token",
+    tag = "Auth",
+    operation_id = "issueCliToken",
+    summary = "Issue a long-lived refresh token for the CLI",
+    description = "Exchanges the caller's current access token for a fresh access token plus a long-lived refresh token. The CLI stores the refresh token and uses POST /auth/cli-refresh to obtain new access tokens without re-prompting.",
+    responses(
+        (status = 200, description = "CLI token issued", body = CliTokenResponse),
+        (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user), fields(user_id = auth_user.user_id))]
+pub async fn issue_cli_token(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<CliTokenResponse>, AppError> {
+    let refresh_token = mint_refresh_token(&state.db, auth_user.user_id).await?;
+
+    let token = jwt::sign_access_token(
+        auth_user.user_id,
+        &auth_user.username,
+        auth_user.roles,
+        auth_user.permissions,
+        &state.config.auth.jwt_secret,
+    )
+    .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
+
+    Ok(Json(CliTokenResponse {
+        token,
+        refresh_token,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/cli-refresh",
+    tag = "Auth",
+    operation_id = "cliRefreshToken",
+    summary = "Refresh a CLI access token using a stored refresh token",
+    description = "Body-based (cookie-free) refresh for CLI clients. Validates and rotates the supplied refresh token, returning a new access token and a new refresh token. The old refresh token is invalidated.",
+    request_body = CliRefreshRequest,
+    responses(
+        (status = 200, description = "Token refreshed", body = CliTokenResponse),
+        (status = 401, description = "Invalid or expired refresh token (TOKEN_INVALID)", body = ErrorBody),
+    ),
+)]
+#[instrument(skip(state, payload))]
+pub async fn cli_refresh(
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<CliRefreshRequest>,
+) -> Result<Json<CliTokenResponse>, AppError> {
+    use sea_orm::sea_query::LockType;
+
+    let (selector, validator) =
+        refresh::parse_refresh_token(&payload.refresh_token).map_err(|_| AppError::TokenInvalid)?;
+
+    let txn = state.db.begin().await?;
+
+    let maybe_rt = refresh_token::Entity::find_by_id(selector.to_string())
+        .lock(LockType::Update)
+        .one(&txn)
+        .await?;
+
+    let is_valid =
+        hash::verify_password(validator, maybe_rt.as_ref().map(|rt| rt.validator.as_str()))
+            .map_err(|e| AppError::Internal(format!("Refresh token verify error: {}", e)))?;
+
+    let rt_model = match maybe_rt {
+        Some(rt) if is_valid => rt,
+        _ => return Err(AppError::TokenInvalid),
+    };
+
+    if rt_model.expires_at < chrono::Utc::now() {
+        rt_model.delete(&txn).await?;
+        txn.commit().await?;
+        return Err(AppError::TokenInvalid);
+    }
+
+    let user_id = rt_model.user_id;
+    let maybe_user = user::Entity::find_by_id(user_id).one(&txn).await?;
+    let user = match maybe_user {
+        Some(u) if u.deleted_at.is_none() => u,
+        _ => {
+            rt_model.delete(&txn).await?;
+            txn.commit().await?;
+            return Err(AppError::PermissionDenied);
+        }
+    };
+
+    let role_models = user.find_related(role::Entity).all(&txn).await?;
+    let roles: Vec<String> = role_models.iter().map(|r| r.name.clone()).collect();
+    let permissions: Vec<String> = role_models
+        .load_many(role_permission::Entity, &txn)
+        .await?
+        .into_iter()
+        .flatten()
+        .map(|rp| rp.permission)
+        .collect();
+
+    let new_access_token = jwt::sign_access_token(
+        user.id,
+        &user.username,
+        roles,
+        permissions,
+        &state.config.auth.jwt_secret,
+    )
+    .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
+
+    // Rotate: delete the old refresh token, mint a new one.
+    rt_model.delete(&txn).await?;
+    let new_refresh_token = mint_refresh_token(&txn, user_id).await?;
+
+    txn.commit().await?;
+
+    Ok(Json(CliTokenResponse {
+        token: new_access_token,
+        refresh_token: new_refresh_token,
+    }))
 }

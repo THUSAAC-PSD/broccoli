@@ -1,21 +1,24 @@
-# broccoli-cli
+# broccoli-dev-cli
 
-`broccoli-cli` installs the `broccoli` command.
+`broccoli-dev-cli` installs the **`broccoli-dev`** command.
 
 It is the command-line tool used to scaffold Broccoli plugins, build them
 locally, and watch a plugin directory while pushing changes to a running
 Broccoli server.
 
+> Competing in a contest instead of writing plugins? That's the separate
+> **`broccoli`** command (`packages/contestant-cli`).
+
 ## Install
 
 ```bash
-cargo install broccoli-cli
+cargo install broccoli-dev-cli
 ```
 
 If you are working in the Broccoli monorepo and want the local checkout instead:
 
 ```bash
-cargo install --path packages/cli
+cargo install --path packages/dev-cli
 ```
 
 ## What it does
@@ -29,31 +32,31 @@ The CLI currently covers four jobs:
 
 ## Commands
 
-### `broccoli login`
+### `broccoli-dev login`
 
 Starts the device-code login flow against a Broccoli server.
 
 ```bash
-broccoli login
-broccoli login --server http://localhost:3000
+broccoli-dev login
+broccoli-dev login --server http://localhost:3000
 ```
 
 On success, credentials are stored in `~/.config/broccoli/credentials.json`. You
 can also override them per command with `BROCCOLI_URL` and `BROCCOLI_TOKEN`, or
-by passing `--server` and `--token` to `broccoli plugin watch`.
+by passing `--server` and `--token` to `broccoli-dev plugin watch`.
 
-### `broccoli plugin new`
+### `broccoli-dev plugin new`
 
 Creates a plugin scaffold from the built-in templates.
 
 ```bash
-broccoli plugin new my-plugin --full
-broccoli plugin new judge-tools --backend
-broccoli plugin new contest-banner --frontend
+broccoli-dev plugin new my-plugin --full
+broccoli-dev plugin new judge-tools --backend
+broccoli-dev plugin new contest-banner --frontend
 ```
 
-By default, `broccoli plugin new` asks which kind of scaffold to generate. Use
-`--backend`, `--frontend`, or `--full` to make the command non-interactive.
+By default, `broccoli-dev plugin new` asks which kind of scaffold to generate.
+Use `--backend`, `--frontend`, or `--full` to make the command non-interactive.
 
 Useful flags:
 
@@ -63,15 +66,15 @@ Useful flags:
 - `--web-sdk <SPEC>` changes the frontend SDK dependency written into the
   generated `package.json`.
 
-### `broccoli plugin build`
+### `broccoli-dev plugin build`
 
 Builds the plugin described by the `plugin.toml` in the target directory.
 
 ```bash
-broccoli plugin build
-broccoli plugin build plugins/ioi
-broccoli plugin build plugins/ioi --install
-broccoli plugin build plugins/ioi --release
+broccoli-dev plugin build
+broccoli-dev plugin build plugins/ioi
+broccoli-dev plugin build plugins/ioi --install
+broccoli-dev plugin build plugins/ioi --release
 ```
 
 What gets built depends on the manifest:
@@ -96,14 +99,14 @@ Without that file, the CLI tries to infer the frontend directory from
 `[web].root`, then falls back to `web/`, `frontend/`, or the plugin root if a
 `package.json` is present.
 
-### `broccoli plugin watch`
+### `broccoli-dev plugin watch`
 
 Watches a plugin directory, rebuilds on changes, and uploads new bundles to a
 Broccoli server.
 
 ```bash
-broccoli login --server http://localhost:3000
-broccoli plugin watch plugins/ioi --server http://localhost:3000
+broccoli-dev login --server http://localhost:3000
+broccoli-dev plugin watch plugins/ioi --server http://localhost:3000
 ```
 
 For backend changes, the CLI rebuilds the WASM module itself. For frontend
@@ -127,7 +130,7 @@ ignore = ["*.log", "coverage/"]
 [build]
 frontend_dir = "web"
 frontend_install_cmd = "pnpm install --ignore-workspace"
-frontend_build_md = "pnpm build"
+frontend_build_cmd = "pnpm build"
 frontend_dev_cmd = "pnpm dev"
 ```
 
@@ -139,21 +142,21 @@ Create a plugin, build it once, then switch to watch mode while the server is
 running:
 
 ```bash
-broccoli plugin new my-plugin --full
+broccoli-dev plugin new my-plugin --full
 cd my-plugin/web
 pnpm install
 cd ../..
-broccoli plugin build my-plugin
-broccoli login --server http://localhost:3000
-broccoli plugin watch my-plugin --server http://localhost:3000
+broccoli-dev plugin build my-plugin
+broccoli-dev login --server http://localhost:3000
+broccoli-dev plugin watch my-plugin --server http://localhost:3000
 ```
 
 ## Notes
 
-- The published crate name is `broccoli-cli`, but the installed binary is
-  `broccoli`.
-- `broccoli plugin build` and `broccoli plugin watch` both expect to find a
-  `plugin.toml` in the target directory.
+- The published crate name is `broccoli-dev-cli`, and the installed binary is
+  `broccoli-dev`.
+- `broccoli-dev plugin build` and `broccoli-dev plugin watch` both expect to
+  find a `plugin.toml` in the target directory.
 
 ## License
 

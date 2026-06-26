@@ -119,3 +119,18 @@ pub struct DeviceAuthorizeRequest {
 pub struct DeviceTokenRequest {
     pub device_code: String,
 }
+
+/// Access and refresh tokens returned to the CLI.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct CliTokenResponse {
+    #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")]
+    pub token: String,
+    #[schema(example = "a1b2c3...:d4e5f6...")]
+    pub refresh_token: String,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct CliRefreshRequest {
+    #[schema(example = "a1b2c3...:d4e5f6...")]
+    pub refresh_token: String,
+}

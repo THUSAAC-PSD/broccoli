@@ -26,20 +26,20 @@ Broccoli 插件是一个运行在 Broccoli 服务端内部的 WebAssembly 模块
 
 - 带有 `wasm32-wasip1` 目标的 Rust nightly 工具链。脚手架会在 `rust-toolchain.toml` 中
   固定二者。
-- Broccoli CLI。其 crate 名为 `broccoli-cli`，安装后的可执行文件名为 `broccoli`。
+- Broccoli CLI。其 crate 名为 `broccoli-dev-cli`，安装后的可执行文件名为 `broccoli-dev`。
 - 若插件包含前端，则需要 `pnpm`。
 - 一个用于上传的运行中的 Broccoli 服务端。
 
 安装 CLI：
 
 ```bash
-cargo install broccoli-cli
+cargo install broccoli-dev-cli
 ```
 
 ## 生成插件骨架
 
 ```bash
-broccoli plugin new my-plugin --full
+broccoli-dev plugin new my-plugin --full
 ```
 
 使用 `--backend`、`--frontend` 或 `--full` 选择要生成的内容。若不带这些标志，命令会进行
@@ -164,7 +164,7 @@ pub fn check_cooldown(input: String) -> FnResult<String> {
 ## 构建与安装
 
 ```bash
-broccoli plugin build my-plugin --install
+broccoli-dev plugin build my-plugin --install
 ```
 
 由于清单包含 `[server]` 段，CLI 会运行 `cargo build --target wasm32-wasip1`，并将产物
@@ -176,11 +176,11 @@ broccoli plugin build my-plugin --install
 先登录一次，然后监视目录。CLI 会在每次变更时重新构建并上传新的包：
 
 ```bash
-broccoli login --server http://localhost:3000
-broccoli plugin watch my-plugin --server http://localhost:3000
+broccoli-dev login --server http://localhost:3000
+broccoli-dev plugin watch my-plugin --server http://localhost:3000
 ```
 
-`broccoli login` 会将凭据存储在 `~/.config/broccoli/credentials.json`。你可以用
+`broccoli-dev login` 会将凭据存储在 `~/.config/broccoli/credentials.json`。你可以用
 `BROCCOLI_URL` 与 `BROCCOLI_TOKEN`，或用 `--server` 与 `--token` 覆盖它们。
 
 ## 后续方向
