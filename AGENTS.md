@@ -173,3 +173,16 @@ The checked-in Docker Postgres credentials are:
   instructions.
 - When the repo and the guidance diverge, trust the repo and update the
   guidance.
+
+## Documentation
+
+When writing or updating docs, follow the authoring guides. They are the single
+source of truth for tone and diagrams, shared by all coding agents.
+
+- `docs/authoring/house-style.md` voice, never-do list, punctuation, bilingual
+  rules.
+- `docs/authoring/diagrams.md` the hand-drawn diagram system and dark mode.
+
+Pick the audience first: user facing, plugin developer facing, or maintainer
+facing. All docs live on the Docusaurus site under `website/` and ship in
+English and Simplified Chinese.
