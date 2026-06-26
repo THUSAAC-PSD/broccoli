@@ -9,6 +9,12 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: ['plugins/printing'],
     },
+    {
+      type: 'category',
+      label: 'Building plugins',
+      collapsed: false,
+      items: ['building-plugins/getting-started'],
+    },
   ],
 };
 
