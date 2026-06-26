@@ -4,6 +4,8 @@ sidebar_label: Printing
 sidebar_position: 1
 ---
 
+import ThemedImage from '@theme/ThemedImage';
+
 # Printing
 
 Contestants request a printout of their code from the web interface. Volunteers
@@ -31,7 +33,10 @@ network connection. Jobs wait in the queue until a station picks them up.
 A single print station can drive several printers, and it can serve more than one
 contest server at the same time.
 
-![Browsers talk to the Broccoli server, which holds the queue. Print stations poll the server, then render and print the PDF.](/img/print-architecture.svg)
+<ThemedImage
+  alt="Browsers talk to the Broccoli server, which holds the queue. Print stations poll the server, then render and print the PDF."
+  sources={{ light: '/img/print-architecture.svg', dark: '/img/print-architecture.dark.svg' }}
+/>
 
 ## Turn on printing
 
@@ -217,7 +222,10 @@ their printout is.
 
 ## The job lifecycle
 
-![A job moves from pending approval to pending, claimed, printing, and done; it can fail or be canceled, and finished jobs can be reprinted.](/img/print-lifecycle.svg)
+<ThemedImage
+  alt="A job moves from pending approval to pending, claimed, printing, and done; it can fail or be canceled, and finished jobs can be reprinted."
+  sources={{ light: '/img/print-lifecycle.svg', dark: '/img/print-lifecycle.dark.svg' }}
+/>
 
 A new job starts at `pending`, or at `pending_approval` if the contest requires
 approval, in which case a volunteer's approval moves it to `pending`. A print

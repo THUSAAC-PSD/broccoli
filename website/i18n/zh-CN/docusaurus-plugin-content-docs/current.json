@@ -3,8 +3,16 @@
     "message": "Next",
     "description": "The label for version current"
   },
-  "sidebar.docs.category.Plugins": {
-    "message": "插件",
-    "description": "The label for category 'Plugins' in sidebar 'docs'"
+  "sidebar.docs.category.Using Broccoli": {
+    "message": "使用 Broccoli",
+    "description": "The label for category 'Using Broccoli' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Building plugins": {
+    "message": "开发插件",
+    "description": "The label for category 'Building plugins' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Internals": {
+    "message": "内部原理",
+    "description": "The label for category 'Internals' in sidebar 'docs'"
   }
 }

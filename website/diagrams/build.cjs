@@ -5,7 +5,9 @@ const scenes = require('./scenes.cjs');
 
 const outDir = path.join(__dirname, '..', 'static', 'img');
 for (const [name, scene] of Object.entries(scenes)) {
-  const file = path.join(outDir, `${name}.svg`);
-  fs.writeFileSync(file, render(scene));
-  console.log(`wrote ${file}  (${scene.width}x${scene.height})`);
+  const light = path.join(outDir, `${name}.svg`);
+  const dark = path.join(outDir, `${name}.dark.svg`);
+  fs.writeFileSync(light, render(scene, false));
+  fs.writeFileSync(dark, render(scene, true));
+  console.log(`wrote ${name}.svg + ${name}.dark.svg  (${scene.width}x${scene.height})`);
 }
