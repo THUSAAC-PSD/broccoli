@@ -6,86 +6,11 @@ sidebar_position: 2
 
 # Downloads
 
-Every tagged release publishes the contestant CLI, the server and worker images,
-a platform bundle for self hosting, the stress test binary, and the print
-station client. They all live on the
+Every tagged release publishes the server images and a bundle you install
+yourself, the stress test, the contestant CLI, and the print station client. They
+all live on the
 [Releases page](https://github.com/THUSAAC-PSD/broccoli/releases), and a
 `manifest.json` beside them lists every file with its size and SHA256 checksum.
-
-## The contestant CLI
-
-`broccoli` is a command line tool for contestants. You log in, test and submit
-solutions, browse contests and problems, ask clarifications, and watch a contest
-live in your terminal. It is one file with nothing to install around it.
-
-| System        | File                                                                                                                                |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Linux x86_64  | [broccoli-cli-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-x86_64)             |
-| Linux aarch64 | [broccoli-cli-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-aarch64)           |
-| Windows       | [broccoli-cli-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-windows-x86_64.exe) |
-| macOS         | [broccoli-cli-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-macos-universal)       |
-
-Each link always points at the newest release.
-
-### Make it runnable
-
-On macOS and Linux, mark the file runnable and move it onto your path as
-`broccoli`.
-
-```bash
-chmod +x broccoli-cli-linux-x86_64
-mv broccoli-cli-linux-x86_64 /usr/local/bin/broccoli
-```
-
-On Windows, rename the file to `broccoli.exe`, keep it somewhere easy to find,
-and run it from a terminal. Double clicking does nothing useful, because this is
-a terminal program.
-
-```bash
-broccoli --version
-```
-
-### Log in
-
-Point the CLI at your contest server. The address comes from whoever runs your
-contest.
-
-```bash
-broccoli login --server https://judge.example.com
-```
-
-This opens your browser to authorize, then keeps you signed in for later
-commands. Confirm who you are.
-
-```bash
-broccoli whoami
-```
-
-### First commands
-
-```bash
-broccoli contest list                            # contests you can see
-broccoli contest info "Spring Round"             # details and your registration
-broccoli test sol.cpp -c "Spring Round" -p A     # run the sample cases first
-broccoli submit sol.cpp -c "Spring Round" -p A   # submit problem A
-broccoli watch "Spring Round"                    # live contest dashboard
-```
-
-A contest is named by its id or its title, and a problem by its label such as
-`A`, its number, or its title. Run `broccoli --help`, or any command followed by
-`--help`, to see the rest.
-
-### Build it yourself
-
-If there is no build for your system, or you want the newest code, build from
-source with Rust.
-
-```bash
-git clone https://github.com/THUSAAC-PSD/broccoli
-cargo install --path broccoli/packages/contestant-cli
-```
-
-This installs the same `broccoli` command into your Cargo bin folder.
 
 ## Run a server
 
@@ -95,8 +20,8 @@ install, or pull the container images and run them with your own orchestration.
 ### The platform bundle
 
 The bundle carries the compose files, a role aware installer, and an embedded
-copy of the stress test binary. Set the version you want, download the archive,
-verify it, and extract.
+copy of the stress test. Set the version you want, download the archive, verify
+it, and extract.
 
 ```bash
 VERSION=v0.1.0
@@ -124,8 +49,18 @@ the day to day commands.
 
 ### The container images
 
-If you run your own orchestration, pull the images directly. Set the version,
-then pull the server and the worker variant you need.
+If you run your own orchestration, pull the images directly. Every image is built
+for x86_64 and arm64 Linux, so Docker fetches the right one for the machine you
+run it on.
+
+| Image        | Reference                                                       |
+| ------------ | -------------------------------------------------------------- |
+| Server       | `ghcr.io/thusaac-psd/broccoli/broccoli-server:$VERSION`        |
+| Worker, base | `ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-base`   |
+| Worker, icpc | `ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-icpc`   |
+| Worker, full | `ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-full`   |
+
+Set the version, then pull the server and the worker variant you want.
 
 ```bash
 VERSION=v0.1.0
@@ -142,26 +77,46 @@ rest, including Java, Kotlin, and Python.
 For networks inside China, the same images mirror to Alibaba Cloud under
 `registry.cn-hangzhou.aliyuncs.com/broccoli/`.
 
-## Check a deployment
+## Stress test
 
-The stress test binary drives a real server with synthetic contestants and
-submissions, so you can confirm a fresh install behaves before an event. The
-platform bundle already contains it. Download it on its own when you test from
-another machine.
+The stress test drives a real server with synthetic contestants and submissions,
+so you can confirm a fresh install behaves before an event. The platform bundle
+already contains it. Download it on its own when you test from another machine.
 
-| System        | File                                                                                                                                          |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Linux x86_64  | [broccoli-stress-test-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-x86_64)       |
-| Linux aarch64 | [broccoli-stress-test-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-aarch64)     |
+| System        | File                                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64  | [broccoli-stress-test-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-x86_64)             |
+| Linux aarch64 | [broccoli-stress-test-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-aarch64)           |
 | Windows       | [broccoli-stress-test-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-windows-x86_64.exe) |
-| macOS         | [broccoli-stress-test-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-macos-universal) |
+| macOS         | [broccoli-stress-test-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-macos-universal)       |
 
 ```bash
 chmod +x broccoli-stress-test-linux-x86_64
 ./broccoli-stress-test-linux-x86_64 --help
 ```
 
+## Contestant CLI
+
+`broccoli` is the command line tool for contestants. Download the build for your
+system, then read the [Contestant CLI](./cli/contestant.md) page for logging in
+and the full set of commands.
+
+| System        | File                                                                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64  | [broccoli-cli-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-x86_64)             |
+| Linux aarch64 | [broccoli-cli-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-aarch64)           |
+| Windows       | [broccoli-cli-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-windows-x86_64.exe) |
+| macOS         | [broccoli-cli-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-macos-universal)       |
+
 ## Print stations
 
-The `broccoli-print-client` for print stations is released the same way and is
-covered in [Printing](./plugins/printing.md).
+A print station runs a small client on a computer next to a printer and turns
+each print request into a printed page. Download the build for each station, then
+follow [Printing](./plugins/printing.md) to set it up.
+
+| System        | File                                                                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64  | [broccoli-print-client-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-linux-x86_64)             |
+| Linux aarch64 | [broccoli-print-client-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-linux-aarch64)           |
+| Windows       | [broccoli-print-client-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-windows-x86_64.exe) |
+| macOS         | [broccoli-print-client-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-macos-universal)       |
