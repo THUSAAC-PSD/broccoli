@@ -5,7 +5,7 @@ const sidebars: SidebarsConfig = {
     'intro',
     {
       type: 'category',
-      label: 'Plugins',
+      label: 'Using Broccoli',
       collapsed: false,
       items: ['plugins/printing'],
     },
