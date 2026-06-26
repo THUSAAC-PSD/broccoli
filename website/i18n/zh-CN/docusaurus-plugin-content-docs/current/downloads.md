@@ -6,72 +6,7 @@ sidebar_position: 2
 
 # 下载
 
-每个打了标签的发布版本都会发布参赛者命令行工具、服务器与评测机镜像、用于自托管的平台捆绑包、压力测试程序，以及打印站客户端。它们都位于[发布页面](https://github.com/THUSAAC-PSD/broccoli/releases)，旁边的 `manifest.json` 列出了每个文件及其大小和 SHA256 校验和。
-
-## 参赛者命令行工具
-
-`broccoli` 是面向参赛者的命令行工具。你可以登录、测试并提交解答、浏览比赛与题目、提出疑问，并在终端中实时观看比赛。它是单个文件，无需额外安装其他东西。
-
-| 系统          | 文件                                                                                                                                  |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Linux x86_64  | [broccoli-cli-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-x86_64)             |
-| Linux aarch64 | [broccoli-cli-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-aarch64)           |
-| Windows       | [broccoli-cli-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-windows-x86_64.exe) |
-| macOS         | [broccoli-cli-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-macos-universal)       |
-
-每个链接都始终指向最新的发布版本。
-
-### 让它可执行
-
-在 macOS 和 Linux 上，将文件标记为可执行，并把它移动到你的可执行路径中，命名为 `broccoli`。
-
-```bash
-chmod +x broccoli-cli-linux-x86_64
-mv broccoli-cli-linux-x86_64 /usr/local/bin/broccoli
-```
-
-在 Windows 上，将文件重命名为 `broccoli.exe`，放在便于查找的位置，并从终端运行。双击不会有任何用处，因为这是一个终端程序。
-
-```bash
-broccoli --version
-```
-
-### 登录
-
-将命令行工具指向你的比赛服务器。服务器地址由比赛的组织者提供。
-
-```bash
-broccoli login --server https://judge.example.com
-```
-
-这会打开浏览器进行授权，随后让你保持登录状态以便执行后续命令。确认你的身份。
-
-```bash
-broccoli whoami
-```
-
-### 第一组命令
-
-```bash
-broccoli contest list                            # contests you can see
-broccoli contest info "Spring Round"             # details and your registration
-broccoli test sol.cpp -c "Spring Round" -p A     # run the sample cases first
-broccoli submit sol.cpp -c "Spring Round" -p A   # submit problem A
-broccoli watch "Spring Round"                    # live contest dashboard
-```
-
-比赛以其 id 或标题来指定，题目以其标签（例如 `A`）、编号或标题来指定。运行 `broccoli --help`，或在任意命令后加上 `--help`，即可查看其余内容。
-
-### 自行构建
-
-如果没有适合你系统的构建，或者你想要最新的代码，可以使用 Rust 从源码构建。
-
-```bash
-git clone https://github.com/THUSAAC-PSD/broccoli
-cargo install --path broccoli/packages/contestant-cli
-```
-
-这会将同一个 `broccoli` 命令安装到你的 Cargo bin 目录中。
+每个打了标签的发布版本都会发布服务器镜像和一份你自行安装的捆绑包、压力测试程序、参赛者命令行工具，以及打印站客户端。它们都位于[发布页面](https://github.com/THUSAAC-PSD/broccoli/releases)，旁边的 `manifest.json` 列出了每个文件及其大小和 SHA256 校验和。
 
 ## 运行服务器
 
@@ -103,7 +38,16 @@ cd "broccoli-platform-$VERSION"
 
 ### 容器镜像
 
-如果你使用自己的编排系统，可以直接拉取镜像。设置版本，然后拉取服务器以及你需要的评测机变体。
+如果你使用自己的编排系统，可以直接拉取镜像。每个镜像都为 x86_64 和 arm64 Linux 构建，因此 Docker 会为你运行它的机器拉取正确的那一个。
+
+| 镜像          | 引用                                                          |
+| ------------- | ------------------------------------------------------------ |
+| 服务器        | `ghcr.io/thusaac-psd/broccoli/broccoli-server:$VERSION`      |
+| 评测机，base  | `ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-base` |
+| 评测机，icpc  | `ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-icpc` |
+| 评测机，full  | `ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-full` |
+
+设置版本，然后拉取服务器以及你需要的评测机变体。
 
 ```bash
 VERSION=v0.1.0
@@ -117,22 +61,40 @@ docker pull "ghcr.io/thusaac-psd/broccoli/broccoli-worker:$VERSION-full"
 
 对于中国大陆的网络，相同的镜像在阿里云上有镜像源，位于 `registry.cn-hangzhou.aliyuncs.com/broccoli/`。
 
-## 检查部署
+## 压力测试
 
 压力测试程序会用模拟的参赛者和提交来驱动一个真实的服务器，因此你可以在活动开始前确认全新安装的行为是否正常。平台捆绑包已经包含它。仅当你从另一台机器进行测试时才需要单独下载。
 
-| 系统          | 文件                                                                                                                                          |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Linux x86_64  | [broccoli-stress-test-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-x86_64)       |
-| Linux aarch64 | [broccoli-stress-test-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-aarch64)     |
+| 系统          | 文件                                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64  | [broccoli-stress-test-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-x86_64)             |
+| Linux aarch64 | [broccoli-stress-test-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-linux-aarch64)           |
 | Windows       | [broccoli-stress-test-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-windows-x86_64.exe) |
-| macOS         | [broccoli-stress-test-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-macos-universal) |
+| macOS         | [broccoli-stress-test-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-stress-test-macos-universal)       |
 
 ```bash
 chmod +x broccoli-stress-test-linux-x86_64
 ./broccoli-stress-test-linux-x86_64 --help
 ```
 
+## 参赛者命令行工具
+
+`broccoli` 是面向参赛者的命令行工具。下载适合你系统的构建，然后阅读[参赛者命令行工具](./cli/contestant.md)页面，了解如何登录以及全部命令。
+
+| 系统          | 文件                                                                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64  | [broccoli-cli-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-x86_64)             |
+| Linux aarch64 | [broccoli-cli-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-linux-aarch64)           |
+| Windows       | [broccoli-cli-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-windows-x86_64.exe) |
+| macOS         | [broccoli-cli-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-cli-macos-universal)       |
+
 ## 打印站
 
-用于打印站的 `broccoli-print-client` 以相同的方式发布，相关说明见[打印](./plugins/printing.md)。
+打印站会在打印机旁边的计算机上运行一个小型客户端，把每一个打印请求变成打印出来的纸张。为每个打印站下载相应的构建，然后按照[打印](./plugins/printing.md)进行设置。
+
+| 系统          | 文件                                                                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64  | [broccoli-print-client-linux-x86_64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-linux-x86_64)             |
+| Linux aarch64 | [broccoli-print-client-linux-aarch64](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-linux-aarch64)           |
+| Windows       | [broccoli-print-client-windows-x86_64.exe](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-windows-x86_64.exe) |
+| macOS         | [broccoli-print-client-macos-universal](https://github.com/THUSAAC-PSD/broccoli/releases/latest/download/broccoli-print-client-macos-universal)       |
