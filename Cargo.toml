@@ -1,22 +1,25 @@
 [workspace]
 members = [
+  "packages/cli-core",
   "packages/common",
   "packages/mq",
   "packages/plugin-core",
   "packages/server",
   "packages/worker",
-  "packages/cli",
+  "packages/dev-cli",
   "packages/stress-test",
+  "packages/contestant-cli",
 ]
-# All members EXCEPT packages/stress-test (load-testing harness; opt-in via
-# `cargo build -p stress-test` so day-to-day builds stay fast).
+# stress-test is excluded from default builds to keep them fast.
 default-members = [
+  "packages/cli-core",
   "packages/common",
   "packages/mq",
   "packages/plugin-core",
   "packages/server",
   "packages/worker",
-  "packages/cli",
+  "packages/dev-cli",
+  "packages/contestant-cli",
 ]
 exclude = [
   "examples",
@@ -26,6 +29,17 @@ exclude = [
   "packages/plugins/standard-checkers",
 ]
 resolver = "3"
+
+# Strip symbols so release binaries are smaller.
+[profile.release]
+strip = true
+
+# Size optimized profile for the broccoli binary.
+[profile.release-cli]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
 
 [workspace.dependencies]
 anyhow = "1.0.100"
@@ -101,7 +115,8 @@ open = "5"
 notify = "7"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
 clap = { version = "4", features = ["derive"] }
-ratatui = "0.28"
+# unstable-rendered-line-info enables Paragraph::line_count for scroll clamping.
+ratatui = { version = "0.28", features = ["unstable-rendered-line-info"] }
 crossterm = "0.28"
 hdrhistogram = "7"
 wiremock = "0.6"
