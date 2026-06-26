@@ -1,0 +1,22 @@
+{
+  "link.title.Docs": {
+    "message": "文档",
+    "description": "The title of the footer links column with title=Docs in the footer"
+  },
+  "link.title.More": {
+    "message": "更多",
+    "description": "The title of the footer links column with title=More in the footer"
+  },
+  "link.item.label.Printing": {
+    "message": "打印",
+    "description": "The label of footer link with label=Printing linking to /plugins/printing"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/THUSAAC-PSD/broccoli"
+  },
+  "copyright": {
+    "message": "Built with Docusaurus.",
+    "description": "The footer copyright"
+  }
+}

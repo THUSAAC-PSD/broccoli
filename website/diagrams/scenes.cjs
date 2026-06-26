@@ -1,0 +1,91 @@
+const printArchitecture = (labels) => ({
+  width: 560,
+  height: 590,
+  alt: labels.alt,
+  boxes: [
+    { x: 40, y: 40, w: 220, h: 68, color: 'blue', lines: labels.contestants },
+    { x: 300, y: 40, w: 220, h: 68, color: 'blue', lines: labels.volunteers },
+    { x: 90, y: 198, w: 380, h: 96, color: 'green', lines: labels.server },
+    { x: 90, y: 372, w: 380, h: 84, color: 'yellow', lines: labels.stations },
+    { x: 120, y: 508, w: 150, h: 52, color: 'gray', lines: labels.printer },
+    { x: 290, y: 508, w: 150, h: 52, color: 'gray', lines: labels.printer },
+  ],
+  arrows: [
+    { x1: 150, y1: 108, x2: 215, y2: 196, ax: 150, ay: 108 },
+    { x1: 410, y1: 108, x2: 355, y2: 196, ax: 410, ay: 108 },
+    { x1: 245, y1: 294, x2: 245, y2: 370, ax: 245, ay: 294, label: labels.poll, lx: 285, ly: 333 },
+    { x1: 325, y1: 370, x2: 325, y2: 294, ax: 325, ay: 370 },
+    { x1: 200, y1: 456, x2: 185, y2: 506, ax: 200, ay: 456 },
+    { x1: 360, y1: 456, x2: 375, y2: 506, ax: 360, ay: 456 },
+  ],
+  notes: [
+    { x: 280, y: 152, text: labels.web },
+    { x: 280, y: 488, text: labels.backends },
+  ],
+});
+
+const printLifecycle = (labels) => ({
+  width: 760,
+  height: 250,
+  alt: labels.alt,
+  boxes: [
+    { x: 14, y: 58, w: 158, h: 44, r: 22, color: 'yellow', lines: ['pending_approval'], titleSize: 14 },
+    { x: 192, y: 58, w: 104, h: 44, r: 22, color: 'gray', lines: ['pending'], titleSize: 14 },
+    { x: 316, y: 58, w: 104, h: 44, r: 22, color: 'blue', lines: ['claimed'], titleSize: 14 },
+    { x: 440, y: 58, w: 104, h: 44, r: 22, color: 'blue', lines: ['printing'], titleSize: 14 },
+    { x: 564, y: 58, w: 104, h: 44, r: 22, color: 'green', lines: ['done'], titleSize: 14 },
+    { x: 192, y: 176, w: 104, h: 44, r: 22, color: 'gray', lines: ['canceled'], titleSize: 14 },
+    { x: 440, y: 176, w: 104, h: 44, r: 22, color: 'red', lines: ['failed'], titleSize: 14 },
+  ],
+  arrows: [
+    { x1: 172, y1: 80, x2: 192, y2: 80, ax: 172, ay: 80, label: labels.approve, lx: 182, ly: 42 },
+    { x1: 296, y1: 80, x2: 316, y2: 80, ax: 296, ay: 80 },
+    { x1: 420, y1: 80, x2: 440, y2: 80, ax: 420, ay: 80 },
+    { x1: 544, y1: 80, x2: 564, y2: 80, ax: 544, ay: 80 },
+    { x1: 244, y1: 102, x2: 244, y2: 176, ax: 244, ay: 102, label: labels.cancel },
+    { x1: 492, y1: 102, x2: 492, y2: 176, ax: 492, ay: 102, label: labels.error },
+    { curve: 'M616 58 C616 22 244 22 244 58', x2: 244, y2: 58, ax: 320, ay: 22, dash: true, label: labels.reprint, lx: 430, ly: 18 },
+  ],
+  notes: [{ x: 380, y: 236, text: labels.note }],
+});
+
+module.exports = {
+  'print-architecture': printArchitecture({
+    alt: 'Browsers talk to the Broccoli server, which holds the print queue. Print stations poll the server, then render and print PDFs on physical printers.',
+    contestants: ['Contestants', 'request prints'],
+    volunteers: ['Volunteers', 'run the queue'],
+    server: ['Broccoli server', 'print plugin · holds the queue'],
+    stations: ['Print stations', 'render & print the PDF'],
+    printer: ['Printer'],
+    poll: 'poll · claim · report',
+    web: 'over the web (JWT)',
+    backends: 'CUPS / Windows / folder',
+  }),
+  'print-lifecycle': printLifecycle({
+    alt: 'A job goes from pending approval to pending, claimed, printing, and done. Printing can fail, jobs can be canceled, and finished jobs can be reprinted.',
+    approve: 'approve',
+    cancel: 'cancel',
+    error: 'error',
+    reprint: 'reprint',
+    note: 'Any finished job can be reprinted.',
+  }),
+  'print-architecture.zh': printArchitecture({
+    alt: '浏览器与维护打印队列的 Broccoli 服务端通信；打印站轮询服务端后，在物理打印机上渲染并打印 PDF。',
+    contestants: ['参赛者', '发起打印'],
+    volunteers: ['志愿者', '管理队列'],
+    server: ['Broccoli 服务端', '打印插件 · 维护队列'],
+    stations: ['打印站', '渲染并打印 PDF'],
+    printer: ['打印机'],
+    poll: '轮询 · 领取 · 回报',
+    web: '通过网页（JWT）',
+    backends: 'CUPS / Windows / 文件夹',
+  }),
+  'print-lifecycle.zh': printLifecycle({
+    alt: '任务依次经历 pending_approval、pending、claimed、printing、done；打印可能失败，任务可被取消，已结束的任务可重新打印。',
+    approve: '批准',
+    cancel: '取消',
+    error: '出错',
+    reprint: '重新打印',
+    note: '任何已结束的任务都可重新打印。',
+  }),
+};
