@@ -11,8 +11,8 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://thusaac-psd.github.io',
-  baseUrl: '/broccoli/',
+  url: 'https://docs.broccoli.run',
+  baseUrl: '/',
 
   organizationName: 'THUSAAC-PSD',
   projectName: 'broccoli',
@@ -72,7 +72,7 @@ const config: Config = {
       '@aeorank/docusaurus',
       {
         siteName: 'Broccoli',
-        siteUrl: 'https://thusaac-psd.github.io/broccoli/',
+        siteUrl: 'https://docs.broccoli.run/',
         description: 'Documentation for the Broccoli contest judge platform.',
         organization: {
           name: 'THUSAAC-PSD',
