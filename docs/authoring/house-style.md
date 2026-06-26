@@ -1,8 +1,6 @@
 # Broccoli docs house style
 
-Shared rules for every documentation page, in all three audiences. The current
-AI generated docs are the cautionary example. Good docs are the inverse of their
-failures.
+Shared rules for every documentation page, in all three audiences.
 
 ## Pick the audience first
 
