@@ -30,21 +30,21 @@ A plugin can add two kinds of behavior:
 
 - Rust nightly with the `wasm32-wasip1` target. The scaffold pins both in
   `rust-toolchain.toml`.
-- The Broccoli CLI. The crate is `broccoli-cli` and the installed binary is
-  `broccoli`.
+- The Broccoli CLI. The crate is `broccoli-dev-cli` and the installed binary is
+  `broccoli-dev`.
 - `pnpm`, if your plugin has a frontend.
 - A running Broccoli server to upload to.
 
 Install the CLI:
 
 ```bash
-cargo install broccoli-cli
+cargo install broccoli-dev-cli
 ```
 
 ## Scaffold a plugin
 
 ```bash
-broccoli plugin new my-plugin --full
+broccoli-dev plugin new my-plugin --full
 ```
 
 Use `--backend`, `--frontend`, or `--full` to pick what gets generated. Without
@@ -175,7 +175,7 @@ pub fn check_cooldown(input: String) -> FnResult<String> {
 ## Build and install
 
 ```bash
-broccoli plugin build my-plugin --install
+broccoli-dev plugin build my-plugin --install
 ```
 
 Because the manifest has a `[server]` section, the CLI runs
@@ -190,11 +190,11 @@ Sign in once, then watch the directory. The CLI rebuilds on every change and
 uploads the new bundle:
 
 ```bash
-broccoli login --server http://localhost:3000
-broccoli plugin watch my-plugin --server http://localhost:3000
+broccoli-dev login --server http://localhost:3000
+broccoli-dev plugin watch my-plugin --server http://localhost:3000
 ```
 
-`broccoli login` stores credentials in `~/.config/broccoli/credentials.json`. You
+`broccoli-dev login` stores credentials in `~/.config/broccoli/credentials.json`. You
 can override them with `BROCCOLI_URL` and `BROCCOLI_TOKEN`, or with `--server`
 and `--token`.
 
