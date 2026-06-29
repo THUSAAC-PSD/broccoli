@@ -182,13 +182,13 @@ print-client test-print solution.cpp --out preview.pdf
 ## How jobs reach the printer
 
 The print station has several ways to send a PDF to a printer, so it works across
-operating systems and unusual setups without any extra software. No third-party
-PDF viewer is required.
+operating systems and unusual setups. The station ships with everything it needs,
+so volunteers do not install anything extra.
 
 - On **macOS** and **Linux** it uses the system's built-in printing (CUPS). If
   the printer prints from the operating system, it prints from here.
-- On **Windows** it uses the built-in print handler. Again, if Windows can print
-  to it, so can the station.
+- On **Windows** it prints through a bundled copy of SumatraPDF that travels
+  inside the station. There is no separate install and no print dialog to click.
 - For anything unusual, such as label printers or raw queues, you can supply your
   own command with `{printer}` and `{file}` placeholders, for example
   `command = "lp -d {printer} {file}"`.
