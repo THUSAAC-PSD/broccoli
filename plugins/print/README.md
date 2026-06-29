@@ -89,11 +89,15 @@ os_id = "HP_LaserJet_Room_A"      # CUPS / Windows queue name
 # command = "folder:/var/spool/contest" # or a folder sink (no real printer)
 ```
 
-### Printing backends (no SumatraPDF required)
+### Printing backends
 
-- **macOS / Linux:** CUPS via `lp` (printers enumerated with `lpstat`).
-- **Windows:** PowerShell's print verb (`Start-Process -Verb Print`) using the
-  OS default PDF handler, no third-party viewer.
+- **macOS / Linux:** CUPS via `lp` (printers enumerated with `lpstat`). CUPS
+  prints silently to any installed printer, including USB and driverless queues.
+- **Windows:** a bundled copy of **SumatraPDF**, a silent command-line printer.
+  It ships inside the client and is extracted to
+  `%LOCALAPPDATA%\broccoli-print\` on first use, so there is no separate install
+  and no print dialog to click. SumatraPDF is GPLv3; see
+  `client/assets/windows/SumatraPDF-LICENSE.txt`.
 - **Configurable command template** (`{printer}`, `{file}`) for anything else.
 - **Folder sink** (`folder:/path`) writes the PDF to a directory, a universal
   fallback, great for testing.

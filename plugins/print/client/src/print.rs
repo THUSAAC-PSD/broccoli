@@ -1,5 +1,6 @@
-//! Printing backends. CUPS `lp`, the Windows print verb, a command template,
-//! or a folder sink. No third-party PDF viewer needed.
+//! Printing backends. A folder sink, a command template, or the OS default.
+//! The OS default is CUPS `lp` on macOS/Linux and a bundled SumatraPDF on
+//! Windows, which prints silently with no dialog and no separate install.
 
 use std::path::Path;
 use std::process::Command;
@@ -69,29 +70,83 @@ fn run_template(template: &str, printer: &PrinterCfg, pdf_path: &Path) -> Result
     run(program, &args)
 }
 
+/// CUPS prints silently to any installed printer, including USB and driverless
+/// queues, so macOS/Linux need nothing more.
+#[cfg(not(windows))]
 fn default_print(printer: &PrinterCfg, pdf_path: &Path) -> Result<()> {
-    let target = printer.os_id.as_deref().filter(|s| !s.is_empty());
-    let file = pdf_path.to_string_lossy().to_string();
+    let mut args = Vec::new();
+    if let Some(p) = printer.os_id.as_deref().filter(|s| !s.is_empty()) {
+        args.push("-d".to_string());
+        args.push(p.to_string());
+    }
+    args.push(pdf_path.to_string_lossy().to_string());
+    run("lp", &args)
+}
 
-    if cfg!(target_os = "windows") {
-        let script = match target {
-            Some(p) => {
-                format!("Start-Process -FilePath '{file}' -Verb PrintTo -ArgumentList '{p}'")
-            }
-            None => format!("Start-Process -FilePath '{file}' -Verb Print"),
-        };
-        run(
-            "powershell",
-            &["-NoProfile".into(), "-Command".into(), script],
-        )
-    } else {
-        let mut args = Vec::new();
-        if let Some(p) = target {
-            args.push("-d".to_string());
+/// Windows has no built-in silent PDF print, so print through the bundled
+/// SumatraPDF. It prints and exits, so the exit status is a real result.
+#[cfg(windows)]
+fn default_print(printer: &PrinterCfg, pdf_path: &Path) -> Result<()> {
+    let exe = windows_backend::ensure_sumatra()?;
+    let target = printer.os_id.as_deref().filter(|s| !s.is_empty());
+    let args = sumatra_args(target, &pdf_path.to_string_lossy());
+    run(&exe.to_string_lossy(), &args)
+}
+
+/// Build the SumatraPDF silent-print arguments. Pure, so it is tested on every
+/// platform even though it only runs on Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn sumatra_args(os_id: Option<&str>, file: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    match os_id {
+        Some(p) if !p.is_empty() => {
+            args.push("-print-to".into());
             args.push(p.to_string());
         }
-        args.push(file);
-        run("lp", &args)
+        _ => args.push("-print-to-default".into()),
+    }
+    args.push("-silent".into());
+    args.push(file.to_string());
+    args
+}
+
+/// The bundled SumatraPDF, embedded only in the Windows build and extracted to a
+/// stable per-user path on first use.
+#[cfg(windows)]
+mod windows_backend {
+    use std::path::PathBuf;
+
+    use anyhow::{Context, Result};
+
+    /// Pinned version of the vendored exe. Bump when the asset is updated so the
+    /// extracted copy is replaced.
+    const SUMATRA_VERSION: &str = "3.5.2";
+    const SUMATRA_EXE: &[u8] = include_bytes!("../../assets/windows/SumatraPDF.exe");
+
+    /// Extract SumatraPDF to a per-user cache dir on first use and return its
+    /// path. Idempotent: a matching existing copy is reused.
+    pub fn ensure_sumatra() -> Result<PathBuf> {
+        let dir = cache_dir();
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        let exe = dir.join(format!("SumatraPDF-{SUMATRA_VERSION}.exe"));
+        let up_to_date = std::fs::metadata(&exe)
+            .map(|m| m.len() == SUMATRA_EXE.len() as u64)
+            .unwrap_or(false);
+        if !up_to_date {
+            // Write then rename so a concurrent station never sees a partial exe.
+            let tmp = dir.join(format!("SumatraPDF-{SUMATRA_VERSION}.exe.tmp"));
+            std::fs::write(&tmp, SUMATRA_EXE)
+                .with_context(|| format!("writing {}", tmp.display()))?;
+            std::fs::rename(&tmp, &exe).with_context(|| format!("installing {}", exe.display()))?;
+        }
+        Ok(exe)
+    }
+
+    fn cache_dir() -> PathBuf {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("broccoli-print")
     }
 }
 
@@ -141,6 +196,22 @@ pub fn enumerate_printers() -> Vec<String> {
     }
 }
 
+/// On Windows, make sure the bundled silent print helper is extracted and
+/// report its status. Returns `None` on macOS/Linux, where CUPS needs no helper.
+pub fn silent_helper_status() -> Option<String> {
+    #[cfg(windows)]
+    {
+        Some(match windows_backend::ensure_sumatra() {
+            Ok(p) => format!("bundled SumatraPDF ready ({})", p.display()),
+            Err(e) => format!("bundled SumatraPDF unavailable: {e}"),
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,6 +235,26 @@ mod tests {
             Some("/var/spool")
         );
         assert_eq!(sink_dir(&printer(Some("lp -d X {file}"), None)), None);
+    }
+
+    #[test]
+    fn sumatra_args_named_printer() {
+        assert_eq!(
+            sumatra_args(Some("HP_LaserJet"), "C:/tmp/job.pdf"),
+            vec!["-print-to", "HP_LaserJet", "-silent", "C:/tmp/job.pdf"]
+        );
+    }
+
+    #[test]
+    fn sumatra_args_default_printer() {
+        assert_eq!(
+            sumatra_args(None, "C:/tmp/job.pdf"),
+            vec!["-print-to-default", "-silent", "C:/tmp/job.pdf"]
+        );
+        assert_eq!(
+            sumatra_args(Some(""), "j.pdf"),
+            vec!["-print-to-default", "-silent", "j.pdf"]
+        );
     }
 
     #[test]

@@ -67,6 +67,9 @@ pub fn run_doctor(cfg: &Config) -> Result<()> {
         };
         println!("    • {} → {how}", printer.name);
     }
+    if let Some(status) = print::silent_helper_status() {
+        println!("    • silent print helper: {status}");
+    }
 
     let send_test = !cfg.printers.is_empty()
         && Confirm::new()
