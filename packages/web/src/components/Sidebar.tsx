@@ -46,17 +46,19 @@ import { LocaleSelector } from './LocaleSelector';
 import { ThemeToggle } from './ThemeSwitcher';
 
 interface MenuItem {
-  titleKey: string;
+  key: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   url: string;
+  exact: boolean;
   requiredPermissions?: string[];
 }
 
 const adminMenuItems: MenuItem[] = [
   {
-    titleKey: 'sidebar.dashboard',
+    key: 'sidebar.dashboard',
     icon: Home,
     url: '/admin',
+    exact: true,
     requiredPermissions: [
       'user:manage',
       'problem:create',
@@ -65,45 +67,52 @@ const adminMenuItems: MenuItem[] = [
     ],
   },
   {
-    titleKey: 'sidebar.users',
+    key: 'sidebar.users',
     icon: Users,
     url: '/admin/users',
+    exact: false,
     requiredPermissions: ['user:manage', 'role:manage'],
   },
   {
-    titleKey: 'sidebar.problems',
+    key: 'sidebar.problems',
     icon: Code2,
     url: '/problems',
+    exact: false,
     requiredPermissions: ['problem:create', 'problem:edit', 'problem:delete'],
   },
   {
-    titleKey: 'sidebar.contests',
+    key: 'sidebar.contests',
     icon: Trophy,
     url: '/contests',
+    exact: false,
     requiredPermissions: ['contest:manage'],
   },
   {
-    titleKey: 'sidebar.plugins',
+    key: 'sidebar.plugins',
     icon: Puzzle,
     url: '/admin/plugins',
+    exact: false,
     requiredPermissions: ['plugin:manage'],
   },
   {
-    titleKey: 'sidebar.allSubmissions',
+    key: 'sidebar.allSubmissions',
     icon: Activity,
     url: '/admin/submissions',
+    exact: false,
     requiredPermissions: ['submission:view_all'],
   },
   {
-    titleKey: 'sidebar.system',
+    key: 'sidebar.system',
     icon: Server,
     url: '/admin/system',
+    exact: false,
     requiredPermissions: ['system:view'],
   },
   {
-    titleKey: 'sidebar.dlq',
+    key: 'sidebar.dlq',
     icon: Inbox,
     url: '/admin/dlq',
+    exact: false,
     requiredPermissions: ['dlq:manage'],
   },
 ];
@@ -117,6 +126,35 @@ const filterByPermissions = (
     return item.requiredPermissions.some((perm) => permissions.includes(perm));
   });
 };
+
+function MenuGroupItems({
+  items,
+  pathname,
+  t,
+}: {
+  items: MenuItem[];
+  pathname: string;
+  t: (k: string) => string;
+}) {
+  return (
+    <>
+      {items.map(({ key, icon: Icon, url, exact }) => {
+        const title = t(key);
+        const active = exact ? pathname === url : pathname.startsWith(url);
+        return (
+          <SidebarMenuItem key={key}>
+            <SidebarMenuButton asChild isActive={active} tooltip={title}>
+              <Link to={url}>
+                <Icon className={active ? 'text-sidebar-primary' : undefined} />
+                <span>{title}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
+    </>
+  );
+}
 
 function ContestProblemsGroup() {
   const { t } = useTranslation();
@@ -166,46 +204,36 @@ function ContestProblemsGroup() {
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {[
-            {
-              key: 'sidebar.contestshomepage',
-              icon: Presentation,
-              url: `/contests/${contestId}`,
-              exact: true,
-            },
-            {
-              key: 'sidebar.qa',
-              icon: MessageCircle,
-              url: `/contests/${contestId}/qa`,
-              exact: false,
-            },
-            {
-              key: 'sidebar.submissions',
-              icon: Code2,
-              url: `/contests/${contestId}/submissions`,
-              exact: false,
-            },
-            {
-              key: 'sidebar.rankings',
-              icon: BarChart3,
-              url: `/contests/${contestId}/rankings`,
-              exact: false,
-            },
-          ].map(({ key, icon: Icon, url, exact }) => {
-            const active = exact ? pathname === url : pathname.startsWith(url);
-            return (
-              <SidebarMenuItem key={key}>
-                <SidebarMenuButton asChild isActive={active} tooltip={t(key)}>
-                  <Link to={url}>
-                    <Icon
-                      className={active ? 'text-sidebar-primary' : undefined}
-                    />
-                    <span>{t(key)}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
+          <MenuGroupItems
+            items={[
+              {
+                key: 'sidebar.contestshomepage',
+                icon: Presentation,
+                url: `/contests/${contestId}`,
+                exact: true,
+              },
+              {
+                key: 'sidebar.qa',
+                icon: MessageCircle,
+                url: `/contests/${contestId}/qa`,
+                exact: false,
+              },
+              {
+                key: 'sidebar.submissions',
+                icon: Code2,
+                url: `/contests/${contestId}/submissions`,
+                exact: false,
+              },
+              {
+                key: 'sidebar.rankings',
+                icon: BarChart3,
+                url: `/contests/${contestId}/rankings`,
+                exact: false,
+              },
+            ]}
+            pathname={pathname}
+            t={t}
+          />
           {problems.map((p) => {
             const isActive =
               pathname === `/contests/${contestId}/problems/${p.problem_id}`;
@@ -237,37 +265,6 @@ function ContestProblemsGroup() {
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  );
-}
-
-function MenuGroupItems({
-  items,
-  pathname,
-  t,
-}: {
-  items: MenuItem[];
-  pathname: string;
-  t: (k: string) => string;
-}) {
-  return (
-    <>
-      {items.map((item) => {
-        const title = t(item.titleKey);
-        const active = isActivePath(pathname, item.url);
-        return (
-          <SidebarMenuItem key={item.titleKey}>
-            <SidebarMenuButton asChild isActive={active} tooltip={title}>
-              <Link to={item.url}>
-                <item.icon
-                  className={active ? 'text-sidebar-primary' : undefined}
-                />
-                <span>{title}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        );
-      })}
-    </>
   );
 }
 
@@ -333,11 +330,6 @@ function PlatformGroup() {
       </SidebarGroupContent>
     </SidebarGroup>
   );
-}
-
-function isActivePath(pathname: string, url: string) {
-  if (url === '/') return pathname === '/';
-  return pathname.startsWith(url);
 }
 
 export function Sidebar() {
