@@ -31,6 +31,7 @@ test-plugins:
     cargo test --manifest-path plugins/cooldown/Cargo.toml
     cargo test --manifest-path plugins/icpc/Cargo.toml
     cargo test --manifest-path plugins/ioi/Cargo.toml
+    cargo test --manifest-path plugins/print/Cargo.toml
     cargo test --manifest-path plugins/standard-checkers/Cargo.toml
     cargo test --manifest-path plugins/standard-languages/Cargo.toml
     cargo test --manifest-path plugins/submission-limit/Cargo.toml
@@ -97,23 +98,27 @@ format-check:
 
 # Build all WASM plugins (debug)
 build-plugins *args:
-    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-checkers {{args}}
     cargo run -p broccoli-dev-cli -- plugin build plugins/batch-evaluator {{args}}
-    cargo run -p broccoli-dev-cli -- plugin build plugins/ioi {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/communication-evaluator {{args}}
     cargo run -p broccoli-dev-cli -- plugin build plugins/cooldown {{args}}
-    cargo run -p broccoli-dev-cli -- plugin build plugins/submission-limit {{args}}
     cargo run -p broccoli-dev-cli -- plugin build plugins/icpc {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/ioi {{args}}
     cargo run -p broccoli-dev-cli -- plugin build plugins/print {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-checkers {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-languages {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/submission-limit {{args}}
 
 # Build all WASM plugins (release)
 build-plugins-release:
-    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-checkers --install --release
     cargo run -p broccoli-dev-cli -- plugin build plugins/batch-evaluator --install --release
-    cargo run -p broccoli-dev-cli -- plugin build plugins/ioi --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/communication-evaluator --install --release
     cargo run -p broccoli-dev-cli -- plugin build plugins/cooldown --install --release
-    cargo run -p broccoli-dev-cli -- plugin build plugins/submission-limit --install --release
     cargo run -p broccoli-dev-cli -- plugin build plugins/icpc --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/ioi --install --release
     cargo run -p broccoli-dev-cli -- plugin build plugins/print --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-checkers --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-languages --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/submission-limit --install --release
 
 # Build a single WASM plugin (e.g., just build-plugin plugins/standard-checkers)
 build-plugin path *args:
