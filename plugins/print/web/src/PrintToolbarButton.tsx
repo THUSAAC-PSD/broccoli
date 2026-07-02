@@ -42,6 +42,7 @@ export function PrintToolbarButton() {
   const api = usePrintApi();
   const params = useParams();
   const contestId = params.contestId ? Number(params.contestId) : undefined;
+  const problemId = params.problemId ? Number(params.problemId) : undefined;
 
   const [open, setOpen] = useState(false);
   const [filename, setFilename] = useState('print.txt');
@@ -76,6 +77,7 @@ export function PrintToolbarButton() {
     try {
       const r = await api.printArbitrary({
         contest_id: contestId,
+        problem_id: problemId,
         filename: filename.trim() || 'print.txt',
         language,
         source,
