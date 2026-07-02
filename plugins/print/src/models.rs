@@ -67,6 +67,10 @@ pub fn problem_letter(position: i32) -> String {
 pub struct ArbitraryJobRequest {
     #[serde(default)]
     pub contest_id: Option<i32>,
+    /// Problem the code was written against, when printed from a problem page.
+    /// Combined with `contest_id` to label the printout.
+    #[serde(default)]
+    pub problem_id: Option<i32>,
     pub filename: String,
     #[serde(default)]
     pub language: Option<String>,

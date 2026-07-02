@@ -222,6 +222,20 @@ pub fn handle_print_arbitrary(
         .into());
     }
 
+    // Label the printout when the code was printed from a contest problem page.
+    // Scoped by (contest_id, problem_id), so an unrelated problem id yields no
+    // label rather than leaking one; contest access is already checked above.
+    let problem_label = match (body.contest_id, body.problem_id) {
+        (Some(cid), Some(pid)) => jobs::fetch_problem_label(host, cid, pid)?.map(|r| {
+            if r.label.trim().is_empty() {
+                models::problem_letter(r.position)
+            } else {
+                r.label
+            }
+        }),
+        _ => None,
+    };
+
     let language = body
         .language
         .as_deref()
@@ -240,7 +254,7 @@ pub fn handle_print_arbitrary(
             user_id,
             username: username.clone(),
             display_name: Some(username),
-            problem_label: None,
+            problem_label,
             submission_id: None,
             language,
             filename,
