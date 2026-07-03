@@ -111,3 +111,71 @@ jobs:
       # only re-run the tests that exercise the cfg-gated `/downloads` routes.
       - name: Test downloads endpoint
         run: cargo test -p server --features bundled-stress-test --locked --test integration -- downloads
+
+  plugins:
+    name: Plugins (host tests + fmt)
+    runs-on: ubuntu-latest
+    # The crates under `plugins/` are excluded from the cargo workspace, so the
+    # `Rust` job's `--workspace` fmt/test never touches them. Cover them here.
+    env:
+      PLUGIN_CRATES: >-
+        plugins/batch-evaluator
+        plugins/communication-evaluator
+        plugins/cooldown
+        plugins/icpc
+        plugins/ioi
+        plugins/print
+        plugins/print/client
+        plugins/standard-checkers
+        plugins/standard-languages
+        plugins/submission-limit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: plugins
+
+      - name: Check formatting
+        # rustfmt's CLI defaults to edition 2015, so pass --edition 2024 to match
+        # the pre-commit hook that formats these crates.
+        run: |
+          set -euo pipefail
+          for c in $PLUGIN_CRATES; do
+            echo "== fmt $c =="
+            find "$c/src" -name '*.rs' -print0 | xargs -0 -r rustfmt --edition 2024 --check
+          done
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          for c in $PLUGIN_CRATES; do
+            echo "== test $c =="
+            cargo test --locked --manifest-path "$c/Cargo.toml"
+          done
+
+  print-client-windows:
+    name: Print client (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: print-client-windows
+          workspaces: plugins/print/client
+
+      # Compiles the cfg(windows) print path (bundled SumatraPDF + its
+      # include_bytes!), which the Ubuntu jobs never build.
+      - name: Check
+        run: cargo check --locked --manifest-path plugins/print/client/Cargo.toml --target x86_64-pc-windows-msvc
