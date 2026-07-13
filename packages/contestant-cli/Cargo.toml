@@ -1,0 +1,30 @@
+[package]
+name = "broccoli-contestant-cli"
+version = "0.1.0"
+description = "Contestant CLI for Broccoli (login, submit, test, watch contests)"
+license = "MIT"
+repository = "https://github.com/THUSAAC-PSD/broccoli"
+edition = "2024"
+rust-version = "1.85"
+
+[[bin]]
+name = "broccoli"
+path = "src/main.rs"
+
+[dependencies]
+broccoli-cli-core = { path = "../cli-core" }
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+console = "0.15"
+dialoguer = { version = "0.11", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+open.workspace = true
+dirs.workspace = true
+chrono.workspace = true
+toml.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+rand.workspace = true
+unicode-width = "0.2"

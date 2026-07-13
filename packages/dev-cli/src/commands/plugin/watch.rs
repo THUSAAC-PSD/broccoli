@@ -12,8 +12,8 @@ use console::style;
 use notify::{Event, RecursiveMode, Watcher};
 use serde::Deserialize;
 
-use crate::auth;
 use crate::dev_config::{self, FileKind, ResolvedDevConfig};
+use broccoli_cli_core::config;
 
 use super::wasm::copy_wasm_artifact;
 
@@ -80,7 +80,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
         );
     }
 
-    let creds = auth::resolve_credentials(args.server.as_deref(), args.token.as_deref())?;
+    let creds = config::resolve_credentials(args.server.as_deref(), args.token.as_deref())?;
 
     let manifest = read_manifest(&manifest_path)?;
     let plugin_name = manifest.name.as_deref().unwrap_or("plugin");
@@ -422,7 +422,7 @@ fn spawn_frontend_dev(dev: &ResolvedDevConfig, _plugin_dir: &Path) -> anyhow::Re
 fn initial_build_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
-    creds: &auth::Credentials,
+    creds: &config::Credentials,
     dev: &ResolvedDevConfig,
     release: bool,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
@@ -452,7 +452,7 @@ fn initial_build_and_upload(
 fn backend_build_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
-    creds: &auth::Credentials,
+    creds: &config::Credentials,
     release: bool,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
@@ -477,7 +477,7 @@ fn backend_build_and_upload(
 fn package_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
-    creds: &auth::Credentials,
+    creds: &config::Credentials,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let manifest = read_manifest(manifest_path)?;
@@ -635,7 +635,7 @@ const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 fn upload_plugin(
     archive: &[u8],
-    creds: &auth::Credentials,
+    creds: &config::Credentials,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let fingerprint = fingerprint_bytes(archive);

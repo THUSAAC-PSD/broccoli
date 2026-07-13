@@ -7,7 +7,9 @@ use clap::Args;
 use console::style;
 use serde::Deserialize;
 
-use crate::auth;
+use broccoli_cli_core::client::Client;
+use broccoli_cli_core::config::{self, Credentials};
+use broccoli_cli_core::tls;
 
 #[derive(Args)]
 pub struct LoginArgs {
@@ -33,7 +35,10 @@ struct PollResponse {
 }
 
 pub fn run(args: LoginArgs) -> anyhow::Result<()> {
-    let client = reqwest::blocking::Client::new();
+    // Non-2xx must come back as Ok so we can read the RFC-8628-style poll
+    // errors (authorization_pending / slow_down / expired_token) the server
+    // sends with HTTP 400; tls::build_agent also disables status-as-error.
+    let agent = tls::build_agent(Some(Duration::from_secs(10)), Some(Duration::from_secs(30)));
 
     println!(
         "{}  Requesting device code from {}...",
@@ -41,20 +46,23 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
         style(&args.server).cyan()
     );
 
-    let resp = client
-        .post(format!("{}/api/v1/auth/device-code", args.server))
-        .json(&serde_json::json!({}))
-        .send()
+    let resp = agent
+        .post(&format!("{}/api/v1/auth/device-code", args.server))
+        .send_json(serde_json::json!({}))
         .context("Failed to connect to server. Is it running?")?;
 
-    if !resp.status().is_success() {
+    if resp.status() != 200 {
         let status = resp.status();
-        let body = resp.text().unwrap_or_default();
+        let body = resp
+            .into_body()
+            .read_to_string()
+            .unwrap_or_else(|_| "(unreadable)".into());
         bail!("Server returned {}: {}", status, body);
     }
 
     let device_code_resp: DeviceCodeResponse = resp
-        .json()
+        .into_body()
+        .read_json()
         .context("Failed to parse device code response")?;
 
     println!();
@@ -81,12 +89,11 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
         print!(".");
         std::io::stdout().flush().ok();
 
-        let poll_resp = client
-            .post(format!("{}/api/v1/auth/device-token", args.server))
-            .json(&serde_json::json!({
+        let poll_resp = agent
+            .post(&format!("{}/api/v1/auth/device-token", args.server))
+            .send_json(serde_json::json!({
                 "device_code": device_code_resp.device_code
-            }))
-            .send();
+            }));
 
         let poll_resp = match poll_resp {
             Ok(r) => r,
@@ -96,7 +103,7 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
             }
         };
 
-        let poll: PollResponse = match poll_resp.json() {
+        let poll: PollResponse = match poll_resp.into_body().read_json() {
             Ok(p) => p,
             Err(_) => continue,
         };
@@ -105,7 +112,7 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
             println!();
             println!();
 
-            auth::save_credentials(&args.server, &token).context("Failed to save credentials")?;
+            persist_session(&args.server, &token)?;
 
             println!("{}  Logged in successfully!", style("✓").green().bold());
             println!(
@@ -125,7 +132,7 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
                 }
                 "expired_token" => {
                     println!();
-                    bail!("Device code expired. Run `broccoli login` again to get a new code.");
+                    bail!("Device code expired. Run `broccoli-dev login` again to get a new code.");
                 }
                 other => {
                     println!();
@@ -136,5 +143,26 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
     }
 
     println!();
-    bail!("Timed out waiting for authorization. Run `broccoli login` again.");
+    bail!("Timed out waiting for authorization. Run `broccoli-dev login` again.");
+}
+
+/// Exchange the short-lived (5 minute) device-flow access token for a fresh
+/// access token plus a long-lived refresh token, and store both so later
+/// commands (e.g. `plugin watch`) can keep refreshing instead of dying when
+/// the access token expires. Older servers without `/auth/cli-token` fall
+/// back to storing the access token alone.
+fn persist_session(server: &str, access_token: &str) -> anyhow::Result<()> {
+    let client = Client::new(Credentials {
+        server: server.to_string(),
+        token: access_token.to_string(),
+        refresh_token: None,
+    });
+    match client.issue_cli_token() {
+        Ok(cli) => config::save_credentials_full(server, &cli.token, Some(&cli.refresh_token))
+            .context("Failed to save credentials")?,
+        Err(_) => {
+            config::save_credentials(server, access_token).context("Failed to save credentials")?;
+        }
+    }
+    Ok(())
 }
