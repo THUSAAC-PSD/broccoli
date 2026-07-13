@@ -1709,7 +1709,12 @@ fn handle_submission_subtask_scores(
 
     let contest_config: ContestConfig = contest::load_config(host, contest_id)?;
 
-    let info = contest::load_info(host, contest_id)?;
+    // Gate on the same access rule as every other IOI handler: contest:manage,
+    // or an active public/participant contest. `load_info` performs NO access
+    // check, which would expose any submission's subtask scores (including for
+    // private/inactive contests) to anonymous callers.
+    let info = contest::check_access(host, req, contest_id)?;
+    info.require_type("ioi")?;
     let phase = &info.phase;
 
     #[derive(Deserialize)]

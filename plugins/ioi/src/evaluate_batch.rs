@@ -148,10 +148,6 @@ pub fn handle_detached_eval_callback(
                 state.marked_running = true;
             }
 
-            let should_refill = outcome.verdict != Verdict::CompileError
-                && state
-                    .short_circuit
-                    .should_refill_after(outcome.test_case_id, normalized);
             record_detached_outcome(host, &mut state, outcome.clone())?;
 
             let cancel_ids =
@@ -181,6 +177,18 @@ pub fn handle_detached_eval_callback(
                     state,
                 )?));
             }
+
+            // The host applies `cancel_test_case_ids` to its pending queue
+            // BEFORE its refill loop, so a refill can never dispatch a case
+            // doomed by a failed subtask. A `refill=false` hint, on the other
+            // hand, makes the host break the session as soon as the active
+            // window drains, stranding every still-pending case of unrelated
+            // subtasks (they would be filled in as SystemError when the host
+            // reports Exhausted). Keep refilling while any case is unjudged.
+            let should_refill = state
+                .scoring_test_cases
+                .iter()
+                .any(|tc| !state.recorded_ids.contains(&tc.id));
 
             Ok(DetachedEvaluateCallbackOutput::continue_with(
                 serde_json::to_value(state)?,
@@ -657,6 +665,15 @@ impl SubtaskShortCircuit {
         }
     }
 
+    /// Refill hint for the synchronous session only: there the refill
+    /// happens BEFORE the cancel set is applied, so holding a refill back
+    /// while a cancellation is imminent avoids dispatching a doomed case.
+    /// The session self-heals afterwards (it refills whenever its active
+    /// window is empty), so `false` never strands pending cases. Do NOT
+    /// reuse this for the detached callback: the detached host treats
+    /// `refill=false` as "stop dispatching entirely" and would strand
+    /// pending cases of unrelated subtasks.
+    #[cfg(test)]
     fn should_refill_after(&self, test_case_id: i32, raw_score: f64) -> bool {
         let failing_subtasks = self.failing_subtasks_for(test_case_id, raw_score);
         if failing_subtasks.is_empty() {
@@ -1273,6 +1290,119 @@ mod tests {
                 .all(|row| row.verdict != Verdict::Skipped),
             "detached callback path must not persist skipped rows for active nested siblings"
         );
+    }
+
+    /// Regression: two disjoint group_min subtasks. A WA on the first
+    /// subtask's first case cancels the rest of that subtask, but the
+    /// callback must keep `refill` enabled so the host still dispatches
+    /// the second subtask's cases instead of breaking the session and
+    /// filling them in as SystemError on Exhausted.
+    #[test]
+    fn detached_disjoint_subtask_failure_keeps_refilling_other_subtask() {
+        let host = Host::mock();
+        let tcs = (1..=10).map(test_case).collect::<Vec<_>>();
+        let req = test_submission(tcs.clone());
+        let subtasks = vec![
+            crate::config::SubtaskDef {
+                name: "A".into(),
+                scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+                max_score: 60.0,
+                test_cases: (1..=8).map(|id| id.to_string()).collect(),
+            },
+            crate::config::SubtaskDef {
+                name: "B".into(),
+                scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+                max_score: 40.0,
+                test_cases: (9..=10).map(|id| id.to_string()).collect(),
+            },
+        ];
+
+        evaluate_all_detached(&host, &req, &tcs, &tcs, req.submission_id, &subtasks).unwrap();
+        let detached = host.eval.detached_windowed_requests();
+        assert_eq!(detached.len(), 1);
+
+        let first = handle_detached_eval_callback(
+            &host,
+            DetachedEvaluateCallbackInput {
+                session_id: "disjoint-detached".into(),
+                state: detached[0].state.clone(),
+                event: DetachedEvaluateCallbackEvent::Result {
+                    result: TestCaseVerdict::wrong_answer(1),
+                },
+                completed: 1,
+                total: 10,
+            },
+        )
+        .unwrap();
+        assert_eq!(first.action, DetachedEvaluateCallbackAction::Continue);
+        assert_eq!(first.cancel_test_case_ids, vec![2, 3, 4, 5, 6, 7, 8]);
+        assert!(
+            first.refill,
+            "cancelling subtask A's cases must not disable refills while subtask B is pending"
+        );
+
+        let second = handle_detached_eval_callback(
+            &host,
+            DetachedEvaluateCallbackInput {
+                session_id: "disjoint-detached".into(),
+                state: first.state,
+                event: DetachedEvaluateCallbackEvent::Result {
+                    result: TestCaseVerdict::accepted(9),
+                },
+                completed: 2,
+                total: 10,
+            },
+        )
+        .unwrap();
+        assert_eq!(second.action, DetachedEvaluateCallbackAction::Continue);
+        assert!(second.refill);
+        assert!(second.cancel_test_case_ids.is_empty());
+
+        let third = handle_detached_eval_callback(
+            &host,
+            DetachedEvaluateCallbackInput {
+                session_id: "disjoint-detached".into(),
+                state: second.state,
+                event: DetachedEvaluateCallbackEvent::Result {
+                    result: TestCaseVerdict::accepted(10),
+                },
+                completed: 3,
+                total: 10,
+            },
+        )
+        .unwrap();
+        assert_eq!(third.action, DetachedEvaluateCallbackAction::Finish);
+
+        let rows = host.submission.results();
+        let testcase_rows = rows
+            .iter()
+            .filter(|row| row.test_case_id.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(testcase_rows.len(), 10);
+        assert!(
+            testcase_rows
+                .iter()
+                .all(|row| row.verdict != Verdict::SystemError),
+            "no case may be persisted as SystemError in this flow"
+        );
+        for id in 9..=10 {
+            assert!(
+                testcase_rows
+                    .iter()
+                    .any(|row| row.test_case_id == Some(id)
+                        && row.verdict == Verdict::Accepted),
+                "subtask B case {id} must still be judged after subtask A failed"
+            );
+        }
+        for id in 2..=8 {
+            assert!(
+                testcase_rows
+                    .iter()
+                    .any(|row| row.test_case_id == Some(id)
+                        && row.verdict == Verdict::Skipped),
+                "subtask A case {id} must be skipped via short-circuit"
+            );
+        }
     }
 
     #[test]

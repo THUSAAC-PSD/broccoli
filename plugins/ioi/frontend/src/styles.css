@@ -1,3 +1,6 @@
+@import '@broccoli/web-sdk/dist/plugin.css';
+@source './**/*.{ts,tsx}';
+
 @layer plugin {
-  @import 'tailwindcss/utilities';
+  @tailwind utilities;
 }
