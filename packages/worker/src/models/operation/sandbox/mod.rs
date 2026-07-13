@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+mod capture;
 pub mod error;
 pub mod isolate;
 pub mod mock;

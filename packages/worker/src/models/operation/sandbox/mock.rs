@@ -1,3 +1,4 @@
+use super::capture::{INLINE_OUTPUT_PREVIEW_BYTES, read_text_preview, text_preview_from_bytes};
 use super::error::SandboxError;
 use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager};
 use async_trait::async_trait;
@@ -17,8 +18,6 @@ use tokio::process::Command;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 use tracing::{debug, warn};
-
-const INLINE_OUTPUT_PREVIEW_BYTES: usize = 64 * 1024;
 
 /// Drain a child pipe to EOF while keeping only the capped preview. Reading to
 /// the end (rather than stopping at the cap) keeps the child from taking SIGPIPE
@@ -41,28 +40,6 @@ where
         }
     }
     preview
-}
-
-fn text_preview_from_bytes(mut bytes: Vec<u8>, truncated: bool) -> String {
-    let was_truncated = truncated || bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES;
-    if bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES {
-        bytes.truncate(INLINE_OUTPUT_PREVIEW_BYTES);
-    }
-
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if was_truncated {
-        text.push_str("\n... (truncated)");
-    }
-    text
-}
-
-async fn read_text_preview(path: &Path) -> Result<String, std::io::Error> {
-    let file = tokio::fs::File::open(path).await?;
-    let mut bytes = Vec::with_capacity(INLINE_OUTPUT_PREVIEW_BYTES + 1);
-    let mut limited = file.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
-    limited.read_to_end(&mut bytes).await?;
-    let truncated = bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES;
-    Ok(text_preview_from_bytes(bytes, truncated))
 }
 
 #[derive(Debug, Clone)]
@@ -616,5 +593,42 @@ impl SandboxManager for MockSandboxManager {
             stdout,
             stderr,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mock backend must sanitize captured output the same way the isolate
+    /// backend does: `printf 'a\0b'` emits a literal NUL byte, and the shared
+    /// preview helper has to replace it before it can reach a Postgres TEXT
+    /// column.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mock_piped_stdout_strips_nul_bytes() {
+        let manager = MockSandboxManager::new(std::env::temp_dir().join(format!(
+            "broccoli-mock-sandbox-nul-test-{}",
+            std::process::id()
+        )));
+        manager.create_sandbox(Some("nul-test")).await.unwrap();
+
+        let result = manager
+            .execute(
+                "nul-test",
+                vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf 'a\\0b'".to_string(),
+                ],
+                &RunOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        manager.remove_sandbox("nul-test").await.unwrap();
+
+        assert_eq!(result.stdout, "a\u{FFFD}b");
+        assert!(!result.stdout.contains('\0'));
     }
 }
