@@ -181,7 +181,8 @@ pub struct UserConfig {
     #[serde(default)]
     pub language: Option<String>,
 
-    /// Overrides credentials file or env var.
+    /// Default server URL used when neither a command flag nor $BROCCOLI_URL is
+    /// set. Flags and the environment variable take precedence over this value.
     #[serde(default)]
     pub server: Option<String>,
 
