@@ -4,7 +4,9 @@ use std::time::Duration;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PluginConfig {
+    #[serde(default = "default_plugins_dir")]
     pub plugins_dir: PathBuf,
+    #[serde(default = "default_enable_wasi")]
     pub enable_wasi: bool,
     /// Wall-clock execution deadline for a single guest call, applied to the
     /// extism manifest (`timeout_ms`) when the plugin is loaded. Checker and
@@ -63,6 +65,14 @@ pub struct PluginConfig {
     pub instance_min_calls_before_recycle: usize,
 }
 
+fn default_plugins_dir() -> PathBuf {
+    PathBuf::from("./plugins")
+}
+
+fn default_enable_wasi() -> bool {
+    true
+}
+
 fn default_call_timeout() -> u64 {
     300
 }
@@ -90,8 +100,8 @@ fn default_instance_min_calls_before_recycle() -> usize {
 impl Default for PluginConfig {
     fn default() -> Self {
         Self {
-            plugins_dir: PathBuf::from("./plugins"),
-            enable_wasi: true,
+            plugins_dir: default_plugins_dir(),
+            enable_wasi: default_enable_wasi(),
             call_timeout_secs: default_call_timeout(),
             pool_acquire_timeout_secs: default_pool_acquire_timeout(),
             pool_max_instances: default_pool_max_instances(),

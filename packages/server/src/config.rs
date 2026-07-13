@@ -12,6 +12,7 @@ pub use common::storage::config::BlobStoreConfig;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
+    #[serde(default = "default_database_url")]
     pub url: String,
     #[serde(default = "default_database_max_connections")]
     pub max_connections: u32,
@@ -27,11 +28,15 @@ pub struct DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            url: "postgres://postgres:password@localhost:5432/broccoli".into(),
+            url: default_database_url(),
             max_connections: default_database_max_connections(),
             plugin_max_connections: default_plugin_max_connections(),
         }
     }
+}
+
+fn default_database_url() -> String {
+    "postgres://postgres:password@localhost:5432/broccoli".into()
 }
 
 fn default_database_max_connections() -> u32 {
@@ -44,14 +49,32 @@ fn default_plugin_max_connections() -> u32 {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CorsConfig {
+    #[serde(default)]
     pub allow_origins: Vec<String>,
+    #[serde(default = "default_cors_max_age")]
     pub max_age: u64,
+}
+
+impl Default for CorsConfig {
+    fn default() -> Self {
+        Self {
+            allow_origins: Vec::new(),
+            max_age: default_cors_max_age(),
+        }
+    }
+}
+
+fn default_cors_max_age() -> u64 {
+    3600
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
+    #[serde(default = "default_host")]
     pub host: String,
+    #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default)]
     pub cors: CorsConfig,
     /// Directory containing the baked frontend `dist/` output served by the
     /// server in production.
@@ -240,6 +263,56 @@ pub struct ServerConfig {
     pub claim_batch_size: u32,
 }
 
+/// Serde field defaults below are the single source of truth for server
+/// configuration defaults: `AppConfig::load` deliberately registers no
+/// builder-level `set_default` values (which would silently shadow these),
+/// so a key absent from config files and environment always resolves here.
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+            cors: CorsConfig::default(),
+            frontend_dist: default_frontend_dist(),
+            trusted_proxies: Vec::new(),
+            rate_limit_auth: false,
+            id: String::new(),
+            expects_multi_replica: false,
+            dispatcher_lease_steal_enabled: false,
+            dispatcher_semaphore_enabled: default_dispatcher_semaphore_enabled(),
+            dispatcher_concurrency: default_dispatcher_concurrency(),
+            dispatcher_admission_queue_max: default_dispatcher_admission_queue_max(),
+            max_queued_submissions: default_max_queued_submissions(),
+            lease_ttl_secs: default_lease_ttl_secs(),
+            lease_refresh_interval_secs: default_lease_refresh_interval_secs(),
+            steal_scan_interval_secs: default_steal_scan_interval_secs(),
+            steal_batch_size: default_steal_batch_size(),
+            sweep_interval_secs: default_sweep_interval_secs(),
+            max_dispatch_retries: default_max_dispatch_retries(),
+            max_stuck_retries: default_max_stuck_retries(),
+            max_system_error_retries: default_max_system_error_retries(),
+            sweeper_dry_run: default_sweeper_dry_run(),
+            cancel_primitive_enabled: false,
+            max_blocking_threads: None,
+            batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
+            operation_batch_publish_concurrency: default_operation_batch_publish_concurrency(),
+            healthz_listen: None,
+            healthz_worker_threads: default_healthz_worker_threads(),
+            claim_fiber_enabled: default_claim_fiber_enabled(),
+            claim_poll_interval_ms: default_claim_poll_interval_ms(),
+            claim_batch_size: default_claim_batch_size(),
+        }
+    }
+}
+
+fn default_host() -> String {
+    "127.0.0.1".into()
+}
+
+fn default_port() -> u16 {
+    3000
+}
+
 fn default_dispatcher_semaphore_enabled() -> bool {
     true
 }
@@ -400,17 +473,27 @@ fn default_secure_cookies() -> bool {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SubmissionConfig {
+    #[serde(default = "default_submission_max_size")]
     pub max_size: usize,
+    #[serde(default = "default_submission_rate_limit_per_minute")]
     pub rate_limit_per_minute: u32,
 }
 
 impl Default for SubmissionConfig {
     fn default() -> Self {
         Self {
-            max_size: 1_048_576,
-            rate_limit_per_minute: 10,
+            max_size: default_submission_max_size(),
+            rate_limit_per_minute: default_submission_rate_limit_per_minute(),
         }
     }
+}
+
+fn default_submission_max_size() -> usize {
+    1_048_576
+}
+
+fn default_submission_rate_limit_per_minute() -> u32 {
+    10
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -423,9 +506,14 @@ pub struct BootstrapConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
+    #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
     pub database: DatabaseConfig,
+    /// Required: `auth.jwt_secret` has no default, so configuration must
+    /// always provide it (via file or `BROCCOLI__AUTH__JWT_SECRET`).
     pub auth: AuthConfig,
+    #[serde(default)]
     pub plugin: plugin_core::config::PluginConfig,
     #[serde(default)]
     pub submission: SubmissionConfig,
@@ -571,57 +659,18 @@ impl ServerConfig {
 
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
+        // Defaults live on the struct fields as `#[serde(default = ...)]`
+        // attributes — the single source of truth. Builder-level
+        // `set_default` values are deliberately avoided: the config crate
+        // fills them in before serde runs, so serde field defaults would be
+        // silently shadowed and the two sources could drift apart.
+        //
+        // The one exception is the OTLP service name: the shared
+        // `ObservabilityConfig` default is the generic "broccoli" (the
+        // worker overrides it to "broccoli-worker" the same way), so the
+        // per-binary identity is a builder-level concern, not a
+        // struct-level default.
         let s = Config::builder()
-            .set_default("server.host", "127.0.0.1")?
-            .set_default("server.port", 3000)?
-            .set_default("server.cors.allow_origins", Vec::<String>::new())?
-            .set_default("server.cors.max_age", 3600_i64)?
-            .set_default("server.frontend_dist", "/srv/dist")?
-            .set_default("server.id", "")?
-            .set_default("server.expects_multi_replica", false)?
-            .set_default("server.dispatcher_lease_steal_enabled", false)?
-            .set_default("server.dispatcher_semaphore_enabled", true)?
-            .set_default("server.dispatcher_concurrency", 16_i64)?
-            .set_default("server.dispatcher_admission_queue_max", 100_i64)?
-            .set_default("server.max_queued_submissions", 5000_i64)?
-            .set_default("server.lease_ttl_secs", 60_i64)?
-            .set_default("server.lease_refresh_interval_secs", 10_i64)?
-            .set_default("server.steal_scan_interval_secs", 15_i64)?
-            .set_default("server.steal_batch_size", 8_i64)?
-            .set_default("server.sweep_interval_secs", 300_i64)?
-            .set_default("server.max_dispatch_retries", 5_i64)?
-            .set_default("server.max_stuck_retries", 5_i64)?
-            .set_default("server.max_system_error_retries", 50_i64)?
-            .set_default("server.sweeper_dry_run", false)?
-            .set_default("server.cancel_primitive_enabled", false)?
-            .set_default("server.batch_evaluator_fanout_concurrency", 64_i64)?
-            .set_default("server.operation_batch_publish_concurrency", 32_i64)?
-            .set_default("server.healthz_worker_threads", 2_i64)?
-            .set_default("server.claim_fiber_enabled", true)?
-            .set_default("server.claim_poll_interval_ms", 1000_i64)?
-            .set_default("server.claim_batch_size", 32_i64)?
-            .set_default("server.trusted_proxies", Vec::<String>::new())?
-            .set_default("server.rate_limit_auth", false)?
-            .set_default(
-                "database.url",
-                "postgres://postgres:password@localhost:5432/broccoli",
-            )?
-            .set_default("database.max_connections", 20_i64)?
-            .set_default("bootstrap.admin_username", "")?
-            .set_default("bootstrap.admin_password", "")?
-            .set_default("auth.secure_cookies", true)?
-            .set_default("plugin.plugins_dir", "./plugins")?
-            .set_default("plugin.enable_wasi", true)?
-            .set_default("submission.max_size", 1_048_576_i64)?
-            .set_default("submission.rate_limit_per_minute", 10_i64)?
-            .set_default("mq.enabled", true)?
-            .set_default("mq.url", "redis://localhost:6379")?
-            .set_default("mq.pool_size", 5_i64)?
-            .set_default("mq.operation_queue_name", "operation_tasks")?
-            .set_default("mq.operation_result_queue_name", "operation_results")?
-            .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
-            .set_default("observability.log_format", "pretty")?
-            .set_default("observability.log_filter", "info")?
             .set_default("observability.otlp.service_name", "broccoli-server")?
             .add_source(File::with_name("config/config").required(false))
             .add_source(
@@ -735,40 +784,8 @@ mod tests {
 
     fn server_config_fixture(max_blocking_threads: Option<usize>) -> ServerConfig {
         ServerConfig {
-            host: "127.0.0.1".into(),
-            port: 3000,
-            cors: CorsConfig {
-                allow_origins: Vec::new(),
-                max_age: 0,
-            },
-            frontend_dist: default_frontend_dist(),
-            trusted_proxies: Vec::new(),
-            rate_limit_auth: false,
-            id: String::new(),
-            expects_multi_replica: false,
-            dispatcher_lease_steal_enabled: false,
-            dispatcher_semaphore_enabled: default_dispatcher_semaphore_enabled(),
-            dispatcher_concurrency: default_dispatcher_concurrency(),
-            dispatcher_admission_queue_max: default_dispatcher_admission_queue_max(),
-            max_queued_submissions: default_max_queued_submissions(),
-            lease_ttl_secs: default_lease_ttl_secs(),
-            lease_refresh_interval_secs: default_lease_refresh_interval_secs(),
-            steal_scan_interval_secs: default_steal_scan_interval_secs(),
-            steal_batch_size: default_steal_batch_size(),
-            sweep_interval_secs: default_sweep_interval_secs(),
-            max_dispatch_retries: default_max_dispatch_retries(),
-            max_stuck_retries: default_max_stuck_retries(),
-            max_system_error_retries: default_max_system_error_retries(),
-            sweeper_dry_run: default_sweeper_dry_run(),
-            cancel_primitive_enabled: false,
             max_blocking_threads,
-            batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
-            operation_batch_publish_concurrency: default_operation_batch_publish_concurrency(),
-            healthz_listen: None,
-            healthz_worker_threads: default_healthz_worker_threads(),
-            claim_fiber_enabled: default_claim_fiber_enabled(),
-            claim_poll_interval_ms: default_claim_poll_interval_ms(),
-            claim_batch_size: default_claim_batch_size(),
+            ..ServerConfig::default()
         }
     }
 
@@ -813,6 +830,70 @@ mod tests {
     fn server_config_defaults_max_stuck_retries_to_five() {
         let cfg = server_config_fixture(None);
         assert_eq!(cfg.max_stuck_retries, 5);
+    }
+
+    /// Guards the single-source-of-truth contract of `AppConfig::load`:
+    /// with no config file and no environment, every default must resolve
+    /// through the `#[serde(default = ...)]` field attributes. This mirrors
+    /// the `load()` path (config-crate builder -> `try_deserialize`) minus
+    /// the file/env sources, supplying only the one key with no default
+    /// (`auth.jwt_secret`).
+    #[test]
+    fn empty_config_resolves_defaults_via_serde_attributes() {
+        let built = Config::builder()
+            .set_override("auth.jwt_secret", "test-secret")
+            .unwrap()
+            .build()
+            .unwrap();
+        let cfg: AppConfig = built.try_deserialize().unwrap();
+
+        // The historical builder-level set_default block pinned this to 50,
+        // silently shadowing the intended serde default of 10.
+        assert_eq!(cfg.server.max_system_error_retries, 10);
+
+        assert_eq!(cfg.server.host, "127.0.0.1");
+        assert_eq!(cfg.server.port, 3000);
+        assert_eq!(cfg.server.dispatcher_concurrency, 16);
+        assert!(cfg.server.cors.allow_origins.is_empty());
+        assert_eq!(cfg.server.cors.max_age, 3600);
+        assert_eq!(cfg.server.max_queued_submissions, 5000);
+        assert_eq!(
+            cfg.database.url,
+            "postgres://postgres:password@localhost:5432/broccoli"
+        );
+        assert_eq!(cfg.database.max_connections, 20);
+        assert!(cfg.auth.secure_cookies);
+        assert_eq!(cfg.plugin.plugins_dir, PathBuf::from("./plugins"));
+        assert!(cfg.plugin.enable_wasi);
+        assert_eq!(cfg.submission.max_size, 1_048_576);
+        assert_eq!(cfg.submission.rate_limit_per_minute, 10);
+        assert!(cfg.mq.enabled);
+        assert_eq!(cfg.mq.url, "redis://localhost:6379");
+        assert_eq!(cfg.observability.log_format, "pretty");
+        assert_eq!(cfg.observability.log_filter, "info");
+        assert!(cfg.bootstrap.admin_username.is_empty());
+    }
+
+    /// A partially-populated table must still fill its remaining keys from
+    /// serde defaults (previously guaranteed by set_default pre-seeding).
+    #[test]
+    fn partial_tables_fill_remaining_keys_from_serde_defaults() {
+        let built = Config::builder()
+            .set_override("auth.jwt_secret", "test-secret")
+            .unwrap()
+            .set_override("server.port", 8080)
+            .unwrap()
+            .set_override("submission.max_size", 42)
+            .unwrap()
+            .build()
+            .unwrap();
+        let cfg: AppConfig = built.try_deserialize().unwrap();
+
+        assert_eq!(cfg.server.port, 8080);
+        assert_eq!(cfg.server.host, "127.0.0.1");
+        assert_eq!(cfg.server.max_system_error_retries, 10);
+        assert_eq!(cfg.submission.max_size, 42);
+        assert_eq!(cfg.submission.rate_limit_per_minute, 10);
     }
 
     #[test]
