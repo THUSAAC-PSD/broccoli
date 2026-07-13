@@ -6,3 +6,7 @@ node_modules
 pnpm-lock.yaml
 
 /packages/sdk/src/api/schema.ts
+
+# Docusaurus site manages its own formatting (and MDX/admonition syntax that
+# prose-wrapping would break).
+/website
