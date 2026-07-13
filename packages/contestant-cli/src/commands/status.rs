@@ -100,7 +100,7 @@ fn picker_row(s: &SubmissionListItem) -> String {
         Some(v) => v.human().to_string(),
         None => s.status.human().to_string(),
     };
-    let score = s.score.map(fmt_score).unwrap_or_else(|| "—".into());
+    let score = s.score.map(fmt::score).unwrap_or_else(|| "—".into());
     let time = s
         .time_used
         .map(|t| fmt::time_ms(t as i64))
@@ -128,7 +128,7 @@ fn print_recent_table(subs: &[SubmissionListItem]) {
     );
     println!("  {}", "─".repeat(76));
     for s in subs {
-        let pts = s.score.map(fmt_score).unwrap_or_else(|| "—".into());
+        let pts = s.score.map(fmt::score).unwrap_or_else(|| "—".into());
         let t = s
             .time_used
             .map(|t| fmt::time_ms(t as i64))
@@ -171,7 +171,7 @@ fn print_submission(sub: &SubmissionResponse) {
             println!("  Verdict: {}", verdict_style(v));
         }
         if let Some(s) = result.score {
-            println!("  Score: {}", fmt_score(s));
+            println!("  Score: {}", fmt::score(s));
         }
         // always show Time/Memory so a gap reads as "no data"
         println!(
@@ -204,24 +204,6 @@ fn print_submission(sub: &SubmissionResponse) {
     println!();
 }
 
-/// Render a raw judge score for display. The score scale is plugin-defined
-/// (ICPC reports a 0..1 fraction, IOI reports absolute points), so no
-/// denominator is fabricated; mirrors the web UI's `formatScoreValue`:
-/// round to 2 decimals and strip trailing zeros.
-fn fmt_score(score: f64) -> String {
-    if !score.is_finite() {
-        return score.to_string();
-    }
-    let rounded = (score * 100.0).round() / 100.0;
-    if rounded.fract() == 0.0 {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{:.2}", rounded)
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_string()
-    }
-}
 
 /// Truncate (with ellipsis) and right-pad to exactly `width` display columns.
 fn pad(s: &str, width: usize) -> String {
@@ -282,22 +264,8 @@ fn verdict_style(v: &Verdict) -> StyledObject<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fmt_score, pad};
+    use super::pad;
     use unicode_width::UnicodeWidthStr;
-
-    #[test]
-    fn score_renders_raw_value_without_denominator() {
-        // ICPC batch scores are 0..1 fractions
-        assert_eq!(fmt_score(1.0), "1");
-        assert_eq!(fmt_score(0.0), "0");
-        // IOI scores are absolute points
-        assert_eq!(fmt_score(80.0), "80");
-        assert_eq!(fmt_score(100.0), "100");
-        // partial scores keep up to 2 decimals, trailing zeros stripped
-        assert_eq!(fmt_score(45.5), "45.5");
-        assert_eq!(fmt_score(33.333), "33.33");
-        assert_eq!(fmt_score(0.25), "0.25");
-    }
 
     #[test]
     fn pad_fills_to_display_width() {

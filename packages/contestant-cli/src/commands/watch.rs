@@ -763,7 +763,7 @@ fn build_submission_lines(
             ]));
         }
         if let Some(s) = r.score {
-            lines.push(field("Score", format!("{}/100", s)));
+            lines.push(field("Score", fmt::score(s)));
         }
         lines.push(field(
             "Time",
@@ -1423,7 +1423,7 @@ fn render_submissions(f: &mut Frame, app: &AppData, area: Rect) {
             };
             let score = s
                 .score
-                .map(|v| format!("{:.0}/100", v))
+                .map(fmt::score)
                 .unwrap_or_else(|| "—".into());
             let time = s.time_used.map(fmt::time_ms).unwrap_or_else(|| "—".into());
             let memory = s
