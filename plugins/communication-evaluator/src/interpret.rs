@@ -1,5 +1,11 @@
 use broccoli_server_sdk::types::{OperationResult, TestCaseVerdict, Verdict};
 
+/// POSIX signal number for SIGPIPE. A contestant terminated by SIGPIPE wrote to
+/// a pipe whose reader (the interactor/manager) had already closed it — i.e. the
+/// interactor finished the interaction first. That is not a contestant fault, so
+/// the verdict defers to the interactor instead of reporting RuntimeError.
+const SIGPIPE: i32 = 13;
+
 /// Interpret the communication operation result into a TestCaseVerdict.
 pub fn interpret_result(
     test_case_id: i32,
@@ -138,19 +144,28 @@ pub fn interpret_result(
                         };
                     }
                     "SG" => {
-                        return TestCaseVerdict {
-                            test_case_id,
-                            verdict: Verdict::RuntimeError,
-                            score: 0.0,
-                            time_used_ms: time_to_ms(total_time_s),
-                            memory_used_kb: max_memory_kb.map(|m| m as i64),
-                            message: Some(format!(
-                                "Signal received (contestant {i}): {}",
-                                sandbox.message
-                            )),
-                            stdout: None,
-                            stderr: opt_nonempty(&sandbox.stderr),
-                        };
+                        // SIGPIPE (13) means the contestant wrote after the interactor had
+                        // already closed its end of the pipe — i.e. the interactor finished the
+                        // interaction (it decided the verdict, then exited and closed the FIFO)
+                        // and is the authority. Do NOT penalize the solution for that incidental
+                        // signal; fall through to the manager's verdict below. Any other signal
+                        // (SIGSEGV, SIGABRT, …) is a genuine crash → RuntimeError.
+                        if sandbox.signal != Some(SIGPIPE) {
+                            return TestCaseVerdict {
+                                test_case_id,
+                                verdict: Verdict::RuntimeError,
+                                score: 0.0,
+                                time_used_ms: time_to_ms(total_time_s),
+                                memory_used_kb: max_memory_kb.map(|m| m as i64),
+                                message: Some(format!(
+                                    "Signal received (contestant {i}): {}",
+                                    sandbox.message
+                                )),
+                                stdout: None,
+                                stderr: opt_nonempty(&sandbox.stderr),
+                            };
+                        }
+                        // SIGPIPE: interactor closed the pipe; defer to the manager's verdict.
                     }
                     _ => {
                         // RE or unknown failure
@@ -440,6 +455,70 @@ mod tests {
             task_results: HashMap::from([
                 task_result("run_manager", true, mgr_result("0.0", "")),
                 task_result("run_contestant_0", false, ok_sandbox(11, 0.1, 2048)),
+            ]),
+            error: None,
+        };
+
+        let verdict = interpret_result(42, &result, 1, MEM_LIMIT);
+        assert_eq!(verdict.verdict, Verdict::RuntimeError);
+    }
+
+    fn signal_sandbox(signal: i32) -> ExecutionResult {
+        ExecutionResult {
+            exit_code: None,
+            signal: Some(signal),
+            status: "SG".to_string(),
+            time_used: 0.1,
+            memory_used: Some(2048),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn contestant_sigpipe_defers_to_manager_accepted() {
+        // A correct solution that writes once more after the interactor has
+        // decided + closed the pipe gets SIGPIPE. The manager's clean AC must
+        // win — reporting RuntimeError here is the classic interactive bug.
+        let result = OperationResult {
+            success: false,
+            task_results: HashMap::from([
+                task_result("run_manager", true, mgr_result("1.0\n", "Correct\n")),
+                task_result("run_contestant_0", false, signal_sandbox(SIGPIPE)),
+            ]),
+            error: None,
+        };
+
+        let verdict = interpret_result(42, &result, 1, MEM_LIMIT);
+        assert_eq!(verdict.verdict, Verdict::Accepted);
+        assert_eq!(verdict.score, 1.0);
+    }
+
+    #[test]
+    fn contestant_sigpipe_defers_to_manager_wrong_answer() {
+        // Interactor decided WA and closed the pipe first; the solution's next
+        // write → SIGPIPE. Verdict must be the manager's WA, not RuntimeError.
+        let result = OperationResult {
+            success: false,
+            task_results: HashMap::from([
+                task_result("run_manager", true, mgr_result("0.0\n", "Wrong\n")),
+                task_result("run_contestant_0", false, signal_sandbox(SIGPIPE)),
+            ]),
+            error: None,
+        };
+
+        let verdict = interpret_result(42, &result, 1, MEM_LIMIT);
+        assert_eq!(verdict.verdict, Verdict::WrongAnswer);
+    }
+
+    #[test]
+    fn contestant_non_sigpipe_signal_is_runtime_error() {
+        // A genuine crash (SIGSEGV = 11) is still RuntimeError, even when the
+        // manager would have produced a score.
+        let result = OperationResult {
+            success: false,
+            task_results: HashMap::from([
+                task_result("run_manager", true, mgr_result("1.0\n", "")),
+                task_result("run_contestant_0", false, signal_sandbox(11)),
             ]),
             error: None,
         };

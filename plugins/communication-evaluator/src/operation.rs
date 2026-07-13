@@ -140,6 +140,7 @@ pub fn build_operation(
             },
             collect,
             depends_on: vec![],
+            mounts: Vec::new(),
             cache: Some(StepCacheConfig {
                 key_inputs: compile.cache_inputs.clone(),
                 outputs: cache_outputs,
@@ -183,6 +184,7 @@ pub fn build_operation(
                 },
                 collect,
                 depends_on: vec![],
+                mounts: Vec::new(),
                 cache: Some(StepCacheConfig {
                     key_inputs: compile.cache_inputs.clone(),
                     outputs: cache_outputs,
@@ -234,6 +236,7 @@ pub fn build_operation(
         },
         collect: vec![],
         depends_on: all_compile_deps.clone(),
+        mounts: Vec::new(),
         cache: None,
     });
 
@@ -281,6 +284,7 @@ pub fn build_operation(
             io,
             collect: vec![],
             depends_on: all_compile_deps.clone(),
+            mounts: Vec::new(),
             cache: None,
         });
     }
@@ -291,8 +295,12 @@ pub fn build_operation(
         channels,
         priority: None,
         target_worker_id: req.target_worker_id.clone(),
-        evaluate_batch_id: None,
-        test_case_id: None,
+        // Tag the op so the host's `record_ops` registers the op->batch mapping;
+        // without both ids the result wait can't extend and judging reports
+        // EVALUATION_TIMEOUT. `evaluate_batch_id` is stamped by the host in
+        // resolve_inputs; `test_case_id` comes from the per-case request.
+        evaluate_batch_id: req.evaluate_batch_id.clone(),
+        test_case_id: Some(req.test_case_id),
     }])
 }
 
@@ -327,6 +335,7 @@ mod tests {
             time_limit_ms: 2000,
             memory_limit_kb: 262144,
             contest_id: None,
+            evaluate_batch_id: Some("test-batch".to_string()),
             test_input: JudgeFile::inline("5\n1 2 3 4 5\n"),
             expected_output: JudgeFile::Missing,
             checker_format: None,
