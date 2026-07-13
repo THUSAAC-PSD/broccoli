@@ -236,7 +236,19 @@ fn record_detached_outcome(
     );
     host.submission.insert_results(&[row])?;
     state.recorded_ids.insert(outcome.test_case_id);
-    state.outcomes.push(outcome);
+    // `stdout`/`stderr` were just persisted to the DB via `row` and are never
+    // read back out of `state.outcomes` (only verdict/score/time feed the
+    // standings aggregate). Retaining them here is actively harmful: this state
+    // is re-serialized across the WASM host boundary on *every* subsequent
+    // result callback, so keeping per-test-case output bytes makes the
+    // round-tripped state grow with each recorded case — an O(n^2) blow-up in
+    // output volume (tens of KB/case * tens of cases * many concurrent
+    // submissions). Strip them; standings only needs the verdict.
+    state.outcomes.push(EvalOutcome {
+        stdout: None,
+        stderr: None,
+        ..outcome
+    });
     Ok(())
 }
 
@@ -285,6 +297,35 @@ fn finish_detached(host: &Host, state: &mut DetachedIcpcState) -> Result<(), Sdk
         &eval,
     )?;
     Ok(())
+}
+
+/// Best-effort recovery when a detached result callback fails mid-stream.
+///
+/// The detached callback (`on_icpc_eval_result`) persists results one window at
+/// a time. If a single `insert_results`/`update` host call fails for a
+/// non-stale reason (transient DB error, deadlock, a row the DB rejects), the
+/// callback's `?` would otherwise abort the whole WASM call and strand the
+/// submission on "Judging" with no terminal verdict. This funnels it to a
+/// terminal `SystemError` instead: fill any unrecorded test cases with
+/// `SystemError`, then write the terminal submission update.
+///
+/// All steps are best-effort — if the DB is genuinely unreachable these also
+/// fail, and the worker's submission-level retry re-drives judging later. A
+/// `StaleEpoch` here is benign: a newer judgement already owns the rows, so the
+/// `affected == 0` guards turn these writes into no-ops.
+pub fn recover_detached_callback_error(host: &Host, state_value: &serde_json::Value) {
+    let Ok(mut state) = serde_json::from_value::<DetachedIcpcState>(state_value.clone()) else {
+        // State unparseable — nothing actionable; the worker retry is the
+        // remaining safety net.
+        return;
+    };
+    let _ = fill_unrecorded(
+        host,
+        &mut state,
+        Verdict::SystemError,
+        "EVALUATION_PERSIST_FAILED",
+    );
+    let _ = finish_detached(host, &mut state);
 }
 
 /// Evaluate test cases with short-circuit: cancel remaining on first non-AC verdict.

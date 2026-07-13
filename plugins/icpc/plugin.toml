@@ -13,6 +13,7 @@ permissions = [
     "sql",
     "evaluator:evaluate",
     "config:read",
+    "storage",
 ]
 
 [[server.routes]]
@@ -24,6 +25,11 @@ handler = "api_standings"
 method = "GET"
 path = "/api/plugins/icpc/contests/{contest_id}/info"
 handler = "api_contest_info"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/icpc/contests/{contest_id}/reveal"
+handler = "api_reveal"
 
 [config.contest]
 description = "ICPC contest-level configuration"
@@ -48,6 +54,20 @@ type = "boolean"
 title = "Show Test Details"
 description = "Whether contestants see per-test-case verdicts"
 default = false
+
+[config.contest.properties.public_standings]
+type = "boolean"
+title = "Public Live Scoreboard"
+description = "Show the full scoreboard to contestants during the contest (default: each sees only their own row until it ends)"
+default = false
+
+[config.contest.properties.freeze_minutes]
+type = "integer"
+title = "Scoreboard Freeze (minutes)"
+description = "Freeze the contestant scoreboard in the final N minutes (ICPC-style: rank stops updating, freeze-window submissions show as pending). 0 = disabled. Organizers always see the real board."
+default = 0
+min = 0
+step = 5
 
 [web]
 root = "web/dist"

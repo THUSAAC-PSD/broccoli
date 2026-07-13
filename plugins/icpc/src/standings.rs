@@ -55,6 +55,46 @@ pub fn compute_problem_states(
         .collect()
 }
 
+/// Count PENDING submissions per (user, problem) made during the freeze window,
+/// for the frozen contestant view. Only problems NOT already solved before the
+/// freeze get pending markers (a solved problem stays solved; a frozen submission
+/// on it is irrelevant). SystemError submissions are ignored — they are a judge
+/// fault, not the team's attempt, and will be re-judged.
+pub fn compute_pending(
+    freeze_submissions: &[StandingsSubmission],
+    pre_freeze_states: &HashMap<(i32, i32), ProblemState>,
+) -> HashMap<(i32, i32), i32> {
+    let mut pending: HashMap<(i32, i32), i32> = HashMap::new();
+    for s in freeze_submissions {
+        if s.status == "SystemError" || s.verdict == Some(Verdict::SystemError) {
+            continue;
+        }
+        let key = (s.user_id, s.problem_id);
+        let solved = pre_freeze_states
+            .get(&key)
+            .map(|st| st.solved)
+            .unwrap_or(false);
+        if !solved {
+            *pending.entry(key).or_insert(0) += 1;
+        }
+    }
+    pending
+}
+
+/// Whether a submission counts toward the LIVE (pre-freeze) standings — i.e. is
+/// NOT frozen. True if it was made before the freeze window, OR it belongs to the
+/// viewer themselves. A contestant always sees their own submissions un-frozen
+/// (their own row shows real verdicts); only other teams' during-freeze
+/// submissions are hidden as pending. `own_user_id` is None for anonymous /
+/// organizer views (no self-exception, though organizers aren't frozen anyway).
+pub fn counts_as_live(
+    sub: &StandingsSubmission,
+    freeze_start_ms: i64,
+    own_user_id: Option<i32>,
+) -> bool {
+    sub.elapsed_ms < freeze_start_ms || Some(sub.user_id) == own_user_id
+}
+
 fn is_penalty_attempt(row: &StandingsSubmission, count_compile_error: bool) -> bool {
     if row.status == "SystemError" || row.verdict == Some(Verdict::SystemError) {
         return false;
@@ -148,5 +188,81 @@ mod tests {
 
         let counted = compute_problem_states(&[row], true);
         assert_eq!(counted.get(&(1, 100)).unwrap().attempts, 1);
+    }
+
+    #[test]
+    fn pending_counts_only_unsolved_and_ignores_system_error() {
+        // pre-freeze: user 1 already solved problem 100.
+        let pre = compute_problem_states(
+            &[StandingsSubmission {
+                submission_id: 1,
+                user_id: 1,
+                problem_id: 100,
+                verdict: Some(Verdict::Accepted),
+                status: "Judged".into(),
+                elapsed_ms: 5 * 60_000,
+            }],
+            false,
+        );
+        // during freeze: one sub on the solved 100 (ignored), and on unsolved 200 a
+        // WA (counts) + a SystemError (ignored).
+        let freeze = vec![
+            StandingsSubmission {
+                submission_id: 2,
+                user_id: 1,
+                problem_id: 100,
+                verdict: Some(Verdict::WrongAnswer),
+                status: "Judged".into(),
+                elapsed_ms: 290 * 60_000,
+            },
+            StandingsSubmission {
+                submission_id: 3,
+                user_id: 1,
+                problem_id: 200,
+                verdict: Some(Verdict::WrongAnswer),
+                status: "Judged".into(),
+                elapsed_ms: 291 * 60_000,
+            },
+            StandingsSubmission {
+                submission_id: 4,
+                user_id: 1,
+                problem_id: 200,
+                verdict: Some(Verdict::SystemError),
+                status: "SystemError".into(),
+                elapsed_ms: 292 * 60_000,
+            },
+        ];
+        let pending = compute_pending(&freeze, &pre);
+        assert_eq!(pending.get(&(1, 100)), None, "solved problem: no pending");
+        assert_eq!(
+            pending.get(&(1, 200)),
+            Some(&1),
+            "one pending (WA counts, SystemError ignored)"
+        );
+    }
+
+    #[test]
+    fn own_submissions_are_never_frozen() {
+        let freeze_start = 240 * 60_000;
+        let during = |uid: i32| StandingsSubmission {
+            submission_id: uid,
+            user_id: uid,
+            problem_id: 1,
+            verdict: Some(Verdict::Accepted),
+            status: "Judged".into(),
+            elapsed_ms: 250 * 60_000, // inside the freeze window
+        };
+        // Viewer = user 7: their own during-freeze submission stays live…
+        assert!(counts_as_live(&during(7), freeze_start, Some(7)));
+        // …but another team's during-freeze submission is frozen.
+        assert!(!counts_as_live(&during(8), freeze_start, Some(7)));
+        // A pre-freeze submission is live for everyone.
+        let pre = StandingsSubmission {
+            elapsed_ms: 100 * 60_000,
+            ..during(8)
+        };
+        assert!(counts_as_live(&pre, freeze_start, Some(7)));
+        // Anonymous / organizer viewer: no self-exception.
+        assert!(!counts_as_live(&during(7), freeze_start, None));
     }
 }

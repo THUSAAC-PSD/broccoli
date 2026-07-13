@@ -15,8 +15,41 @@ interface IcpcScoreboardProps {
 
 const MEDAL_COLORS = ['#D4AF37', '#A8A8A8', '#CD7F32'] as const;
 
-function PhaseBar({ phase }: { phase: string }) {
+// Inline lucide "lock" glyph — a real vector icon (no emoji), no extra dep so the
+// plugin bundle stays self-contained.
+function LockIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+function PhaseBar({ phase, frozen }: { phase: string; frozen?: boolean }) {
   const { t } = useTranslation();
+  // While frozen, the freeze state replaces the phase (e.g. "Frozen" instead of
+  // "In progress"), since a frozen board is the salient status for the viewer.
+  if (frozen) {
+    return (
+      <div className="flex items-center gap-2 py-2 px-4 rounded-md text-[13px] font-medium bg-amber-500/10 text-amber-600">
+        <LockIcon />
+        {t('icpc.scoreboard.frozen')}
+      </div>
+    );
+  }
   return (
     <div
       className={cn(
@@ -101,6 +134,25 @@ function ProblemCellView({ cell }: { cell: ProblemCell | undefined }) {
     );
   }
 
+  // Pending: submissions during the freeze, verdict hidden. Two lines like the
+  // solved cell — "?" on top, then the pre-freeze wrong attempts and the frozen
+  // count below: "-3 (4)" (3 wrong before, 4 pending during), or "(4)" if none.
+  if (cell.pending && cell.pending > 0) {
+    return (
+      <td className="py-1.5 px-2 text-center border-b border-border bg-amber-500/10">
+        <div className="font-mono text-[13px] font-bold text-amber-600 leading-tight">
+          ?
+        </div>
+        <div className="font-mono text-[10px] text-muted-foreground leading-tight">
+          {cell.attempts > 0 && (
+            <span className="text-red-600">-{cell.attempts} </span>
+          )}
+          ({cell.pending})
+        </div>
+      </td>
+    );
+  }
+
   // Attempted but unsolved
   return (
     <td className="py-1.5 px-2 text-center border-b border-border bg-red-500/8">
@@ -117,20 +169,45 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
   const { t } = useTranslation();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
 
   const {
     data: standings,
     isLoading,
     isError,
     dataUpdatedAt,
+    refetch,
   } = useQuery<StandingsResponse>({
     queryKey: ['icpc-standings', contestId],
     enabled: !!contestId && isIcpc,
     queryFn: () => api.getStandings(contestId!),
     retry: 2,
-    refetchInterval: (query: { state: { data?: StandingsResponse } }) =>
-      autoRefresh && query.state.data?.phase === 'during' ? 30000 : false,
+    refetchInterval: (query: { state: { data?: StandingsResponse } }) => {
+      const d = query.state.data;
+      // Poll during the contest, and also while a frozen board is awaiting reveal
+      // (the 'after' phase) so the reveal reaches viewers who leave the tab open.
+      const live = d?.phase === 'during' || (!!d?.frozen && !d?.revealed);
+      return autoRefresh && live ? 30000 : false;
+    },
   });
+
+  const handleReveal = async () => {
+    if (!contestId) return;
+    // Reveal is final and cannot be undone from the UI — confirm first.
+    if (!window.confirm(t('icpc.scoreboard.revealConfirm'))) return;
+    setRevealing(true);
+    setRevealError(null);
+    try {
+      await api.reveal(contestId);
+      await refetch();
+    } catch (e) {
+      // Surface the failure — do NOT let the organizer believe it succeeded.
+      setRevealError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRevealing(false);
+    }
+  };
 
   const hasData = dataUpdatedAt > 0;
   useEffect(() => {
@@ -157,7 +234,7 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
     );
   }
 
-  const { phase, problem_labels, rows } = standings;
+  const { phase, frozen, can_reveal, problem_labels, rows } = standings;
 
   const secondsAgo =
     dataUpdatedAt > 0 ? Math.floor((now - dataUpdatedAt) / 1000) : 0;
@@ -165,8 +242,25 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <PhaseBar phase={phase} />
+        <PhaseBar phase={phase} frozen={frozen} />
         <div className="flex items-center gap-3">
+          {revealError && (
+            <span className="text-[11px] text-red-600" title={revealError}>
+              {t('icpc.scoreboard.revealFailed')}
+            </span>
+          )}
+          {can_reveal && (
+            <button
+              type="button"
+              onClick={handleReveal}
+              disabled={revealing}
+              className="rounded-md bg-amber-500 px-3 py-1 text-[12px] font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+            >
+              {revealing
+                ? t('icpc.scoreboard.revealing')
+                : t('icpc.scoreboard.reveal')}
+            </button>
+          )}
           {dataUpdatedAt > 0 && (
             <span className="text-[11px] opacity-50">
               {t('icpc.scoreboard.lastUpdated', { seconds: secondsAgo })}

@@ -16,11 +16,20 @@ pub fn persist_and_track(
         .filter(|o| !o.verdict.is_skipped_or_cancelled())
         .collect();
 
-    let verdict = non_skipped
-        .iter()
-        .map(|o| o.verdict.clone())
-        .max_by_key(|v| v.severity())
-        .unwrap_or(Verdict::Accepted);
+    let verdict = if non_skipped.is_empty() {
+        // No test case produced a real outcome: every case was skipped or
+        // cancelled (e.g. a host-side cancellation, or a worker restart before
+        // any case was judged). The submission was never actually evaluated, so
+        // it must NOT be finalized as Accepted/solved. Emit SystemError so the
+        // dispatcher retries or surfaces it, never a silent AC on the scoreboard.
+        Verdict::SystemError
+    } else {
+        non_skipped
+            .iter()
+            .map(|o| o.verdict.clone())
+            .max_by_key(|v| v.severity())
+            .unwrap_or(Verdict::SystemError)
+    };
 
     let max_time = non_skipped.iter().filter_map(|o| o.time_used).max();
     let max_memory = non_skipped.iter().filter_map(|o| o.memory_used).max();
@@ -42,7 +51,13 @@ pub fn persist_and_track(
         None
     };
 
-    let score = if eval.is_accepted { 1.0 } else { 0.0 };
+    // Guard against an upstream `is_accepted` that is true despite no real
+    // outcome: a submission with only skipped/cancelled cases scores 0.
+    let score = if eval.is_accepted && !non_skipped.is_empty() {
+        1.0
+    } else {
+        0.0
+    };
 
     let affected = host.submission.update(&SubmissionUpdate {
         submission_id,
@@ -145,6 +160,23 @@ mod tests {
         let update = host.submission.last_update();
         assert_eq!(update.status, Some(SubmissionStatus::CompilationError));
         assert_eq!(update.verdict, Some(None));
+        assert_eq!(update.score, Some(0.0));
+    }
+
+    #[test]
+    fn only_cancelled_or_skipped_is_system_error_not_accepted() {
+        let host = Host::mock();
+        // A submission whose every outcome was cancelled/skipped (host-side
+        // cancellation, worker restart) was never actually judged. Even if the
+        // upstream evaluator mislabels it accepted, it must not become a solve.
+        let eval = eval_result(vec![(1, Verdict::Cancelled), (2, Verdict::Skipped)], false, true);
+
+        let out =
+            persist_and_track(&host, SUBMISSION_ID, JUDGEMENT_ID, JUDGE_EPOCH, &eval).unwrap();
+
+        assert!(out.success);
+        let update = host.submission.last_update();
+        assert_eq!(update.verdict, Some(Some(Verdict::SystemError)));
         assert_eq!(update.score, Some(0.0));
     }
 }

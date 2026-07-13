@@ -47,6 +47,12 @@ export function useIcpcApi() {
         fetchJson<StandingsResponse>(
           `${PLUGIN_BASE}/contests/${contestId}/standings`,
         ),
+
+      reveal: (contestId: number) =>
+        fetchJson<{ revealed: boolean }>(
+          `${PLUGIN_BASE}/contests/${contestId}/reveal`,
+          { method: 'POST' },
+        ),
     }),
     [fetchJson],
   );
