@@ -111,7 +111,13 @@ impl Default for RunOptions {
             stdin: None,
             stdout: None,
             stderr: None,
-            env_rules: vec![EnvRule::FullEnv],
+            // Default to NO inherited environment. The worker translates an empty
+            // env_rules list into a minimal, secret-free environment (a fixed
+            // PATH). Inheriting the worker's full environment by default would
+            // leak DB/Redis/S3 credentials and the JWT secret into every sandboxed
+            // process (contestant code, checkers, comparators). A step that
+            // genuinely needs a variable must request it explicitly.
+            env_rules: vec![],
             directory_rules: vec![],
         }
     }
@@ -135,6 +141,19 @@ pub enum StepKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum MountSource {
+    StepOutput { from_step: String, file: String },
+    PlatformTool { name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MountSpec {
+    pub inside_path: String,
+    pub source: MountSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
     pub id: String,
     #[serde(default)]
@@ -148,6 +167,8 @@ pub struct Step {
     pub depends_on: Vec<String>,
     #[serde(default)]
     pub cache: Option<StepCacheConfig>,
+    #[serde(default)]
+    pub mounts: Vec<MountSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -453,5 +474,114 @@ mod tests {
     fn step_kind_uses_snake_case_wire_values() {
         let value = serde_json::to_value(StepKind::CheckerCompile).unwrap();
         assert_eq!(value, serde_json::json!("checker_compile"));
+    }
+
+    #[test]
+    fn mount_source_step_output_round_trips_with_tag() {
+        let source = MountSource::StepOutput {
+            from_step: "compile".to_string(),
+            file: "checker".to_string(),
+        };
+
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["source"], "step_output");
+        assert_eq!(json["from_step"], "compile");
+        assert_eq!(json["file"], "checker");
+
+        let back: MountSource = serde_json::from_value(json).unwrap();
+        match back {
+            MountSource::StepOutput { from_step, file } => {
+                assert_eq!(from_step, "compile");
+                assert_eq!(file, "checker");
+            }
+            _ => panic!("expected step_output variant"),
+        }
+    }
+
+    #[test]
+    fn mount_source_platform_tool_round_trips_with_tag() {
+        let source = MountSource::PlatformTool {
+            name: "testlib".to_string(),
+        };
+
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["source"], "platform_tool");
+        assert_eq!(json["name"], "testlib");
+
+        let back: MountSource = serde_json::from_value(json).unwrap();
+        match back {
+            MountSource::PlatformTool { name } => assert_eq!(name, "testlib"),
+            _ => panic!("expected platform_tool variant"),
+        }
+    }
+
+    #[test]
+    fn mount_spec_round_trips() {
+        let spec = MountSpec {
+            inside_path: "/sandbox/checker".to_string(),
+            source: MountSource::StepOutput {
+                from_step: "checker_compile".to_string(),
+                file: "checker.bin".to_string(),
+            },
+        };
+
+        let json = serde_json::to_value(&spec).unwrap();
+        assert_eq!(json["inside_path"], "/sandbox/checker");
+        assert_eq!(json["source"]["source"], "step_output");
+
+        let back: MountSpec = serde_json::from_value(json).unwrap();
+        assert_eq!(back.inside_path, "/sandbox/checker");
+        match back.source {
+            MountSource::StepOutput { from_step, file } => {
+                assert_eq!(from_step, "checker_compile");
+                assert_eq!(file, "checker.bin");
+            }
+            _ => panic!("expected step_output variant"),
+        }
+    }
+
+    #[test]
+    fn step_round_trips_with_mounts() {
+        let step = Step {
+            id: "checker".to_string(),
+            kind: StepKind::Checker,
+            env_ref: "sandbox".to_string(),
+            argv: vec!["checker".to_string()],
+            conf: RunOptions::default(),
+            io: IOConfig::default(),
+            collect: vec![],
+            depends_on: vec![],
+            cache: None,
+            mounts: vec![MountSpec {
+                inside_path: "/tool".to_string(),
+                source: MountSource::PlatformTool {
+                    name: "testlib".to_string(),
+                },
+            }],
+        };
+
+        let json = serde_json::to_value(&step).unwrap();
+        let back: Step = serde_json::from_value(json).unwrap();
+        assert_eq!(back.mounts.len(), 1);
+        assert_eq!(back.mounts[0].inside_path, "/tool");
+    }
+
+    #[test]
+    fn step_mounts_defaults_to_empty_for_legacy_payloads() {
+        let step: Step = serde_json::from_value(serde_json::json!({
+            "id": "legacy",
+            "env_ref": "sandbox",
+            "argv": ["echo", "ok"],
+            "conf": {},
+            "io": {
+                "stdin": {"type": "null"},
+                "stdout": {"type": "null"},
+                "stderr": {"type": "null"}
+            },
+            "collect": []
+        }))
+        .unwrap();
+
+        assert!(step.mounts.is_empty());
     }
 }

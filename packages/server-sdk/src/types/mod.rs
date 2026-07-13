@@ -10,7 +10,10 @@ mod query;
 mod submission;
 mod verdict;
 
-pub use checker::{CheckerParseInput, CheckerVerdict, RunCheckerInput};
+pub use checker::{
+    CheckerParseInput, CheckerSmallResult, CheckerStage, CheckerVerdict, InterpretCheckerInput,
+    OutputMode, ResolveCheckerInput,
+};
 pub use code_run::{OnCodeRunInput, OnCodeRunOutput};
 pub use config::{CascadeLevel, CascadeLevels, ConfigResult, ConfigSource, EffectiveConfig};
 pub use evaluate::{
@@ -30,9 +33,9 @@ pub use operation::{
     Channel, DEFAULT_OPERATION_RESULT_TIMEOUT_MS, DetachedOperationCallbackAction,
     DetachedOperationCallbackEvent, DetachedOperationCallbackInput,
     DetachedOperationCallbackOutput, DetachedOperationSession, DirectoryOptions, DirectoryRule,
-    EnvRule, Environment, ExecutionResult, IOConfig, IOTarget, OperationResult, OperationTask,
-    ResourceLimits, RunOptions, SandboxResult, SessionFile, StartDetachedWindowedOperationInput,
-    Step, StepCacheConfig, StepKind, TaskExecutionResult,
+    EnvRule, Environment, ExecutionResult, IOConfig, IOTarget, MountSource, MountSpec,
+    OperationResult, OperationTask, ResourceLimits, RunOptions, SandboxResult, SessionFile,
+    StartDetachedWindowedOperationInput, Step, StepCacheConfig, StepKind, TaskExecutionResult,
 };
 pub use persistence::{
     CodeRunResultRow, CodeRunUpdate, SubmissionStatus, SubmissionUpdate, TestCaseResultRow,

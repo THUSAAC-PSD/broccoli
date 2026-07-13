@@ -252,6 +252,7 @@ mod timeout_tests {
             time_limit_ms: 1000,
             memory_limit_kb: 262_144,
             contest_id: None,
+            evaluate_batch_id: None,
             test_input: JudgeFile::inline("1 2\n"),
             expected_output: JudgeFile::blob(FileRef {
                 filename: "answer.txt".to_string(),
@@ -315,6 +316,16 @@ pub struct BuildEvalOpsInput {
     pub memory_limit_kb: i32,
     #[serde(default)]
     pub contest_id: Option<i32>,
+
+    /// Server-assigned evaluate-batch id, stamped by the host in `resolve_inputs`.
+    /// Self-dispatching evaluators (e.g. communication) copy this — together with
+    /// `test_case_id` — onto each `OperationTask` they build so the host's
+    /// `record_ops` registers the op→batch mapping; without it the result wait
+    /// can't extend past the decoupled outer timeout and judging reports
+    /// EVALUATION_TIMEOUT. Absent for the batch-evaluator callback path (the host
+    /// tags those ops itself), so it stays optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluate_batch_id: Option<String>,
 
     #[serde(default)]
     pub test_input: JudgeFile,

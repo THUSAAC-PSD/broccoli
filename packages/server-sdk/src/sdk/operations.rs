@@ -311,6 +311,7 @@ mod tests {
                 collect: vec![],
                 depends_on: vec![],
                 cache: None,
+                mounts: vec![],
             }],
             channels: vec![],
             priority: None,
