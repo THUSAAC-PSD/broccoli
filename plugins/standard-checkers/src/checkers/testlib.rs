@@ -48,10 +48,47 @@ impl Default for TestlibConfig {
             },
             compile_time_limit_s: 10.0,
             compile_memory_limit_kb: 512 * 1024,
-            run_time_limit_s: 5.0,
-            run_memory_limit_kb: 256 * 1024,
+            // Checkers process BOTH the solution output and the answer, so their
+            // working set scales with output size. Give them far more headroom than
+            // a solution: a stingy limit kills the checker on large-output problems
+            // (-> opaque SystemError), not the contestant's code.
+            // Fallback only: the EFFECTIVE limits come from plugin.toml's
+            // [config.testlib] schema defaults (get_global("testlib")). Keep these
+            // in sync with plugin.toml. A checker reads BOTH the output and the
+            // answer, so its working set scales with output size -- 256 MB was too
+            // small and OOM-killed the checker on large-output problems.
+            run_time_limit_s: 20.0,
+            run_memory_limit_kb: 1024 * 1024, // 1 GiB (match plugin.toml)
         }
     }
+}
+
+/// True for a C/C++ compile unit — the only files that belong on the compiler
+/// command line. Everything else in a checker bundle (headers like testlib.h,
+/// and any auxiliary data files) is mounted for `#include`/runtime use but never
+/// compiled.
+pub fn is_checker_source(filename: &str) -> bool {
+    let f = filename.to_ascii_lowercase();
+    f.ends_with(".cpp") || f.ends_with(".cc") || f.ends_with(".cxx") || f.ends_with(".c")
+}
+
+/// Split a checker bundle into compile units (`.c`/`.cpp`/`.cc`/`.cxx`) and
+/// everything else (headers, data files), preserving order. The first compile
+/// unit is the primary (drives language detection and the compile command); all
+/// compile units are compiled and linked; non-sources are excluded from the
+/// command line but stay mounted in the checker env (e.g. so `#include
+/// "testlib.h"` resolves). Errors if there is no compilable source.
+pub fn partition_checker_sources(filenames: &[String]) -> Result<(Vec<String>, Vec<String>), String> {
+    let (sources, others): (Vec<String>, Vec<String>) =
+        filenames.iter().cloned().partition(|f| is_checker_source(f));
+    if sources.is_empty() {
+        return Err(format!(
+            "checker_source has no compilable .c/.cpp file (got: {}). \
+             Upload the checker's .cpp; bundle testlib.h alongside it as a header.",
+            others.join(", ")
+        ));
+    }
+    Ok((sources, others))
 }
 
 /// Map checker source file extension to a language ID for the resolver.
@@ -68,6 +105,27 @@ pub fn checker_language_id(primary_filename: &str) -> Result<&str, String> {
             "Unsupported checker source language for '{}'. Only C (.c) and C++ (.cpp/.cc/.cxx) are supported.",
             primary_filename
         ))
+    }
+}
+
+/// Fold every file of the checker bundle into the compile cache inputs. The
+/// language resolver only sees the compile units, so headers (testlib.h, custom
+/// helper .h) and auxiliary files consumed at compile time never reach
+/// `cache_inputs` on their own — and the worker's compile cache key hashes only
+/// argv + cache-input file contents. Without this, an author who fixes a bug in
+/// a bundled header without touching checker.cpp gets an unchanged cache key
+/// and every worker silently keeps judging with the STALE compiled checker.
+/// All bundle files are mounted in the checker env, so the worker can hash them.
+pub fn extend_cache_inputs_with_bundle(
+    resolved: &mut ResolveLanguageOutput,
+    bundle_filenames: &[String],
+) {
+    if let Some(compile) = resolved.compile.as_mut() {
+        for f in bundle_filenames {
+            if !compile.cache_inputs.contains(f) {
+                compile.cache_inputs.push(f.clone());
+            }
+        }
     }
 }
 
@@ -124,156 +182,69 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
     }
 }
 
-pub fn interpret_testlib_sandbox_result(result: &ExecutionResult) -> CheckerVerdict {
-    if let Some(exit_code) = result.exit_code {
-        return interpret_testlib_exit_code(exit_code, &result.stderr);
-    }
-
-    testlib_sandbox_failure("Checker", result)
-}
-
-fn testlib_sandbox_failure(label: &str, result: &ExecutionResult) -> CheckerVerdict {
-    let message = if result.cg_oom_killed {
-        format!(
-            "{label} exceeded memory limit{}",
-            result
-                .memory_used
-                .map(|m| format!(" ({m}KB)"))
-                .unwrap_or_default()
-        )
-    } else {
-        match result.status.as_str() {
-            "TO" => format!("{label} timed out"),
-            "SG" => result.signal.map_or_else(
-                || format!("{label} was terminated by a signal"),
-                |signal| format!("{label} was terminated by signal {signal}"),
-            ),
-            "UNKNOWN" => {
-                format!("{label} step did not run; dependency may have failed")
-            }
-            status if !status.is_empty() => {
-                let detail = result
-                    .message
-                    .trim()
-                    .to_string()
-                    .if_empty_then(|| result.stderr.trim().to_string());
-                if detail.is_empty() {
-                    format!("{label} failed with sandbox status {status}")
-                } else {
-                    format!("{label} failed with sandbox status {status}: {detail}")
-                }
-            }
-            _ => {
-                let detail = result
-                    .message
-                    .trim()
-                    .to_string()
-                    .if_empty_then(|| result.stderr.trim().to_string());
-                if detail.is_empty() {
-                    format!("{label} failed without an exit code")
-                } else {
-                    format!("{label} failed without an exit code: {detail}")
-                }
-            }
-        }
-    };
-
-    CheckerVerdict {
-        verdict: Verdict::SystemError,
-        score: 0.0,
-        message: Some(truncate(&message, 1024)),
-    }
-}
-
-trait EmptyStringExt {
-    fn if_empty_then(self, f: impl FnOnce() -> String) -> String;
-}
-
-impl EmptyStringExt for String {
-    fn if_empty_then(self, f: impl FnOnce() -> String) -> String {
-        if self.is_empty() { f() } else { self }
-    }
-}
-
-fn build_testlib_checker_operations(
-    checker_source: &[SourceFile],
-    test_input: &JudgeFile,
-    stdout: &JudgeFile,
-    expected_output: &JudgeFile,
+/// Build the cached `compile_checker` step for a testlib checker, or `None` when
+/// the language needs no compile. Shared by the legacy runner and the fused
+/// stage builder; `env_id` is the environment the step runs in.
+pub(crate) fn build_compile_checker_step(
     resolved: &ResolveLanguageOutput,
     config: &TestlibConfig,
-) -> Vec<OperationTask> {
-    let mut files_in = Vec::new();
-    for source in checker_source {
-        files_in.push((
-            source.filename.clone(),
-            SessionFile::Content {
-                content: source.content.clone(),
-            },
-        ));
-    }
-    files_in.push((
-        "input.txt".to_string(),
-        session_file_from_judge_file(test_input),
-    ));
-    files_in.push((
-        "output.txt".to_string(),
-        session_file_from_judge_file(stdout),
-    ));
-    files_in.push((
-        "answer.txt".to_string(),
-        session_file_from_judge_file(expected_output),
-    ));
+    env_id: &str,
+) -> Option<Step> {
+    let compile = resolved.compile.as_ref()?;
 
-    let mut steps = Vec::new();
+    let cache_outputs: Vec<String> = compile
+        .outputs
+        .iter()
+        .map(|o| match o {
+            OutputSpec::File(f) => f.clone(),
+            OutputSpec::Glob(g) => g.clone(),
+        })
+        .collect();
+    let mut collect = cache_outputs.clone();
+    collect.push("checker_compile.log".to_string());
+    collect.push("checker_compile_err.log".to_string());
 
-    if let Some(compile) = &resolved.compile {
-        let cache_outputs: Vec<String> = compile
-            .outputs
-            .iter()
-            .map(|o| match o {
-                OutputSpec::File(f) => f.clone(),
-                OutputSpec::Glob(g) => g.clone(),
-            })
-            .collect();
-        let mut collect = cache_outputs.clone();
-        collect.push("checker_compile.log".to_string());
-        collect.push("checker_compile_err.log".to_string());
-
-        steps.push(Step {
-            id: "compile_checker".to_string(),
-            kind: StepKind::CheckerCompile,
-            env_ref: "checker_sandbox".to_string(),
-            argv: compile.command.clone(),
-            conf: RunOptions {
-                resource_limits: ResourceLimits {
-                    time_limit: Some(config.compile_time_limit_s),
-                    memory_limit: Some(config.compile_memory_limit_kb),
-                    process_limit: Some(64),
-                    ..Default::default()
-                },
-                env_rules: vec![EnvRule::FullEnv],
+    Some(Step {
+        id: "compile_checker".to_string(),
+        kind: StepKind::CheckerCompile,
+        env_ref: env_id.to_string(),
+        argv: compile.command.clone(),
+        conf: RunOptions {
+            resource_limits: ResourceLimits {
+                time_limit: Some(config.compile_time_limit_s),
+                memory_limit: Some(config.compile_memory_limit_kb),
+                process_limit: Some(64),
                 ..Default::default()
             },
-            io: IOConfig {
-                stdin: IOTarget::Null,
-                stdout: IOTarget::File {
-                    path: "checker_compile.log".to_string(),
-                },
-                stderr: IOTarget::File {
-                    path: "checker_compile_err.log".to_string(),
-                },
+            // No inherited worker environment: the compiler is invoked by absolute
+            // path and finds its tools via the worker's minimal default PATH, so
+            // there is no reason to expose the worker's secrets to checker compiles.
+            env_rules: vec![],
+            ..Default::default()
+        },
+        io: IOConfig {
+            stdin: IOTarget::Null,
+            stdout: IOTarget::File {
+                path: "checker_compile.log".to_string(),
             },
-            collect,
-            depends_on: vec![],
-            cache: Some(StepCacheConfig {
-                key_inputs: compile.cache_inputs.clone(),
-                outputs: cache_outputs,
-            }),
-        });
-    }
+            stderr: IOTarget::File {
+                path: "checker_compile_err.log".to_string(),
+            },
+        },
+        collect,
+        depends_on: vec![],
+        cache: Some(StepCacheConfig {
+            key_inputs: compile.cache_inputs.clone(),
+            outputs: cache_outputs,
+        }),
+        mounts: vec![],
+    })
+}
 
-    let checker_binary = resolved
+/// The in-sandbox command to invoke the compiled testlib checker (e.g.
+/// `./checker`). Defaults to `./checker` when there is no compile output.
+pub(crate) fn testlib_checker_binary(resolved: &ResolveLanguageOutput) -> String {
+    resolved
         .compile
         .as_ref()
         .and_then(|c| c.outputs.first())
@@ -281,216 +252,57 @@ fn build_testlib_checker_operations(
             OutputSpec::File(f) => format!("./{f}"),
             OutputSpec::Glob(_) => "./checker".to_string(), // unreachable since it's always C/C++
         })
-        .unwrap_or_else(|| "./checker".to_string());
-
-    steps.push(Step {
-        id: "check".to_string(),
-        kind: StepKind::Checker,
-        env_ref: "checker_sandbox".to_string(),
-        argv: vec![
-            checker_binary,
-            "input.txt".to_string(),
-            "output.txt".to_string(),
-            "answer.txt".to_string(),
-        ],
-        conf: RunOptions {
-            resource_limits: ResourceLimits {
-                time_limit: Some(config.run_time_limit_s),
-                memory_limit: Some(config.run_memory_limit_kb),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        io: IOConfig {
-            stdin: IOTarget::Null,
-            stdout: IOTarget::File {
-                path: "checker_out.txt".to_string(),
-            },
-            stderr: IOTarget::File {
-                path: "checker_err.txt".to_string(),
-            },
-        },
-        collect: vec!["checker_out.txt".to_string(), "checker_err.txt".to_string()],
-        depends_on: if resolved.compile.is_some() {
-            vec!["compile_checker".to_string()]
-        } else {
-            vec![]
-        },
-        cache: None,
-    });
-
-    vec![OperationTask {
-        environments: vec![Environment {
-            id: "checker_sandbox".to_string(),
-            files_in,
-        }],
-        tasks: steps,
-        channels: vec![],
-        priority: None,
-        target_worker_id: None,
-        evaluate_batch_id: None,
-        test_case_id: None,
-    }]
+        .unwrap_or_else(|| "./checker".to_string())
 }
 
-/// Dispatch testlib checker.
+/// Resolve the testlib checker's compile/run spec + config by asking the
+/// language plugin to resolve its source language. Used by the fused resolver
+/// (`resolve_checker`) to build the checker stage.
 #[cfg(target_arch = "wasm32")]
-pub fn dispatch_testlib_checker(host: &Host, req: &CheckerParseInput) -> CheckerVerdict {
-    let checker_source = match req.checker_source.as_ref() {
-        Some(files) => files,
-        None => {
-            return CheckerVerdict {
-                verdict: Verdict::SystemError,
-                score: 0.0,
-                message: Some("Testlib checker requires checker_source in metadata".into()),
-            };
-        }
-    };
-
+pub(crate) fn resolve_testlib_compile(
+    host: &Host,
+    checker_source: &[SourceFile],
+) -> Result<(ResolveLanguageOutput, TestlibConfig), String> {
     if checker_source.is_empty() {
-        return CheckerVerdict {
-            verdict: Verdict::SystemError,
-            score: 0.0,
-            message: Some("checker_source is empty".into()),
-        };
+        return Err("checker_source is empty".to_string());
     }
 
     let filenames: Vec<String> = checker_source.iter().map(|f| f.filename.clone()).collect();
-    let primary_file = &filenames[0];
-
-    let lang_id = match checker_language_id(primary_file) {
-        Ok(id) => id,
-        Err(e) => {
-            return CheckerVerdict {
-                verdict: Verdict::SystemError,
-                score: 0.0,
-                message: Some(e),
-            };
-        }
-    };
-
+    // Compile only the source files; headers (testlib.h, ...) stay mounted in the
+    // checker env for #include but must not appear on the compile command line and
+    // must not drive language detection.
+    let (sources, _headers) = partition_checker_sources(&filenames)?;
+    let lang_id = checker_language_id(&sources[0])?;
     let config = load_testlib_config(host);
-
     let checker_compiler = match lang_id {
         "cpp" => &config.cpp,
         "c" => &config.c,
         _ => &config.cpp, // unreachable for testlib (always C/C++)
     };
 
-    let resolved = match host.language.resolve(&ResolveLanguageInput {
-        language_id: lang_id.to_string(),
-        submitted_files: filenames,
-        additional_files: vec![],
-        problem_id: None,
-        contest_id: None,
-        overrides: Some(serde_json::json!({
-            "compiler": checker_compiler.compiler,
-            "flags": checker_compiler.flags,
-        })),
-    }) {
-        Ok(r) => r,
-        Err(e) => {
-            return CheckerVerdict {
-                verdict: Verdict::SystemError,
-                score: 0.0,
-                message: Some(format!("Failed to resolve checker language: {e}")),
-            };
-        }
-    };
+    let mut resolved = host
+        .language
+        .resolve(&ResolveLanguageInput {
+            language_id: lang_id.to_string(),
+            submitted_files: sources,
+            additional_files: vec![],
+            problem_id: None,
+            contest_id: None,
+            overrides: Some(serde_json::json!({
+                "compiler": checker_compiler.compiler,
+                "flags": checker_compiler.flags,
+            })),
+        })
+        .map_err(|e| format!("Failed to resolve checker language: {e}"))?;
 
-    let operations = build_testlib_checker_operations(
-        checker_source,
-        &req.test_input,
-        &req.stdout,
-        &req.expected_output,
-        &resolved,
-        &config,
-    );
+    // The resolver derived cache_inputs from the compile units only. Headers and
+    // auxiliary files also shape the compiled binary (#include, data tables), so
+    // they MUST be part of the compile cache key or edits to them serve a stale
+    // checker. (They cannot go through additional_files: the language resolver
+    // would put them on the compiler command line.)
+    extend_cache_inputs_with_bundle(&mut resolved, &filenames);
 
-    let mut op_results = match host.operations.windowed(&operations).collect(30000) {
-        Ok(results) => results,
-        Err(e) => {
-            return CheckerVerdict {
-                verdict: Verdict::SystemError,
-                score: 0.0,
-                message: Some(format!("Failed to dispatch checker operation: {:?}", e)),
-            };
-        }
-    };
-
-    if op_results.len() != 1 {
-        return CheckerVerdict {
-            verdict: Verdict::SystemError,
-            score: 0.0,
-            message: Some(format!(
-                "Failed to get checker result: expected exactly one operation result, got {}",
-                op_results.len()
-            )),
-        };
-    }
-
-    let op_result = match op_results.pop() {
-        Some(r) => r,
-        None => {
-            return CheckerVerdict {
-                verdict: Verdict::SystemError,
-                score: 0.0,
-                message: Some("Failed to get checker result: no operation result".to_string()),
-            };
-        }
-    };
-
-    if !op_result.success && op_result.task_results.is_empty() {
-        return CheckerVerdict {
-            verdict: Verdict::SystemError,
-            score: 0.0,
-            message: op_result
-                .error
-                .or_else(|| Some("Checker operation failed".into())),
-        };
-    }
-
-    if let Some(cc_result) = op_result.task_results.get("compile_checker") {
-        if let Some(exit_code) = cc_result.sandbox_result.exit_code {
-            if exit_code != 0 {
-                let msg = if cc_result.sandbox_result.stderr.is_empty() {
-                    "Checker compilation failed".to_string()
-                } else {
-                    truncate(&cc_result.sandbox_result.stderr, 4096)
-                };
-                return CheckerVerdict {
-                    verdict: Verdict::SystemError,
-                    score: 0.0,
-                    message: Some(msg),
-                };
-            }
-        } else if !cc_result.success {
-            return testlib_sandbox_failure("Checker compilation", &cc_result.sandbox_result);
-        }
-    }
-
-    match op_result.task_results.get("check") {
-        Some(check_result) => interpret_testlib_sandbox_result(&check_result.sandbox_result),
-        None => CheckerVerdict {
-            verdict: Verdict::SystemError,
-            score: 0.0,
-            message: Some("Checker operation completed but no check result found".into()),
-        },
-    }
-}
-
-fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
-    match file {
-        JudgeFile::Blob { file } => SessionFile::Blob {
-            hash: file.blob_hash.clone(),
-        },
-        JudgeFile::Inline { text } => SessionFile::Content {
-            content: text.clone(),
-        },
-        JudgeFile::Missing => SessionFile::Content {
-            content: String::new(),
-        },
-    }
+    Ok((resolved, config))
 }
 
 fn extract_testlib_message(stderr: &str) -> Option<String> {
@@ -545,47 +357,6 @@ pub fn parse_testlib_partial(stderr: &str) -> (f64, Option<String>) {
 mod tests {
     use super::*;
 
-    fn sample_judge_file() -> JudgeFile {
-        JudgeFile::inline("sample\n")
-    }
-
-    #[test]
-    fn checker_operation_marks_compile_and_checker_step_kinds() {
-        let checker_source = vec![SourceFile {
-            filename: "checker.cpp".to_string(),
-            content: "int main() { return 0; }".to_string(),
-        }];
-        let resolved = ResolveLanguageOutput {
-            compile: Some(CompileSpec {
-                command: vec![
-                    "/usr/bin/g++".to_string(),
-                    "checker.cpp".to_string(),
-                    "-o".to_string(),
-                    "checker".to_string(),
-                ],
-                cache_inputs: vec!["checker.cpp".to_string()],
-                outputs: vec![OutputSpec::File("checker".to_string())],
-                resource_limits: None,
-            }),
-            run: RunSpec {
-                command: vec!["./checker".to_string()],
-                extra_files: vec![],
-            },
-        };
-
-        let operations = build_testlib_checker_operations(
-            &checker_source,
-            &sample_judge_file(),
-            &sample_judge_file(),
-            &sample_judge_file(),
-            &resolved,
-            &TestlibConfig::default(),
-        );
-
-        assert_eq!(operations[0].tasks[0].kind, StepKind::CheckerCompile);
-        assert_eq!(operations[0].tasks[1].kind, StepKind::Checker);
-    }
-
     #[test]
     fn exit_0_accepted() {
         let v = interpret_testlib_exit_code(0, "ok answer is correct\n");
@@ -613,40 +384,6 @@ mod tests {
         let v = interpret_testlib_exit_code(3, "FAIL checker bug\n");
         assert_eq!(v.verdict, Verdict::SystemError);
         assert_eq!(v.score, 0.0);
-    }
-
-    #[test]
-    fn checker_timeout_reports_sandbox_status_instead_of_negative_exit_code() {
-        let result = ExecutionResult {
-            exit_code: None,
-            status: "TO".to_string(),
-            message: "wall-time limit exceeded".to_string(),
-            ..Default::default()
-        };
-
-        let v = interpret_testlib_sandbox_result(&result);
-
-        assert_eq!(v.verdict, Verdict::SystemError);
-        assert_eq!(v.score, 0.0);
-        assert_eq!(v.message.unwrap(), "Checker timed out");
-    }
-
-    #[test]
-    fn skipped_checker_step_reports_dependency_failure_instead_of_negative_exit_code() {
-        let result = ExecutionResult {
-            exit_code: None,
-            status: "UNKNOWN".to_string(),
-            ..Default::default()
-        };
-
-        let v = interpret_testlib_sandbox_result(&result);
-
-        assert_eq!(v.verdict, Verdict::SystemError);
-        assert_eq!(v.score, 0.0);
-        assert_eq!(
-            v.message.unwrap(),
-            "Checker step did not run; dependency may have failed"
-        );
     }
 
     #[test]
@@ -680,5 +417,122 @@ mod tests {
     fn checker_language_id_unsupported() {
         let err = checker_language_id("checker.py").unwrap_err();
         assert!(err.contains("Unsupported"));
+    }
+
+    #[test]
+    fn is_checker_source_detects_compile_units() {
+        for s in ["checker.cpp", "checker.c", "checker.cc", "checker.CXX"] {
+            assert!(is_checker_source(s), "{s} is a compile unit");
+        }
+        for x in ["testlib.h", "foo.hpp", "bar.HH", "data.txt", "gen.py"] {
+            assert!(!is_checker_source(x), "{x} is not a compile unit");
+        }
+    }
+
+    #[test]
+    fn partition_skips_header_first_bundle() {
+        // Regression: author bundled testlib.h BEFORE checker.cpp, so the resolver
+        // picked filenames[0] = testlib.h and failed with "Unsupported checker
+        // source language for 'testlib.h'" -> SystemError. The primary must be the
+        // .cpp; the header stays mounted (not a compile unit).
+        let files = vec!["testlib.h".to_string(), "checker.cpp".to_string()];
+        let (sources, others) = partition_checker_sources(&files).unwrap();
+        assert_eq!(sources, vec!["checker.cpp".to_string()]);
+        assert_eq!(others, vec!["testlib.h".to_string()]);
+        assert_eq!(checker_language_id(&sources[0]).unwrap(), "cpp");
+    }
+
+    #[test]
+    fn partition_compiles_all_sources_mounts_the_rest() {
+        // Multiple .cpp are all compiled+linked; headers AND auxiliary files
+        // (e.g. a data table the checker reads) are mounted, never compiled.
+        let files = vec![
+            "a.cpp".to_string(),
+            "testlib.h".to_string(),
+            "b.cpp".to_string(),
+            "table.txt".to_string(),
+        ];
+        let (sources, others) = partition_checker_sources(&files).unwrap();
+        assert_eq!(sources, vec!["a.cpp".to_string(), "b.cpp".to_string()]);
+        assert_eq!(others, vec!["testlib.h".to_string(), "table.txt".to_string()]);
+    }
+
+    #[test]
+    fn partition_errors_when_no_source() {
+        let err = partition_checker_sources(&["testlib.h".to_string()]).unwrap_err();
+        assert!(err.contains("no compilable"), "got: {err}");
+    }
+
+    fn resolved_compile_with_inputs(cache_inputs: Vec<String>) -> ResolveLanguageOutput {
+        ResolveLanguageOutput {
+            compile: Some(CompileSpec {
+                command: vec![
+                    "/usr/bin/g++".to_string(),
+                    "checker.cpp".to_string(),
+                    "-o".to_string(),
+                    "checker".to_string(),
+                ],
+                cache_inputs,
+                outputs: vec![OutputSpec::File("checker".to_string())],
+                resource_limits: None,
+            }),
+            run: RunSpec {
+                command: vec!["./checker".to_string()],
+                extra_files: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn cache_inputs_cover_headers_and_aux_files() {
+        // Regression: the compile cache key hashed only the compile units, so
+        // fixing a bug in testlib.h or a bundled data table without touching
+        // checker.cpp kept the old key and served the STALE compiled checker.
+        let mut resolved = resolved_compile_with_inputs(vec!["checker.cpp".to_string()]);
+        let bundle = vec![
+            "checker.cpp".to_string(),
+            "testlib.h".to_string(),
+            "table.txt".to_string(),
+        ];
+        extend_cache_inputs_with_bundle(&mut resolved, &bundle);
+
+        let inputs = &resolved.compile.as_ref().unwrap().cache_inputs;
+        assert!(inputs.contains(&"checker.cpp".to_string()));
+        assert!(inputs.contains(&"testlib.h".to_string()), "header in key");
+        assert!(inputs.contains(&"table.txt".to_string()), "aux file in key");
+    }
+
+    #[test]
+    fn cache_inputs_extension_does_not_duplicate_sources() {
+        let mut resolved =
+            resolved_compile_with_inputs(vec!["a.cpp".to_string(), "b.cpp".to_string()]);
+        let bundle = vec![
+            "a.cpp".to_string(),
+            "b.cpp".to_string(),
+            "testlib.h".to_string(),
+        ];
+        extend_cache_inputs_with_bundle(&mut resolved, &bundle);
+
+        assert_eq!(
+            resolved.compile.as_ref().unwrap().cache_inputs,
+            vec![
+                "a.cpp".to_string(),
+                "b.cpp".to_string(),
+                "testlib.h".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn cache_inputs_extension_noop_without_compile() {
+        let mut resolved = ResolveLanguageOutput {
+            compile: None,
+            run: RunSpec {
+                command: vec!["./checker".to_string()],
+                extra_files: vec![],
+            },
+        };
+        extend_cache_inputs_with_bundle(&mut resolved, &["testlib.h".to_string()]);
+        assert!(resolved.compile.is_none());
     }
 }
