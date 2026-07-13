@@ -1,5 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 mod plugin {
+    use broccoli_server_sdk::error::SdkError;
     use broccoli_server_sdk::prelude::*;
     use broccoli_server_sdk::types::ConfigSource;
     use extism_pdk::{FnResult, plugin_fn};
@@ -14,6 +15,115 @@ mod plugin {
     #[derive(Deserialize)]
     struct SecondsSinceLast {
         seconds_since_last: Option<i64>,
+    }
+
+    /// Plugin-owned claim table backing the atomic cooldown gate.
+    ///
+    /// Reading `MAX(created_at) FROM submission` and then passing is a classic
+    /// check-then-insert TOCTOU: the server inserts the submission row only
+    /// AFTER this hook returns, so N parallel POSTs all see the old
+    /// `MAX(created_at)`, all pass, and the cooldown is bypassed entirely.
+    /// Instead, each pass must atomically claim the (user, problem, contest)
+    /// slot in a single statement (`INSERT .. ON CONFLICT DO UPDATE .. WHERE`)
+    /// so Postgres serializes concurrent claims on the row and exactly one
+    /// submission can win per cooldown window.
+    ///
+    /// `contest_id` uses 0 as the "no contest" sentinel (real contest ids start
+    /// at 1) so it can participate in the primary key; a nullable column would
+    /// make every standalone (user, problem) pair a distinct key under
+    /// Postgres' NULLs-are-distinct unique semantics.
+    const SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS cooldown_claim (\
+         user_id       INTEGER NOT NULL, \
+         problem_id    INTEGER NOT NULL, \
+         contest_id    INTEGER NOT NULL DEFAULT 0, \
+         last_claim_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), \
+         PRIMARY KEY (user_id, problem_id, contest_id))";
+
+    fn ensure_schema(host: &Host) -> Result<(), SdkError> {
+        host.db.execute(SCHEMA_SQL)?;
+        Ok(())
+    }
+
+    /// Idempotent schema bootstrap, invoked by the host on plugin load.
+    #[plugin_fn]
+    pub fn init() -> FnResult<String> {
+        let host = Host::new();
+        ensure_schema(&host)?;
+        Ok("ok".into())
+    }
+
+    /// Atomically claim the right to submit. Returns Ok(true) when the claim
+    /// wins (first submission ever, or the cooldown has fully elapsed) and the
+    /// slot's timestamp was advanced to NOW(); Ok(false) when the cooldown is
+    /// still active. Single statement, so concurrent claims cannot interleave:
+    /// `ON CONFLICT DO UPDATE` re-evaluates the `WHERE` against the row version
+    /// committed by a concurrent winner.
+    fn try_claim(
+        host: &Host,
+        user_id: i32,
+        problem_id: i32,
+        contest_key: i32,
+        cooldown: u32,
+    ) -> Result<bool, SdkError> {
+        let mut p = Params::new();
+        let sql = format!(
+            "INSERT INTO cooldown_claim (user_id, problem_id, contest_id, last_claim_at) \
+             VALUES ({}, {}, {}, NOW()) \
+             ON CONFLICT (user_id, problem_id, contest_id) DO UPDATE \
+             SET last_claim_at = NOW() \
+             WHERE cooldown_claim.last_claim_at <= NOW() - ({} * INTERVAL '1 second')",
+            p.bind(user_id),
+            p.bind(problem_id),
+            p.bind(contest_key),
+            p.bind(cooldown)
+        );
+        Ok(host.db.execute_with_args(&sql, &p.into_args())? > 0)
+    }
+
+    /// How long until the claimed slot frees up, for the rejection message.
+    /// Advisory only — the atomic claim is the authority.
+    fn remaining_from_claim(
+        host: &Host,
+        user_id: i32,
+        problem_id: i32,
+        contest_key: i32,
+        cooldown: u32,
+    ) -> Result<u64, SdkError> {
+        #[derive(Deserialize)]
+        struct RemainingRow {
+            remaining: Option<i64>,
+        }
+        let mut p = Params::new();
+        let sql = format!(
+            "SELECT CEIL(EXTRACT(EPOCH FROM \
+                (last_claim_at + ({} * INTERVAL '1 second') - NOW())))::bigint AS remaining \
+             FROM cooldown_claim \
+             WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
+            p.bind(cooldown),
+            p.bind(user_id),
+            p.bind(problem_id),
+            p.bind(contest_key)
+        );
+        Ok(host
+            .db
+            .query_one_with_args::<RemainingRow>(&sql, &p.into_args())?
+            .and_then(|r| r.remaining)
+            .map(|r| r.clamp(1, cooldown as i64) as u64)
+            .unwrap_or(1))
+    }
+
+    fn reject_response(remaining: u64, cooldown: u32) -> FnResult<String> {
+        let resp = serde_json::json!({
+            "action": "reject",
+            "code": "COOLDOWN_ACTIVE",
+            "message": format!("Please wait {} more second{}", remaining, if remaining == 1 { "" } else { "s" }),
+            "status_code": 429,
+            "details": {
+                "remaining_seconds": remaining,
+                "cooldown_seconds": cooldown,
+            }
+        });
+        Ok(serde_json::to_string(&resp)?)
     }
 
     #[plugin_fn]
@@ -70,27 +180,55 @@ mod plugin {
             .and_then(|r| r.seconds_since_last)
             .map(|s| s.max(0) as u64);
 
-        // First submission — no cooldown
-        if seconds_since_last.is_none() {
-            return Ok(serde_json::to_string(
-                &serde_json::json!({"action": "pass"}),
-            )?);
+        // Fast pre-reject against actual submissions: keeps accurate messages
+        // and honors history that predates the claim table. Advisory only —
+        // passing here is NOT sufficient, since concurrent requests all pass
+        // this read before any of their inserts commit.
+        if let Some(elapsed) = seconds_since_last {
+            if elapsed < cooldown as u64 {
+                return reject_response(cooldown as u64 - elapsed, cooldown);
+            }
         }
 
-        let elapsed = seconds_since_last.unwrap();
-        if elapsed < cooldown as u64 {
-            let remaining = cooldown as u64 - elapsed;
-            let resp = serde_json::json!({
-                "action": "reject",
-                "code": "COOLDOWN_ACTIVE",
-                "message": format!("Please wait {} more second{}", remaining, if remaining == 1 { "" } else { "s" }),
-                "status_code": 429,
-                "details": {
-                    "remaining_seconds": remaining,
-                    "cooldown_seconds": cooldown,
-                }
-            });
-            return Ok(serde_json::to_string(&resp)?);
+        // Authoritative gate: atomically claim the (user, problem, contest)
+        // slot. Exactly one of N concurrent submissions can win the claim per
+        // cooldown window; a "first submission" must claim too, or N parallel
+        // first submissions would all pass. Retry once after an idempotent
+        // schema bootstrap so a failed/missed init() cannot wedge submissions.
+        let contest_key = event.contest_id.unwrap_or(0);
+        let claimed = match try_claim(
+            &host,
+            event.user_id,
+            event.problem_id,
+            contest_key,
+            cooldown,
+        ) {
+            Ok(claimed) => claimed,
+            Err(e) => {
+                let _ = host.log.info(&format!(
+                    "[cooldown] claim failed ({e}), re-ensuring schema and retrying"
+                ));
+                ensure_schema(&host)?;
+                try_claim(
+                    &host,
+                    event.user_id,
+                    event.problem_id,
+                    contest_key,
+                    cooldown,
+                )?
+            }
+        };
+
+        if !claimed {
+            let remaining = remaining_from_claim(
+                &host,
+                event.user_id,
+                event.problem_id,
+                contest_key,
+                cooldown,
+            )
+            .unwrap_or(1);
+            return reject_response(remaining, cooldown);
         }
 
         Ok(serde_json::to_string(
@@ -118,6 +256,40 @@ mod plugin {
     #[plugin_fn]
     pub fn get_cooldown_status_standalone(input: String) -> FnResult<String> {
         run_api_handler(&input, handle_cooldown_status)
+    }
+
+    /// Seconds since the last cooldown-relevant event: the newer of the last
+    /// actual submission and the last successful claim for this
+    /// (user, problem, contest) slot.
+    fn query_status_elapsed(
+        host: &Host,
+        user_id: i32,
+        problem_id: i32,
+        contest_id: Option<i32>,
+    ) -> Result<Option<i64>, SdkError> {
+        let mut p = Params::new();
+        let contest_filter = match contest_id {
+            Some(cid) => format!("AND contest_id = {}", p.bind(cid)),
+            None => "AND contest_id IS NULL".to_string(),
+        };
+        let sql = format!(
+            "SELECT EXTRACT(EPOCH FROM (NOW() - GREATEST( \
+                (SELECT MAX(created_at) FROM submission \
+                 WHERE user_id = {} AND problem_id = {} {}), \
+                (SELECT MAX(last_claim_at) FROM cooldown_claim \
+                 WHERE user_id = {} AND problem_id = {} AND contest_id = {}) \
+             )))::int as seconds_since_last",
+            p.bind(user_id),
+            p.bind(problem_id),
+            contest_filter,
+            p.bind(user_id),
+            p.bind(problem_id),
+            p.bind(contest_id.unwrap_or(0))
+        );
+        Ok(host
+            .db
+            .query_one_with_args::<SecondsSinceLast>(&sql, &p.into_args())?
+            .and_then(|r| r.seconds_since_last))
     }
 
     fn handle_cooldown_status(
@@ -157,23 +329,19 @@ mod plugin {
         let config: CooldownConfig = eff.parse_config().unwrap_or_default();
         let cooldown = config.cooldown_seconds.unwrap_or(0);
 
-        let mut p = Params::new();
-        let contest_filter = match contest_id {
-            Some(cid) => format!("AND contest_id = {}", p.bind(cid)),
-            None => "AND contest_id IS NULL".to_string(),
+        // Mirror the gate in check_cooldown: the clock runs from the newer of
+        // the last actual submission and the last successful claim (GREATEST
+        // ignores NULLs), so the status shown to the contestant cannot claim
+        // "can submit" while the atomic gate would still reject.
+        let seconds_since_last = match query_status_elapsed(host, user_id, problem_id, contest_id) {
+            Ok(v) => v,
+            Err(_) => {
+                // Likely a missing claim table (failed/missed init); bootstrap
+                // is idempotent, then retry once.
+                ensure_schema(host)?;
+                query_status_elapsed(host, user_id, problem_id, contest_id)?
+            }
         };
-        let sql = format!(
-            "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
-             FROM submission \
-             WHERE user_id = {} AND problem_id = {} {}",
-            p.bind(user_id),
-            p.bind(problem_id),
-            contest_filter
-        );
-        let seconds_since_last = host
-            .db
-            .query_one_with_args::<SecondsSinceLast>(&sql, &p.into_args())?
-            .and_then(|r| r.seconds_since_last);
 
         let can_submit = if cooldown == 0 {
             true
