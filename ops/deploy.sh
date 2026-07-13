@@ -25,6 +25,33 @@ ssh() { command ssh -F "${SSH_CFG}" "$@"; }
 scp() { command scp -F "${SSH_CFG}" "$@"; }
 
 log() { printf "\033[1;36m[%s]\033[0m %s\n" "$(date -u +%H:%M:%S)" "$*"; }
+err() { printf "\033[1;31m[%s]\033[0m %s\n" "$(date -u +%H:%M:%S)" "$*" >&2; }
+
+# --- background-job failure tracking -------------------------------
+# A bare `wait` always returns 0, so `set -e` never sees a failed
+# scp/ssh/rsync/docker inside a backgrounded subshell. Every parallel
+# phase must call `track <label>` right after `( ... ) &` and finish
+# with `wait_jobs "<phase>"`, which waits on each PID individually and
+# aborts the run with a per-host FAILED summary if anything broke.
+_JOB_PIDS=()
+_JOB_LABELS=()
+
+track() { _JOB_PIDS+=("$!"); _JOB_LABELS+=("$1"); }
+
+wait_jobs() {
+  local desc="$1" failed=() i
+  for i in "${!_JOB_PIDS[@]}"; do
+    if ! wait "${_JOB_PIDS[$i]}"; then
+      failed+=("${_JOB_LABELS[$i]}")
+    fi
+  done
+  _JOB_PIDS=()
+  _JOB_LABELS=()
+  if ((${#failed[@]} > 0)); then
+    err "${desc}: FAILED on ${failed[*]} (see logs in ${LOGS}); aborting"
+    return 1
+  fi
+}
 
 # ============================================================
 # Phase 0: Open sshd:443 on every host so SSH stays resilient.
@@ -47,8 +74,9 @@ phase_resilient_ssh() {
         echo "sshd-443-ok"
       ' >"${LOGS}/${h}-sshd443.log" 2>&1
     ) &
+    track "$h"
   done
-  wait
+  wait_jobs "Phase 0 (sshd:443)"
 }
 
 # ============================================================
@@ -66,6 +94,7 @@ phase_images() {
       scp -q "${BUNDLE}/images/server.tar.gz" "${h}:/root/server.tar.gz"
       ssh "$h" 'docker load -i /root/server.tar.gz'
     ) &
+    track "$h"
   done
   # worker-1, worker-2 need worker-icpc.tar.gz
   for h in broccoli-worker-1 broccoli-worker-2; do
@@ -74,8 +103,9 @@ phase_images() {
       scp -q "${BUNDLE}/images/worker-icpc.tar.gz" "${h}:/root/worker-icpc.tar.gz"
       ssh "$h" 'docker load -i /root/worker-icpc.tar.gz'
     ) &
+    track "$h"
   done
-  wait
+  wait_jobs "Phase 1 (image distribution)"
 }
 
 # ============================================================
@@ -104,6 +134,7 @@ phase_configs() {
       rsync -az -e "ssh -F ${SSH_CFG}" "${DEPLOY}/${d}/" "$h:/opt/broccoli/${d}/"
       scp -q "${SECRETS}" "$h:/opt/broccoli/${d}/.env"
     ) &
+    track "${h}:${d}"
   done
   # Promtail on every host (including gateway/loadgen)
   for h in broccoli-gateway broccoli-loadgen broccoli-observability \
@@ -113,6 +144,7 @@ phase_configs() {
       ssh "$h" 'mkdir -p /opt/broccoli/promtail'
       rsync -az -e "ssh -F ${SSH_CFG}" "${DEPLOY}/promtail/" "$h:/opt/broccoli/promtail/"
     ) &
+    track "${h}:promtail"
   done
   # Plugins on api-* and worker-*
   for h in broccoli-api-1 broccoli-api-2 broccoli-worker-1 broccoli-worker-2; do
@@ -126,8 +158,9 @@ phase_configs() {
       ssh "$h" "mkdir -p /opt/broccoli/${target_dir}/plugins"
       rsync -az -e "ssh -F ${SSH_CFG}" "${BUNDLE}/plugins/" "$h:/opt/broccoli/${target_dir}/plugins/"
     ) &
+    track "${h}:plugins"
   done
-  wait
+  wait_jobs "Phase 2 (configs)"
 }
 
 # ============================================================
@@ -148,8 +181,9 @@ phase_infra() {
       ssh "$h" "cd /opt/broccoli/${d} && docker compose --env-file .env up -d" \
         >"${LOGS}/${h}-up.log" 2>&1
     ) &
+    track "$h"
   done
-  wait
+  wait_jobs "Phase 3 (infra up)"
 
   # Wait for healthy
   log "  waiting for infra healthchecks..."
@@ -192,8 +226,9 @@ phase_servers() {
         BROCCOLI_SERVER_ID=${server_id} docker compose --env-file .env up -d" \
         >"${LOGS}/${h}-up.log" 2>&1
     ) &
+    track "$h"
   done
-  wait
+  wait_jobs "Phase 5 (servers)"
 }
 
 # ============================================================
@@ -209,8 +244,9 @@ phase_workers() {
         BROCCOLI_WORKER_ID=${worker_id} docker compose --env-file .env up -d" \
         >"${LOGS}/${h}-up.log" 2>&1
     ) &
+    track "$h"
   done
-  wait
+  wait_jobs "Phase 6 (workers)"
 }
 
 # ============================================================
@@ -235,8 +271,9 @@ phase_promtail() {
       ssh "$h" "cd /opt/broccoli/promtail && docker compose up -d" \
         >"${LOGS}/${h}-promtail.log" 2>&1
     ) &
+    track "$h"
   done
-  wait
+  wait_jobs "Phase 8 (promtail)"
 }
 
 # ============================================================

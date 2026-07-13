@@ -38,15 +38,31 @@ EOF
 
 # ---------- Loki log dump ----------
 log "Loki: dump last 6h of WARN/ERROR logs"
-for stream in broccoli-server broccoli-worker postgres redis seaweed; do
-  ssh -F "${SSH_CFG}" broccoli-observability \
+# Promtail sets the `service` label from the docker-compose service name
+# (ops/deploy/promtail/promtail.yaml), so these MUST match the service keys in
+# ops/deploy/{server,worker,postgres,redis,storage}/docker-compose.yaml.
+LOKI_EMPTY=()
+for stream in server worker db redis seaweedfs; do
+  dst="${OUT}/loki/${stream}-warn-error.json"
+  if ! ssh -F "${SSH_CFG}" broccoli-observability \
     "curl -sS -G 'http://${OBS_PRIV}:3100/loki/api/v1/query_range' \
       --data-urlencode 'query={service=\"${stream}\"} |~ \"(?i)(error|warn|fail|timeout|panic|denied)\"' \
       --data-urlencode 'start='\$(date -d '6 hours ago' +%s%N) \
       --data-urlencode 'end='\$(date +%s%N) \
       --data-urlencode 'limit=5000'" \
-    > "${OUT}/loki/${stream}-warn-error.json" 2>/dev/null || true
+    > "${dst}" 2>/dev/null; then
+    log "  WARNING: Loki query for service=\"${stream}\" failed"
+    LOKI_EMPTY+=("${stream}")
+    continue
+  fi
+  if [[ "$(jq '.data.result | length' "${dst}" 2>/dev/null || echo 0)" == "0" ]]; then
+    log "  WARNING: Loki returned ZERO streams for service=\"${stream}\" (label mismatch or no matching logs)"
+    LOKI_EMPTY+=("${stream}")
+  fi
 done
+if (( ${#LOKI_EMPTY[@]} > 0 )); then
+  log "WARNING: empty/failed Loki dumps for: ${LOKI_EMPTY[*]} - verify the \`service\` label values against the compose files BEFORE tearing the cluster down"
+fi
 
 # ---------- Jaeger slow trace sampling ----------
 log "Jaeger: pull 100 slowest broccoli-server / worker traces"

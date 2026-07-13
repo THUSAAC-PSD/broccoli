@@ -22,6 +22,22 @@ ssh() { command ssh -F "${SSH_CFG}" -o ServerAliveInterval=30 "$@"; }
 scp() { command scp -F "${SSH_CFG}" -o ServerAliveInterval=30 "$@"; }
 log() { printf "\033[1;36m[%s]\033[0m %s\n" "$(date -u +%H:%M:%S)" "$*"; }
 
+# Wait on each background PID individually and fail if any child failed.
+# A bare `wait` always returns 0 and `set -e` does not apply to background
+# jobs, so parallel phases must funnel their PIDs through this helper.
+wait_all() {
+  local rc=0 pid
+  for pid in "$@"; do
+    if ! wait "${pid}"; then
+      rc=1
+    fi
+  done
+  if [ "${rc}" -ne 0 ]; then
+    log "ERROR: a parallel job failed; aborting"
+    return 1
+  fi
+}
+
 GATEWAY_PUB="206.189.84.60"   # new run-2 gateway public IP
 
 # Private IP last-octet by host name — never actually consulted at run time
@@ -65,18 +81,27 @@ push_simple() {
   ssh -i ${KEY} -o StrictHostKeyChecking=no "root@${remote}" "docker load -i /root/${img} >/dev/null"
 }
 
-( push_server 10.104.0.20 ) &
-( push_server 10.104.0.21 ) &
-( push_worker 10.104.0.22 ) &
-( push_worker 10.104.0.23 ) &
+pids=()
+( push_server 10.104.0.20 ) & pids+=($!)
+( push_server 10.104.0.21 ) & pids+=($!)
+( push_worker 10.104.0.22 ) & pids+=($!)
+( push_worker 10.104.0.23 ) & pids+=($!)
 
 # Support images (one per relevant host).
-( push_simple postgres.tar.gz  10.104.0.17 ) &
-( push_simple redis.tar.gz     10.104.0.18 ) &
-( push_simple seaweedfs.tar.gz 10.104.0.19 ) &
-( push_simple caddy.tar.gz     10.104.0.14 ) &
+( push_simple postgres.tar.gz  10.104.0.17 ) & pids+=($!)
+( push_simple redis.tar.gz     10.104.0.18 ) & pids+=($!)
+( push_simple seaweedfs.tar.gz 10.104.0.19 ) & pids+=($!)
+( push_simple caddy.tar.gz     10.104.0.14 ) & pids+=($!)
 
-wait
+# A bare `wait` returns 0 even if children failed; check each one.
+rc=0
+for pid in "${pids[@]}"; do
+  wait "${pid}" || rc=1
+done
+if [ "${rc}" -ne 0 ]; then
+  echo "ERROR: image distribution failed on at least one host" >&2
+  exit 1
+fi
 echo "image distribution done"
 REMOTE
 }
@@ -86,6 +111,7 @@ REMOTE
 # ============================================================
 phase_configs() {
   log "Phase 2: pushing compose dirs and secrets"
+  local pids=()
   local pairs=(
     "broccoli-postgres:postgres"
     "broccoli-redis:redis"
@@ -106,6 +132,7 @@ phase_configs() {
       rsync -az -e "ssh -F ${SSH_CFG}" "${DEPLOY}/${d}/" "$h:/opt/broccoli/${d}/"
       scp -q "${SECRETS}" "$h:/opt/broccoli/${d}/.env"
     ) &
+    pids+=($!)
   done
   # Promtail on every host
   for h in broccoli-gateway broccoli-loadgen broccoli-observability \
@@ -115,8 +142,9 @@ phase_configs() {
       ssh "$h" 'mkdir -p /opt/broccoli/promtail'
       rsync -az -e "ssh -F ${SSH_CFG}" "${DEPLOY}/promtail/" "$h:/opt/broccoli/promtail/"
     ) &
+    pids+=($!)
   done
-  wait
+  wait_all "${pids[@]}"
 
   # Plugins on api-* and worker-*: pull from build droplet via VPC.
   log "  pulling plugins from broccoli-build to api/worker hosts via VPC..."
@@ -141,6 +169,7 @@ REMOTE
 # ============================================================
 phase_infra() {
   log "Phase 3: starting infra"
+  local pids=()
   for h in broccoli-postgres broccoli-redis broccoli-storage; do
     local d
     case "$h" in
@@ -153,8 +182,9 @@ phase_infra() {
       ssh "$h" "cd /opt/broccoli/${d} && docker compose --env-file .env up -d" \
         >"${LOGS}/${h}-up.log" 2>&1
     ) &
+    pids+=($!)
   done
-  wait
+  wait_all "${pids[@]}"
   sleep 8
   log "  infra status:"
   for h in broccoli-postgres broccoli-redis broccoli-storage; do
@@ -170,6 +200,7 @@ phase_observability() {
 
 phase_servers() {
   log "Phase 5: starting Broccoli servers"
+  local pids=()
   for h in broccoli-api-1 broccoli-api-2; do
     local server_id="${h#broccoli-}"
     (
@@ -177,12 +208,14 @@ phase_servers() {
       ssh "$h" "cd /opt/broccoli/server && BROCCOLI_SERVER_ID=${server_id} docker compose --env-file .env up -d" \
         >"${LOGS}/${h}-up.log" 2>&1
     ) &
+    pids+=($!)
   done
-  wait
+  wait_all "${pids[@]}"
 }
 
 phase_workers() {
   log "Phase 6: starting Broccoli workers"
+  local pids=()
   for h in broccoli-worker-1 broccoli-worker-2; do
     local worker_id="${h#broccoli-}"
     (
@@ -190,8 +223,9 @@ phase_workers() {
       ssh "$h" "cd /opt/broccoli/worker && BROCCOLI_WORKER_ID=${worker_id} docker compose --env-file .env up -d" \
         >"${LOGS}/${h}-up.log" 2>&1
     ) &
+    pids+=($!)
   done
-  wait
+  wait_all "${pids[@]}"
 }
 
 phase_gateway() {
@@ -202,6 +236,7 @@ phase_gateway() {
 
 phase_promtail() {
   log "Phase 8: starting promtail on every host"
+  local pids=()
   for h in broccoli-gateway broccoli-loadgen broccoli-observability \
            broccoli-api-1 broccoli-api-2 broccoli-postgres broccoli-redis \
            broccoli-storage broccoli-worker-1 broccoli-worker-2; do
@@ -209,8 +244,9 @@ phase_promtail() {
       ssh "$h" "cd /opt/broccoli/promtail && docker compose up -d" \
         >"${LOGS}/${h}-promtail.log" 2>&1
     ) &
+    pids+=($!)
   done
-  wait
+  wait_all "${pids[@]}"
 }
 
 phase_loadgen() {

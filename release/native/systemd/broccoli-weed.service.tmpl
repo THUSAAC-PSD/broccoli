@@ -1,0 +1,20 @@
+[Unit]
+Description=Broccoli SeaweedFS (S3)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@DATA_DIR@
+ExecStart=/usr/local/bin/weed server -dir=@SEAWEED_DATA@ -ip=@WEED_IP@ -ip.bind=0.0.0.0 -s3 -s3.config=@DATA_DIR@/config/seaweedfs-s3.json -s3.port=8333
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+StandardOutput=append:@DATA_DIR@/logs/weed.log
+StandardError=append:@DATA_DIR@/logs/weed.log
+
+[Install]
+WantedBy=multi-user.target

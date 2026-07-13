@@ -46,7 +46,7 @@ for plugin_dir in "${PLUGINS_DIR}"/*/; do
   fi
 
   echo "==> Building plugin: ${plugin_name}"
-  (cd "${ROOT_DIR}" && cargo run -p broccoli-cli --locked -- plugin build "plugins/${plugin_name}" --install --release)
+  (cd "${ROOT_DIR}" && cargo run -p broccoli-dev-cli --locked -- plugin build "plugins/${plugin_name}" --install --release)
   built_any=1
 done
 

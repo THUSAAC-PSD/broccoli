@@ -106,7 +106,9 @@ echo "${UPLOAD}" | jq -c . | head -1
 ATTACH=$(curl -sS -X POST -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
   -d "{\"problem_id\":${PROBLEM_ID},\"label\":\"A\"}" \
   "${API}/contests/${CONTEST_ID}/problems")
-echo "  attached to contest: ${ATTACH}" | jq -c .
+ATTACH_PROBLEM_ID=$(echo "${ATTACH}" | jq -r '.problem_id // empty' 2>/dev/null || true)
+[[ -n "${ATTACH_PROBLEM_ID}" ]] || { echo "attach to contest failed: ${ATTACH}" >&2; exit 1; }
+echo "  attached to contest: $(echo "${ATTACH}" | jq -c .)"
 
 # --- ship state to loadgen ---
 KEY=~/.ssh/id_ed25519

@@ -6,13 +6,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SSH_CFG="${ROOT}/ops/ssh_config"
-SECRETS="${ROOT}/ops/secrets/profiling.env"
-source "${SECRETS}"
 
 OUT_DIR="${ROOT}/docs/profiling/run-2"
 mkdir -p "${OUT_DIR}"
 
-GATEWAY_PUB="206.189.84.60"
+# Target the gateway's private VPC address from the loadgen (same VPC).
+# The gateway only serves plain HTTP (:80, no TLS), so traffic must never
+# cross the public internet. Auth uses ADMIN_TOKEN from run-state.env
+# (provisioned by seed-signpost.sh) so the admin password never leaves the
+# operator machine or appears in the remote command line.
+GATEWAY_PRIV="10.104.0.14"
 
 # Stress-test target sizing (signpost / 5000 contestants / mixed):
 #   - 5000 contestant accounts (bulk-registered up front)
@@ -34,13 +37,13 @@ LOADGEN_CMD=$(cat <<EOF
 set -euo pipefail
 cd /opt/broccoli/stress-test
 source ./run-state.env
+: "\${ADMIN_TOKEN:?run-state.env is missing ADMIN_TOKEN; re-run seed-signpost.sh}"
 
 # total = rate × duration (sanity bound)
 TOTAL=\$((${RATE} * ${DURATION}))
 exec ./broccoli-stress-test \\
-  --url "http://${GATEWAY_PUB}" \\
-  --admin-username "${ADMIN_USERNAME}" \\
-  --admin-password "${ADMIN_PASSWORD}" \\
+  --url "http://${GATEWAY_PRIV}" \\
+  --admin-token "\${ADMIN_TOKEN}" \\
   --profile mixed \\
   --duration ${DURATION} \\
   --rate ${RATE} \\

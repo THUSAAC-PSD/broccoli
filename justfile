@@ -40,6 +40,7 @@ test-plugins:
     cargo test --manifest-path plugins/cooldown/Cargo.toml
     cargo test --manifest-path plugins/icpc/Cargo.toml
     cargo test --manifest-path plugins/ioi/Cargo.toml
+    cargo test --manifest-path plugins/print/Cargo.toml
     cargo test --manifest-path plugins/standard-checkers/Cargo.toml
     cargo test --manifest-path plugins/standard-languages/Cargo.toml
     cargo test --manifest-path plugins/submission-limit/Cargo.toml
@@ -106,33 +107,43 @@ format-check:
 
 # Build all WASM plugins (debug)
 build-plugins *args:
-    cargo run -p broccoli-cli -- plugin build plugins/standard-languages {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/standard-checkers {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/communication-evaluator {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/ioi {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/cooldown {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/submission-limit {{args}}
-    cargo run -p broccoli-cli -- plugin build plugins/icpc {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/batch-evaluator {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/communication-evaluator {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/cooldown {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/icpc {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/ioi {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/print {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-checkers {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-languages {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build plugins/submission-limit {{args}}
 
 # Build all WASM plugins (release)
 build-plugins-release:
-    cargo run -p broccoli-cli -- plugin build plugins/standard-languages --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/standard-checkers --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/batch-evaluator --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/communication-evaluator --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/ioi --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/cooldown --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/submission-limit --install --release
-    cargo run -p broccoli-cli -- plugin build plugins/icpc --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/batch-evaluator --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/communication-evaluator --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/cooldown --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/icpc --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/ioi --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/print --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-checkers --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/standard-languages --install --release
+    cargo run -p broccoli-dev-cli -- plugin build plugins/submission-limit --install --release
 
 # Build a single WASM plugin (e.g., just build-plugin plugins/standard-checkers)
 build-plugin path *args:
-    cargo run -p broccoli-cli -- plugin build {{path}} {{args}}
+    cargo run -p broccoli-dev-cli -- plugin build {{path}} {{args}}
 
 # Build a single WASM plugin in release mode
 build-plugin-release path:
-    cargo run -p broccoli-cli -- plugin build {{path}} --install --release
+    cargo run -p broccoli-dev-cli -- plugin build {{path}} --install --release
+
+# Build the native print-station client (release binary)
+build-print-client:
+    cargo build --release --manifest-path plugins/print/client/Cargo.toml
+
+# Run the native print-station client (e.g. just print-client setup)
+print-client *args:
+    cargo run --manifest-path plugins/print/client/Cargo.toml -- {{args}}
 
 # Start PostgreSQL, Redis, and SeaweedFS
 up:
@@ -152,11 +163,11 @@ publish-server-sdk:
 
 # Dry-run publish CLI to crates.io
 publish-cli-dry:
-    cargo publish -p broccoli-cli --dry-run
+    cargo publish -p broccoli-dev-cli --dry-run
 
 # Publish CLI to crates.io
 publish-cli:
-    cargo publish -p broccoli-cli
+    cargo publish -p broccoli-dev-cli
 
 # Run baseline checks (clippy + baseline Rust tests + JS lint + format check)
 check-all: clippy test lint-js format-check
