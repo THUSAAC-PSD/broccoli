@@ -4,7 +4,6 @@ pub mod dlq;
 pub mod event;
 pub mod hook;
 pub mod metrics;
-pub mod mq;
 pub mod observability;
 pub mod retry;
 pub mod storage;
