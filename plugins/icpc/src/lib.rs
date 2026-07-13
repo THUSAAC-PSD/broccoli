@@ -330,24 +330,9 @@ pub fn init() -> FnResult<String> {
 // contest with `submissions_visible = true` could read other teams' live
 // verdicts through GET /submissions/{id}, bypassing the scoreboard freeze and
 // the private-standings mode that `handle_standings` enforces.
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Deserialize)]
-struct FilterSubmissionInput {
-    submission: serde_json::Value,
-    #[allow(dead_code)]
-    is_list_item: bool,
-    contest_id: Option<i32>,
-    viewer_user_id: Option<i32>,
-    #[serde(default)]
-    viewer_permissions: Vec<String>,
-}
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Serialize)]
-struct FilterSubmissionOutput {
-    submission: serde_json::Value,
-}
+//
+// `FilterSubmissionInput`/`FilterSubmissionOutput` are the shared wire types
+// from `broccoli_server_sdk::types` (via the prelude).
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]

@@ -42,5 +42,8 @@ pub use persistence::{
     sanitize_result_text_field, sanitize_text_field,
 };
 pub use query::{ProblemCheckerInfo, TestCaseData, TestCaseRow};
-pub use submission::{OnSubmissionInput, OnSubmissionOutput, SourceFile};
+pub use submission::{
+    FilterSubmissionInput, FilterSubmissionOutput, OnSubmissionInput, OnSubmissionOutput,
+    SourceFile,
+};
 pub use verdict::Verdict;

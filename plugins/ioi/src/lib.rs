@@ -393,21 +393,8 @@ pub fn on_ioi_eval_result(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&output)?)
 }
 
-#[derive(Deserialize)]
-struct FilterSubmissionInput {
-    submission: serde_json::Value,
-    #[allow(dead_code)]
-    is_list_item: bool,
-    contest_id: Option<i32>,
-    viewer_user_id: Option<i32>,
-    #[serde(default)]
-    viewer_permissions: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct FilterSubmissionOutput {
-    submission: serde_json::Value,
-}
+// `FilterSubmissionInput`/`FilterSubmissionOutput` are the shared wire types
+// from `broccoli_server_sdk::types` (via the prelude).
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]

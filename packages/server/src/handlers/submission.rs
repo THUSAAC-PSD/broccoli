@@ -6,7 +6,9 @@ use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use broccoli_server_sdk::types::{AfterSubmissionEvent, BeforeSubmissionEvent};
+use broccoli_server_sdk::types::{
+    AfterSubmissionEvent, BeforeSubmissionEvent, FilterSubmissionInput, FilterSubmissionOutput,
+};
 use chrono::Utc;
 use common::SubmissionStatus;
 use common::storage::BlobStore;
@@ -683,23 +685,10 @@ async fn build_judgement_response(
 }
 
 /// Generic per-contest-type submission filter dispatch. Looks up the registered
-/// `filter_submission_fn` for the submission's contest_type and invokes it.
-/// Returns the input unchanged if no contest_id, no plugin handler, or no
-/// `filter_submission_fn` is registered.
-#[derive(serde::Serialize)]
-struct FilterSubmissionInput<'a> {
-    submission: &'a serde_json::Value,
-    is_list_item: bool,
-    contest_id: Option<i32>,
-    viewer_user_id: Option<i32>,
-    viewer_permissions: Vec<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct FilterSubmissionOutput {
-    submission: serde_json::Value,
-}
-
+/// `filter_submission_fn` for the submission's contest_type and invokes it with
+/// the shared `FilterSubmissionInput`/`FilterSubmissionOutput` wire types from
+/// `broccoli_server_sdk::types`. Returns the input unchanged if no contest_id,
+/// no plugin handler, or no `filter_submission_fn` is registered.
 async fn filter_submission_via_plugin(
     state: &AppState,
     contest_type: &str,
@@ -734,7 +723,7 @@ async fn filter_submission_via_plugin(
         .unwrap_or_default();
 
     let input = FilterSubmissionInput {
-        submission: &submission_value,
+        submission: submission_value,
         is_list_item,
         contest_id,
         viewer_user_id: visibility.map(|ctx| ctx.viewer_id),
