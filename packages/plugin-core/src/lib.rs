@@ -7,6 +7,7 @@ pub mod http;
 pub mod i18n;
 pub mod manager;
 pub mod manifest;
+pub mod pool;
 pub mod registry;
 pub mod retry;
 pub mod traits;

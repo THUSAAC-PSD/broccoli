@@ -187,20 +187,49 @@ pub trait PluginManager: Send + Sync {
                 )));
             }
 
-            let manifest = Manifest::new([Wasm::file(&wasm_path)]);
+            let mut manifest = Manifest::new([Wasm::file(&wasm_path)]);
+            // Defense-in-depth: cap each instance's WASM linear memory so a runaway
+            // instance fails its own testcase instead of OOM-killing the server.
+            // Generic (no plugin-specific knowledge); the default is far above any
+            // legitimate working set so it never traps a real testcase.
+            if let Some(pages) = self.get_config().max_instance_memory_pages {
+                manifest = manifest.with_memory_max(pages);
+            }
+            // Same defense on the time axis: bound every guest call's execution.
+            // extism's timer thread bumps the store epoch when the deadline
+            // passes, the running call traps with "timeout", and the pooled
+            // instance is released. Without this, one hung export (infinite
+            // loop on pathological input) would pin a pool slot and a blocking
+            // thread forever; `pool_max_instances` such hangs would wedge the
+            // plugin's pool for the rest of the contest. Applied to the shared
+            // manifest so both pool-built and recycled instances inherit it.
+            manifest = manifest.with_timeout(self.get_config().call_timeout());
             let host_functions = self.get_host_functions().resolve(plugin_id, &permissions);
             let wasi = self.get_config().enable_wasi;
             let max_instances = self.get_config().pool_max_instances;
+            let reclaim_bytes = self.get_config().instance_reclaim_bytes;
+            let min_calls = self.get_config().instance_min_calls_before_recycle;
+
+            // One shared factory: extism's pool calls it to create instances on
+            // demand; the recycling wrapper calls it to rebuild a bloated one.
+            // `Arc<dyn Fn>` so both can hold and invoke it.
+            let source: crate::pool::PluginSource = std::sync::Arc::new(move || {
+                PluginBuilder::new(&manifest)
+                    .with_wasi(wasi)
+                    .with_functions(host_functions.clone())
+                    .build()
+            });
+            let source_for_pool = source.clone();
             let pool = PoolBuilder::new()
                 .with_max_instances(max_instances)
-                .build(move || {
-                    PluginBuilder::new(&manifest)
-                        .with_wasi(wasi)
-                        .with_functions(host_functions.clone())
-                        .build()
-                });
+                .build(move || (source_for_pool)());
 
-            runtime = Some(pool);
+            runtime = Some(crate::pool::RecyclingPool::new(
+                pool,
+                source,
+                reclaim_bytes,
+                min_calls,
+            ));
         }
 
         plugin_entry.runtime = runtime;
@@ -398,7 +427,10 @@ pub trait PluginManager: Send + Sync {
     ) -> Result<Vec<u8>, PluginError> {
         let start = std::time::Instant::now();
 
-        let timeout = Duration::from_secs(self.get_config().call_timeout_secs);
+        // How long to wait for a free pooled instance. Distinct from the
+        // guest execution deadline (`call_timeout_secs`), which is enforced by
+        // extism via the manifest timeout set in `load_plugin`.
+        let timeout = self.get_config().pool_acquire_timeout();
         let pool = {
             let registry = self.get_registry().read().map_err(|_| {
                 PluginError::Internal("Failed to acquire registry read lock".into())
@@ -475,13 +507,60 @@ pub trait PluginManager: Send + Sync {
                         });
                     }
 
-                    plugin.call(func_name.as_str(), input).map_err(|e| {
+                    let input_len = input.len();
+                    // Reset the per-call streamed-byte counter; host functions
+                    // (e.g. blob_read_range) add to it during the call so the
+                    // pool can weigh how much data this instance churned through.
+                    crate::host_context::reset_stream_bytes();
+                    let call_result: Result<Vec<u8>, PluginError> =
+                        plugin.call(func_name.as_str(), input).map_err(|e| {
                         PluginError::ExecutionFailed {
                             plugin_id: plugin_id.clone(),
                             func_name: func_name.clone(),
                             message: e.to_string(),
                         }
-                    })
+                    });
+                    // Heap-profile hook (opt-in via BROCCOLI_PROFILE_PLUGIN_IO): record the
+                    // bytes marshalled in/out of WASM per plugin call. Copying input/output
+                    // across the host<->guest boundary grows the pooled instance's WASM
+                    // linear memory, which the pool never reclaims — the suspected driver of
+                    // the per-testcase RSS growth. Generic; no plugin-specific knowledge.
+                    let output_len = call_result.as_ref().map(|o| o.len()).unwrap_or(0);
+                    if std::env::var_os("BROCCOLI_PROFILE_PLUGIN_IO").is_some() {
+                        info!(
+                            target: "plugin_io_profile",
+                            plugin_id = %plugin_id,
+                            func = %func_name,
+                            input_bytes = input_len,
+                            output_bytes = output_len,
+                            "plugin call I/O"
+                        );
+                    }
+
+                    // Account this call's data volume against the instance and
+                    // recycle it if it has churned through enough to have grown
+                    // its (never-shrinking) WASM linear memory. The streamed
+                    // bytes — data pulled in via host functions like
+                    // blob_read_range — are the real driver; call I/O is added
+                    // for completeness.
+                    let processed_bytes = input_len as u64
+                        + output_len as u64
+                        + crate::host_context::stream_bytes();
+                    if pool.note_call(&plugin, processed_bytes) {
+                        debug!(
+                            plugin_id = %plugin_id,
+                            func = %func_name,
+                            processed_bytes,
+                            "Recycled plugin instance to reclaim WASM linear memory"
+                        );
+                        if let Some(metrics) = metrics.as_ref() {
+                            metrics.plugin_instance_recycled_total.add(
+                                1,
+                                &[KeyValue::new("plugin.id", plugin_id.clone())],
+                            );
+                        }
+                    }
+                    call_result
                 })
             }
         })
