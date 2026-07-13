@@ -1,13 +1,11 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { isTerminalStatus } from '@broccoli/web-sdk/submission';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import { Link } from 'react-router';
 
-import {
-  TERMINAL_STATUSES,
-  useSubmissionDetail,
-} from '@/features/submission/hooks/use-submission-detail';
+import { useSubmissionDetail } from '@/features/submission/hooks/use-submission-detail';
 import { getSubmissionScoreDisplay } from '@/features/submission/utils/score-display';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
@@ -54,7 +52,7 @@ export function SubmissionDetailView({
 
   const status = submission.status;
   const result = submission.result;
-  const isTerminal = TERMINAL_STATUSES.has(status);
+  const isTerminal = isTerminalStatus(status);
 
   const { label: verdictLabel, variant: verdictVariant } = getVerdictBadge(
     result?.verdict ?? null,

@@ -1,19 +1,18 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type { CodeRun, Submission } from '@broccoli/web-sdk/submission';
+import {
+  type CodeRun,
+  isTerminalStatus,
+  parseSubmissionError,
+  type Submission,
+  type SubmissionError,
+} from '@broccoli/web-sdk/submission';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { SubmissionError } from './use-submission';
-
 const POLL_INTERVAL_MS = 1000;
-const TERMINAL_STATUSES = new Set([
-  'Judged',
-  'CompilationError',
-  'SystemError',
-]);
 
 export interface SubmissionEntry {
   /** Unique client-side ID for this entry */
@@ -67,38 +66,6 @@ export interface UseSubmissionsReturn {
   isAnySubmitting: boolean;
   activeEntryId: number | null;
   setActiveEntryId: (id: number | null) => void;
-}
-
-function parseSubmissionErrorValue(value: unknown): SubmissionError | null {
-  if (!value) return null;
-  if (typeof value === 'string') {
-    try {
-      return parseSubmissionErrorValue(JSON.parse(value));
-    } catch {
-      return null;
-    }
-  }
-  if (typeof value !== 'object') return null;
-  const obj = value as Record<string, unknown>;
-  if (typeof obj.code === 'string' && typeof obj.message === 'string') {
-    const result: SubmissionError = { code: obj.code, message: obj.message };
-    if (obj.details != null && typeof obj.details === 'object') {
-      result.details = obj.details as Record<string, unknown>;
-    }
-    return result;
-  }
-  return (
-    parseSubmissionErrorValue(obj.error) ??
-    parseSubmissionErrorValue(obj.data) ??
-    parseSubmissionErrorValue(obj.body) ??
-    parseSubmissionErrorValue(obj.response)
-  );
-}
-
-function parseSubmissionError(err: unknown): SubmissionError {
-  const parsed = parseSubmissionErrorValue(err);
-  if (parsed) return parsed;
-  return { code: 'UNKNOWN', message: String(err) };
 }
 
 let entryIdCounter = 0;
@@ -159,7 +126,7 @@ export function useSubmissions({
           setEntries((prev) =>
             prev.map((e) => {
               if (e.id !== entryId) return e;
-              const isDone = TERMINAL_STATUSES.has(data.status);
+              const isDone = isTerminalStatus(data.status);
               return {
                 ...e,
                 submission: data,
@@ -168,7 +135,7 @@ export function useSubmissions({
             }),
           );
 
-          if (TERMINAL_STATUSES.has(data.status)) {
+          if (isTerminalStatus(data.status)) {
             stopPolling(entryId);
           }
         } catch (err) {
@@ -199,7 +166,7 @@ export function useSubmissions({
           setEntries((prev) =>
             prev.map((e) => {
               if (e.id !== entryId) return e;
-              const isDone = TERMINAL_STATUSES.has(data.status);
+              const isDone = isTerminalStatus(data.status);
               return {
                 ...e,
                 codeRun: data,
@@ -208,7 +175,7 @@ export function useSubmissions({
             }),
           );
 
-          if (TERMINAL_STATUSES.has(data.status)) {
+          if (isTerminalStatus(data.status)) {
             stopPolling(entryId);
           }
         } catch (err) {

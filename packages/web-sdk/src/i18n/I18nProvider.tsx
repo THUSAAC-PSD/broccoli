@@ -34,6 +34,9 @@ function interpolateTranslation(
   );
 }
 
+/** localStorage key where the active locale is persisted. */
+export const LOCALE_STORAGE_KEY = 'broccoli-locale';
+
 interface I18nProviderProps {
   children: ReactNode;
   localeKey?: string;
@@ -43,7 +46,7 @@ interface I18nProviderProps {
 
 export function I18nProvider({
   children,
-  localeKey = 'broccoli-locale',
+  localeKey = LOCALE_STORAGE_KEY,
   defaultLocale = 'en',
   coreI18n = {},
 }: I18nProviderProps) {

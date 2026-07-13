@@ -26,6 +26,17 @@ export const SUBMISSION_STATUSES: SubmissionStatus[] = [
 
 export type SubmissionStatusFilterValue = 'all' | SubmissionStatus;
 
+/**
+ * Error envelope returned by the server for failed submissions and code
+ * runs. The `{ code, message, details? }` shape is an API contract shared
+ * by all submission endpoints.
+ */
+export interface SubmissionError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
 export const SUBMISSION_STATUS_FILTER_OPTIONS: SubmissionStatusFilterValue[] = [
   'all',
   ...SUBMISSION_STATUSES,
