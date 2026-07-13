@@ -53,9 +53,7 @@ pub(crate) fn host_fn_span(host_fn: &'static str, plugin_id: &str) -> Span {
 
 pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
-    let blob_read_grants: storage::BlobReadGrants = Arc::new(dashmap::DashMap::new());
     let db = deps.system.db.clone();
-    let blob_store = deps.system.blob_store.clone();
 
     hr.register("logger", |plugin_id| {
         Function::new(
@@ -108,22 +106,6 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
             [],
             UserData::new((plugin_id.to_string(), db_clone.clone())),
             storage::store_delete,
-        )
-    });
-
-    let blob_store_for_storage = blob_store.clone();
-    let blob_read_grants_for_storage = blob_read_grants.clone();
-    hr.register("blob:read", move |plugin_id| {
-        Function::new(
-            "blob_read_range",
-            [ValType::I64],
-            [ValType::I64],
-            UserData::new((
-                plugin_id.to_string(),
-                blob_store_for_storage.clone(),
-                blob_read_grants_for_storage.clone(),
-            )),
-            storage::blob_read_range,
         )
     });
 

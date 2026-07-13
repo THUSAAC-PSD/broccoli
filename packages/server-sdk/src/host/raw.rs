@@ -89,6 +89,5 @@ str_host_fns! {
     resolve_language(input),
     store_get(input),
     store_compare_and_set(input),
-    blob_read_range(input),
     config_get(input),
 }
