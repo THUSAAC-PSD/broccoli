@@ -34,6 +34,10 @@ pub struct Metrics {
     pub plugin_pool_contention_total: Counter<u64>,
     pub plugin_evaluator_semaphore_wait_duration: Histogram<f64>,
     pub plugin_call_failures: Counter<u64>,
+    /// Count of pooled plugin instances recycled (dropped + rebuilt) to reclaim
+    /// grown WASM linear memory. A healthy rate is low and steady; a rate
+    /// approaching the call rate means `instance_reclaim_bytes` is set too low.
+    pub plugin_instance_recycled_total: Counter<u64>,
 
     pub host_fn_duration: Histogram<f64>,
     pub host_fn_calls_total: Counter<u64>,
@@ -70,6 +74,7 @@ pub struct Metrics {
     pub blob_store_bytes_total: Counter<u64>,
     pub blob_store_errors_total: Counter<u64>,
     pub blob_store_remote_hits_total: Counter<u64>,
+    pub blob_store_retries_total: Counter<u64>,
 
     pub blob_cache_hits_total: Counter<u64>,
     pub blob_cache_misses_total: Counter<u64>,
@@ -286,6 +291,12 @@ impl Metrics {
                 .u64_counter("broccoli.plugin.call.failures")
                 .with_description("Total number of failed WASM plugin calls")
                 .build(),
+            plugin_instance_recycled_total: meter
+                .u64_counter("broccoli.plugin.instance.recycled")
+                .with_description(
+                    "Total pooled plugin instances recycled to reclaim WASM linear memory",
+                )
+                .build(),
 
             host_fn_duration: meter
                 .f64_histogram("broccoli.host_fn.duration")
@@ -459,6 +470,12 @@ impl Metrics {
                 .u64_counter("broccoli.blob_store.remote_hits")
                 .with_description(
                     "Total number of uploads short-circuited because the blob already existed remotely",
+                )
+                .build(),
+            blob_store_retries_total: meter
+                .u64_counter("broccoli.blob_store.retries")
+                .with_description(
+                    "Total number of blob store S3 calls retried on transient failures (transport errors, 5xx, 429, timeouts)",
                 )
                 .build(),
 

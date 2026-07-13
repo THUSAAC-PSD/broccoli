@@ -98,7 +98,7 @@ pub async fn create_blob_store(
                     .as_ref()
                     .filter(|s| !s.is_empty())
                 .map(PathBuf::from),
-            })?;
+            }, metrics.clone())?;
             Arc::new(store)
         }
         #[cfg(not(feature = "object-storage"))]
