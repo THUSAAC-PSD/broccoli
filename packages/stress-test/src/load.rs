@@ -588,12 +588,14 @@ mod tests {
 
     fn submission_status_wire(s: SubmissionStatus) -> &'static str {
         match s {
+            SubmissionStatus::Queued => "Queued",
             SubmissionStatus::Pending => "Pending",
             SubmissionStatus::Compiling => "Compiling",
             SubmissionStatus::Running => "Running",
             SubmissionStatus::Judged => "Judged",
             SubmissionStatus::CompilationError => "CompilationError",
             SubmissionStatus::SystemError => "SystemError",
+            SubmissionStatus::Unknown => "Unknown",
         }
     }
 

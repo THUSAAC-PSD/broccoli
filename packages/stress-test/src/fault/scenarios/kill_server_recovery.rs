@@ -252,7 +252,7 @@ impl Scenario for KillServerRecovery {
                 "filename": "main.py",
                 "content": "print('hi')\n"
             }],
-            "language": "python"
+            "language": "python3"
         });
 
         let mut submission_ids: Vec<i32> = Vec::with_capacity(self.submission_count);
