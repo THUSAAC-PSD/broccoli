@@ -233,14 +233,14 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
 
     let contest_reg = deps.system.contest_type_registry.clone();
     let eval_reg = deps.system.evaluator_registry.clone();
-    let checker_reg = deps.system.checker_format_registry.clone();
+    let checker_stage_reg = deps.system.checker_stage_registry.clone();
     let lang_reg = deps.system.language_resolver_registry.clone();
     hr.register_many("plugin:register", move |plugin_id| {
         registry::create_registry_functions(
             plugin_id.to_string(),
             contest_reg.clone(),
             eval_reg.clone(),
-            checker_reg.clone(),
+            checker_stage_reg.clone(),
             lang_reg.clone(),
         )
     });
@@ -271,18 +271,6 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         dispatch::create_dispatch_functions(plugin_id.to_string(), dispatch_deps.clone())
     });
 
-    let checker_reg = deps.system.checker_format_registry;
-    let pm = deps.plugin_manager.clone();
-    let blob_read_grants_for_checker = blob_read_grants;
-    hr.register("checker:run", move |plugin_id| {
-        checker::create_checker_function(
-            plugin_id.to_string(),
-            pm.clone(),
-            checker_reg.clone(),
-            blob_read_grants_for_checker.clone(),
-        )
-    });
-
     let lang_reg = deps.system.language_resolver_registry;
     let pm_for_resolve = deps.plugin_manager.clone();
     hr.register("language:resolve", move |plugin_id| {
@@ -290,6 +278,26 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
             plugin_id.to_string(),
             lang_reg.clone(),
             pm_for_resolve.clone(),
+        )
+    });
+
+    let checker_stage_reg_for_resolve = deps.system.checker_stage_registry.clone();
+    let pm_for_resolve_checker = deps.plugin_manager.clone();
+    hr.register("checker:resolve", move |plugin_id| {
+        checker::create_resolve_checker_function(
+            plugin_id.to_string(),
+            checker_stage_reg_for_resolve.clone(),
+            pm_for_resolve_checker.clone(),
+        )
+    });
+
+    let checker_stage_reg_for_interpret = deps.system.checker_stage_registry.clone();
+    let pm_for_interpret_checker = deps.plugin_manager.clone();
+    hr.register("checker:interpret", move |plugin_id| {
+        checker::create_interpret_checker_function(
+            plugin_id.to_string(),
+            checker_stage_reg_for_interpret.clone(),
+            pm_for_interpret_checker.clone(),
         )
     });
 

@@ -10,7 +10,7 @@ use crate::config::AppConfig;
 use crate::hooks::SharedHookRegistry;
 use crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry;
 use crate::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    CheckerStageRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 use crate::services::operation_batch::{MqOperationTaskPublisher, OperationTaskPublisher};
@@ -23,7 +23,7 @@ pub struct HostFunctionSystemDeps {
     pub operation_waiters: OperationWaiters,
     pub contest_type_registry: ContestTypeRegistry,
     pub evaluator_registry: EvaluatorRegistry,
-    pub checker_format_registry: CheckerFormatRegistry,
+    pub checker_stage_registry: CheckerStageRegistry,
     pub language_resolver_registry: LanguageResolverRegistry,
     pub evaluate_batches: EvaluateBatches,
     pub evaluate_ops_registry: EvaluateBatchOpsRegistry,

@@ -1,11 +1,11 @@
 pub mod claim;
 pub mod fanout;
-pub mod fleet_capacity;
 pub mod lease;
 pub mod permits;
 pub mod queue_depth;
 pub mod steal;
 pub mod sweeper;
+pub mod system_error_retry;
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -87,12 +87,23 @@ impl Dispatcher {
             )));
 
             handles.push(tokio::spawn(steal::run(
-                deps.state,
+                deps.state.clone(),
                 deps.server_id.clone(),
                 deps.config.lease_ttl_secs,
                 deps.config.steal_scan_interval_secs,
                 deps.config.steal_batch_size,
                 deps.config.max_dispatch_retries,
+                cancel_rx.clone(),
+            )));
+
+            // SystemError-retry reaper: bounded re-judge of plugin-finalized
+            // SystemError verdicts (a system condition, never the contestant's
+            // code), path-agnostic across batch + interactive judging. Shares the
+            // lease/steal toggle because it re-dispatches like the steal does.
+            handles.push(tokio::spawn(system_error_retry::run(
+                deps.state,
+                deps.server_id.clone(),
+                deps.config.max_system_error_retries,
                 cancel_rx.clone(),
             )));
 
@@ -124,6 +135,7 @@ impl Dispatcher {
             sweep_interval_secs = deps.config.sweep_interval_secs,
             sweeper_dry_run = deps.config.sweeper_dry_run,
             max_dispatch_retries = deps.config.max_dispatch_retries,
+            max_system_error_retries = deps.config.max_system_error_retries,
             "Dispatcher background tasks started"
         );
 

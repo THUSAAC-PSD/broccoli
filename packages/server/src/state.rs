@@ -11,7 +11,7 @@ use crate::config::AppConfig;
 use crate::dispatcher::permits::DispatcherSemaphore;
 use crate::hooks::SharedHookRegistry;
 use crate::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    CheckerStageRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 
@@ -29,7 +29,7 @@ pub type DeviceCodeStore = Arc<DashMap<String, PendingDeviceAuth>>;
 pub struct RegistryState {
     pub contest_type_registry: ContestTypeRegistry,
     pub evaluator_registry: EvaluatorRegistry,
-    pub checker_format_registry: CheckerFormatRegistry,
+    pub checker_stage_registry: CheckerStageRegistry,
     pub language_resolver_registry: LanguageResolverRegistry,
     pub operation_batches: OperationBatches,
     pub operation_waiters: OperationWaiters,

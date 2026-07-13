@@ -5,6 +5,12 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
+# Global allocator. glibc retains freed large (mmap'd) allocations and is slow to
+# return them to the OS, which under concurrent judging of large-testcase problems
+# inflates RSS well past the live working set. jemalloc returns freed memory far
+# more aggressively. The `profiling` feature enables opt-in heap profiling via
+# `_RJEM_MALLOC_CONF=prof:true,...` for diagnosis.
+tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
 anyhow.workspace = true
 argon2.workspace = true
 async-trait.workspace = true
@@ -12,6 +18,7 @@ broccoli-server-sdk.workspace = true
 common = { workspace = true, features = ["sea-orm", "object-storage"] }
 crossbeam.workspace = true
 dashmap.workspace = true
+flume.workspace = true
 futures.workspace = true
 mq.workspace = true
 axum = { workspace = true, features = ["multipart"] }

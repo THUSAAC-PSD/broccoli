@@ -1,6 +1,6 @@
 use crate::registry::{
-    CheckerFormatRegistry, ContestTypeHandlers, ContestTypeRegistry, EvaluatorRegistry,
-    LanguageResolverEntry, LanguageResolverRegistry, PluginHandler,
+    CheckerStageHandlers, CheckerStageRegistry, ContestTypeHandlers, ContestTypeRegistry,
+    EvaluatorRegistry, LanguageResolverEntry, LanguageResolverRegistry, PluginHandler,
 };
 use extism::{Function, UserData, Val, ValType};
 use serde::Deserialize;
@@ -26,10 +26,11 @@ struct RegisterEvaluatorInput {
 }
 
 #[derive(Deserialize)]
-struct RegisterCheckerFormatInput {
+struct RegisterCheckerResolverInput {
     #[serde(rename = "format")]
     checker_format: String,
-    handler: String,
+    resolve_handler: String,
+    interpret_handler: String,
 }
 
 #[derive(Deserialize)]
@@ -54,24 +55,25 @@ struct RegistryContext {
     plugin_id: String,
     contest_type_registry: ContestTypeRegistry,
     evaluator_registry: EvaluatorRegistry,
-    checker_format_registry: CheckerFormatRegistry,
+    checker_stage_registry: CheckerStageRegistry,
     language_resolver_registry: LanguageResolverRegistry,
 }
 
 type RegistryUserData = RegistryContext;
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_registry_functions(
     plugin_id: String,
     contest_type_registry: ContestTypeRegistry,
     evaluator_registry: EvaluatorRegistry,
-    checker_format_registry: CheckerFormatRegistry,
+    checker_stage_registry: CheckerStageRegistry,
     language_resolver_registry: LanguageResolverRegistry,
 ) -> Vec<Function> {
     let user_data: UserData<RegistryUserData> = UserData::new(RegistryContext {
         plugin_id: plugin_id.clone(),
         contest_type_registry: contest_type_registry.clone(),
         evaluator_registry: evaluator_registry.clone(),
-        checker_format_registry: checker_format_registry.clone(),
+        checker_stage_registry: checker_stage_registry.clone(),
         language_resolver_registry: language_resolver_registry.clone(),
     });
 
@@ -91,11 +93,11 @@ pub fn create_registry_functions(
             register_evaluator_fn,
         ),
         Function::new(
-            "register_checker_format",
+            "register_checker_resolver",
             [ValType::I64],
             [],
             user_data.clone(),
-            register_checker_format_fn,
+            register_checker_resolver_fn,
         ),
         Function::new(
             "register_language_resolver",
@@ -226,7 +228,7 @@ fn register_evaluator_fn(
     )
 }
 
-fn register_checker_format_fn(
+fn register_checker_resolver_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
     _outputs: &mut [Val],
@@ -237,20 +239,42 @@ fn register_checker_format_fn(
         let data = guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (data.plugin_id.clone(), data.checker_format_registry.clone())
+        (data.plugin_id.clone(), data.checker_stage_registry.clone())
     };
-    let span = super::host_fn_span("register_checker_format", &plugin_id);
+    let span = super::host_fn_span("register_checker_resolver", &plugin_id);
     let _enter = span.enter();
-    register_handler::<RegisterCheckerFormatInput>(
-        plugin,
-        inputs,
-        _outputs,
-        &plugin_id,
-        &registry,
-        |input| (&input.checker_format, &input.handler),
-        |input| validate_registry_id(&input.checker_format, "checker_format"),
-        "Checker format",
-    )
+
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: RegisterCheckerResolverInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    validate_registry_id(&input.checker_format, "checker_format")?;
+    if input.resolve_handler.is_empty() || input.interpret_handler.is_empty() {
+        return Err(extism::Error::msg(
+            "resolve_handler and interpret_handler must not be empty",
+        ));
+    }
+
+    tokio::runtime::Handle::current().block_on(async {
+        let mut registry = registry.write().await;
+        registry.insert(
+            input.checker_format.clone(),
+            CheckerStageHandlers {
+                plugin_id: plugin_id.to_string(),
+                resolve_fn: input.resolve_handler.clone(),
+                interpret_fn: input.interpret_handler.clone(),
+            },
+        );
+        tracing::info!(
+            plugin_id = %plugin_id,
+            checker_format = %input.checker_format,
+            resolve_fn = %input.resolve_handler,
+            interpret_fn = %input.interpret_handler,
+            "Checker resolver registered"
+        );
+    });
+
+    Ok(())
 }
 
 fn validate_registry_id(id: &str, field_name: &str) -> Result<(), extism::Error> {

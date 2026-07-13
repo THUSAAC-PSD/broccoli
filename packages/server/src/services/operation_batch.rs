@@ -131,7 +131,7 @@ pub async fn start_operation_batch(
 
     let batch_id = Uuid::new_v4().to_string();
 
-    let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
+    let (batch_tx, batch_rx) = flume::unbounded();
     let pending_count = Arc::new(AtomicUsize::new(operations.len()));
     let cleanup_keys = Arc::new(
         operations
@@ -605,18 +605,16 @@ async fn start_detached_operation_slot(
         let batches = deps.operation_batches.clone();
         let metrics = deps.metrics.clone();
         let batch_id_for_wait = wait_batch_id.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            next_operation_result(
-                &wait_plugin_id,
-                &batches,
-                metrics.as_ref(),
-                &batch_id_for_wait,
-                timeout,
-            )
-        })
-        .await
-        .map_err(|e| anyhow!("Operation waiter task failed: {e}"))
-        .and_then(|result| result);
+        // Await the result as a cheap future instead of occupying a blocking
+        // thread for the op's whole lifetime.
+        let result = next_operation_result_async(
+            &wait_plugin_id,
+            &batches,
+            metrics.as_ref(),
+            &batch_id_for_wait,
+            timeout,
+        )
+        .await;
         let _ = tx
             .send(DetachedOperationResult {
                 operation_index,
@@ -717,6 +715,25 @@ fn remove_active_operation_slot_by_batch_id(
     true
 }
 
+const OPERATION_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
+
+/// Minimum time an in-flight operation is allowed before the result-wait gives
+/// up, independent of the (small) solution-derived `timeout`. Large in
+/// production so a slow / backed-up worker yields SLOW results, not failures —
+/// the operation's real time limit is enforced inside isolate, and a genuinely
+/// dead worker is reclaimed by the dispatcher lease/steal. Without this, a deep
+/// queue or cold-blob IO under load hard-times-out every operation at the small
+/// budget and mass-fails submissions. Zero in tests so the explicit `timeout`
+/// still governs.
+#[cfg(not(test))]
+fn operation_infra_floor() -> Duration {
+    Duration::from_secs(30 * 60)
+}
+#[cfg(test)]
+fn operation_infra_floor() -> Duration {
+    Duration::from_secs(0)
+}
+
 pub fn next_operation_result(
     plugin_id: &str,
     batches: &OperationBatches,
@@ -732,70 +749,298 @@ pub fn next_operation_result(
     };
 
     let wait_start = Instant::now();
-    let result = result_rx.recv_timeout(timeout);
+    // Extend the wait while the operation is still in-flight (pending), up to a
+    // large infrastructure ceiling, instead of a hard timeout at the small
+    // budget. A queued op (waiting for a backed-up worker) or a slowly-executing
+    // op thus degrades to a slow result, never a spurious failure.
+    let ceiling = timeout.max(operation_infra_floor());
 
-    match result {
+    let record_timeout = || {
+        if let Some(metrics) = metrics {
+            let attrs = [
+                KeyValue::new("batch.kind", "operation"),
+                KeyValue::new("plugin.id", plugin_id.to_string()),
+                KeyValue::new("outcome", "timeout"),
+            ];
+            metrics
+                .batch_wait_duration
+                .record(wait_start.elapsed().as_secs_f64(), &attrs);
+            metrics.batch_results_total.add(1, &attrs);
+        }
+    };
+
+    loop {
+        let elapsed = wait_start.elapsed();
+        if elapsed >= ceiling {
+            if let Some(task_result) = drain_delivered_before_giveup(
+                plugin_id,
+                batches,
+                metrics,
+                batch_id,
+                &result_rx,
+                &pending_count,
+                wait_start,
+            ) {
+                return Ok(Some(task_result));
+            }
+            record_timeout();
+            return Ok(None);
+        }
+        let tick = (ceiling - elapsed).min(OPERATION_RESULT_WAIT_TICK);
+
+        match result_rx.recv_timeout(tick) {
+            Ok(task_result) => {
+                record_operation_result_e2e(metrics, &task_result, "delivered");
+                if let Some(metrics) = metrics {
+                    let attrs = [
+                        KeyValue::new("batch.kind", "operation"),
+                        KeyValue::new("plugin.id", plugin_id.to_string()),
+                        KeyValue::new("outcome", "result"),
+                        KeyValue::new("task_success", task_result.success.to_string()),
+                    ];
+                    metrics
+                        .batch_wait_duration
+                        .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                    metrics.batch_results_total.add(1, &attrs);
+                }
+                tracing::debug!(
+                    plugin_id = %plugin_id,
+                    batch_id = %batch_id,
+                    task_id = %task_result.task_id,
+                    "Operation result received"
+                );
+
+                if pending_count.load(Ordering::SeqCst) == 0
+                    && result_rx.is_empty()
+                    && batches.remove(batch_id).is_some()
+                    && let Some(metrics) = metrics
+                {
+                    metrics
+                        .batch_active
+                        .add(-1, &[KeyValue::new("batch.kind", "operation")]);
+                }
+
+                return Ok(Some(task_result));
+            }
+            Err(flume::RecvTimeoutError::Timeout) => {
+                // No result this tick. Keep waiting while the operation is still
+                // in flight (system slowness); give up only once it is no longer
+                // pending (accounted for, no result) or the ceiling is reached.
+                if pending_count.load(Ordering::SeqCst) > 0 {
+                    continue;
+                }
+                if let Some(task_result) = drain_delivered_before_giveup(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                ) {
+                    return Ok(Some(task_result));
+                }
+                record_timeout();
+                return Ok(None);
+            }
+            Err(flume::RecvTimeoutError::Disconnected) => {
+                if let Some(metrics) = metrics {
+                    let attrs = [
+                        KeyValue::new("batch.kind", "operation"),
+                        KeyValue::new("plugin.id", plugin_id.to_string()),
+                        KeyValue::new("outcome", "disconnected"),
+                    ];
+                    metrics
+                        .batch_wait_duration
+                        .record(wait_start.elapsed().as_secs_f64(), &attrs);
+                    metrics.batch_results_total.add(1, &attrs);
+                }
+                return Err(anyhow!("Batch channel disconnected"));
+            }
+        }
+    }
+}
+
+/// Async sibling of [`next_operation_result`]. Awaits the result via flume's
+/// `recv_async`, so a waiting detached-driver slot is a cheap future instead of
+/// a `spawn_blocking` OS thread — this is what lets the server hold thousands of
+/// in-flight waits without the thread blow-up. On a dropped sender (the batch was
+/// removed because the submission was cancelled/superseded) the await returns
+/// `Disconnected` immediately, so a superseded wait never lingers to the infra
+/// ceiling. The synchronous [`next_operation_result`] is retained for the Extism
+/// host-function boundary, which runs in a sync plugin context and cannot await.
+pub async fn next_operation_result_async(
+    plugin_id: &str,
+    batches: &OperationBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    batch_id: &str,
+    timeout: Duration,
+) -> anyhow::Result<Option<TaskResult>> {
+    let (result_rx, pending_count) = {
+        let batch = batches
+            .get(batch_id)
+            .ok_or_else(|| anyhow!("Batch not found: {}", batch_id))?;
+        (batch.result_rx.clone(), batch.pending_count.clone())
+    };
+
+    let wait_start = Instant::now();
+    let ceiling = timeout.max(operation_infra_floor());
+
+    loop {
+        let elapsed = wait_start.elapsed();
+        if elapsed >= ceiling {
+            if let Some(task_result) = drain_delivered_before_giveup(
+                plugin_id,
+                batches,
+                metrics,
+                batch_id,
+                &result_rx,
+                &pending_count,
+                wait_start,
+            ) {
+                return Ok(Some(task_result));
+            }
+            record_operation_wait_metric(plugin_id, metrics, wait_start, "timeout");
+            return Ok(None);
+        }
+        let tick = (ceiling - elapsed).min(OPERATION_RESULT_WAIT_TICK);
+
+        match tokio::time::timeout(tick, result_rx.recv_async()).await {
+            Ok(Ok(task_result)) => {
+                finish_operation_delivered(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                    &task_result,
+                );
+                return Ok(Some(task_result));
+            }
+            Ok(Err(_recv_error)) => {
+                record_operation_wait_metric(plugin_id, metrics, wait_start, "disconnected");
+                return Err(anyhow!("Batch channel disconnected"));
+            }
+            Err(_elapsed) => {
+                if pending_count.load(Ordering::SeqCst) > 0 {
+                    continue;
+                }
+                if let Some(task_result) = drain_delivered_before_giveup(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                ) {
+                    return Ok(Some(task_result));
+                }
+                record_operation_wait_metric(plugin_id, metrics, wait_start, "timeout");
+                return Ok(None);
+            }
+        }
+    }
+}
+
+/// Handling once an operation result is delivered: e2e trace, metrics, and batch
+/// cleanup when fully drained. Mirrors the inline logic in the sync
+/// [`next_operation_result`] for the async path.
+fn finish_operation_delivered(
+    plugin_id: &str,
+    batches: &OperationBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    batch_id: &str,
+    result_rx: &flume::Receiver<TaskResult>,
+    pending_count: &std::sync::atomic::AtomicUsize,
+    wait_start: Instant,
+    task_result: &TaskResult,
+) {
+    record_operation_result_e2e(metrics, task_result, "delivered");
+    if let Some(metrics) = metrics {
+        let attrs = [
+            KeyValue::new("batch.kind", "operation"),
+            KeyValue::new("plugin.id", plugin_id.to_string()),
+            KeyValue::new("outcome", "result"),
+            KeyValue::new("task_success", task_result.success.to_string()),
+        ];
+        metrics
+            .batch_wait_duration
+            .record(wait_start.elapsed().as_secs_f64(), &attrs);
+        metrics.batch_results_total.add(1, &attrs);
+    }
+    tracing::debug!(
+        plugin_id = %plugin_id,
+        batch_id = %batch_id,
+        task_id = %task_result.task_id,
+        "Operation result received"
+    );
+    if pending_count.load(Ordering::SeqCst) == 0
+        && result_rx.is_empty()
+        && batches.remove(batch_id).is_some()
+        && let Some(metrics) = metrics
+    {
+        metrics
+            .batch_active
+            .add(-1, &[KeyValue::new("batch.kind", "operation")]);
+    }
+}
+
+/// Final non-blocking drain attempted before a result-wait give-up branch
+/// returns `Ok(None)`. The waiter-forwarder ([`spawn_waiter_forwarder`]) sends
+/// each result into the channel BEFORE decrementing `pending_count`, so the
+/// instant a give-up branch observes `pending_count == 0` (or the infra ceiling
+/// elapses) a result that was just delivered is ALREADY buffered in `result_rx`.
+/// Returning `Ok(None)` without this check drops a completed operation, which
+/// the caller maps to "Operation batch timed out" -> a spurious SystemError
+/// under load. Returns the buffered result (running the normal delivery
+/// bookkeeping) when one is present; `None` only when the channel is genuinely
+/// empty.
+fn drain_delivered_before_giveup(
+    plugin_id: &str,
+    batches: &OperationBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    batch_id: &str,
+    result_rx: &flume::Receiver<TaskResult>,
+    pending_count: &std::sync::atomic::AtomicUsize,
+    wait_start: Instant,
+) -> Option<TaskResult> {
+    match result_rx.try_recv() {
         Ok(task_result) => {
-            record_operation_result_e2e(metrics, &task_result, "delivered");
-            if let Some(metrics) = metrics {
-                let attrs = [
-                    KeyValue::new("batch.kind", "operation"),
-                    KeyValue::new("plugin.id", plugin_id.to_string()),
-                    KeyValue::new("outcome", "result"),
-                    KeyValue::new("task_success", task_result.success.to_string()),
-                ];
-                metrics
-                    .batch_wait_duration
-                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
-                metrics.batch_results_total.add(1, &attrs);
-            }
-            tracing::debug!(
-                plugin_id = %plugin_id,
-                batch_id = %batch_id,
-                task_id = %task_result.task_id,
-                "Operation result received"
+            finish_operation_delivered(
+                plugin_id,
+                batches,
+                metrics,
+                batch_id,
+                result_rx,
+                pending_count,
+                wait_start,
+                &task_result,
             );
+            Some(task_result)
+        }
+        Err(_) => None,
+    }
+}
 
-            if pending_count.load(Ordering::SeqCst) == 0
-                && result_rx.is_empty()
-                && batches.remove(batch_id).is_some()
-                && let Some(metrics) = metrics
-            {
-                metrics
-                    .batch_active
-                    .add(-1, &[KeyValue::new("batch.kind", "operation")]);
-            }
-
-            Ok(Some(task_result))
-        }
-        Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
-            if let Some(metrics) = metrics {
-                let attrs = [
-                    KeyValue::new("batch.kind", "operation"),
-                    KeyValue::new("plugin.id", plugin_id.to_string()),
-                    KeyValue::new("outcome", "timeout"),
-                ];
-                metrics
-                    .batch_wait_duration
-                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
-                metrics.batch_results_total.add(1, &attrs);
-            }
-            Ok(None)
-        }
-        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
-            if let Some(metrics) = metrics {
-                let attrs = [
-                    KeyValue::new("batch.kind", "operation"),
-                    KeyValue::new("plugin.id", plugin_id.to_string()),
-                    KeyValue::new("outcome", "disconnected"),
-                ];
-                metrics
-                    .batch_wait_duration
-                    .record(wait_start.elapsed().as_secs_f64(), &attrs);
-                metrics.batch_results_total.add(1, &attrs);
-            }
-            Err(anyhow!("Batch channel disconnected"))
-        }
+fn record_operation_wait_metric(
+    plugin_id: &str,
+    metrics: Option<&common::metrics::Metrics>,
+    wait_start: Instant,
+    outcome: &'static str,
+) {
+    if let Some(metrics) = metrics {
+        let attrs = [
+            KeyValue::new("batch.kind", "operation"),
+            KeyValue::new("plugin.id", plugin_id.to_string()),
+            KeyValue::new("outcome", outcome),
+        ];
+        metrics
+            .batch_wait_duration
+            .record(wait_start.elapsed().as_secs_f64(), &attrs);
+        metrics.batch_results_total.add(1, &attrs);
     }
 }
 
@@ -832,7 +1077,7 @@ pub fn cancel_operation_batch(
 fn spawn_waiter_forwarder(
     correlation_id: String,
     op_rx: tokio::sync::oneshot::Receiver<TaskResult>,
-    batch_tx: crossbeam::channel::Sender<TaskResult>,
+    batch_tx: flume::Sender<TaskResult>,
     pending_count: Arc<AtomicUsize>,
     metrics: Option<common::metrics::Metrics>,
 ) {
@@ -967,6 +1212,109 @@ mod tests {
         assert_eq!(active, vec![(1, "batch-2".to_string())]);
     }
 
+    fn test_operation_batch(
+        rx: flume::Receiver<TaskResult>,
+        pending: usize,
+    ) -> BatchState<TaskResult> {
+        BatchState {
+            result_rx: rx,
+            pending_count: Arc::new(std::sync::atomic::AtomicUsize::new(pending)),
+            created_at: Instant::now(),
+            cleanup_keys: Arc::new(Vec::new()),
+            poisoned: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn dummy_task_result(task_id: &str) -> TaskResult {
+        TaskResult {
+            task_id: task_id.to_string(),
+            success: true,
+            output: serde_json::json!({}),
+            error: None,
+            task_type: None,
+            operation: None,
+            worker_id: None,
+            enqueued_at_unix_ms: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn async_wait_delivers_a_result() {
+        let batches: OperationBatches = Arc::new(dashmap::DashMap::new());
+        let (tx, rx) = flume::unbounded::<TaskResult>();
+        batches.insert("b1".to_string(), test_operation_batch(rx, 1));
+        tx.send(dummy_task_result("op-1")).unwrap();
+
+        let got = next_operation_result_async("p", &batches, None, "b1", Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert_eq!(got.unwrap().task_id, "op-1");
+    }
+
+    #[tokio::test]
+    async fn async_wait_drains_buffered_result_when_giving_up() {
+        // Lost-result race regression: the waiter-forwarder does
+        // `batch_tx.send(result)` BEFORE `pending_count.fetch_sub(1)`, so the
+        // instant the wait observes `pending_count == 0` the delivered result is
+        // ALREADY buffered in the channel. A give-up branch that returns
+        // `Ok(None)` without draining drops that completed result, which
+        // `wait_for_operation_results` then mis-maps to a "timed out" SystemError
+        // under load. `pending == 0` + a buffered result + `Duration::ZERO`
+        // (ceiling 0 via the test infra floor) forces the give-up branch on the
+        // first poll, exactly the runtime race window.
+        let batches: OperationBatches = Arc::new(dashmap::DashMap::new());
+        let (tx, rx) = flume::unbounded::<TaskResult>();
+        batches.insert("b1".to_string(), test_operation_batch(rx, 0));
+        tx.send(dummy_task_result("op-1")).unwrap();
+
+        let got = next_operation_result_async("p", &batches, None, "b1", Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(
+            got.expect("a delivered result must never be dropped by a give-up branch")
+                .task_id,
+            "op-1"
+        );
+    }
+
+    #[test]
+    fn sync_wait_drains_buffered_result_when_giving_up() {
+        // Sync sibling of the lost-result race (the Extism host-fn boundary).
+        let batches: OperationBatches = Arc::new(dashmap::DashMap::new());
+        let (tx, rx) = flume::unbounded::<TaskResult>();
+        batches.insert("b1".to_string(), test_operation_batch(rx, 0));
+        tx.send(dummy_task_result("op-1")).unwrap();
+
+        let got = next_operation_result("p", &batches, None, "b1", Duration::ZERO).unwrap();
+        assert_eq!(
+            got.expect("a delivered result must never be dropped by a give-up branch")
+                .task_id,
+            "op-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn async_wait_ends_promptly_on_dropped_sender() {
+        // The leak fix: an orphaned op (sender dropped, e.g. its batch was
+        // cancelled/superseded) must terminate the async wait at once, NOT linger
+        // to the infra ceiling. pending stays > 0 so only the disconnect can end it.
+        let batches: OperationBatches = Arc::new(dashmap::DashMap::new());
+        let (tx, rx) = flume::unbounded::<TaskResult>();
+        batches.insert("b2".to_string(), test_operation_batch(rx, 1));
+        drop(tx);
+
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(500),
+            next_operation_result_async("p", &batches, None, "b2", Duration::from_secs(30)),
+        )
+        .await;
+        assert!(
+            outcome.is_ok(),
+            "wait must end promptly on a dropped sender, not linger to the ceiling"
+        );
+        assert!(outcome.unwrap().is_err(), "dropped sender surfaces as an error");
+    }
+
     #[test]
     fn operation_result_e2e_labels_prefer_result_metadata() {
         let result = TaskResult {
@@ -1089,7 +1437,7 @@ mod tests {
         let evaluate_ops_registry =
             crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
         let cleanup_keys = vec!["op-1".to_string(), "op-2".to_string()];
-        let (_batch_tx, batch_rx) = crossbeam::channel::unbounded();
+        let (_batch_tx, batch_rx) = flume::unbounded();
         let (waiter_tx, _waiter_rx) = tokio::sync::oneshot::channel();
 
         operation_batches.insert(
@@ -1139,7 +1487,7 @@ mod tests {
     fn cancel_operation_batch_removes_waiters() {
         let batches = Arc::new(dashmap::DashMap::new());
         let waiters = Arc::new(dashmap::DashMap::new());
-        let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
+        let (batch_tx, batch_rx) = flume::unbounded();
         drop(batch_tx);
         let (waiter_tx, _waiter_rx) = tokio::sync::oneshot::channel();
         let cleanup_keys = Arc::new(vec!["task-1".to_string()]);

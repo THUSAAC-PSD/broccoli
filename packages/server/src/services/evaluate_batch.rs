@@ -38,6 +38,14 @@ const BATCH_EVALUATOR_LEGACY_FN: &str = "evaluate_batch";
 const BATCH_EVALUATOR_PREPARE_FN: &str = "prepare_evaluate_case";
 const BATCH_EVALUATOR_CALLBACK_FN: &str = "on_operation_results";
 const BATCH_EVALUATOR_CALLBACK_COALESCE: usize = 4;
+/// How many times a timed-out detached evaluate op is re-dispatched (on a fresh
+/// op batch, which any worker may pick up) before the timeout is surfaced to the
+/// plugin as a terminal event. The queued-op extend in `EvaluateBatchOpsRegistry`
+/// already prevents queue-wait timeouts, so a timeout reaching the driver means a
+/// genuine execution/result failure (dead worker, lost result, transient stall)
+/// that is worth retrying on another worker rather than letting the plugin
+/// blanket-fail the whole submission with SystemError.
+const MAX_DETACHED_OP_RETRIES: u32 = 2;
 
 fn record_evaluator_semaphore_wait(
     metrics: Option<&common::metrics::Metrics>,
@@ -75,11 +83,11 @@ pub async fn start_evaluate_batch(
     }
     .ok_or_else(|| anyhow!("No evaluator registered for problem type: {}", problem_type))?;
 
-    let resolved_inputs = resolve_inputs(&caller_plugin_id, &deps, input).await?;
-    let test_case_count = resolved_inputs.len();
     let batch_id = Uuid::new_v4().to_string();
+    let resolved_inputs = resolve_inputs(&caller_plugin_id, &deps, input, &batch_id).await?;
+    let test_case_count = resolved_inputs.len();
 
-    let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
+    let (batch_tx, batch_rx) = flume::unbounded();
     let pending_count = Arc::new(AtomicUsize::new(test_case_count));
 
     deps.evaluate_batches.insert(
@@ -333,6 +341,26 @@ struct DetachedEvaluateResult {
     result: anyhow::Result<Option<TestCaseVerdict>>,
 }
 
+/// Whether a test-case body is cheap enough to keep a clone of for the whole
+/// submission (so a timed-out op can be re-dispatched). Blob/Missing carry only
+/// a hash; small inline bodies are fine. A large inline body (the
+/// database-backend path) is NOT retained — holding ~tens of MB per test case
+/// for the submission's lifetime would re-introduce the result-set memory
+/// blow-up the windowed driver otherwise avoids by freeing each case after
+/// dispatch. Such cases simply fall through to the existing timeout behavior.
+fn body_cheap_to_retain(body: &TestCaseBodyRef) -> bool {
+    match body {
+        TestCaseBodyRef::Blob { .. } | TestCaseBodyRef::Missing => true,
+        TestCaseBodyRef::Inline { text } => {
+            text.len() <= INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES
+        }
+    }
+}
+
+fn test_case_cheap_to_retain(test_case: &StartEvaluateCaseInput) -> bool {
+    body_cheap_to_retain(&test_case.input) && body_cheap_to_retain(&test_case.expected_output)
+}
+
 async fn run_detached_windowed_evaluate(
     caller_plugin_id: String,
     deps: EvaluateHostDeps,
@@ -345,6 +373,17 @@ async fn run_detached_windowed_evaluate(
     let submission_completion = input.submission_completion.clone();
     let problem_type = input.batch.problem_type.clone();
     let mut pending = input.batch.test_cases.into_iter().rev().collect::<Vec<_>>();
+    // Retain a clone of each cheap-bodied test case so a timed-out op can be
+    // re-dispatched (see MAX_DETACHED_OP_RETRIES). Large inline bodies are
+    // skipped to keep memory bounded; under the object_storage backend every
+    // body is a hash ref, so this map is a few KB per case and retry covers all
+    // test cases.
+    let retry_pool: HashMap<i32, StartEvaluateCaseInput> = pending
+        .iter()
+        .filter(|tc| test_case_cheap_to_retain(tc))
+        .map(|tc| (tc.test_case_id, tc.clone()))
+        .collect();
+    let mut op_retries: HashMap<i32, u32> = HashMap::new();
     let mut active = Vec::<(i32, String)>::new();
     let (tx, mut rx) = mpsc::channel::<DetachedEvaluateResult>(concurrency * 2);
     let mut state = input.state;
@@ -422,6 +461,62 @@ async fn run_detached_windowed_evaluate(
         if !remove_active_evaluate_slot_by_batch_id(&mut active, &item.batch_id) {
             continue;
         }
+
+        // Infra-timeout retry (server-side, before surfacing to the plugin): a
+        // timed-out / lost op is re-dispatched on a fresh op batch up to
+        // MAX_DETACHED_OP_RETRIES times. A timeout does NOT count toward
+        // `completed` and does not invoke the plugin callback — only a genuinely
+        // exhausted retry budget falls through to the Timeout event below. Each
+        // re-dispatch gets a new op batch_id (and fresh started_at tracking); a
+        // late result from the superseded batch is harmlessly dropped by the
+        // slot-removal guard above.
+        let is_timeout = !matches!(item.result, Ok(Some(_)));
+        if is_timeout {
+            let attempts = op_retries.entry(item.test_case_id).or_insert(0);
+            if *attempts < MAX_DETACHED_OP_RETRIES {
+                if let Some(test_case) = retry_pool.get(&item.test_case_id).cloned() {
+                    match start_detached_evaluate_slot(
+                        &caller_plugin_id,
+                        deps.clone(),
+                        tx.clone(),
+                        problem_type.clone(),
+                        test_case,
+                        timeout,
+                    )
+                    .await
+                    {
+                        Ok((tc_id, batch_id)) => {
+                            *attempts += 1;
+                            // Best-effort: drop the superseded batch's registry
+                            // entry so its started_at/op refs don't linger.
+                            deps.evaluate_ops_registry.remove_batch(&item.batch_id);
+                            active.push((tc_id, batch_id));
+                            tracing::warn!(
+                                %caller_plugin_id,
+                                %session_id,
+                                test_case_id = item.test_case_id,
+                                attempt = *attempts,
+                                max = MAX_DETACHED_OP_RETRIES,
+                                "Detached evaluate op timed out; re-dispatching on a fresh op batch"
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            // Re-dispatch failed — surface the timeout to the
+                            // plugin rather than silently dropping the test case.
+                            tracing::error!(
+                                %caller_plugin_id,
+                                %session_id,
+                                test_case_id = item.test_case_id,
+                                error = %e,
+                                "Failed to re-dispatch timed-out detached evaluate op; surfacing timeout"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         completed += 1;
 
         let event = match item.result {
@@ -641,19 +736,17 @@ async fn start_detached_evaluate_slot(
         let registry = deps.evaluate_ops_registry.clone();
         let metrics = deps.metrics.clone();
         let batch_id_for_wait = wait_batch_id.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            next_evaluate_result(
-                &wait_plugin_id,
-                &batches,
-                metrics.as_ref(),
-                &registry,
-                &batch_id_for_wait,
-                timeout,
-            )
-        })
-        .await
-        .map_err(|e| anyhow!("Evaluate waiter task failed: {e}"))
-        .and_then(|result| result);
+        // Await the verdict as a cheap future instead of holding a blocking
+        // thread for the test case's whole execution.
+        let result = next_evaluate_result_async(
+            &wait_plugin_id,
+            &batches,
+            metrics.as_ref(),
+            &registry,
+            &batch_id_for_wait,
+            timeout,
+        )
+        .await;
         let _ = tx
             .send(DetachedEvaluateResult {
                 test_case_id,
@@ -795,7 +888,7 @@ fn spawn_batch_evaluator_callback_dispatch(
     deps: EvaluateHostDeps,
     batch_id: String,
     resolved_inputs: Vec<BuildEvalOpsInput>,
-    batch_tx: crossbeam::channel::Sender<TestCaseVerdict>,
+    batch_tx: flume::Sender<TestCaseVerdict>,
     pending_count: Arc<AtomicUsize>,
     evaluator_plugin_id: String,
     problem_type: String,
@@ -973,6 +1066,23 @@ async fn run_batch_evaluator_case_continuation(
     })
 }
 
+/// Large infrastructure ceiling for the batch-evaluator operation-result wait.
+/// The per-op `timeout` is the small solution-derived budget; under load
+/// (queueing + cold blob IO) that elapses while the worker is still alive and
+/// processing. Bounding the wait by it converts SYSTEM slowness into a
+/// SystemError. Extend up to this ceiling instead so slow degrades to slow, not
+/// failed; the solution's real time limit is enforced inside isolate, and a dead
+/// worker is reclaimed by the dispatcher stuck-detector. Zero in tests so the
+/// explicit `timeout` still governs.
+#[cfg(not(test))]
+fn batch_evaluator_result_infra_floor() -> Duration {
+    Duration::from_secs(30 * 60)
+}
+#[cfg(test)]
+fn batch_evaluator_result_infra_floor() -> Duration {
+    Duration::from_secs(0)
+}
+
 async fn wait_for_operation_results(
     plugin_id: String,
     operation_deps: crate::host_funcs::context::OperationHostDeps,
@@ -983,14 +1093,42 @@ async fn wait_for_operation_results(
     let batches = operation_deps.operation_batches.clone();
     let waiters = operation_deps.operation_waiters.clone();
     let metrics = operation_deps.metrics.clone();
-    let task_results = tokio::task::spawn_blocking(move || {
-        let started = Instant::now();
-        let mut results = Vec::with_capacity(expected_count);
-        for _ in 0..expected_count {
-            let remaining = timeout
-                .checked_sub(started.elapsed())
-                .unwrap_or(Duration::ZERO);
-            if remaining.is_zero() {
+    let ceiling = timeout.max(batch_evaluator_result_infra_floor());
+    // Collect the operation results by awaiting each as a future — no blocking
+    // thread is held for the batch's lifetime, and a cancelled/superseded batch
+    // (dropped sender) ends the wait immediately instead of leaking a thread to
+    // the infra ceiling.
+    let started = Instant::now();
+    let mut task_results = Vec::with_capacity(expected_count);
+    for _ in 0..expected_count {
+        let remaining = ceiling
+            .checked_sub(started.elapsed())
+            .unwrap_or(Duration::ZERO);
+        if remaining.is_zero() {
+            crate::services::operation_batch::cancel_operation_batch(
+                &plugin_id,
+                &batches,
+                &waiters,
+                metrics.as_ref(),
+                &operation_batch_id,
+            );
+            return Err(anyhow!(
+                "Operation batch {} timed out waiting for {} result(s)",
+                operation_batch_id,
+                expected_count
+            ));
+        }
+        match crate::services::operation_batch::next_operation_result_async(
+            &plugin_id,
+            &batches,
+            metrics.as_ref(),
+            &operation_batch_id,
+            remaining,
+        )
+        .await?
+        {
+            Some(result) => task_results.push(result),
+            None => {
                 crate::services::operation_batch::cancel_operation_batch(
                     &plugin_id,
                     &batches,
@@ -1004,34 +1142,8 @@ async fn wait_for_operation_results(
                     expected_count
                 ));
             }
-            match crate::services::operation_batch::next_operation_result(
-                &plugin_id,
-                &batches,
-                metrics.as_ref(),
-                &operation_batch_id,
-                remaining,
-            )? {
-                Some(result) => results.push(result),
-                None => {
-                    crate::services::operation_batch::cancel_operation_batch(
-                        &plugin_id,
-                        &batches,
-                        &waiters,
-                        metrics.as_ref(),
-                        &operation_batch_id,
-                    );
-                    return Err(anyhow!(
-                        "Operation batch {} timed out waiting for {} result(s)",
-                        operation_batch_id,
-                        expected_count
-                    ));
-                }
-            }
         }
-        Ok(results)
-    })
-    .await
-    .map_err(|e| anyhow!("Operation result waiter task failed: {e}"))??;
+    }
 
     operation_results_from_task_results(task_results)
 }
@@ -1042,7 +1154,7 @@ async fn run_batch_evaluator_callback_aggregator(
     pm: Arc<dyn plugin_core::traits::PluginManager>,
     evaluator_slots: Arc<tokio::sync::Semaphore>,
     mut ready_rx: mpsc::Receiver<EvaluateOperationResultInput>,
-    batch_tx: crossbeam::channel::Sender<TestCaseVerdict>,
+    batch_tx: flume::Sender<TestCaseVerdict>,
     pending_count: Arc<AtomicUsize>,
     metrics: Option<common::metrics::Metrics>,
 ) {
@@ -1092,7 +1204,7 @@ async fn flush_batch_evaluator_callback(
     problem_type: &str,
     pm: &dyn plugin_core::traits::PluginManager,
     evaluator_slots: Arc<tokio::sync::Semaphore>,
-    batch_tx: &crossbeam::channel::Sender<TestCaseVerdict>,
+    batch_tx: &flume::Sender<TestCaseVerdict>,
     pending_count: &AtomicUsize,
     metrics: Option<&common::metrics::Metrics>,
     items: Vec<EvaluateOperationResultInput>,
@@ -1223,11 +1335,11 @@ pub fn next_evaluate_result(
             &pending_count,
             wait_start,
             result_rx.try_recv().map_err(|err| match err {
-                crossbeam::channel::TryRecvError::Empty => {
-                    crossbeam::channel::RecvTimeoutError::Timeout
+                flume::TryRecvError::Empty => {
+                    flume::RecvTimeoutError::Timeout
                 }
-                crossbeam::channel::TryRecvError::Disconnected => {
-                    crossbeam::channel::RecvTimeoutError::Disconnected
+                flume::TryRecvError::Disconnected => {
+                    flume::RecvTimeoutError::Disconnected
                 }
             }),
         );
@@ -1248,7 +1360,7 @@ pub fn next_evaluate_result(
                     verdict,
                 );
             }
-            Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
+            Err(flume::RecvTimeoutError::Timeout) => {
                 if pending_count.load(Ordering::SeqCst) > 0
                     && evaluate_ops_registry
                         .should_extend_wait_for_execution_timeout(batch_id, timeout)
@@ -1275,7 +1387,7 @@ pub fn next_evaluate_result(
                 }
                 return Ok(None);
             }
-            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
+            Err(flume::RecvTimeoutError::Disconnected) => {
                 if let Some(metrics) = metrics {
                     let attrs = [
                         KeyValue::new("batch.kind", "evaluate"),
@@ -1293,6 +1405,102 @@ pub fn next_evaluate_result(
     }
 }
 
+/// Async sibling of [`next_evaluate_result`]. Awaits each result via flume's
+/// `recv_async` so a detached windowed-evaluate slot is a cheap future, not a
+/// `spawn_blocking` OS thread. A dropped sender (cancelled/superseded batch)
+/// returns `Disconnected` immediately, so superseded slots don't linger to the
+/// 30-min ceiling. The sync version is kept for the Extism host-fn boundary.
+pub async fn next_evaluate_result_async(
+    plugin_id: &str,
+    batches: &EvaluateBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
+    batch_id: &str,
+    timeout: Duration,
+) -> anyhow::Result<Option<TestCaseVerdict>> {
+    let (result_rx, pending_count) = {
+        let batch = batches
+            .get(batch_id)
+            .ok_or_else(|| anyhow!("Batch not found: {}", batch_id))?;
+        (batch.result_rx.clone(), batch.pending_count.clone())
+    };
+
+    let wait_start = Instant::now();
+    if timeout.is_zero() {
+        return handle_evaluate_receive(
+            plugin_id,
+            batches,
+            metrics,
+            evaluate_ops_registry,
+            batch_id,
+            &result_rx,
+            &pending_count,
+            wait_start,
+            result_rx.try_recv().map_err(|err| match err {
+                flume::TryRecvError::Empty => flume::RecvTimeoutError::Timeout,
+                flume::TryRecvError::Disconnected => flume::RecvTimeoutError::Disconnected,
+            }),
+        );
+    }
+
+    loop {
+        match tokio::time::timeout(next_evaluate_wait_tick(timeout), result_rx.recv_async()).await {
+            Ok(Ok(verdict)) => {
+                return handle_evaluate_verdict(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    evaluate_ops_registry,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                    verdict,
+                );
+            }
+            Ok(Err(_recv_error)) => {
+                record_evaluate_wait_metric(plugin_id, metrics, wait_start, "disconnected");
+                return Err(anyhow!("Evaluate batch channel disconnected"));
+            }
+            Err(_elapsed) => {
+                if pending_count.load(Ordering::SeqCst) > 0
+                    && evaluate_ops_registry
+                        .should_extend_wait_for_execution_timeout(batch_id, timeout)
+                {
+                    tracing::debug!(
+                        plugin_id = %plugin_id,
+                        batch_id = %batch_id,
+                        timeout_ms = timeout.as_millis(),
+                        "Evaluate result wait extended while operation execution budget remains"
+                    );
+                    continue;
+                }
+                record_evaluate_wait_metric(plugin_id, metrics, wait_start, "timeout");
+                return Ok(None);
+            }
+        }
+    }
+}
+
+fn record_evaluate_wait_metric(
+    plugin_id: &str,
+    metrics: Option<&common::metrics::Metrics>,
+    wait_start: Instant,
+    outcome: &'static str,
+) {
+    if let Some(metrics) = metrics {
+        let attrs = [
+            KeyValue::new("batch.kind", "evaluate"),
+            KeyValue::new("plugin.id", plugin_id.to_string()),
+            KeyValue::new("outcome", outcome),
+        ];
+        metrics
+            .batch_wait_duration
+            .record(wait_start.elapsed().as_secs_f64(), &attrs);
+        metrics.batch_results_total.add(1, &attrs);
+    }
+}
+
 fn next_evaluate_wait_tick(timeout: Duration) -> Duration {
     timeout.min(EVALUATE_RESULT_WAIT_TICK)
 }
@@ -1303,10 +1511,10 @@ fn handle_evaluate_receive(
     metrics: Option<&common::metrics::Metrics>,
     evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
     batch_id: &str,
-    result_rx: &crossbeam::channel::Receiver<TestCaseVerdict>,
+    result_rx: &flume::Receiver<TestCaseVerdict>,
     pending_count: &Arc<AtomicUsize>,
     wait_start: Instant,
-    result: Result<TestCaseVerdict, crossbeam::channel::RecvTimeoutError>,
+    result: Result<TestCaseVerdict, flume::RecvTimeoutError>,
 ) -> anyhow::Result<Option<TestCaseVerdict>> {
     match result {
         Ok(verdict) => handle_evaluate_verdict(
@@ -1320,7 +1528,7 @@ fn handle_evaluate_receive(
             wait_start,
             verdict,
         ),
-        Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
+        Err(flume::RecvTimeoutError::Timeout) => {
             if let Some(metrics) = metrics {
                 let attrs = [
                     KeyValue::new("batch.kind", "evaluate"),
@@ -1334,7 +1542,7 @@ fn handle_evaluate_receive(
             }
             Ok(None)
         }
-        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
+        Err(flume::RecvTimeoutError::Disconnected) => {
             if let Some(metrics) = metrics {
                 let attrs = [
                     KeyValue::new("batch.kind", "evaluate"),
@@ -1357,7 +1565,7 @@ fn handle_evaluate_verdict(
     metrics: Option<&common::metrics::Metrics>,
     evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
     batch_id: &str,
-    result_rx: &crossbeam::channel::Receiver<TestCaseVerdict>,
+    result_rx: &flume::Receiver<TestCaseVerdict>,
     pending_count: &Arc<AtomicUsize>,
     wait_start: Instant,
     verdict: TestCaseVerdict,
@@ -1430,6 +1638,7 @@ async fn resolve_inputs(
     caller_plugin_id: &str,
     deps: &EvaluateHostDeps,
     input: StartEvaluateBatchInput,
+    evaluate_batch_id: &str,
 ) -> anyhow::Result<Vec<BuildEvalOpsInput>> {
     let Some((problem_id, solution_language)) = validate_batch_shape(&input.test_cases)? else {
         return Ok(Vec::new());
@@ -1560,6 +1769,7 @@ async fn resolve_inputs(
             time_limit_ms: tc.time_limit_ms,
             memory_limit_kb: tc.memory_limit_kb,
             contest_id: tc.contest_id,
+            evaluate_batch_id: Some(evaluate_batch_id.to_string()),
             test_input: test_input.file,
             expected_output: expected_output.file,
             checker_format: tc_checker_format,
@@ -1724,7 +1934,7 @@ fn operation_results_from_task_results(
 }
 
 fn send_system_error(
-    batch_tx: &crossbeam::channel::Sender<TestCaseVerdict>,
+    batch_tx: &flume::Sender<TestCaseVerdict>,
     test_case_id: i32,
     message: String,
 ) {
@@ -1756,7 +1966,7 @@ fn decrement_pending(pending: &AtomicUsize, metrics: Option<&common::metrics::Me
 /// every `next_evaluate_result` waiter forever.
 struct DispatchGuard {
     pending: Vec<i32>,
-    batch_tx: crossbeam::channel::Sender<TestCaseVerdict>,
+    batch_tx: flume::Sender<TestCaseVerdict>,
     pending_count: Arc<AtomicUsize>,
     metrics: Option<common::metrics::Metrics>,
 }
@@ -1865,7 +2075,7 @@ mod tests {
         let batches = EvaluateBatches::default();
         let registry =
             crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
-        let (tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let (tx, rx) = flume::unbounded::<TestCaseVerdict>();
         let pending_count = Arc::new(AtomicUsize::new(1));
         let batch_id = "eval-timeout-started";
 
@@ -1924,7 +2134,7 @@ mod tests {
         let batches = EvaluateBatches::default();
         let registry =
             crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
-        let (_tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let (_tx, rx) = flume::unbounded::<TestCaseVerdict>();
         let pending_count = Arc::new(AtomicUsize::new(1));
         let batch_id = "eval-timeout-multi-op";
 
@@ -1967,7 +2177,7 @@ mod tests {
         let batches = EvaluateBatches::default();
         let registry =
             crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
-        let (_tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let (_tx, rx) = flume::unbounded::<TestCaseVerdict>();
         let pending_count = Arc::new(AtomicUsize::new(1));
         let batch_id = "eval-timeout-zero";
 
@@ -2004,7 +2214,7 @@ mod tests {
 
     #[test]
     fn dispatch_guard_drains_remaining_on_drop() {
-        let (tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let (tx, rx) = flume::unbounded::<TestCaseVerdict>();
         let pending = Arc::new(AtomicUsize::new(3));
         {
             let mut guard = DispatchGuard {
@@ -2026,7 +2236,7 @@ mod tests {
 
     #[test]
     fn dispatch_guard_empty_pending_is_noop_on_drop() {
-        let (tx, rx) = crossbeam::channel::unbounded::<TestCaseVerdict>();
+        let (tx, rx) = flume::unbounded::<TestCaseVerdict>();
         let pending = Arc::new(AtomicUsize::new(2));
         {
             let guard = DispatchGuard {
@@ -2181,6 +2391,50 @@ mod tests {
             is_custom: false,
             target_worker_id: None,
         }
+    }
+
+    #[test]
+    fn cheap_bodies_are_retained_for_retry() {
+        // Blob/Missing carry only a hash — always cheap to keep for the whole
+        // submission so the op can be re-dispatched on timeout.
+        assert!(body_cheap_to_retain(&TestCaseBodyRef::Missing));
+        assert!(body_cheap_to_retain(&TestCaseBodyRef::blob("deadbeef")));
+        // A small inline body is fine too.
+        assert!(body_cheap_to_retain(&TestCaseBodyRef::inline("a".repeat(1024))));
+        // At exactly the threshold it is still retained.
+        assert!(body_cheap_to_retain(&TestCaseBodyRef::inline(
+            "x".repeat(INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES)
+        )));
+    }
+
+    #[test]
+    fn large_inline_bodies_are_not_retained_for_retry() {
+        // A large inline body (database-backend path) must NOT be held for the
+        // submission's lifetime — that would re-introduce the result-set memory
+        // blow-up. Such a case falls through to the existing timeout behavior.
+        let huge = TestCaseBodyRef::inline("x".repeat(INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES + 1));
+        assert!(!body_cheap_to_retain(&huge));
+
+        let mut tc = case(1, "cpp");
+        tc.input = huge;
+        assert!(!test_case_cheap_to_retain(&tc));
+    }
+
+    #[test]
+    fn test_case_retainable_only_when_both_bodies_cheap() {
+        let mut tc = case(1, "cpp");
+        // Both Missing by default — retainable.
+        assert!(test_case_cheap_to_retain(&tc));
+
+        // Cheap input + cheap expected output — retainable.
+        tc.input = TestCaseBodyRef::blob("in");
+        tc.expected_output = TestCaseBodyRef::blob("out");
+        assert!(test_case_cheap_to_retain(&tc));
+
+        // A large expected_output alone disqualifies retention.
+        tc.expected_output =
+            TestCaseBodyRef::inline("y".repeat(INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES + 1));
+        assert!(!test_case_cheap_to_retain(&tc));
     }
 
     #[test]

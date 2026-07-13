@@ -5,6 +5,14 @@ use server::config::AppConfig;
 use server::runtime::ServerRuntime;
 use tracing::info;
 
+// Use jemalloc instead of the system (glibc) allocator. Under concurrent judging
+// of large-testcase problems glibc retains freed mmap'd allocations and inflates
+// RSS far past the live working set; jemalloc returns memory to the OS
+// aggressively, keeping RSS close to the actual in-use set. (See the dep note in
+// Cargo.toml; `profiling` feature enables `_RJEM_MALLOC_CONF=prof:true` diagnosis.)
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 fn main() -> anyhow::Result<()> {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
         println!("broccoli-server {}", env!("CARGO_PKG_VERSION"));

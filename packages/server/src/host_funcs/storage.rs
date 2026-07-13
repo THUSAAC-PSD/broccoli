@@ -78,6 +78,12 @@ host_fn!(pub blob_read_range(user_data: (String, Arc<dyn BlobStore>, BlobReadGra
         })
         .map_err(extism::Error::msg)?;
 
+    // Record bytes pulled into the guest so the plugin pool can recycle
+    // instances that have streamed through enough data to grow their (never-
+    // shrinking) WASM linear memory. Runs on the same blocking thread as the
+    // in-flight plugin call, so the thread-local counter is the right instance.
+    plugin_core::host_context::add_stream_bytes(range.bytes.len() as u64);
+
     Ok(serde_json::json!({
         "bytes": BASE64.encode(&range.bytes),
         "len": range.bytes.len(),

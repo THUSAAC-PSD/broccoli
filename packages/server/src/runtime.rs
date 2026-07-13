@@ -80,6 +80,22 @@ impl ServerRuntime {
             app_config.database.max_connections,
         )
         .await?;
+        // Dedicated pool for plugin host-function DB calls, isolated from the
+        // main pool above (handlers/dispatcher/windowed-eval). Prevents
+        // connection-protocol desync from other operations corrupting clean
+        // plugin INSERTs as spurious "0x00" errors. See database.rs::init_plugin_db.
+        let plugin_db = crate::database::init_plugin_db(
+            &app_config.database.url,
+            app_config.database.plugin_max_connections,
+        )
+        .await?;
+        info!(
+            plugin_max_connections = app_config.database.plugin_max_connections,
+            "Initialized isolated plugin host-function DB pool"
+        );
+        // URL for the guaranteed fresh-connection fallback when pool retries are
+        // exhausted by poisoned-connection 0x00 errors.
+        crate::host_funcs::sql::set_plugin_db_fallback_url(app_config.database.url.clone());
         let blob_store = create_blob_store(&app_config.storage, db.clone(), Some(metrics.clone()))
             .await
             .context("Failed to initialize blob storage")?;
@@ -151,7 +167,7 @@ impl ServerRuntime {
 
         let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
         let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
-        let checker_format_registry = Arc::new(RwLock::new(HashMap::new()));
+        let checker_stage_registry = Arc::new(RwLock::new(HashMap::new()));
         let language_resolver_registry = Arc::new(RwLock::new(HashMap::new()));
         let operation_batches = Arc::new(DashMap::new());
         let operation_waiters = Arc::new(DashMap::new());
@@ -232,13 +248,13 @@ impl ServerRuntime {
         let manager = ServerManager::new(
             app_config.plugin.clone(),
             HostFunctionSystemDeps {
-                db: db.clone(),
+                db: plugin_db,
                 mq: mq.clone(),
                 operation_batches: operation_batches.clone(),
                 operation_waiters: operation_waiters.clone(),
                 contest_type_registry: contest_type_registry.clone(),
                 evaluator_registry: evaluator_registry.clone(),
-                checker_format_registry: checker_format_registry.clone(),
+                checker_stage_registry: checker_stage_registry.clone(),
                 language_resolver_registry: language_resolver_registry.clone(),
                 evaluate_batches: evaluate_batches.clone(),
                 evaluate_ops_registry: evaluate_ops_registry.clone(),
@@ -293,7 +309,7 @@ impl ServerRuntime {
             registries: crate::state::RegistryState {
                 contest_type_registry: contest_type_registry.clone(),
                 evaluator_registry: evaluator_registry.clone(),
-                checker_format_registry: checker_format_registry.clone(),
+                checker_stage_registry: checker_stage_registry.clone(),
                 language_resolver_registry: language_resolver_registry.clone(),
                 operation_batches: operation_batches.clone(),
                 operation_waiters: operation_waiters.clone(),
@@ -318,6 +334,41 @@ impl ServerRuntime {
         }
 
         let _failures = sync_plugins(&state).await?;
+
+        // Boot-time orphan recovery: a restart leaves this server's in-flight
+        // submissions/judgements/code-runs tagged with our own `server_id` and a
+        // fresh lease the (now-dead) driver can no longer honor. The lease fiber
+        // would keep refreshing those leases, so the steal sweeper could never
+        // reclaim them and the work would hang in `Running` forever. Release them
+        // BEFORE spawning the dispatcher so the steal sweeper's first scan picks
+        // them up. Best-effort: a failure here must not block startup. Gated on
+        // lease/steal being enabled — without the sweeper nothing would reclaim
+        // the released rows.
+        if app_config.server.dispatcher_lease_steal_enabled {
+            match crate::dispatcher::steal::recover_orphaned_leases(&db, &server_id).await {
+                Ok((subs, code_runs, judgements)) => {
+                    if subs > 0 || code_runs > 0 || judgements > 0 {
+                        info!(
+                            server_id = %server_id,
+                            submissions = subs,
+                            code_runs,
+                            judgements,
+                            "Startup recovery released own orphaned in-flight leases for steal"
+                        );
+                    } else {
+                        info!(server_id = %server_id, "Startup recovery: no orphaned leases to release");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        server_id = %server_id,
+                        error = %e,
+                        "Startup orphan-lease recovery failed; in-flight work owned by a prior \
+                         instance of this server_id may hang until manually reclaimed"
+                    );
+                }
+            }
+        }
 
         let dispatcher = crate::dispatcher::Dispatcher::spawn(crate::dispatcher::DispatcherDeps {
             state: state.clone(),

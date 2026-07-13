@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use common::{DlqErrorCode, DlqMessageType, SubmissionDlqErrorCode, SubmissionStatus};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, DbBackend, EntityTrait,
-    ExprTrait, QueryFilter, QueryOrder, QueryResult, QuerySelect, Set, Statement, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
+    DbBackend, EntityTrait, ExprTrait, QueryFilter, QueryOrder, QueryResult, QuerySelect, Set,
+    Statement, TransactionTrait,
 };
 use tokio::sync::watch;
 use tracing::{error, info, warn};
@@ -124,7 +125,7 @@ async fn scan_once(
     let deferred_slots = reserve_redispatch_slots(&state, batch_size, "deferred_judgement");
     if !deferred_slots.is_empty() {
         let deferred_judgements = claim_deferred_judgements(
-            &state,
+            &state.db,
             server_id,
             lease_ttl_secs,
             deferred_slots.len() as u32,
@@ -166,6 +167,97 @@ async fn scan_once(
     }
 
     Ok(())
+}
+
+/// Release this server's OWN in-flight leases at startup so the steal sweeper
+/// can reclaim them.
+///
+/// A restarted coordinator keeps the **same** `server_id`, so every submission,
+/// code-run, and current-unfinalized judgement it owned before the restart is
+/// still tagged `owner_server_id = <self>` in the DB — but the in-memory
+/// evaluate/operation driver that was actually judging it died with the old
+/// process. The lease-refresh fiber ([`crate::dispatcher::lease`]) filters on
+/// `owner_server_id = <self>`, so it would keep renewing those dead leases
+/// forever; the steal sweeper's `lease_heartbeat_at < threshold` test then never
+/// trips and the work hangs in `Running` until a human intervenes.
+///
+/// Boot-time recovery breaks the cycle: re-tag every own-owned in-flight row with
+/// an `#orphaned` owner sentinel and NULL its heartbeat. That makes the rows look
+/// exactly like a **dead foreign server's** expired lease
+/// (`owner_server_id IS NOT NULL AND lease_heartbeat_at IS NULL`), which the steal
+/// sweeper reclaims on its very first scan — no `created_at` aging required — and
+/// re-dispatches onto a fresh driver. The lease fiber no longer matches them
+/// (`owner != <self>`), so there is no refresh race regardless of task ordering.
+///
+/// Strictly scoped to `owner_server_id = <self>`: a sibling replica's in-flight
+/// work (different `server_id`, live lease) is left untouched, preserving
+/// multi-replica safety. Returns `(submissions, code_runs, judgements)` released.
+pub async fn recover_orphaned_leases(
+    db: &DatabaseConnection,
+    server_id: &str,
+) -> Result<(u64, u64, u64), sea_orm::DbErr> {
+    // A sentinel owner that (a) is NON-NULL so the steal sweeper's
+    // `owner_server_id IS NOT NULL AND lease_heartbeat_at IS NULL` branch
+    // reclaims it on the first scan with no `created_at` aging, and (b) differs
+    // from `server_id` so the lease fiber's `owner = server_id` refresh skips
+    // it. The `#orphaned` suffix cannot collide with a real server id.
+    let orphan_owner = format!("{server_id}#orphaned");
+    let leased = || {
+        [
+            SubmissionStatus::Pending,
+            SubmissionStatus::Compiling,
+            SubmissionStatus::Running,
+        ]
+    };
+
+    let submissions = submission::Entity::update_many()
+        .col_expr(
+            submission::Column::OwnerServerId,
+            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())).into(),
+        )
+        .col_expr(
+            submission::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+        )
+        .filter(submission::Column::OwnerServerId.eq(server_id))
+        .filter(submission::Column::Status.is_in(leased()))
+        .exec(db)
+        .await?
+        .rows_affected;
+
+    let code_runs = code_run::Entity::update_many()
+        .col_expr(
+            code_run::Column::OwnerServerId,
+            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())).into(),
+        )
+        .col_expr(
+            code_run::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+        )
+        .filter(code_run::Column::OwnerServerId.eq(server_id))
+        .filter(code_run::Column::Status.is_in(leased()))
+        .exec(db)
+        .await?
+        .rows_affected;
+
+    let judgements = submission_judgement::Entity::update_many()
+        .col_expr(
+            submission_judgement::Column::OwnerServerId,
+            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())).into(),
+        )
+        .col_expr(
+            submission_judgement::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+        )
+        .filter(submission_judgement::Column::OwnerServerId.eq(server_id))
+        .filter(submission_judgement::Column::IsCurrent.eq(true))
+        .filter(submission_judgement::Column::IsFinalized.eq(false))
+        .filter(submission_judgement::Column::Status.is_in(leased()))
+        .exec(db)
+        .await?
+        .rows_affected;
+
+    Ok((submissions, code_runs, judgements))
 }
 
 fn reserve_redispatch_slots(
@@ -425,13 +517,13 @@ async fn clear_current_submission_results(
 }
 
 async fn claim_deferred_judgements(
-    state: &AppState,
+    db: &DatabaseConnection,
     server_id: &str,
     lease_ttl_secs: u64,
     batch_size: u32,
     max_dispatch_retries: u32,
 ) -> anyhow::Result<Vec<(submission::Model, i32)>> {
-    let txn = state.db.begin().await?;
+    let txn = db.begin().await?;
     let rows = claim_deferred_judgement_rows(&txn, lease_ttl_secs, batch_size).await?;
     let plan = ClaimPlan::from_rows(rows, max_dispatch_retries);
 
@@ -538,6 +630,44 @@ async fn claim_deferred_judgements(
             .await?;
     }
 
+    // Terminalize the parent submissions of exhausted deferred judgements. The
+    // loop above finalizes the judgement rows as SystemError, but the parent
+    // `submission` rows are left untouched and would otherwise hang in a
+    // non-terminal status forever. Gate each flip on the submission's own
+    // current epoch so a concurrently re-dispatched submission is not clobbered.
+    if !plan.exhausted_rows.is_empty() {
+        let exhausted_ids: Vec<i32> = plan.exhausted_rows.iter().map(|r| r.id).collect();
+        let exhausted_judgements = submission_judgement::Entity::find()
+            .filter(submission_judgement::Column::Id.is_in(exhausted_ids))
+            .all(&txn)
+            .await?;
+        let submission_ids: Vec<i32> = exhausted_judgements
+            .iter()
+            .map(|j| j.submission_id)
+            .collect();
+        let submissions = if submission_ids.is_empty() {
+            Vec::new()
+        } else {
+            submission::Entity::find()
+                .filter(submission::Column::Id.is_in(submission_ids))
+                .all(&txn)
+                .await?
+        };
+        for sub in submissions {
+            let message = format!(
+                "Deferred judgement dispatch retry limit exhausted after {max_dispatch_retries} attempts"
+            );
+            crate::consumers::mark_submission_system_error_with_epoch(
+                &txn,
+                sub.id,
+                SubmissionDlqErrorCode::DISPATCH_RETRY_EXHAUSTED,
+                &message,
+                Some(sub.judge_epoch),
+            )
+            .await?;
+        }
+    }
+
     let judgements = if plan.redispatch_ids.is_empty() {
         Vec::new()
     } else {
@@ -560,6 +690,73 @@ async fn claim_deferred_judgements(
         .into_iter()
         .map(|sub| (sub.id, sub))
         .collect::<std::collections::HashMap<_, _>>();
+
+    // Advance each PARENT submission to the judgement's freshly-bumped epoch in
+    // lockstep. The judgement update above incremented its `judge_epoch`; if the
+    // submission row is left behind, the eventual epoch-gated finalize
+    // (`WHERE id = $ AND judge_epoch = $epoch`) matches 0 rows and the submission
+    // hangs in `Running` while its judgement finalizes. Set the epoch to the
+    // judgement's value (not `+1`) so a previously-desynced row is repaired, and
+    // reset the denormalized result cache the same way the submission-lease steal
+    // does above.
+    for judgement in &judgements {
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::JudgeEpoch,
+                sea_orm::sea_query::Expr::value(judgement.judge_epoch).into(),
+            )
+            .col_expr(
+                submission::Column::Status,
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            )
+            .col_expr(
+                submission::Column::OwnerServerId,
+                sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+            )
+            .col_expr(
+                submission::Column::LeaseHeartbeatAt,
+                sea_orm::sea_query::Expr::cust("NOW()").into(),
+            )
+            .col_expr(
+                submission::Column::RetryCount,
+                sea_orm::sea_query::Expr::value(judgement.retry_count).into(),
+            )
+            .col_expr(
+                submission::Column::Verdict,
+                sea_orm::sea_query::Expr::value(None::<String>).into(),
+            )
+            .col_expr(
+                submission::Column::CompileOutput,
+                sea_orm::sea_query::Expr::value(None::<String>).into(),
+            )
+            .col_expr(
+                submission::Column::ErrorCode,
+                sea_orm::sea_query::Expr::value(None::<String>).into(),
+            )
+            .col_expr(
+                submission::Column::ErrorMessage,
+                sea_orm::sea_query::Expr::value(None::<String>).into(),
+            )
+            .col_expr(
+                submission::Column::Score,
+                sea_orm::sea_query::Expr::value(None::<f64>).into(),
+            )
+            .col_expr(
+                submission::Column::TimeUsed,
+                sea_orm::sea_query::Expr::value(None::<i32>).into(),
+            )
+            .col_expr(
+                submission::Column::MemoryUsed,
+                sea_orm::sea_query::Expr::value(None::<i32>).into(),
+            )
+            .col_expr(
+                submission::Column::JudgedAt,
+                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            )
+            .filter(submission::Column::Id.eq(judgement.submission_id))
+            .exec(&txn)
+            .await?;
+    }
 
     txn.commit().await?;
 
@@ -817,7 +1014,7 @@ mod tests {
     };
     use crate::dispatcher::permits::DispatcherSemaphore;
     use crate::registry::{
-        CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+        CheckerStageRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
         LanguageResolverRegistry, OperationBatches, OperationWaiters,
     };
     use crate::state::{AppState, RegistryState};
@@ -922,7 +1119,7 @@ mod tests {
             Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         let evaluator_registry: EvaluatorRegistry =
             Arc::new(tokio::sync::RwLock::new(HashMap::new()));
-        let checker_format_registry: CheckerFormatRegistry =
+        let checker_stage_registry: CheckerStageRegistry =
             Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         let language_resolver_registry: LanguageResolverRegistry =
             Arc::new(tokio::sync::RwLock::new(HashMap::new()));
@@ -960,10 +1157,9 @@ mod tests {
                     sweep_interval_secs: 300,
                     max_dispatch_retries: 5,
                     max_stuck_retries: 5,
+                    max_system_error_retries: 50,
                     sweeper_dry_run: true,
                     cancel_primitive_enabled: false,
-                    fleet_aware_admission_enabled: false,
-                    fleet_capacity_poll_interval_secs: 5,
                     max_blocking_threads: None,
                     batch_evaluator_fanout_concurrency: 64,
                     operation_batch_publish_concurrency: 32,
@@ -976,6 +1172,7 @@ mod tests {
                 database: DatabaseConfig {
                     url: "mock://steal-test".to_string(),
                     max_connections: 1,
+                    plugin_max_connections: 1,
                 },
                 auth: AuthConfig {
                     jwt_secret: "test-secret".to_string(),
@@ -998,7 +1195,7 @@ mod tests {
             registries: RegistryState {
                 contest_type_registry,
                 evaluator_registry,
-                checker_format_registry,
+                checker_stage_registry,
                 language_resolver_registry,
                 operation_batches,
                 operation_waiters,
@@ -1016,5 +1213,319 @@ mod tests {
             .expect("full dispatcher queue should skip steal claims");
 
         drop(held_slot);
+    }
+}
+
+/// Real-Postgres regression tests for the deferred-judgement steal path.
+///
+/// `MockDatabase` cannot exercise the epoch-gated `UPDATE ... WHERE` behavior
+/// these tests assert, so each test boots a throwaway Postgres via
+/// testcontainers and drives `claim_deferred_judgements` against a real schema.
+#[cfg(test)]
+mod deferred_steal_db_tests {
+    use super::*;
+    use crate::entity::{problem, user};
+    use testcontainers::ContainerAsync;
+    use testcontainers::ImageExt;
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::postgres::Postgres;
+
+    /// Boot a fresh Postgres container and migrate the schema into it. The
+    /// returned container guard must be kept alive for the duration of the test
+    /// (its `Drop` tears the container down).
+    async fn start_pg() -> (ContainerAsync<Postgres>, DatabaseConnection) {
+        let container = Postgres::default()
+            .with_tag("17-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres host port");
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+        let db = crate::database::init_db(&url)
+            .await
+            .expect("init schema on test db");
+        (container, db)
+    }
+
+    /// Insert a `submission` (plus the `user`/`problem` it references) in the
+    /// given status/epoch and return its id.
+    async fn seed_submission(
+        db: &DatabaseConnection,
+        status: SubmissionStatus,
+        judge_epoch: i32,
+    ) -> i32 {
+        let now = chrono::Utc::now();
+        let u = user::ActiveModel {
+            username: Set("steal-test-user".to_string()),
+            password: Set("x".to_string()),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert user");
+        let p = problem::ActiveModel {
+            title: Set("steal-test-problem".to_string()),
+            content: Set("c".to_string()),
+            time_limit: Set(1000),
+            memory_limit: Set(262_144),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert problem");
+        let s = submission::ActiveModel {
+            files: Set(serde_json::json!({})),
+            language: Set("cpp".to_string()),
+            user_id: Set(u.id),
+            problem_id: Set(p.id),
+            status: Set(status),
+            judge_epoch: Set(judge_epoch),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert submission");
+        s.id
+    }
+
+    /// Insert a current, unfinalized, Running judgement whose lease is an hour
+    /// stale — exactly the shape the steal sweeper reclaims.
+    async fn seed_stale_deferred_judgement(
+        db: &DatabaseConnection,
+        submission_id: i32,
+        judge_epoch: i32,
+        retry_count: i32,
+    ) {
+        let stale = chrono::Utc::now() - chrono::Duration::seconds(3600);
+        submission_judgement::ActiveModel {
+            submission_id: Set(submission_id),
+            version: Set(1),
+            is_current: Set(true),
+            is_finalized: Set(false),
+            status: Set(SubmissionStatus::Running),
+            judge_epoch: Set(judge_epoch),
+            owner_server_id: Set(Some("dead-server".to_string())),
+            lease_heartbeat_at: Set(Some(stale)),
+            retry_count: Set(retry_count),
+            created_at: Set(stale),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert deferred judgement");
+    }
+
+    /// Insert a current, unfinalized, Running judgement whose lease is FRESH
+    /// (heartbeat = now) and owned by `owner` — the shape a restart leaves
+    /// behind: still owned by the (now-dead) coordinator with a lease the
+    /// lease fiber would keep refreshing.
+    async fn seed_owned_fresh_judgement(
+        db: &DatabaseConnection,
+        submission_id: i32,
+        judge_epoch: i32,
+        retry_count: i32,
+        owner: &str,
+    ) {
+        let now = chrono::Utc::now();
+        submission_judgement::ActiveModel {
+            submission_id: Set(submission_id),
+            version: Set(1),
+            is_current: Set(true),
+            is_finalized: Set(false),
+            status: Set(SubmissionStatus::Running),
+            judge_epoch: Set(judge_epoch),
+            owner_server_id: Set(Some(owner.to_string())),
+            lease_heartbeat_at: Set(Some(now)),
+            retry_count: Set(retry_count),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert fresh owned judgement");
+    }
+
+    /// Stamp `owner`/fresh-lease onto the parent submission row, mirroring the
+    /// ownership a live dispatch sets.
+    async fn set_submission_owner(db: &DatabaseConnection, submission_id: i32, owner: &str) {
+        let now = chrono::Utc::now();
+        submission::Entity::update_many()
+            .col_expr(
+                submission::Column::OwnerServerId,
+                sea_orm::sea_query::Expr::value(Some(owner.to_string())).into(),
+            )
+            .col_expr(
+                submission::Column::LeaseHeartbeatAt,
+                sea_orm::sea_query::Expr::value(Some(now)).into(),
+            )
+            .filter(submission::Column::Id.eq(submission_id))
+            .exec(db)
+            .await
+            .expect("set submission owner");
+    }
+
+    async fn current_judgement(
+        db: &DatabaseConnection,
+        submission_id: i32,
+    ) -> submission_judgement::Model {
+        submission_judgement::Entity::find()
+            .filter(submission_judgement::Column::SubmissionId.eq(submission_id))
+            .one(db)
+            .await
+            .expect("query judgement")
+            .expect("judgement exists")
+    }
+
+    async fn reload_submission(db: &DatabaseConnection, id: i32) -> submission::Model {
+        submission::Entity::find_by_id(id)
+            .one(db)
+            .await
+            .expect("query submission")
+            .expect("submission exists")
+    }
+
+    /// The core regression: when a stale deferred judgement is re-dispatched,
+    /// its epoch is bumped — and the parent `submission.judge_epoch` MUST be
+    /// bumped in lockstep, or the epoch-gated finalize later writes 0 rows and
+    /// the submission hangs in `Running` forever.
+    #[tokio::test]
+    async fn deferred_redispatch_advances_parent_submission_epoch() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        seed_stale_deferred_judgement(&db, sub_id, 0, 0).await;
+
+        let claimed = claim_deferred_judgements(&db, "live-server", 60, 10, 5)
+            .await
+            .expect("claim deferred judgements");
+        assert_eq!(claimed.len(), 1, "the stale deferred judgement is reclaimed");
+
+        let judgement = current_judgement(&db, sub_id).await;
+        assert_eq!(judgement.judge_epoch, 1, "judgement epoch is bumped to 1");
+
+        let submission = reload_submission(&db, sub_id).await;
+        assert_eq!(
+            submission.judge_epoch, judgement.judge_epoch,
+            "submission epoch must stay in lockstep with the judgement"
+        );
+        assert_eq!(submission.judge_epoch, 1, "submission epoch advances to 1");
+        assert_eq!(
+            submission.status,
+            SubmissionStatus::Pending,
+            "a re-dispatched submission returns to Pending"
+        );
+        assert_eq!(
+            submission.owner_server_id.as_deref(),
+            Some("live-server"),
+            "the stealing server takes ownership of the submission row"
+        );
+    }
+
+    /// When a deferred judgement exhausts its retry budget it is finalized as
+    /// `SystemError`; the parent submission must also leave `Running` instead of
+    /// hanging.
+    #[tokio::test]
+    async fn exhausted_deferred_judgement_finalizes_parent_submission() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        // retry_count + 1 > max_dispatch_retries(5) => exhausted.
+        seed_stale_deferred_judgement(&db, sub_id, 0, 5).await;
+
+        let claimed = claim_deferred_judgements(&db, "live-server", 60, 10, 5)
+            .await
+            .expect("claim deferred judgements");
+        assert_eq!(claimed.len(), 0, "an exhausted judgement is not re-dispatched");
+
+        let judgement = current_judgement(&db, sub_id).await;
+        assert_eq!(judgement.status, SubmissionStatus::SystemError);
+        assert!(judgement.is_finalized, "exhausted judgement is finalized");
+
+        let submission = reload_submission(&db, sub_id).await;
+        assert_eq!(
+            submission.status,
+            SubmissionStatus::SystemError,
+            "exhausting a deferred judgement must terminalize the parent submission"
+        );
+    }
+
+    /// Startup-recovery regression: after a coordinator restart, its OWN
+    /// in-flight judgement is still owned by `server-1` with a FRESH lease (the
+    /// lease fiber keeps refreshing it), so the steal sweeper can never reclaim
+    /// it and the submission hangs in `Running` forever.
+    /// `recover_orphaned_leases` must release that lease so the steal then
+    /// reclaims and re-dispatches it.
+    #[tokio::test]
+    async fn recover_orphaned_leases_makes_own_fresh_inflight_stealable() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        seed_owned_fresh_judgement(&db, sub_id, 0, 0, "server-1").await;
+        set_submission_owner(&db, sub_id, "server-1").await;
+
+        // Before recovery: the steal cannot reclaim it (own, fresh lease) —
+        // this is the restart-orphan hang.
+        let pre = claim_deferred_judgements(&db, "server-1", 60, 10, 5)
+            .await
+            .expect("pre-recovery claim");
+        assert_eq!(pre.len(), 0, "fresh-leased own judgement is not stealable yet");
+
+        // Recovery releases the lease on both the judgement and its parent.
+        let (subs, _cr, judg) = recover_orphaned_leases(&db, "server-1")
+            .await
+            .expect("recover orphaned leases");
+        assert_eq!(judg, 1, "the current unfinalized judgement is released");
+        assert_eq!(subs, 1, "the parent submission lease is released");
+
+        // After recovery: the steal reclaims and re-dispatches it.
+        let post = claim_deferred_judgements(&db, "server-1", 60, 10, 5)
+            .await
+            .expect("post-recovery claim");
+        assert_eq!(post.len(), 1, "released judgement is now stealable");
+
+        // Lockstep is preserved end-to-end.
+        let judgement = current_judgement(&db, sub_id).await;
+        let submission = reload_submission(&db, sub_id).await;
+        assert_eq!(
+            submission.judge_epoch, judgement.judge_epoch,
+            "submission epoch stays in lockstep after recovery + steal"
+        );
+        assert_eq!(
+            submission.status,
+            SubmissionStatus::Pending,
+            "the recovered submission returns to Pending for re-judging"
+        );
+    }
+
+    /// Multi-replica safety: a sibling replica's in-flight work (different
+    /// `server_id`, live lease) must be left strictly alone when THIS server
+    /// runs its boot recovery.
+    #[tokio::test]
+    async fn recover_orphaned_leases_leaves_other_servers_alone() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        seed_owned_fresh_judgement(&db, sub_id, 0, 0, "server-2").await;
+        set_submission_owner(&db, sub_id, "server-2").await;
+
+        let (subs, _cr, judg) = recover_orphaned_leases(&db, "server-1")
+            .await
+            .expect("recover orphaned leases");
+        assert_eq!(judg, 0, "another server's judgement is untouched");
+        assert_eq!(subs, 0, "another server's submission is untouched");
+
+        let judgement = current_judgement(&db, sub_id).await;
+        assert_eq!(
+            judgement.owner_server_id.as_deref(),
+            Some("server-2"),
+            "sibling replica retains ownership"
+        );
+        assert!(
+            judgement.lease_heartbeat_at.is_some(),
+            "sibling replica's lease is left intact"
+        );
     }
 }

@@ -32,7 +32,7 @@ use server::consumers::consume_operation_results;
 use server::entity::{user, user_role};
 use server::manager::ServerManager;
 use server::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    CheckerStageRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 use server::state::AppState;
@@ -440,11 +440,10 @@ impl E2eTestApp {
                 steal_batch_size: 8,
                 sweep_interval_secs: 300,
                 max_dispatch_retries: 5,
+                max_system_error_retries: 50,
                 max_stuck_retries: 5,
                 sweeper_dry_run: true,
                 cancel_primitive_enabled: false,
-                fleet_aware_admission_enabled: false,
-                fleet_capacity_poll_interval_secs: 5,
                 max_blocking_threads: None,
                 batch_evaluator_fanout_concurrency: 64,
                 operation_batch_publish_concurrency: 32,
@@ -457,6 +456,7 @@ impl E2eTestApp {
             database: DatabaseConfig {
                 url: db_url.clone(),
                 max_connections: 3,
+                plugin_max_connections: 1,
             },
             auth: AuthConfig {
                 jwt_secret: "e2e-test-jwt-secret".to_string(),
@@ -484,7 +484,7 @@ impl E2eTestApp {
 
         let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
         let evaluator_registry: EvaluatorRegistry = Arc::new(RwLock::new(HashMap::new()));
-        let checker_format_registry: CheckerFormatRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let checker_stage_registry: CheckerStageRegistry = Arc::new(RwLock::new(HashMap::new()));
         let language_resolver_registry: LanguageResolverRegistry =
             Arc::new(RwLock::new(HashMap::new()));
         let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
@@ -503,7 +503,7 @@ impl E2eTestApp {
                 operation_waiters: operation_waiters.clone(),
                 contest_type_registry: contest_type_registry.clone(),
                 evaluator_registry: evaluator_registry.clone(),
-                checker_format_registry: checker_format_registry.clone(),
+                checker_stage_registry: checker_stage_registry.clone(),
                 language_resolver_registry: language_resolver_registry.clone(),
                 evaluate_batches: evaluate_batches.clone(),
                 evaluate_ops_registry: evaluate_ops_registry.clone(),
@@ -530,7 +530,7 @@ impl E2eTestApp {
             registries: server::state::RegistryState {
                 contest_type_registry,
                 evaluator_registry,
-                checker_format_registry,
+                checker_stage_registry,
                 language_resolver_registry,
                 operation_batches,
                 operation_waiters: operation_waiters.clone(),
@@ -649,18 +649,19 @@ impl E2eTestApp {
                     function_name: "noop".into(),
                 },
             );
-            state
-                .registries
-                .checker_format_registry
-                .write()
-                .await
-                .insert(
-                    "exact".into(),
-                    server::registry::PluginHandler {
-                        plugin_id: "__test__".into(),
-                        function_name: "noop".into(),
-                    },
-                );
+            {
+                let mut stage = state.registries.checker_stage_registry.write().await;
+                for fmt in ["exact", "none"] {
+                    stage.insert(
+                        fmt.into(),
+                        server::registry::CheckerStageHandlers {
+                            plugin_id: "__test__".into(),
+                            resolve_fn: "noop".into(),
+                            interpret_fn: "noop".into(),
+                        },
+                    );
+                }
+            }
             state.registries.contest_type_registry.write().await.insert(
                 "standard".into(),
                 server::registry::ContestTypeHandlers {

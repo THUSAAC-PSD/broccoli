@@ -3,13 +3,13 @@ use broccoli_server_sdk::types::{
     SourceFile, TestCaseBodyRef, TestCaseRow,
 };
 use chrono::Utc;
-use common::SubmissionStatus;
+use common::{SubmissionStatus, Verdict};
 use plugin_core::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
 use sea_orm::prelude::Expr;
 use sea_orm::*;
 use tracing::{Instrument, error, info, instrument, warn};
 
-use crate::entity::{problem, submission, submission_judgement, test_case};
+use crate::entity::{problem, submission, submission_judgement, test_case, test_case_result};
 use crate::hooks;
 use crate::state::AppState;
 
@@ -201,6 +201,14 @@ pub(crate) async fn ensure_active_judgement_id(
         error_code: Set(sub.error_code.clone()),
         error_message: Set(sub.error_message.clone()),
         judge_epoch: Set(sub.judge_epoch),
+        // Inherit the submission's owner and stamp a fresh lease heartbeat so the
+        // lease-refresh fiber (`dispatcher::lease`) keeps this judgement alive
+        // while it evaluates. Without an owner, the deferred-judgement steal's
+        // `owner_server_id IS NULL AND created_at < threshold` branch reclaims it
+        // ~lease_ttl after the submission was created — churning long evaluates
+        // (and, before the lockstep-epoch fix, hanging the submission).
+        owner_server_id: Set(sub.owner_server_id.clone()),
+        lease_heartbeat_at: Set(Some(Utc::now())),
         created_at: Set(sub.created_at),
         finalized_at: Set(None),
         ..Default::default()
@@ -243,6 +251,204 @@ async fn mark_submission_dispatch_system_error(
         Some(judge_epoch),
     )
     .await
+}
+
+/// When a plugin finalizes a judgement with a `SystemError` verdict, that
+/// reflects a SYSTEM-side condition (e.g. the interactive manager failed to
+/// compile under contention, or an operation result was lost) — never the
+/// contestant's own code. The contest invariant forbids such a condition from
+/// standing as the contestant's verdict. The host owns judging lifecycle, so it
+/// treats a finalized `SystemError` as RETRYABLE: reset the judgement + its
+/// parent submission to a fresh epoch (in lockstep) and hand the caller the
+/// updated submission to re-dispatch, bounded by `max_system_error_retries`.
+/// Only when that budget is exhausted does the `SystemError` stand (a genuinely
+/// broken problem, e.g. a manager that never compiles).
+///
+/// The gate covers every shape a SYSTEM condition terminalizes into, and only
+/// those:
+/// * plugin-finalized — `status == Judged AND verdict == SystemError` (manager
+///   compile failure, lost operation result, or a transient per-testcase
+///   SystemError that aggregates to SystemError since severity 5 dominates);
+/// * stuck-handler terminal / dispatch-exhaustion — `status == SystemError`
+///   (`record_dispatch_failure`, `mark_submission_dispatch_system_error`, and
+///   the stuck detector all land here with a NULL verdict). Reusing only the
+///   first shape abandoned these, leaving a system fault as the verdict.
+/// A contestant `CompileError` (`status == CompilationError`) and any own-code
+/// verdict (`status == Judged` with WA/TLE/MLE/RE) are left strictly alone.
+///
+/// Re-dispatching the returned submission via `dispatch_to_plugin_with_judgement`
+/// with `fire_after_judging = true` keeps after-judging hooks firing when the
+/// re-judge finally completes.
+///
+/// Returns `Some(submission)` (reset to `Pending` at the bumped epoch, owned by
+/// this server) when the judgement was requeued and the caller should
+/// re-dispatch it; `None` when it must NOT be retried — not a finalized
+/// SystemError, superseded (epoch advanced / no longer current), or the retry
+/// budget is exhausted.
+pub(crate) async fn requeue_judgement_for_system_error_retry(
+    db: &DatabaseConnection,
+    submission_id: i32,
+    judgement_id: i32,
+    expected_epoch: i32,
+    server_id: &str,
+    max_system_error_retries: u32,
+) -> anyhow::Result<Option<submission::Model>> {
+    if judgement_id <= 0 {
+        return Ok(None);
+    }
+
+    let txn = db.begin().await?;
+
+    let Some(judgement) = submission_judgement::Entity::find_by_id(judgement_id)
+        .one(&txn)
+        .await?
+    else {
+        txn.rollback().await.ok();
+        return Ok(None);
+    };
+
+    // Gate (see the doc comment): a CURRENT, FINALIZED judgement at the epoch we
+    // dispatched, whose terminal outcome is a SYSTEM condition in ANY of its
+    // shapes, is retryable:
+    //   * plugin-finalized — `status == Judged` with `verdict == SystemError`;
+    //   * stuck-handler terminal / dispatch-exhaustion — `status == SystemError`
+    //     (verdict typically NULL, `error_code` STUCK_JOB or a dispatch code).
+    // A contestant `CompileError` (`status == CompilationError`) or any own-code
+    // verdict (`status == Judged` with WA/TLE/MLE/RE) is left strictly alone — the
+    // contestant's verdict stands.
+    let is_finalized_system_error = judgement.is_current
+        && judgement.is_finalized
+        && judgement.judge_epoch == expected_epoch
+        && ((judgement.status == SubmissionStatus::Judged
+            && judgement.verdict == Some(Verdict::SystemError))
+            || judgement.status == SubmissionStatus::SystemError);
+    if !is_finalized_system_error {
+        txn.rollback().await.ok();
+        return Ok(None);
+    }
+
+    // Bounded retry against the dedicated SystemError-retry budget (`retry + 1 >
+    // max`). This budget is deliberately larger than the dispatch/stuck cap: the
+    // stuck-handler and dispatch-exhaustion paths spend the dispatch/stuck budget
+    // (5) before terminalizing to `status == SystemError`, so reusing that cap
+    // here would make those shapes structurally un-retryable. A high cap honors
+    // "no system condition becomes the contestant's verdict" while remaining a
+    // finite runaway backstop; it is rarely approached because the re-judge
+    // succeeds once the underlying contention clears.
+    let max = std::cmp::min(max_system_error_retries, i32::MAX as u32) as i32;
+    if judgement.retry_count.saturating_add(1) > max {
+        txn.rollback().await.ok();
+        return Ok(None);
+    }
+
+    let new_epoch = expected_epoch.saturating_add(1);
+    let new_retry = judgement.retry_count.saturating_add(1);
+    let now = Utc::now();
+
+    // Reset the judgement to a fresh, re-dispatchable epoch, owned by this server
+    // with a live lease (so the lease fiber keeps it alive and the steal leaves
+    // it alone while it re-judges). Epoch-gated so a concurrent steal/retry that
+    // already advanced this judgement wins and we abandon (rows == 0).
+    let judgement_rows = submission_judgement::Entity::update_many()
+        .col_expr(submission_judgement::Column::JudgeEpoch, Expr::value(new_epoch))
+        .col_expr(
+            submission_judgement::Column::Status,
+            Expr::value(SubmissionStatus::Pending.to_string()),
+        )
+        .col_expr(
+            submission_judgement::Column::Verdict,
+            Expr::value(None::<String>),
+        )
+        .col_expr(
+            submission_judgement::Column::ErrorCode,
+            Expr::value(None::<String>),
+        )
+        .col_expr(
+            submission_judgement::Column::ErrorMessage,
+            Expr::value(None::<String>),
+        )
+        .col_expr(submission_judgement::Column::Score, Expr::value(None::<f64>))
+        .col_expr(submission_judgement::Column::TimeUsed, Expr::value(None::<i32>))
+        .col_expr(
+            submission_judgement::Column::MemoryUsed,
+            Expr::value(None::<i32>),
+        )
+        .col_expr(submission_judgement::Column::IsFinalized, Expr::value(false))
+        .col_expr(
+            submission_judgement::Column::FinalizedAt,
+            Expr::value(None::<chrono::DateTime<chrono::Utc>>),
+        )
+        .col_expr(submission_judgement::Column::RetryCount, Expr::value(new_retry))
+        .col_expr(
+            submission_judgement::Column::OwnerServerId,
+            Expr::value(Some(server_id.to_string())),
+        )
+        .col_expr(
+            submission_judgement::Column::LeaseHeartbeatAt,
+            Expr::value(Some(now)),
+        )
+        .filter(submission_judgement::Column::Id.eq(judgement_id))
+        .filter(submission_judgement::Column::JudgeEpoch.eq(expected_epoch))
+        .exec(&txn)
+        .await?
+        .rows_affected;
+    if judgement_rows == 0 {
+        txn.rollback().await.ok();
+        return Ok(None);
+    }
+
+    // Advance the parent submission in lockstep, epoch-gated for the same reason.
+    let submission_rows = submission::Entity::update_many()
+        .col_expr(submission::Column::JudgeEpoch, Expr::value(new_epoch))
+        .col_expr(
+            submission::Column::Status,
+            Expr::value(SubmissionStatus::Pending.to_string()),
+        )
+        .col_expr(submission::Column::Verdict, Expr::value(None::<String>))
+        .col_expr(
+            submission::Column::CompileOutput,
+            Expr::value(None::<String>),
+        )
+        .col_expr(submission::Column::ErrorCode, Expr::value(None::<String>))
+        .col_expr(
+            submission::Column::ErrorMessage,
+            Expr::value(None::<String>),
+        )
+        .col_expr(submission::Column::Score, Expr::value(None::<f64>))
+        .col_expr(submission::Column::TimeUsed, Expr::value(None::<i32>))
+        .col_expr(submission::Column::MemoryUsed, Expr::value(None::<i32>))
+        .col_expr(
+            submission::Column::JudgedAt,
+            Expr::value(None::<chrono::DateTime<chrono::Utc>>),
+        )
+        .col_expr(submission::Column::RetryCount, Expr::value(new_retry))
+        .col_expr(
+            submission::Column::OwnerServerId,
+            Expr::value(Some(server_id.to_string())),
+        )
+        .col_expr(
+            submission::Column::LeaseHeartbeatAt,
+            Expr::value(Some(now)),
+        )
+        .filter(submission::Column::Id.eq(submission_id))
+        .filter(submission::Column::JudgeEpoch.eq(expected_epoch))
+        .exec(&txn)
+        .await?
+        .rows_affected;
+    if submission_rows == 0 {
+        txn.rollback().await.ok();
+        return Ok(None);
+    }
+
+    // Wipe the failed attempt's per-testcase results so the re-judge starts clean.
+    test_case_result::Entity::delete_many()
+        .filter(test_case_result::Column::JudgementId.eq(judgement_id))
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    Ok(submission::Entity::find_by_id(submission_id).one(db).await?)
 }
 
 async fn record_dispatch_failure(
@@ -576,6 +782,16 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                                     contest_id = ?contest_id,
                                     "Plugin completed successfully"
                                 );
+                                // NOTE: a plugin may "complete successfully" yet
+                                // persist a SystemError verdict (a system-side
+                                // condition, never the contestant's code). The
+                                // bounded re-judge of such verdicts is handled
+                                // uniformly — across BOTH synchronous (batch) and
+                                // detached (interactive) finalization — by the
+                                // SystemError-retry reaper fiber
+                                // (`dispatcher::system_error_retry`), which keys
+                                // off the persisted terminal state rather than
+                                // this control-flow site.
                             }
                         }
                         Err(e) => {
@@ -629,5 +845,350 @@ fn body_ref(inline: String, blob_hash: Option<String>) -> TestCaseBodyRef {
     match blob_hash {
         Some(hash) => TestCaseBodyRef::blob(hash),
         None => TestCaseBodyRef::inline(inline),
+    }
+}
+
+/// Real-Postgres regression tests for dispatch-time judgement bookkeeping.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::user;
+    use testcontainers::ContainerAsync;
+    use testcontainers::ImageExt;
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::postgres::Postgres;
+
+    async fn start_pg() -> (ContainerAsync<Postgres>, DatabaseConnection) {
+        let container = Postgres::default()
+            .with_tag("17-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres host port");
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+        let db = crate::database::init_db(&url)
+            .await
+            .expect("init schema on test db");
+        (container, db)
+    }
+
+    /// Seed an owned, in-flight submission whose `created_at` is deliberately an
+    /// hour old (mirroring a submission that has been judging for a while).
+    async fn seed_owned_submission(db: &DatabaseConnection, owner: &str) -> submission::Model {
+        let old = Utc::now() - chrono::Duration::seconds(3600);
+        let u = user::ActiveModel {
+            username: Set("dispatch-test-user".to_string()),
+            password: Set("x".to_string()),
+            created_at: Set(old),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert user");
+        let p = problem::ActiveModel {
+            title: Set("dispatch-test-problem".to_string()),
+            content: Set("c".to_string()),
+            time_limit: Set(1000),
+            memory_limit: Set(262_144),
+            created_at: Set(old),
+            updated_at: Set(old),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert problem");
+        submission::ActiveModel {
+            files: Set(serde_json::json!({})),
+            language: Set("cpp".to_string()),
+            user_id: Set(u.id),
+            problem_id: Set(p.id),
+            status: Set(SubmissionStatus::Running),
+            judge_epoch: Set(0),
+            owner_server_id: Set(Some(owner.to_string())),
+            lease_heartbeat_at: Set(Some(old)),
+            created_at: Set(old),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert submission")
+    }
+
+    /// A judgement created for an owned, in-flight submission must inherit the
+    /// submission's `owner_server_id` and carry a fresh `lease_heartbeat_at`, so
+    /// the lease-refresh fiber keeps it alive and the deferred-judgement steal
+    /// does not reclaim it mid-evaluate. Without an owner, the steal's
+    /// `owner_server_id IS NULL AND created_at < threshold` branch grabs it 60s
+    /// after creation regardless of active progress.
+    #[tokio::test]
+    async fn ensure_active_judgement_inherits_submission_owner_and_heartbeat() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+
+        let before = Utc::now();
+        let judgement_id = ensure_active_judgement_id(&db, &sub).await;
+        assert!(judgement_id > 0, "a judgement is created");
+
+        let judgement = submission_judgement::Entity::find_by_id(judgement_id)
+            .one(&db)
+            .await
+            .expect("query judgement")
+            .expect("judgement exists");
+        assert_eq!(
+            judgement.owner_server_id.as_deref(),
+            Some("srv-A"),
+            "judgement inherits the submission's owner so lease::run refreshes it"
+        );
+        let heartbeat = judgement
+            .lease_heartbeat_at
+            .expect("judgement carries a lease heartbeat");
+        assert!(
+            heartbeat >= before - chrono::Duration::seconds(5),
+            "heartbeat is stamped fresh at dispatch, not the submission's stale created_at"
+        );
+    }
+
+    /// Drive a submission + its current judgement into the post-plugin
+    /// finalized state, then return the judgement id. `status`/`verdict` let a
+    /// test exercise the gate (e.g. a real SystemError vs a CompileError).
+    async fn finalize_judgement(
+        db: &DatabaseConnection,
+        sub: &submission::Model,
+        epoch: i32,
+        retry_count: i32,
+        status: SubmissionStatus,
+        verdict: Option<Verdict>,
+    ) -> i32 {
+        let now = Utc::now();
+        submission::Entity::update_many()
+            .col_expr(submission::Column::JudgeEpoch, Expr::value(epoch))
+            .col_expr(
+                submission::Column::Status,
+                Expr::value(status.to_string()),
+            )
+            .col_expr(
+                submission::Column::Verdict,
+                Expr::value(verdict.as_ref().map(|v| v.as_str().to_string())),
+            )
+            .col_expr(submission::Column::RetryCount, Expr::value(retry_count))
+            .filter(submission::Column::Id.eq(sub.id))
+            .exec(db)
+            .await
+            .expect("finalize submission");
+        let j = submission_judgement::ActiveModel {
+            submission_id: Set(sub.id),
+            version: Set(1),
+            is_current: Set(true),
+            is_finalized: Set(true),
+            status: Set(status),
+            verdict: Set(verdict),
+            judge_epoch: Set(epoch),
+            retry_count: Set(retry_count),
+            owner_server_id: Set(Some("srv-A".to_string())),
+            lease_heartbeat_at: Set(Some(now)),
+            finalized_at: Set(Some(now)),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert finalized judgement");
+        j.id
+    }
+
+    async fn seed_tcr(db: &DatabaseConnection, sub_id: i32, judgement_id: i32, epoch: i32) {
+        test_case_result::ActiveModel {
+            submission_id: Set(sub_id),
+            judgement_id: Set(Some(judgement_id)),
+            judge_epoch: Set(epoch),
+            verdict: Set(Verdict::SystemError),
+            score: Set(0.0),
+            created_at: Set(Utc::now()),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert tcr");
+    }
+
+    /// The core fix: a plugin-finalized SystemError (status=Judged,
+    /// verdict=SystemError) is a system condition and MUST be requeued for a
+    /// bounded retry, in epoch lockstep, owned by this server, with the failed
+    /// attempt's results wiped.
+    #[tokio::test]
+    async fn finalized_system_error_judgement_is_requeued_for_retry() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        let jid =
+            finalize_judgement(&db, &sub, 0, 0, SubmissionStatus::Judged, Some(Verdict::SystemError))
+                .await;
+        seed_tcr(&db, sub.id, jid, 0).await;
+
+        let resub = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 5)
+            .await
+            .expect("requeue call")
+            .expect("system-error judgement is requeued");
+        assert_eq!(resub.judge_epoch, 1, "submission epoch is bumped");
+        assert_eq!(resub.status, SubmissionStatus::Pending, "reset to Pending");
+        assert_eq!(resub.verdict, None, "verdict cleared for re-judge");
+        assert_eq!(resub.retry_count, 1, "retry budget consumed");
+        assert_eq!(
+            resub.owner_server_id.as_deref(),
+            Some("srv-A"),
+            "this server keeps ownership for the re-dispatch"
+        );
+
+        let j = submission_judgement::Entity::find_by_id(jid)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(j.judge_epoch, 1, "judgement epoch in lockstep");
+        assert!(!j.is_finalized, "judgement un-finalized for re-judge");
+        assert!(j.finalized_at.is_none(), "finalized_at cleared");
+        assert!(j.is_current, "still the current judgement");
+        assert_eq!(j.status, SubmissionStatus::Pending);
+        assert_eq!(j.verdict, None);
+        assert_eq!(j.retry_count, 1);
+        assert_eq!(
+            j.owner_server_id.as_deref(),
+            Some("srv-A"),
+            "judgement owned by this server with a live lease"
+        );
+        assert!(j.lease_heartbeat_at.is_some(), "lease stamped fresh");
+
+        let tcr = test_case_result::Entity::find()
+            .filter(test_case_result::Column::JudgementId.eq(jid))
+            .count(&db)
+            .await
+            .unwrap();
+        assert_eq!(tcr, 0, "the failed attempt's testcase results are wiped");
+    }
+
+    /// Shape 2/3: a SystemError that lands as `status == SystemError` with a
+    /// NULL verdict — produced by the stuck-handler's terminal give-up
+    /// (`error_code == STUCK_JOB`) and by the dispatch-exhaustion path — is just
+    /// as much a system condition as a plugin-finalized `verdict == SystemError`,
+    /// and must ALSO be requeued. Critically it is seeded at `retry_count == 5`
+    /// (the shape on the box: those paths spend the dispatch/stuck budget of 5
+    /// before terminalizing), yet the dedicated SystemError-retry budget (50)
+    /// still requeues it: no system condition stands as the contestant's verdict.
+    #[tokio::test]
+    async fn stuck_terminal_system_error_status_is_requeued_within_system_error_budget() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        let jid =
+            finalize_judgement(&db, &sub, 0, 5, SubmissionStatus::SystemError, None).await;
+        seed_tcr(&db, sub.id, jid, 0).await;
+
+        let resub = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 50)
+            .await
+            .expect("requeue call")
+            .expect("a stuck-terminal status=SystemError within the budget is requeued");
+        assert_eq!(resub.status, SubmissionStatus::Pending, "reset to Pending");
+        assert_eq!(
+            resub.retry_count, 6,
+            "SystemError-retry budget is consumed beyond the dispatch/stuck cap of 5"
+        );
+
+        let j = submission_judgement::Entity::find_by_id(jid)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!j.is_finalized, "judgement un-finalized for re-judge");
+        assert_eq!(j.status, SubmissionStatus::Pending);
+        assert_eq!(j.verdict, None);
+    }
+
+    /// Bounded: once the retry budget is exhausted, the SystemError stands.
+    #[tokio::test]
+    async fn exhausted_system_error_judgement_is_not_requeued() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        // retry_count + 1 > max(5) => exhausted.
+        let jid =
+            finalize_judgement(&db, &sub, 0, 5, SubmissionStatus::Judged, Some(Verdict::SystemError))
+                .await;
+
+        let out = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 5)
+            .await
+            .expect("requeue call");
+        assert!(out.is_none(), "an exhausted SystemError is not requeued");
+
+        let j = submission_judgement::Entity::find_by_id(jid)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(j.is_finalized, "the SystemError finalize is left intact");
+        assert_eq!(j.verdict, Some(Verdict::SystemError));
+    }
+
+    /// Safety: a contestant verdict (here WrongAnswer) must never be retried.
+    #[tokio::test]
+    async fn non_system_error_judgement_is_not_requeued() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        let jid = finalize_judgement(
+            &db,
+            &sub,
+            0,
+            0,
+            SubmissionStatus::Judged,
+            Some(Verdict::WrongAnswer),
+        )
+        .await;
+
+        let out = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 5)
+            .await
+            .expect("requeue call");
+        assert!(out.is_none(), "a WrongAnswer verdict is never retried");
+    }
+
+    /// Safety: a contestant CompileError lands as status=CompilationError; even
+    /// though its db verdict text can collapse to "SystemError", the status gate
+    /// must keep it final and unretried.
+    #[tokio::test]
+    async fn compile_error_status_is_not_requeued() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        let jid = finalize_judgement(
+            &db,
+            &sub,
+            0,
+            0,
+            SubmissionStatus::CompilationError,
+            Some(Verdict::SystemError),
+        )
+        .await;
+
+        let out = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 5)
+            .await
+            .expect("requeue call");
+        assert!(
+            out.is_none(),
+            "a CompilationError must stay final (contestant's own code)"
+        );
+    }
+
+    /// Safety: a superseded judgement (its epoch already advanced past the one we
+    /// dispatched) must not be requeued.
+    #[tokio::test]
+    async fn superseded_epoch_judgement_is_not_requeued() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        let jid =
+            finalize_judgement(&db, &sub, 3, 0, SubmissionStatus::Judged, Some(Verdict::SystemError))
+                .await;
+
+        // We dispatched at epoch 2, but the judgement is now at epoch 3.
+        let out = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 2, "srv-A", 5)
+            .await
+            .expect("requeue call");
+        assert!(out.is_none(), "a superseded judgement is not requeued");
     }
 }

@@ -17,6 +17,7 @@ use crate::models::code_run::*;
 use crate::state::AppState;
 use crate::utils::contest::{
     find_contest, is_problem_in_contest, require_contest_participant, require_contest_running,
+    require_problem_read_access,
 };
 use crate::utils::judging::{files_from_json, files_to_json, validate_run_language};
 use crate::utils::problem::find_problem;
@@ -171,6 +172,10 @@ pub async fn run_code(
 
     let txn = state.db.begin().await?;
     let problem = find_problem(&txn, problem_id).await?;
+    // Prevent probing hidden/unreleased problems: a code run must be gated by
+    // the same read-access rule as viewing the problem (contest membership or
+    // problem-edit permission), not merely the `submission:submit` capability.
+    require_problem_read_access(&txn, &auth_user, problem_id).await?;
 
     let known_languages: std::collections::HashSet<String> = state
         .registries

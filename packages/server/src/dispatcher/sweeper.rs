@@ -45,6 +45,27 @@ pub async fn sweep_once(
     let pattern = format!("{operation_result_queue_base}.*");
     let grouped =
         scan_reply_queue_families(&mut conn, &pattern, operation_result_queue_base).await?;
+    if grouped.is_empty() {
+        return Ok(());
+    }
+
+    // Fail-safe: this sweeper decides a server is dead purely from the absence
+    // of its `broccoli:server:heartbeat:<id>` key. If NO heartbeat key exists
+    // for ANY server, the liveness signal itself is absent (the heartbeat
+    // publisher is not wired up, it broke fleet-wide, or Redis was flushed) —
+    // it does not mean every server died at once. Acting on an unproduced
+    // signal would delete the reply queues of RUNNING servers, losing
+    // in-flight operation results. A garbage collector keyed on liveness must
+    // fail closed in that state, so refuse to sweep (and do not start the
+    // dead-since debounce clocks) until at least one heartbeat is observed.
+    if !any_server_heartbeat(&mut conn).await? {
+        warn!(
+            families = grouped.len(),
+            "Reply-queue sweeper found queue families but zero server heartbeat \
+             keys; the liveness signal is absent, refusing to sweep"
+        );
+        return Ok(());
+    }
     drop(conn);
 
     for (server_id, keys) in grouped {
@@ -52,6 +73,35 @@ pub async fn sweep_once(
     }
 
     Ok(())
+}
+
+/// Returns true if at least one `broccoli:server:heartbeat:<id>` key exists,
+/// i.e. the server-liveness signal is actually being produced by someone.
+async fn any_server_heartbeat(
+    conn: &mut redis::aio::MultiplexedConnection,
+) -> Result<bool, redis::RedisError> {
+    let pattern = format!("{SERVER_HEARTBEAT_PREFIX}*");
+    let mut cursor = 0_u64;
+
+    loop {
+        let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(&pattern)
+            .arg("COUNT")
+            .arg(100_u32)
+            .query_async(conn)
+            .await?;
+
+        if !keys.is_empty() {
+            return Ok(true);
+        }
+
+        cursor = next_cursor;
+        if cursor == 0 {
+            return Ok(false);
+        }
+    }
 }
 
 async fn scan_reply_queue_families(
@@ -247,5 +297,74 @@ mod tests {
         assert!(!crate::config::is_valid_server_id("server_processing"));
         assert!(!crate::config::is_valid_server_id("server_failed"));
         assert!(!crate::config::is_valid_server_id("server_fairness_set"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker to start a Redis testcontainer"]
+    async fn sweep_fails_closed_when_no_server_heartbeat_exists() {
+        use redis::AsyncCommands;
+        use testcontainers::runners::AsyncRunner;
+        use testcontainers_modules::redis::Redis;
+
+        let redis = Redis::default()
+            .start()
+            .await
+            .expect("failed to start Redis container");
+        let port = redis
+            .get_host_port_ipv4(6379)
+            .await
+            .expect("failed to get Redis port");
+        let client = redis::Client::open(format!("redis://127.0.0.1:{port}"))
+            .expect("failed to create Redis client");
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .expect("failed to connect to Redis");
+
+        conn.rpush::<_, _, ()>("operation_results.server-1_processing", "in-flight")
+            .await
+            .expect("failed to seed reply queue");
+
+        // Zero heartbeat keys fleet-wide: the liveness signal is absent, so
+        // the sweeper must neither delete anything nor start debounce clocks.
+        sweep_once(&client, "operation_results", false)
+            .await
+            .expect("sweep failed");
+        let queue_exists: bool = conn
+            .exists("operation_results.server-1_processing")
+            .await
+            .expect("exists failed");
+        assert!(queue_exists, "queue of a live server must survive the sweep");
+        let dead_since_exists: bool = conn
+            .exists("broccoli:server:dead_since:server-1")
+            .await
+            .expect("exists failed");
+        assert!(
+            !dead_since_exists,
+            "debounce clock must not start while the liveness signal is absent"
+        );
+
+        // Once at least one heartbeat is being published the signal is live
+        // again, so the normal dead-server debounce flow resumes for servers
+        // without a heartbeat.
+        conn.set::<_, _, ()>("broccoli:server:heartbeat:server-2", "1")
+            .await
+            .expect("failed to set server heartbeat");
+        sweep_once(&client, "operation_results", false)
+            .await
+            .expect("sweep failed");
+        let dead_since_exists: bool = conn
+            .exists("broccoli:server:dead_since:server-1")
+            .await
+            .expect("exists failed");
+        assert!(
+            dead_since_exists,
+            "debounce clock should start once the liveness signal is live"
+        );
+        let queue_exists: bool = conn
+            .exists("operation_results.server-1_processing")
+            .await
+            .expect("exists failed");
+        assert!(queue_exists, "queue must survive inside the grace period");
     }
 }

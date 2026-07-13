@@ -4,13 +4,13 @@ use chrono::Utc;
 use common::{DlqConfig, DlqErrorCode, DlqMessageType, SubmissionDlqErrorCode, SubmissionStatus};
 use sea_orm::sea_query::LockType;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, DatabaseTransaction, EntityTrait, PaginatorTrait,
-    QueryFilter, QuerySelect, TransactionTrait,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend,
+    EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Statement, TransactionTrait,
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::consumers::{mark_code_run_system_error, mark_submission_system_error};
+use crate::consumers::{mark_code_run_system_error, mark_submission_system_error_with_epoch};
 use crate::entity::{
     code_run, code_run_result, dead_letter_message, submission, submission_judgement,
     test_case_result,
@@ -31,6 +31,13 @@ const STUCK_RECOVERY_STATUSES: [SubmissionStatus; 3] = [
 ];
 const QUEUED_OBSERVABILITY_THRESHOLD_SECS: i64 = 5 * 60;
 const PENDING_ORPHAN_TIMEOUT_SECS: i64 = 5 * 60;
+/// A finalized current judgement should propagate onto its submission row
+/// within milliseconds (the normal finalize writes both rows back to back).
+/// If it has not after this grace window, the submission is genuinely stuck
+/// (a lost submission-row write) and is reconciled. Kept short — unlike the
+/// 6-hour lease-stale timeout there is no "slow but alive" job to protect, only
+/// denormalization lag — so recovery is fast enough for a live contest.
+const RECONCILE_FINALIZED_GRACE_SECS: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StuckDisposition {
@@ -330,6 +337,58 @@ async fn detect_and_handle_stuck_jobs(
         }
     }
 
+    // Catch-up reconciliation: a current judgement may have committed
+    // terminal+finalized while its denormalized `submission` row was left
+    // non-terminal (a lost/failed submission-row write between the judgement
+    // and submission updates, or a crash in between). Such a submission is
+    // invisible to both the reaper (it is not finalized with a SystemError
+    // verdict) and the stuck-handler (its status is not Pending/Compiling/
+    // Running), so it would hang forever. Propagate the already-computed
+    // verdict from the finalized current judgement onto the submission row.
+    reconcile_finalized_submissions(db, RECONCILE_FINALIZED_GRACE_SECS).await?;
+
+    Ok(())
+}
+
+/// Sync submissions whose *current* judgement (at the submission's own epoch)
+/// has finalized, but whose denormalized `submission` row never advanced to a
+/// terminal status. Pure, idempotent catch-up: it copies the already-computed
+/// verdict fields from the finalized judgement onto the submission. Only rows
+/// whose judgement finalized longer than `stuck_timeout_secs` ago are touched,
+/// so a normal in-flight finalize (which writes both rows within a few
+/// milliseconds) is never raced; only genuinely stuck rows are reconciled.
+async fn reconcile_finalized_submissions(
+    db: &DatabaseConnection,
+    stuck_timeout_secs: i64,
+) -> anyhow::Result<()> {
+    let stmt = Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        r#"UPDATE submission s
+           SET status = j.status,
+               verdict = j.verdict,
+               score = j.score,
+               time_used = j.time_used,
+               memory_used = j.memory_used,
+               compile_output = j.compile_output,
+               error_code = j.error_code,
+               error_message = j.error_message,
+               judged_at = COALESCE(j.finalized_at, NOW())
+           FROM submission_judgement j
+           WHERE j.submission_id = s.id
+             AND j.is_current = TRUE
+             AND j.is_finalized = TRUE
+             AND j.judge_epoch = s.judge_epoch
+             AND j.finalized_at < NOW() - CAST($1 AS INTERVAL)
+             AND s.status NOT IN ('Judged', 'CompilationError', 'SystemError')"#,
+        vec![format!("{stuck_timeout_secs} seconds").into()],
+    );
+    let res = db.execute_raw(stmt).await?;
+    if res.rows_affected() > 0 {
+        warn!(
+            count = res.rows_affected(),
+            "Reconciled submissions whose current judgement was finalized but whose submission row had not advanced to a terminal status"
+        );
+    }
     Ok(())
 }
 
@@ -419,11 +478,12 @@ async fn handle_stuck_submission(
                 submission_id,
                 "Submission already has unresolved DLQ entry, marking terminal without creating duplicate"
             );
-            mark_submission_system_error(
+            mark_submission_system_error_with_epoch(
                 &txn,
                 submission.id,
                 SubmissionDlqErrorCode::STUCK_JOB,
                 &system_error_message,
+                Some(submission.judge_epoch),
             )
             .await?;
             StuckRecovery::Terminal
@@ -456,11 +516,12 @@ async fn handle_stuck_submission(
             )
             .await?;
 
-            mark_submission_system_error(
+            mark_submission_system_error_with_epoch(
                 &txn,
                 submission.id,
                 SubmissionDlqErrorCode::STUCK_JOB,
                 &system_error_message,
+                Some(submission.judge_epoch),
             )
             .await?;
             StuckRecovery::Terminal

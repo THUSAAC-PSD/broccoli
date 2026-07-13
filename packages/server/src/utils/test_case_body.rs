@@ -66,6 +66,56 @@ pub async fn read_test_case_body(
         .map_err(|e| AppError::Internal(format!("Test case body blob is not UTF-8: {e}")))
 }
 
+/// Maximum bytes of a test-case `input`/`expected_output` body to inline into an
+/// API *response*. Test data can be tens of megabytes; inlining it whole turns a
+/// submission-status poll into a multi-gigabyte JSON serialization. A
+/// 30 MB-per-testcase problem with ~30 test cases, polled by N clients while
+/// judging, would otherwise serialize ~N × 1.8 GB and OOM-kill the server (the
+/// `serde_json` output buffer grows by doubling toward 2 GB per response). The
+/// response shows a bounded preview instead; the full body remains available via
+/// the dedicated blob/attachment download endpoints, which stream.
+pub const RESPONSE_BODY_PREVIEW_BYTES: usize = 64 * 1024;
+
+/// Read a bounded preview of a test-case body for inclusion in a response.
+///
+/// Unlike [`read_test_case_body`], this **never reads the whole blob**: for
+/// blob-backed bodies it issues a single bounded range read of at most
+/// `RESPONSE_BODY_PREVIEW_BYTES` (+1 byte to detect truncation), so peak memory
+/// is bounded regardless of test-case size or request concurrency. A
+/// `"\n… (truncated)"` marker is appended when the body exceeds the cap. UTF-8
+/// boundaries are handled via lossy decoding, so a multi-byte character split at
+/// the cap never produces an error.
+pub async fn read_test_case_body_preview(
+    inline_text: &str,
+    blob_hash: Option<&str>,
+    blob_store: &dyn BlobStore,
+) -> Result<String, AppError> {
+    let cap = RESPONSE_BODY_PREVIEW_BYTES;
+
+    let Some(hash) = blob_hash else {
+        return Ok(preview_from_bytes(inline_text.as_bytes(), cap));
+    };
+
+    let hash = ContentHash::from_hex(hash)
+        .map_err(|e| AppError::Internal(format!("Invalid test case body blob hash: {e}")))?;
+    // Read one extra byte so we can tell whether the body was longer than the
+    // cap without ever pulling the whole (potentially 30 MB) blob into memory.
+    let (bytes, _eof) = blob_store
+        .get_range(&hash, 0, cap + 1)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read test case body blob: {e}")))?;
+    Ok(preview_from_bytes(&bytes, cap))
+}
+
+fn preview_from_bytes(bytes: &[u8], cap: usize) -> String {
+    if bytes.len() <= cap {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let mut text = String::from_utf8_lossy(&bytes[..cap]).into_owned();
+    text.push_str("\n… (truncated)");
+    text
+}
+
 pub fn test_case_body_size(inline_text: &str, stored_size: Option<i64>) -> usize {
     stored_size
         .and_then(|n| usize::try_from(n).ok())

@@ -79,6 +79,12 @@ pub struct ProblemResponse {
     pub memory_limit: i32,
     #[schema(example = "batch")]
     pub problem_type: String,
+    /// Never populated. Checker/manager source is privileged authoring
+    /// material (it can reveal accepted answers or adaptive judging logic),
+    /// so it is served exclusively through the `problem:edit`-gated
+    /// `GET /problems/{id}/checker-source` endpoint and must not travel in
+    /// this participant-visible DTO. Kept only for API-schema compatibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub checker_source: Option<serde_json::Value>,
     #[schema(example = "exact")]
     pub checker_format: String,
@@ -295,7 +301,11 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
             problem_type: m.problem_type,
-            checker_source: m.checker_source,
+            // Deliberately NOT copied from the entity: the checker source is
+            // privileged (see field doc). Leaving it out here guarantees no
+            // handler can leak it through the general problem DTO, even if a
+            // handler forgets to strip it for non-editors.
+            checker_source: None,
             checker_format: m.checker_format,
             default_contest_type: m.default_contest_type,
             show_test_details: m.show_test_details,
@@ -360,7 +370,7 @@ fn default_checker_format() -> String {
     "exact".into()
 }
 
-use crate::registry::{CheckerFormatRegistry, ContestTypeRegistry, EvaluatorRegistry};
+use crate::registry::{CheckerStageRegistry, ContestTypeRegistry, EvaluatorRegistry};
 
 pub async fn first_registered_evaluator(registry: &EvaluatorRegistry) -> String {
     let reg = registry.read().await;
@@ -374,7 +384,7 @@ pub async fn first_registered_contest_type(registry: &ContestTypeRegistry) -> St
 
 pub async fn validate_checker_format(
     format: &str,
-    registry: &CheckerFormatRegistry,
+    registry: &CheckerStageRegistry,
 ) -> Result<(), AppError> {
     let reg = registry.read().await;
     if !reg.contains_key(format) {
@@ -558,17 +568,21 @@ pub fn validate_submission_format(
     Ok(())
 }
 
+/// Max length of a per-test-case description / sample explanation. Rendered as
+/// markdown in the UI, so allow a few paragraphs of prose (was 256).
+pub(crate) const MAX_TEST_CASE_DESCRIPTION_CHARS: usize = 4096;
+
 pub fn validate_create_test_case(req: &CreateTestCaseRequest) -> Result<(), AppError> {
     if !(0..=10_000).contains(&req.score) {
         return Err(AppError::Validation("Score must be 0-10000".into()));
     }
     validate_optional_position(req.position)?;
     if let Some(ref desc) = req.description
-        && desc.trim().chars().count() > 256
+        && desc.trim().chars().count() > MAX_TEST_CASE_DESCRIPTION_CHARS
     {
-        return Err(AppError::Validation(
-            "Description must be at most 256 characters".into(),
-        ));
+        return Err(AppError::Validation(format!(
+            "Description must be at most {MAX_TEST_CASE_DESCRIPTION_CHARS} characters"
+        )));
     }
     if let Some(ref label) = req.label {
         validate_label(label)?;
@@ -617,14 +631,159 @@ pub fn validate_update_test_case(req: &UpdateTestCaseRequest) -> Result<(), AppE
     }
     validate_optional_position(req.position)?;
     if let Some(Some(ref desc)) = req.description
-        && desc.trim().chars().count() > 256
+        && desc.trim().chars().count() > MAX_TEST_CASE_DESCRIPTION_CHARS
     {
-        return Err(AppError::Validation(
-            "Description must be at most 256 characters".into(),
-        ));
+        return Err(AppError::Validation(format!(
+            "Description must be at most {MAX_TEST_CASE_DESCRIPTION_CHARS} characters"
+        )));
     }
     if let Some(ref label) = req.label {
         validate_label(label)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test_case_description_tests {
+    use super::*;
+
+    fn base_create(desc: Option<String>) -> CreateTestCaseRequest {
+        CreateTestCaseRequest {
+            input: "1".into(),
+            expected_output: "1".into(),
+            score: 10,
+            is_sample: true,
+            position: None,
+            description: desc,
+            label: None,
+        }
+    }
+
+    #[test]
+    fn accepts_multiparagraph_note_over_old_256_limit() {
+        // Sample explanations are markdown prose that can exceed the old 256-char
+        // cap. A ~500-char note must be accepted on both create and update.
+        let desc = "paragraph ".repeat(50); // 500 chars
+        assert!(validate_create_test_case(&base_create(Some(desc.clone()))).is_ok());
+        assert!(
+            validate_update_test_case(&UpdateTestCaseRequest {
+                description: Some(Some(desc)),
+                ..Default::default()
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_description_over_cap() {
+        let desc = "x".repeat(MAX_TEST_CASE_DESCRIPTION_CHARS + 1);
+        assert!(validate_create_test_case(&base_create(Some(desc.clone()))).is_err());
+        assert!(
+            validate_update_test_case(&UpdateTestCaseRequest {
+                description: Some(Some(desc)),
+                ..Default::default()
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn accepts_description_exactly_at_cap() {
+        let desc = "x".repeat(MAX_TEST_CASE_DESCRIPTION_CHARS);
+        assert!(validate_create_test_case(&base_create(Some(desc))).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod checker_source_privacy_tests {
+    use super::*;
+
+    /// The checker/manager source can encode the accepted answer or the
+    /// adaptive judging strategy. It must never ride along in the general
+    /// problem DTO (which contest participants can read); it is only served
+    /// by the `problem:edit`-gated checker-source endpoint.
+    #[test]
+    fn problem_response_never_carries_checker_source() {
+        let now = chrono::Utc::now();
+        let model = crate::entity::problem::Model {
+            id: 1,
+            title: "Guess the number".into(),
+            content: "Interactive problem".into(),
+            time_limit: 1000,
+            memory_limit: 262_144,
+            problem_type: "communication".into(),
+            checker_source: Some(serde_json::json!([{
+                "filename": "manager.cpp",
+                "content": "// secret adaptive strategy"
+            }])),
+            checker_format: "none".into(),
+            default_contest_type: "icpc".into(),
+            show_test_details: false,
+            submission_format: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+
+        let response = ProblemResponse::from(model);
+        assert!(
+            response.checker_source.is_none(),
+            "privileged checker source must not be copied into ProblemResponse"
+        );
+
+        let json = serde_json::to_value(&response).unwrap();
+        assert!(
+            json.get("checker_source").is_none(),
+            "checker_source must not be serialized in the problem DTO"
+        );
+    }
+}
+
+#[cfg(test)]
+mod checker_format_tests {
+    use super::*;
+    use crate::registry::CheckerStageHandlers;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    fn stage_reg(formats: &[&str]) -> CheckerStageRegistry {
+        let mut map = HashMap::new();
+        for f in formats {
+            map.insert(
+                f.to_string(),
+                CheckerStageHandlers {
+                    plugin_id: "standard-checkers".into(),
+                    resolve_fn: "resolve_standard_checker".into(),
+                    interpret_fn: "interpret_standard_checker_result".into(),
+                },
+            );
+        }
+        Arc::new(RwLock::new(map))
+    }
+
+    #[tokio::test]
+    async fn validate_checker_format_accepts_stage_registered_formats() {
+        // The fused stage registry is the source of truth — incl. `none`.
+        let reg = stage_reg(&["exact", "tokens", "testlib", "none"]);
+        for fmt in ["exact", "tokens", "testlib", "none"] {
+            assert!(
+                validate_checker_format(fmt, &reg).await.is_ok(),
+                "{fmt} should validate"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_checker_format_rejects_unknown_and_lists_valid() {
+        let reg = stage_reg(&["exact", "none"]);
+        let err = validate_checker_format("bogus", &reg).await.unwrap_err();
+        match err {
+            AppError::Validation(m) => {
+                assert!(m.contains("exact"), "lists exact: {m}");
+                assert!(m.contains("none"), "lists none: {m}");
+            }
+            other => panic!("expected Validation error, got {other:?}"),
+        }
+    }
 }

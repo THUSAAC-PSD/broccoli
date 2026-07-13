@@ -32,7 +32,7 @@ use crate::services::submission_dispatch::fire_after_judging_hooks;
 use crate::state::AppState;
 use crate::utils::contest::{
     find_contest, is_contest_participant, is_problem_in_contest, require_contest_participant,
-    require_contest_running,
+    require_contest_running, require_problem_read_access,
 };
 use crate::utils::judging::{
     files_from_json, files_to_json, validate_code_payload, validate_submission_contract,
@@ -40,7 +40,7 @@ use crate::utils::judging::{
 use crate::utils::problem::find_problem;
 use crate::utils::query::validate_sorting_params;
 use crate::utils::rate_limit::check_rate_limit;
-use crate::utils::test_case_body::read_test_case_body;
+use crate::utils::test_case_body::read_test_case_body_preview;
 async fn dispatch_before_submission_hooks(
     state: &AppState,
     event: &BeforeSubmissionEvent,
@@ -313,9 +313,13 @@ async fn load_test_case_io_data(
 
     let mut out = HashMap::with_capacity(rows.len());
     for row in rows {
+        // Bounded preview, not the full blob: a status poll must never pull tens
+        // of MB of test data per test case into memory (that serializes into a
+        // multi-GB response and OOM-kills the server under concurrent polling).
         let input =
-            read_test_case_body(&row.input, row.input_blob_hash.as_deref(), blob_store).await?;
-        let expected_output = read_test_case_body(
+            read_test_case_body_preview(&row.input, row.input_blob_hash.as_deref(), blob_store)
+                .await?;
+        let expected_output = read_test_case_body_preview(
             &row.expected_output,
             row.expected_output_blob_hash.as_deref(),
             blob_store,
@@ -932,6 +936,11 @@ pub async fn create_submission(
     let txn = state.db.begin().await?;
 
     let problem = find_problem(&txn, problem_id).await?;
+    // Gate on problem read access (contest membership or problem-edit
+    // permission), same as viewing the problem. Without this a contestant can
+    // probe and submit against hidden/unreleased problems by guessing IDs, which
+    // is a stronger information oracle than viewing since it runs secret tests.
+    require_problem_read_access(&txn, &auth_user, problem_id).await?;
     let known_languages: std::collections::HashSet<String> = state
         .registries
         .language_resolver_registry
@@ -1246,6 +1255,19 @@ pub async fn list_submission_judgements(
         .order_by_asc(submission_judgement::Column::Version)
         .all(&state.db)
         .await?;
+
+    // The full version history exposes in-progress / pending admin regrades and
+    // superseded verdicts. Only viewers who can rejudge (or see all submissions)
+    // may see the history; everyone else, including the submission owner, sees
+    // only the current published judgement. Gating this only in the web client
+    // would still leak the history to a direct API call.
+    let can_see_history =
+        visibility.has_view_all || auth_user.has_permission("submission:rejudge");
+    let judgements: Vec<_> = if can_see_history {
+        judgements
+    } else {
+        judgements.into_iter().filter(|j| j.is_current).collect()
+    };
 
     let mut responses = Vec::with_capacity(judgements.len());
     for judgement in judgements {

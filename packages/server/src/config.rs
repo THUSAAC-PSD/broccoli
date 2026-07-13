@@ -15,6 +15,13 @@ pub struct DatabaseConfig {
     pub url: String,
     #[serde(default = "default_database_max_connections")]
     pub max_connections: u32,
+    /// Size of the SEPARATE pool dedicated to plugin host-function DB calls,
+    /// isolated from the main pool to avoid cross-operation connection-protocol
+    /// desync (the spurious 0x00 bug). Total backend connections used is
+    /// `max_connections + plugin_max_connections`, so Postgres `max_connections`
+    /// must accommodate both.
+    #[serde(default = "default_plugin_max_connections")]
+    pub plugin_max_connections: u32,
 }
 
 impl Default for DatabaseConfig {
@@ -22,11 +29,16 @@ impl Default for DatabaseConfig {
         Self {
             url: "postgres://postgres:password@localhost:5432/broccoli".into(),
             max_connections: default_database_max_connections(),
+            plugin_max_connections: default_plugin_max_connections(),
         }
     }
 }
 
 fn default_database_max_connections() -> u32 {
+    20
+}
+
+fn default_plugin_max_connections() -> u32 {
     20
 }
 
@@ -123,6 +135,17 @@ pub struct ServerConfig {
     /// recovery; rows above the budget are finalized as SystemError.
     #[serde(default = "default_max_stuck_retries")]
     pub max_stuck_retries: u32,
+    /// Retry budget for the SystemError-retry reaper. A `SystemError` verdict is
+    /// a SYSTEM condition (contention, lost result, wedge), never the
+    /// contestant's code, so it must not stand as the verdict. This budget is
+    /// deliberately much larger than `max_dispatch_retries`/`max_stuck_retries`:
+    /// the stuck-handler and dispatch-exhaustion paths SPEND those budgets before
+    /// terminalizing to `status == SystemError`, so the reaper needs headroom to
+    /// keep re-judging ("slow is fine; never abandon a system fault"). It stays
+    /// finite only as a runaway backstop and is rarely approached once the
+    /// underlying contention clears. Admission control bounds the blast radius.
+    #[serde(default = "default_max_system_error_retries")]
+    pub max_system_error_retries: u32,
     /// When true, log ghost reply queues and debounce them without deleting
     /// the Redis keys. Defaults to false now that the sweeper has soaked in
     /// dry-run through earlier UP rollouts; flip back to true if you need to
@@ -133,12 +156,6 @@ pub struct ServerConfig {
     /// off so worker-side cancellation checks can soak independently.
     #[serde(default)]
     pub cancel_primitive_enabled: bool,
-    /// Admission switch for sizing evaluator slots from live worker
-    /// heartbeats instead of local CPU count.
-    #[serde(default)]
-    pub fleet_aware_admission_enabled: bool,
-    #[serde(default = "default_fleet_capacity_poll_interval_secs")]
-    pub fleet_capacity_poll_interval_secs: u64,
     /// Hard cap on the tokio runtime's blocking-thread pool. When unset, the
     /// effective value auto-scales to `available_parallelism * 16`, clamped to
     /// `[512, 8192]`. The blocking pool is consumed by plugin `spawn_blocking`
@@ -269,12 +286,16 @@ fn default_max_stuck_retries() -> u32 {
     5
 }
 
-fn default_sweeper_dry_run() -> bool {
-    false
+fn default_max_system_error_retries() -> u32 {
+    // Still well above max_dispatch_retries/max_stuck_retries (both 5) so genuine
+    // transient faults get real recovery headroom, but bounded so a DETERMINISTIC
+    // SystemError (e.g. a checker that always dies on one case) terminalizes in
+    // minutes instead of re-judging ~50x and churning the box for a contest.
+    10
 }
 
-fn default_fleet_capacity_poll_interval_secs() -> u64 {
-    5
+fn default_sweeper_dry_run() -> bool {
+    false
 }
 
 fn default_batch_evaluator_fanout_concurrency() -> u32 {
@@ -570,10 +591,9 @@ impl AppConfig {
             .set_default("server.sweep_interval_secs", 300_i64)?
             .set_default("server.max_dispatch_retries", 5_i64)?
             .set_default("server.max_stuck_retries", 5_i64)?
+            .set_default("server.max_system_error_retries", 50_i64)?
             .set_default("server.sweeper_dry_run", false)?
             .set_default("server.cancel_primitive_enabled", false)?
-            .set_default("server.fleet_aware_admission_enabled", false)?
-            .set_default("server.fleet_capacity_poll_interval_secs", 5_i64)?
             .set_default("server.batch_evaluator_fanout_concurrency", 64_i64)?
             .set_default("server.operation_batch_publish_concurrency", 32_i64)?
             .set_default("server.healthz_worker_threads", 2_i64)?
@@ -738,10 +758,9 @@ mod tests {
             sweep_interval_secs: default_sweep_interval_secs(),
             max_dispatch_retries: default_max_dispatch_retries(),
             max_stuck_retries: default_max_stuck_retries(),
+            max_system_error_retries: default_max_system_error_retries(),
             sweeper_dry_run: default_sweeper_dry_run(),
             cancel_primitive_enabled: false,
-            fleet_aware_admission_enabled: false,
-            fleet_capacity_poll_interval_secs: default_fleet_capacity_poll_interval_secs(),
             max_blocking_threads,
             batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
             operation_batch_publish_concurrency: default_operation_batch_publish_concurrency(),

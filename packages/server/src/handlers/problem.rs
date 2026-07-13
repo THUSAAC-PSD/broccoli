@@ -73,7 +73,7 @@ pub async fn create_problem(
     validate_problem_type(&problem_type, &state.registries.evaluator_registry).await?;
     validate_checker_format(
         &payload.checker_format,
-        &state.registries.checker_format_registry,
+        &state.registries.checker_stage_registry,
     )
     .await?;
     let known_languages: std::collections::HashSet<String> = state
@@ -233,6 +233,12 @@ pub async fn get_problem(
 
     let mut response = ProblemResponse::from(find_problem(&state.db, id).await?);
     response.samples = load_sample_test_cases(&state.db, id).await?;
+    // The checker source is authoring material: it can reveal the accepted
+    // answer or judging logic. Only problem editors may see it; participants
+    // reading the problem for a contest must not.
+    if !auth_user.has_permission("problem:edit") && !auth_user.has_permission("problem:create") {
+        response.checker_source = None;
+    }
     Ok(Json(response))
 }
 
@@ -267,7 +273,7 @@ pub async fn update_problem(
         validate_problem_type(pt, &state.registries.evaluator_registry).await?;
     }
     if let Some(ref cf) = payload.checker_format {
-        validate_checker_format(cf, &state.registries.checker_format_registry).await?;
+        validate_checker_format(cf, &state.registries.checker_stage_registry).await?;
     }
     if let Some(Some(ref sf)) = payload.submission_format {
         let known_languages: std::collections::HashSet<String> = state

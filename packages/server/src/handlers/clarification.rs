@@ -142,9 +142,18 @@ pub async fn list_clarifications(
                 || r.recipient_id == Some(auth_user.user_id);
             let show_question = is_participant || r.is_public;
 
-            let replies = replies_map
-                .remove(&r.id)
-                .unwrap_or_default()
+            let all_replies = replies_map.remove(&r.id).unwrap_or_default();
+            // The legacy denormalized `reply_*` fields mirror the LATEST reply,
+            // whereas `reply_is_public` is recomputed as "ANY reply is public"
+            // (see toggle_reply_public). Gating the legacy content on
+            // reply_is_public would therefore leak the latest reply's private
+            // content whenever some OTHER, older reply is public. Gate on the
+            // latest reply's own visibility instead; if there is no reply to
+            // confirm (legacy rows), hide it from non-participants.
+            let latest_reply_public = all_replies.last().map(|rep| rep.is_public).unwrap_or(false);
+            let show_reply = is_participant || latest_reply_public;
+
+            let replies = all_replies
                 .into_iter()
                 .filter(|rep| is_admin || rep.is_public || is_participant)
                 .map(|rep| ClarificationReplyResponse {
@@ -178,11 +187,11 @@ pub async fn list_clarifications(
                 recipient_id: r.recipient_id,
                 recipient_name,
                 is_public: r.is_public,
-                reply_content: r.reply_content,
-                reply_author_id: r.reply_author_id,
-                reply_author_name,
+                reply_content: if show_reply { r.reply_content } else { None },
+                reply_author_id: if show_reply { r.reply_author_id } else { None },
+                reply_author_name: if show_reply { reply_author_name } else { None },
                 reply_is_public: r.reply_is_public,
-                replied_at: r.replied_at,
+                replied_at: if show_reply { r.replied_at } else { None },
                 replies,
                 resolved: r.resolved,
                 resolved_at: r.resolved_at,

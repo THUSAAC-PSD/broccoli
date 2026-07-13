@@ -10,6 +10,21 @@ pub struct OperationRef {
     pub op_task_id: String,
 }
 
+/// Minimum time a STARTED op is allowed to run before the result-wait gives up,
+/// independent of the (small) solution-derived budget. Large in production so
+/// system slowness (queueing, cold blob IO) yields slow verdicts instead of mass
+/// timeouts; only a genuinely stuck op (dead worker / lost result) hits it, and
+/// it is then re-dispatched. Zero in tests so the explicit `timeout` passed by
+/// timeout-behavior tests still governs.
+#[cfg(not(test))]
+fn started_op_infra_floor() -> Duration {
+    Duration::from_secs(30 * 60)
+}
+#[cfg(test)]
+fn started_op_infra_floor() -> Duration {
+    Duration::from_secs(0)
+}
+
 #[derive(Default)]
 struct EvaluateBatchOps {
     by_test_case: DashMap<i32, Vec<OperationRef>>,
@@ -104,9 +119,30 @@ impl EvaluateBatchOpsRegistry {
         timeout: Duration,
     ) -> bool {
         let Some(batch) = self.batches.get(evaluate_batch_id) else {
-            return false;
+            // Unknown batch -> EXTEND, not give up. A batch may legitimately be
+            // unrecorded here: a just-re-dispatched op (new op-batch id not yet
+            // recorded via record_ops), or a wait whose ops are tracked under a
+            // different key. Returning false would surface a spurious timeout at
+            // the very first tick before any real result can arrive. Extending is
+            // bounded: the inner operation-result wait always produces a real or
+            // timeout verdict within its own infra floor, which is then delivered
+            // here, so this never hangs indefinitely.
+            return true;
         };
         let now = Instant::now();
+        // A STARTED op extends up to a large INFRASTRUCTURE ceiling, NOT the
+        // small solution-derived `timeout`. Rationale: the solution's real time
+        // limit is enforced inside isolate (it kills an overrunning solution and
+        // returns a verdict, so a result always comes back for a live worker);
+        // a genuinely DEAD worker is reclaimed by the dispatcher lease/steal
+        // (new judge_epoch + re-dispatch). So the result-wait must not fail a
+        // submission just because the SYSTEM is slow (deep queue, cold 30MB blob
+        // fetches, IO thrash). Under load that would mass-timeout every
+        // submission instead of degrading to merely-slow verdicts. The ceiling
+        // only bounds a genuinely stuck op (dead worker / lost result), which
+        // the windowed driver then re-dispatches. In tests the floor is 0 so the
+        // passed `timeout` still governs (preserving timeout-behavior tests).
+        let started_ceiling = timeout.max(started_op_infra_floor());
 
         batch.by_test_case.iter().any(|entry| {
             let test_case_id = *entry.key();
@@ -118,7 +154,7 @@ impl EvaluateBatchOpsRegistry {
             }
 
             match batch.started_at_by_test_case.get(&test_case_id) {
-                Some(started_at) => now.duration_since(*started_at) < timeout,
+                Some(started_at) => now.duration_since(*started_at) < started_ceiling,
                 None => true,
             }
         })
