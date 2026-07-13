@@ -9,6 +9,36 @@ import {
   XCircle,
 } from 'lucide-react';
 
+// Cap how much of each test-case text field we render. The server/worker keep up
+// to 64 KiB per field; painting that raw in a wrapping <pre> (times many cases)
+// janks the page, so the detail view shows a head slice with a truncation note.
+const MAX_OUTPUT_CHARS = 2000;
+
+function OutputBlock({ label, text }: { label: string; text: string }) {
+  const { t } = useTranslation();
+  const truncated = text.length > MAX_OUTPUT_CHARS;
+  const shown = truncated ? text.slice(0, MAX_OUTPUT_CHARS) : text;
+  return (
+    <div>
+      <div className="text-xs font-medium text-muted-foreground mb-1">
+        {label}
+      </div>
+      <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
+        {shown}
+        {truncated && (
+          <span className="text-muted-foreground italic">
+            {'\n'}
+            {t('result.outputTruncated', {
+              shown: MAX_OUTPUT_CHARS.toLocaleString(),
+              total: text.length.toLocaleString(),
+            })}
+          </span>
+        )}
+      </pre>
+    </div>
+  );
+}
+
 type VerdictKey =
   | 'accepted'
   | 'wrong_answer'
@@ -161,44 +191,19 @@ export function TestCaseRow({
         testCase.stderr) && (
         <div className="px-3 pb-3 space-y-2">
           {testCase.input && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                {t('result.input')}
-              </div>
-              <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                {testCase.input}
-              </pre>
-            </div>
+            <OutputBlock label={t('result.input')} text={testCase.input} />
           )}
           {testCase.expected_output && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                {t('result.expectedOutput')}
-              </div>
-              <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                {testCase.expected_output}
-              </pre>
-            </div>
+            <OutputBlock
+              label={t('result.expectedOutput')}
+              text={testCase.expected_output}
+            />
           )}
           {testCase.stdout && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                {t('result.stdout')}
-              </div>
-              <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                {testCase.stdout}
-              </pre>
-            </div>
+            <OutputBlock label={t('result.stdout')} text={testCase.stdout} />
           )}
           {testCase.stderr && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                {t('result.stderr')}
-              </div>
-              <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                {testCase.stderr}
-              </pre>
-            </div>
+            <OutputBlock label={t('result.stderr')} text={testCase.stderr} />
           )}
         </div>
       )}

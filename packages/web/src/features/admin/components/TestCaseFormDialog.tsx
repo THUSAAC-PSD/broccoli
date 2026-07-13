@@ -322,12 +322,13 @@ export function TestCaseFormDialog({
                 <Label htmlFor="tc-description">
                   {t('admin.testCases.field.description')}
                 </Label>
-                <Input
+                <Textarea
                   id="tc-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  maxLength={256}
-                  placeholder="Basic case"
+                  maxLength={4096}
+                  rows={3}
+                  placeholder="Explains this sample (markdown supported)"
                 />
               </div>
             </div>

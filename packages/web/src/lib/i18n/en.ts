@@ -191,6 +191,8 @@ export const en: Record<string, string> = {
   'result.stdout': 'Your Output',
   'result.stderr': 'Stderr',
   'result.checkerOutput': 'Checker Output',
+  'result.outputTruncated':
+    '… truncated — showing first {shown} of {total} characters',
   'result.scoreLabel': 'Score',
   'result.pointsUnit': 'pts',
   'result.scoreInProgress': 'In progress',
@@ -436,14 +438,38 @@ export const en: Record<string, string> = {
   'admin.delete': 'Delete',
   'admin.deleteConfirm':
     'Are you sure you want to delete this item? This action cannot be undone.',
+  'admin.removeFromContest': 'Remove from contest',
+  'admin.removeFromContestConfirm':
+    'Remove this problem from the contest? The problem itself will not be deleted.',
+  'admin.createProblemInContestDesc':
+    'Create a new problem and add it to this contest.',
   'admin.editContest': 'Edit Contest',
   'admin.editProblem': 'Edit Problem',
   'admin.editError': 'Failed to update. Please check your input.',
   'admin.actions': 'Actions',
   'admin.saving': 'Saving...',
+  'admin.warmCaches': 'Warm caches',
   'admin.contestProblems': 'Contest Problems',
   'admin.bulkParticipants': 'Bulk Add Participants',
   'admin.bulkParticipantsAction': 'Manage Participants',
+
+  // Cache pre-warm
+  'warm.title': 'Warm judge caches',
+  'warm.description':
+    "Load this contest's test data onto every judge ahead of time, so the first submissions don't wait on a slow download.",
+  'warm.start': 'Warm caches',
+  'warm.rewarm': 'Warm again',
+  'warm.warming': 'Warming…',
+  'warm.testFiles': '{{count}} test files',
+  'warm.judgesReady': '{{ready}} of {{total}} judges ready',
+  'warm.noJudges': 'No judges are online. Start a judge, then warm.',
+  'warm.notStarted': 'Caches have not been warmed for this contest yet.',
+  'warm.stateReady': 'Ready',
+  'warm.stateWarming': 'Warming',
+  'warm.statePending': 'Waiting',
+  'warm.stateError': 'Failed',
+  'warm.stale': 'Offline',
+  'warm.startError': "Couldn't start warming. Try again.",
 
   // Participants management
   'admin.participants.title': 'Manage Participants',
@@ -671,6 +697,9 @@ export const en: Record<string, string> = {
   'toast.problem.addError': 'Failed to add problem to contest.',
   'toast.problem.removed': 'Problem removed from contest.',
   'toast.problem.removeError': 'Failed to remove problem from contest.',
+  'toast.problem.loadError': 'Failed to load problem.',
+  'toast.problem.createdNotAttached':
+    'Problem created, but it could not be added to this contest. Add it from the contest problems dialog.',
   'toast.testCase.created': 'Test case created successfully.',
   'toast.testCase.updated': 'Test case updated successfully.',
   'toast.testCase.deleted': 'Test case deleted successfully.',

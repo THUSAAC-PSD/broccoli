@@ -110,20 +110,26 @@ export interface InheritedValue {
 
 /**
  * Resolve the effective inherited value for a field key from parent scopes.
- * Contest \> Problem. Skips disabled parents.
+ *
+ * Mirrors the backend cascade (`resolve_cascade` in the server SDK): the most
+ * specific scope with a stored config wins with its WHOLE config. Contest is
+ * more specific than Problem. Fields the winning scope does not set fall back
+ * to schema defaults; they are never filled in per field from a less specific
+ * scope, so this never falls through to the next level. A disabled winning
+ * scope contributes no effective values (the plugin does not run).
  */
 export function resolveInheritedValue(
   fieldKey: string,
   inherited: InheritedConfig | undefined,
 ): InheritedValue | null {
   if (!inherited) return null;
-  const c = inherited.contest;
-  if (c && c.enabled !== false && c.values?.[fieldKey] !== undefined) {
-    return { value: c.values[fieldKey], source: 'Contest' };
-  }
-  const p = inherited.problem;
-  if (p && p.enabled !== false && p.values?.[fieldKey] !== undefined) {
-    return { value: p.values[fieldKey], source: 'Problem' };
-  }
-  return null;
+  const winner = inherited.contest?.values
+    ? { scope: inherited.contest, source: 'Contest' }
+    : inherited.problem?.values
+      ? { scope: inherited.problem, source: 'Problem' }
+      : null;
+  if (!winner || winner.scope.enabled === false) return null;
+  const value = winner.scope.values?.[fieldKey];
+  if (value === undefined) return null;
+  return { value, source: winner.source };
 }

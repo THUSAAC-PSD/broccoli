@@ -98,16 +98,39 @@ export function I18nProvider({
     placeholderData: (prev) => prev,
   });
 
+  // Default-locale plugin translations, used as a fallback so plugin keys
+  // missing from the active locale render the default-locale string instead
+  // of the raw key. Shares the query key shape above, so the cache is reused
+  // when the user switches back to the default locale.
+  const { data: fallbackPluginTranslations = {} } = useQuery({
+    queryKey: ['i18n', 'translations', defaultLocale],
+    queryFn: async () => {
+      const { data } = await apiClient.GET('/i18n/translations/{locale}', {
+        params: { path: { locale: defaultLocale } },
+      });
+      return data ?? {};
+    },
+    enabled: locale !== defaultLocale,
+    placeholderData: (prev) => prev,
+  });
+
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
       const value =
         pluginTranslations[key] ??
         coreI18n[locale]?.[key] ??
-        coreI18n['en']?.[key] ??
+        fallbackPluginTranslations[key] ??
+        coreI18n[defaultLocale]?.[key] ??
         key;
       return interpolateTranslation(value, params);
     },
-    [locale, pluginTranslations, coreI18n],
+    [
+      locale,
+      defaultLocale,
+      pluginTranslations,
+      fallbackPluginTranslations,
+      coreI18n,
+    ],
   );
 
   const value = useMemo(

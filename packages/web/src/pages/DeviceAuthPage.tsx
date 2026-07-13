@@ -77,7 +77,7 @@ const SEGMENT_SIZE = 4;
 
 export function DeviceAuthPage() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const apiClient = useApiClient();
@@ -105,12 +105,25 @@ export function DeviceAuthPage() {
     }
   }, [searchParams]);
 
-  if (!user) {
-    const returnUrl = `/auth/device${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
-    navigate(`/login?redirect=${encodeURIComponent(returnUrl)}`, {
-      replace: true,
-    });
-    return null;
+  // Not signed in: delegate to the shared login page, returning here after.
+  // Wait for the auth bootstrap (session refresh) before deciding, and only
+  // navigate from an effect; navigating during render loops React updates.
+  useEffect(() => {
+    if (!isLoading && !user) {
+      const search = searchParams.toString();
+      const returnUrl = `/auth/device${search ? `?${search}` : ''}`;
+      navigate(`/login?next=${encodeURIComponent(returnUrl)}`, {
+        replace: true,
+      });
+    }
+  }, [isLoading, user, searchParams, navigate]);
+
+  if (isLoading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
   }
 
   const getUserCode = () => {

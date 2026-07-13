@@ -1,4 +1,19 @@
-@layer plugin;
+/*
+  Cascade layer order. Declared before the Tailwind import so it wins: the
+  first @layer statement fixes the order, and Tailwind's own
+  `@layer theme, base, components, utilities;` cannot reorder layers that
+  already exist.
+
+  `plugin` is the layer that plugin frontends compile their Tailwind
+  utilities into (see web-sdk/src/plugin.css). It MUST sit above `base`,
+  otherwise preflight rules like `button { background-color: transparent;
+  color: inherit; font: inherit }` outrank every plugin utility on form
+  controls, rendering plugin-styled buttons/inputs unstyled (e.g. an
+  invisible white-on-transparent button). It sits above `utilities` too so
+  a plugin's self-contained bundle fully styles the plugin's own markup
+  even when the host bundle happens to emit an overlapping class.
+*/
+@layer theme, base, components, utilities, plugin;
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '../../web-sdk/src/index.css';

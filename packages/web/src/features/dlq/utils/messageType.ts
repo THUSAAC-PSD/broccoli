@@ -1,4 +1,10 @@
-import { Cog, FileCode, FileText, History, type LucideIcon } from 'lucide-react';
+import {
+  Cog,
+  FileCode,
+  FileText,
+  History,
+  type LucideIcon,
+} from 'lucide-react';
 
 export interface MessageTypeMeta {
   labelKey: string;

@@ -47,8 +47,13 @@ export default function Index() {
       navigate('/admin');
       return;
     }
-    if (contests && contests.length === 1 && !contestId) {
-      setContest(contests[0].id, contests[0].title);
+    // With a single contest there is nothing to select on this page, so
+    // always bounce back to the contest dashboard (even when a contest is
+    // already selected, e.g. after clicking the logo link to `/`).
+    if (contests && contests.length === 1) {
+      if (contestId !== contests[0].id) {
+        setContest(contests[0].id, contests[0].title);
+      }
       navigate(`/contests/${contests[0].id}`);
     }
   }, [contests, contestId, setContest, navigate, user]);
@@ -57,11 +62,6 @@ export default function Index() {
   // FIX: check permissions instead of roles
   if (user && user.roles.includes('admin')) {
     return <></>;
-  }
-
-  // Avoid rendering homepage content when we're about to auto-redirect
-  if (contests && contests.length === 1 && user && !contestId) {
-    return null;
   }
 
   // Not logged in
@@ -79,8 +79,9 @@ export default function Index() {
     );
   }
 
+  // Single contest: the effect above is redirecting to its dashboard
   if (contests && contests.length === 1) {
-    return <></>;
+    return null;
   }
 
   // No contests
@@ -100,12 +101,12 @@ export default function Index() {
     );
   }
 
-  // Multiple contests
-  if (contests.length > 1 && !contestId) {
-    return (
-      <div className="flex flex-col gap-6 p-6 max-w-2xl mx-auto">
-        <ContestSelector contests={contests} />
-      </div>
-    );
-  }
+  // Multiple contests: always show the selector, even when a contest is
+  // already selected, so this page can be used to switch contests (the
+  // sidebar links here for exactly that purpose).
+  return (
+    <div className="flex flex-col gap-6 p-6 max-w-2xl mx-auto">
+      <ContestSelector contests={contests} />
+    </div>
+  );
 }

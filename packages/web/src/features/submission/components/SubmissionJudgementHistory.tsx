@@ -33,8 +33,11 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
   const { user } = useAuth();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
-  const canViewHistory = !!user;
   const canRejudge = !!user?.permissions.includes('submission:rejudge');
+  // Judgement version history (including pending regrade candidates) is a
+  // judging-operations view. Contestants must only ever see the current
+  // verdict, so the whole panel is gated behind the rejudge permission.
+  const canViewHistory = canRejudge;
   const canPinWorker = !!user?.permissions.includes('system:admin');
   const [targetWorkerId, setTargetWorkerId] = useState(PRESERVE_TARGET_WORKER);
   const [expandedJudgementIds, setExpandedJudgementIds] = useState<Set<number>>(
