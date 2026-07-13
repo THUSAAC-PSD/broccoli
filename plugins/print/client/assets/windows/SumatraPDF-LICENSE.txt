@@ -1,0 +1,23 @@
+SumatraPDF
+==========
+
+The Broccoli print client bundles and redistributes the SumatraPDF executable as
+a separate program, invoked at runtime to print PDFs silently on Windows. It is
+not linked into the client and is not a derivative work of it.
+
+Bundled version: 3.5.2
+Project home:    https://www.sumatrapdfreader.org/
+Source code:     https://github.com/sumatrapdfreader/sumatrapdf
+                 (use the tag matching the bundled version above)
+
+SumatraPDF is free software, released under the GNU General Public License,
+version 3 (GPLv3). It incorporates third-party components, including MuPDF
+(GNU Affero General Public License v3) and others, each under its own license.
+The full license texts and complete attributions are available in the SumatraPDF
+source repository linked above and in the application's "About" information.
+
+To obtain the corresponding source code for the exact version redistributed
+here, use the matching tag in the source repository above.
+
+The full text of the GNU General Public License v3 is available at:
+https://www.gnu.org/licenses/gpl-3.0.txt

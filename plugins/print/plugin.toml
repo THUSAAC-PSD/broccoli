@@ -1,0 +1,177 @@
+name = "print"
+version = "0.1.0"
+description = "On-demand code printing for contests (queue + station coordination)"
+
+[translations]
+en = "i18n/en.toml"
+zh-CN = "i18n/zh-CN.toml"
+
+[server]
+entry = "print_plugin.wasm"
+permissions = ["logger", "sql", "config:read"]
+
+# ── Contestant endpoints (JWT; access checked in-handler via contest::) ──
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/contests/{contest_id}/submissions/{submission_id}"
+handler = "api_print_submission"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/jobs"
+handler = "api_print_arbitrary"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/print/jobs/mine"
+handler = "api_my_jobs"
+
+# ── Staff endpoints (server-enforced `contest:manage` permission) ──
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/print/admin/jobs"
+handler = "api_admin_list_jobs"
+permission = "contest:manage"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/admin/jobs/{id}/approve"
+handler = "api_admin_approve"
+permission = "contest:manage"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/admin/jobs/{id}/reprint"
+handler = "api_admin_reprint"
+permission = "contest:manage"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/admin/jobs/{id}/cancel"
+handler = "api_admin_cancel"
+permission = "contest:manage"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/print/admin/jobs/{id}"
+handler = "api_admin_get_job"
+permission = "contest:manage"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/admin/jobs/{id}/pin"
+handler = "api_admin_pin"
+permission = "contest:manage"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/print/admin/stations"
+handler = "api_admin_stations"
+permission = "contest:manage"
+
+# ── Station endpoints (PUBLIC routes; handler validates PrintStation token) ──
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/stations/heartbeat"
+handler = "api_station_heartbeat"
+
+[[server.routes]]
+method = "GET"
+path = "/api/plugins/print/stations/jobs"
+handler = "api_station_jobs"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/stations/jobs/{id}/claim"
+handler = "api_station_claim"
+
+[[server.routes]]
+method = "POST"
+path = "/api/plugins/print/stations/jobs/{id}/status"
+handler = "api_station_status"
+
+# ── Configuration ──
+# Contest scope: per-contest printing behaviour. Plugin scope: deployment-wide
+# station tokens (a single token authorizes a station for every contest on the
+# deployment). Tokens may also be added per-contest for finer-grained access.
+[config.print]
+description = "Code printing settings"
+scopes = ["contest", "plugin"]
+
+[config.print.properties.enabled]
+type = "boolean"
+title = "Enable printing"
+description = "Allow contestants to send print jobs."
+default = true
+
+[config.print.properties.require_approval]
+type = "boolean"
+title = "Require staff approval"
+description = "Jobs wait for a staff member to approve them before a print station can pick them up."
+default = false
+
+[config.print.properties.max_pages]
+type = "integer"
+title = "Max pages per job"
+description = "Jobs whose estimated page count exceeds this are rejected."
+default = 10
+min = 1
+max = 100
+unit = "pages"
+
+[config.print.properties.banner]
+type = "string"
+title = "Header banner text"
+description = "Optional text shown in the printout header (e.g. the contest name)."
+default = ""
+
+[config.print.properties.station_tokens]
+type = "array"
+title = "Station tokens"
+description = "Opaque secrets that authorize print stations. Stations send 'Authorization: PrintStation <token>'."
+items = { type = "string" }
+default = []
+
+# ── Web UI ──
+[web]
+root = "web/dist"
+entry = "index.js"
+css = ["styles.css"]
+
+[web.components]
+PrintSubmissionButton = "PrintSubmissionButton"
+PrintToolbarButton = "PrintToolbarButton"
+PrintQueuePage = "PrintQueuePage"
+PrintNavLink = "PrintNavLink"
+MyPrintsPanel = "MyPrintsPanel"
+
+# "Print" action on a submission result (slotProps include `submission`).
+[[web.slots]]
+name = "submission-result.content"
+position = "prepend"
+component = "PrintSubmissionButton"
+
+# "Print" near the code editor (opens an arbitrary-code print dialog).
+[[web.slots]]
+name = "problem-detail.editor.toolbar"
+position = "append"
+component = "PrintToolbarButton"
+
+# Staff navigation entry to the print queue.
+[[web.slots]]
+name = "sidebar.groups"
+position = "after"
+component = "PrintNavLink"
+permission = "contest:manage"
+
+# Contestant's own print jobs on the problem-detail sidebar.
+[[web.slots]]
+name = "problem-detail.sidebar"
+position = "append"
+component = "MyPrintsPanel"
+
+# Full-page staff dashboard (rendered inside the app shell by the catch-all route).
+[[web.routes]]
+path = "/print-queue"
+component = "PrintQueuePage"
+meta = { title = "Print Queue" }
