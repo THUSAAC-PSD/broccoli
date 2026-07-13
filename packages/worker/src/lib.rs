@@ -8,6 +8,7 @@ pub mod models;
 pub mod system_info;
 mod task_runner;
 pub mod toolchain_fingerprint;
+pub mod warm;
 
 pub use config::{DatabaseConfig, MqAppConfig, StorageConfig, WorkerAppConfig, WorkerConfig};
 pub use error::WorkerError;

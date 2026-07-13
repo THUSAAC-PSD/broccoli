@@ -410,6 +410,7 @@ async fn end_to_end_concurrent_compile_runs_once() {
                 key_inputs: vec!["src.txt".to_string()],
                 outputs: vec!["build.out".to_string()],
             }),
+            mounts: vec![],
         }],
         channels: vec![],
         priority: None,

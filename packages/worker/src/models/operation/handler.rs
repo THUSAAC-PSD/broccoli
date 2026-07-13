@@ -35,7 +35,171 @@ fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
     Ok(resolved)
 }
 
+/// Translate a `MountSpec::PlatformTool { name }` into a read-only directory
+/// rule that makes `<tools_dir>/<name>` reachable inside the box at `inside_path`.
+/// The tool name must be a single safe path component — no separators, NUL, or
+/// `..` — so a malicious op cannot escape the configured tools directory.
+///
+/// isolate's `--dir` bind-mounts **directories**, not single files (a file source
+/// fails with `ENOTDIR`: "Cannot mount … Not a directory"). So we mount the whole
+/// `tools_dir` read-only at the *parent* of `inside_path` — e.g. mount
+/// `<tools_dir>` at `/tools` so the tool is reachable at `/tools/<name>`, exactly
+/// where the resolver's argv invokes it. `inside_path` must therefore name a
+/// directory parent, and its basename must equal `name` (so the in-box path lands
+/// on the tool). `tools_dir` is platform-controlled, so exposing its contents
+/// read-only to the trusted checker step is safe.
+///
+/// The default [`DirectoryOptions`] are intentional: `read_write = false` (the
+/// tools are immutable to the sandboxed process) and `no_exec = false` (they must
+/// be runnable). Mirrors the safety stance of [`validate_pipe_name`].
+fn platform_tool_directory_rule(
+    inside_path: &str,
+    name: &str,
+    tools_dir: &Path,
+) -> Result<DirectoryRule> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+        || name.contains("..")
+    {
+        return Err(anyhow!("Unsafe platform tool name: '{name}'"));
+    }
+    let inside = PathBuf::from(inside_path);
+    if inside.file_name().and_then(|n| n.to_str()) != Some(name) {
+        return Err(anyhow!(
+            "platform tool inside_path '{inside_path}' basename must equal tool name '{name}'"
+        ));
+    }
+    let inside_dir = match inside.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => {
+            return Err(anyhow!(
+                "platform tool inside_path '{inside_path}' must include a directory component"
+            ));
+        }
+    };
+    Ok(DirectoryRule {
+        inside_path: inside_dir,
+        outside_path: Some(tools_dir.to_path_buf()),
+        options: DirectoryOptions::default(),
+    })
+}
+
+/// Resolve a `MountSource::StepOutput { from_step, file }` to the absolute path
+/// of the producer step's captured `file`. This is the intra-op handoff: a
+/// dependent step consumes a prior step's output file directly from that step's
+/// working dir — no blob round-trip.
+///
+/// Safety: `from_step` must be in the consuming step's `depends_on` (so it has
+/// already run and the file exists) and `file` must resolve safely within the
+/// producer's working dir (no `..` or absolute escape, via [`safe_join`]).
+///
+/// The resolved file is COPIED into the consumer's box by
+/// [`stage_step_output_file`], NOT bind-mounted. isolate's `--dir` bind-mounts
+/// **directories**, not single files — a file source fails with `ENOTDIR`
+/// ("Cannot mount … Not a directory"). Mounting the producer's *directory*
+/// instead is unacceptable here: the producer (a solution exec/compile step)
+/// holds the contestant's source and binary, which must never be exposed to the
+/// author-controlled checker. A copy hands over exactly the one named file.
+fn resolve_step_output_src(
+    from_step: &str,
+    file: &str,
+    step_working_dirs: &HashMap<String, PathBuf>,
+    depends_on: &[String],
+) -> Result<PathBuf> {
+    if !depends_on.iter().any(|dep| dep == from_step) {
+        return Err(anyhow!(
+            "step mounts output of '{from_step}' but does not declare it in depends_on"
+        ));
+    }
+    let from_dir = step_working_dirs
+        .get(from_step)
+        .ok_or_else(|| anyhow!("step mounts output of unknown step '{from_step}'"))?;
+    safe_join(from_dir, file)
+}
+
+/// Copy a resolved [`resolve_step_output_src`] file into the consuming step's box
+/// working dir at `inside_path` (a box-relative path; `safe_join` keeps it inside
+/// the box). See [`resolve_step_output_src`] for why the handoff is a copy rather
+/// than an isolate bind mount. The copy is read by the consumer from its own cwd.
+async fn stage_step_output_file(
+    src: &Path,
+    inside_path: &str,
+    consumer_working_dir: &Path,
+) -> Result<()> {
+    let dest = safe_join(consumer_working_dir, inside_path)?;
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("creating parent dir for staged output '{inside_path}'"))?;
+    }
+    tokio::fs::copy(src, &dest).await.with_context(|| {
+        format!("staging step output '{}' -> '{inside_path}'", src.display())
+    })?;
+    Ok(())
+}
+
+/// Number of disjoint slots the host's 0..1000 isolate box-id space is split
+/// into — i.e. the maximum number of worker processes that can share a host
+/// without box-id collisions. Each worker claims exactly one slot for life.
+const BOX_ID_SLOTS: u32 = 16;
+/// Box ids available to a single worker (slot width).
+const BOX_IDS_PER_SLOT: u32 = 1000 / BOX_ID_SLOTS;
+
+/// Within-slot box-id counter (also reused as a generic process-local
+/// uniqueness counter for e.g. channel directory names).
 static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
+
+/// First box id of this worker process's slot, lazily claimed on first use.
+///
+/// isolate box ids are a host-wide 0..1000 namespace, and `isolate --init` on
+/// an idle, already-initialized box silently *re-initializes* it (verified:
+/// exit 0). So two worker processes that pick the same box id clobber each
+/// other's sandbox during setup — the corruption only surfaces later as
+/// "box currently in use by another process" → a spurious SystemError. Pure
+/// retry can't fix the clobber-during-setup window (there is no error to retry
+/// on). Instead each worker claims a disjoint slot via an advisory file lock
+/// (released automatically by the kernel when the process dies) and only ever
+/// allocates box ids inside `[base, base + BOX_IDS_PER_SLOT)`, making
+/// cross-worker collisions impossible for up to `BOX_ID_SLOTS` workers/host.
+static BOX_SLOT_BASE: std::sync::LazyLock<u32> =
+    std::sync::LazyLock::new(|| claim_box_id_slot() * BOX_IDS_PER_SLOT);
+
+/// Claim the lowest free box-id slot for the lifetime of this process using a
+/// non-blocking `flock` on a per-slot lock file. The locked fd is intentionally
+/// leaked so the lock is held until the process exits, at which point the kernel
+/// releases it and the slot becomes available to a restarted worker.
+fn claim_box_id_slot() -> u32 {
+    use std::os::unix::io::IntoRawFd;
+    for slot in 0..BOX_ID_SLOTS {
+        let path = std::env::temp_dir().join(format!("broccoli-box-slot-{slot}.lock"));
+        let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&path)
+        else {
+            continue;
+        };
+        let fd = file.into_raw_fd();
+        // SAFETY: `fd` is a freshly opened, owned file descriptor.
+        if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            // Intentionally leak `fd`: the advisory lock must be held for the
+            // whole process lifetime, so the descriptor must never be closed.
+            info!(slot, base = slot * BOX_IDS_PER_SLOT, "Claimed isolate box-id slot");
+            return slot;
+        }
+        // Slot owned by another process — close and try the next one.
+        // SAFETY: `fd` is owned here and not used after this close.
+        unsafe { libc::close(fd) };
+    }
+    warn!(
+        slots = BOX_ID_SLOTS,
+        "No free isolate box-id slot (more workers than slots on this host); \
+         falling back to slot 0 — box-id collisions are possible"
+    );
+    0
+}
 
 struct StepMetricRecord {
     start: std::time::Instant,
@@ -151,6 +315,7 @@ mod tests {
             collect: vec![],
             depends_on: vec![],
             cache: None,
+            mounts: vec![],
         };
         assert_eq!(step_kind(&step), "compile");
 
@@ -189,8 +354,8 @@ fn sandbox_exit_kind(result: &ExecutionResult) -> &'static str {
 }
 
 fn allocate_box_id() -> String {
-    let id = NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed) % 1000;
-    id.to_string()
+    let offset = NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed) % BOX_IDS_PER_SLOT;
+    (*BOX_SLOT_BASE + offset).to_string()
 }
 
 struct EnvironmentList {
@@ -254,6 +419,10 @@ pub struct OperationHandler {
     follower_max_wait: Duration,
     toolchain_fingerprint: String,
     metrics: common::metrics::Metrics,
+    /// Directory holding worker-local platform tools (e.g. `broccoli-compare`).
+    /// `MountSource::PlatformTool { name }` resolves to `<tools_dir>/<name>`.
+    /// `None` until configured via [`OperationHandler::with_tools_dir`].
+    tools_dir: Option<PathBuf>,
 }
 
 impl OperationHandler {
@@ -296,7 +465,15 @@ impl OperationHandler {
             follower_max_wait,
             toolchain_fingerprint,
             metrics,
+            tools_dir: None,
         }
+    }
+
+    /// Set the worker-local platform tools directory (builder style so existing
+    /// constructor call sites are unaffected).
+    pub fn with_tools_dir(mut self, tools_dir: Option<PathBuf>) -> Self {
+        self.tools_dir = tools_dir;
+        self
     }
 
     #[instrument(skip(self, operation))]
@@ -418,6 +595,19 @@ impl OperationHandler {
         };
         debug!(layers = ?execution_layers, "Task execution layers determined");
 
+        // Map each step id to its environment's working dir so a dependent step
+        // can mount a prior step's captured output file directly
+        // (MountSource::StepOutput), no blob round-trip.
+        let step_working_dirs: HashMap<String, PathBuf> = operation
+            .tasks
+            .iter()
+            .filter_map(|t| {
+                environments
+                    .get(&t.env_ref)
+                    .map(|env| (t.id.clone(), env.working_dir.clone()))
+            })
+            .collect();
+
         let mut task_results = HashMap::new();
         let mut global_success = true;
 
@@ -445,6 +635,7 @@ impl OperationHandler {
                 futures.push(self.execute_step_with_deps(
                     task,
                     &environments,
+                    &step_working_dirs,
                     deps_ok,
                     shared_channels_dir.as_deref(),
                     &channel_names,
@@ -549,8 +740,15 @@ impl OperationHandler {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
+                        // 0o755 (world r-x), not 0o700: isolate runs the step as a
+                        // per-box sandbox uid (first_uid + box_id), which does NOT
+                        // own this worker-written file. A loaded source/input at
+                        // 0o700 is unreadable to that uid → the compiler (run as the
+                        // sandbox uid) fails to open it. The execute bit is harmless
+                        // for data files and required for any loaded executable.
+                        // Matches restore_cached_outputs and file_cacher, all 0o755.
                         if let Err(e) =
-                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700))
+                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
                         {
                             warn!(path = %dest.display(), error = %e, "Failed to set permissions on blob file");
                         }
@@ -665,6 +863,7 @@ impl OperationHandler {
         &self,
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
+        step_working_dirs: &HashMap<String, PathBuf>,
         deps_ok: bool,
         shared_channels_dir: Option<&Path>,
         channel_names: &HashSet<String>,
@@ -767,7 +966,13 @@ impl OperationHandler {
         }
 
         let result = match self
-            .execute_step(step, environments, shared_channels_dir, channel_names)
+            .execute_step(
+                step,
+                environments,
+                step_working_dirs,
+                shared_channels_dir,
+                channel_names,
+            )
             .instrument(tracing::info_span!(
                 "operation_step",
                 step_id = %step.id,
@@ -937,8 +1142,21 @@ impl OperationHandler {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
+                // Restore the cached compile output as 0o755 (owner rwx + world
+                // r-x) — never a mode that lacks the execute bit. fetch_to_path
+                // hard-links `dest` to the content-addressed on-disk blob, so in
+                // an nproc>=2 op (or under concurrent judging) the SAME binary is
+                // shared by one inode across boxes. chmod acts on the inode, not
+                // the path: if any op drives that shared inode through a no-exec
+                // state (e.g. 0o644) while another box is exec'ing it, the run
+                // fails with `execve(...): Permission denied` (exit 127) → a
+                // spurious RuntimeError. Keeping every cache/restore perm
+                // execute-inclusive (see file_cacher::ensure_world_readable, also
+                // 0o755) keeps the shared inode owner-x at all times, closing the
+                // race window. Reproduced at 56% failure with a no-x (0o644)
+                // lifecycle; 0% once every perm retains the execute bit.
                 if let Err(e) =
-                    std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700))
+                    std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
                 {
                     warn!(path = %dest.display(), error = %e, "Failed to set permissions on cached output file");
                 }
@@ -1141,6 +1359,7 @@ impl OperationHandler {
         &self,
         step: &Step,
         environments: &HashMap<String, EnvironmentList>,
+        step_working_dirs: &HashMap<String, PathBuf>,
         shared_channels_dir: Option<&Path>,
         channel_names: &HashSet<String>,
     ) -> Result<TaskExecutionResult> {
@@ -1169,6 +1388,36 @@ impl OperationHandler {
                     ..Default::default()
                 },
             });
+        }
+        for mount in &step.mounts {
+            match &mount.source {
+                // StepOutput is a single-file handoff: copy it into this box's
+                // working dir (isolate cannot bind-mount a file, and the
+                // producer dir holds the contestant's source — never mount it).
+                MountSource::StepOutput { from_step, file } => {
+                    let src = resolve_step_output_src(
+                        from_step,
+                        file,
+                        step_working_dirs,
+                        &step.depends_on,
+                    )?;
+                    stage_step_output_file(&src, &mount.inside_path, &env.working_dir).await?;
+                }
+                // PlatformTool is a read-only directory mount (the tools dir at
+                // the parent of inside_path) — see platform_tool_directory_rule.
+                MountSource::PlatformTool { name } => {
+                    let tools_dir = self.tools_dir.as_deref().ok_or_else(|| {
+                        anyhow!(
+                            "step requests platform tool '{name}' but no [worker.tools] dir is configured"
+                        )
+                    })?;
+                    directory_rules.push(platform_tool_directory_rule(
+                        &mount.inside_path,
+                        name,
+                        tools_dir,
+                    )?);
+                }
+            }
         }
 
         let run_opts = RunOptions {
@@ -1342,5 +1591,134 @@ impl OperationHandler {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod mount_tests {
+    use super::*;
+
+    #[test]
+    fn platform_tool_mount_is_read_only_executable_under_tools_dir() {
+        let tools = Path::new("/opt/broccoli/tools");
+        let rule =
+            platform_tool_directory_rule("/tools/broccoli-compare", "broccoli-compare", tools)
+                .unwrap();
+
+        // isolate binds directories, not files: mount the tools dir itself at the
+        // parent of inside_path, so `/tools/broccoli-compare` resolves in-box.
+        assert_eq!(rule.inside_path, PathBuf::from("/tools"));
+        assert_eq!(
+            rule.outside_path,
+            Some(PathBuf::from("/opt/broccoli/tools")),
+            "must bind the tools directory, not the single tool file"
+        );
+        // A mounted tool must be runnable but not writable.
+        assert!(!rule.options.read_write, "tool mount must be read-only");
+        assert!(!rule.options.no_exec, "tool mount must be executable");
+    }
+
+    #[test]
+    fn platform_tool_inside_path_basename_must_match_name() {
+        let tools = Path::new("/opt/broccoli/tools");
+        // basename ("cmp") != tool name ("broccoli-compare") => the in-box path
+        // would not land on the tool, so the rule must be rejected.
+        assert!(
+            platform_tool_directory_rule("/tools/cmp", "broccoli-compare", tools).is_err(),
+            "mismatched basename must be rejected"
+        );
+    }
+
+    #[test]
+    fn platform_tool_inside_path_requires_directory_component() {
+        let tools = Path::new("/opt/broccoli/tools");
+        // A bare filename has no parent dir to mount the tools dir onto.
+        assert!(
+            platform_tool_directory_rule("broccoli-compare", "broccoli-compare", tools).is_err(),
+            "bare inside_path (no directory component) must be rejected"
+        );
+    }
+
+    #[test]
+    fn platform_tool_name_rejects_path_traversal() {
+        let tools = Path::new("/opt/broccoli/tools");
+        for bad in ["../etc/passwd", "a/b", "..", "", "a\\b", "x\0y"] {
+            assert!(
+                platform_tool_directory_rule("/tools/x", bad, tools).is_err(),
+                "name {bad:?} must be rejected"
+            );
+        }
+    }
+
+    fn dirs_with(step: &str, dir: &str) -> HashMap<String, PathBuf> {
+        let mut m = HashMap::new();
+        m.insert(step.to_string(), PathBuf::from(dir));
+        m
+    }
+
+    #[test]
+    fn step_output_src_resolves_under_from_step_dir() {
+        let dirs = dirs_with("producer", "/work/a");
+        let deps = ["producer".to_string()];
+        let src = resolve_step_output_src("producer", "out.txt", &dirs, &deps).unwrap();
+        assert_eq!(src, PathBuf::from("/work/a/out.txt"));
+    }
+
+    #[test]
+    fn step_output_src_requires_declared_dependency() {
+        let dirs = dirs_with("producer", "/work/a");
+        // from_step not in depends_on -> rejected (ordering + visibility unsafe).
+        assert!(resolve_step_output_src("producer", "out.txt", &dirs, &[]).is_err());
+    }
+
+    #[test]
+    fn step_output_src_rejects_file_path_traversal() {
+        let dirs = dirs_with("producer", "/work/a");
+        let deps = ["producer".to_string()];
+        for bad in ["../escape", "/abs", "a/../../b"] {
+            assert!(
+                resolve_step_output_src("producer", bad, &dirs, &deps).is_err(),
+                "file {bad:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn step_output_src_unknown_from_step_errors() {
+        let dirs: HashMap<String, PathBuf> = HashMap::new();
+        let deps = ["ghost".to_string()];
+        assert!(resolve_step_output_src("ghost", "out.txt", &dirs, &deps).is_err());
+    }
+
+    #[test]
+    fn stage_step_output_file_copies_only_the_named_file() {
+        // The handoff copies exactly the one named file into the consumer box —
+        // never the producer's other files (which hold the contestant's source).
+        // This is what makes testlib (File-output) checkers work at all: isolate
+        // cannot bind-mount a single file (ENOTDIR), so we copy instead.
+        let producer = tempfile::tempdir().unwrap();
+        let consumer = tempfile::tempdir().unwrap();
+        std::fs::write(producer.path().join("out.txt"), b"contestant output").unwrap();
+        std::fs::write(producer.path().join("solution.cpp"), b"secret source").unwrap();
+
+        let dirs = dirs_with("producer", producer.path().to_str().unwrap());
+        let deps = ["producer".to_string()];
+        let src = resolve_step_output_src("producer", "out.txt", &dirs, &deps).unwrap();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(stage_step_output_file(&src, "output.txt", consumer.path()))
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read(consumer.path().join("output.txt")).unwrap(),
+            b"contestant output"
+        );
+        assert!(
+            !consumer.path().join("solution.cpp").exists(),
+            "only the single named file must be exposed to the checker"
+        );
     }
 }

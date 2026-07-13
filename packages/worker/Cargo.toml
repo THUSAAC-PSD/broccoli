@@ -37,6 +37,7 @@ lru = "0.16.3"
 redis = { workspace = true }
 hostname = "0.4"
 local-ip-address = "0.6"
+libc = "0.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

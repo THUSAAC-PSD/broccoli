@@ -20,6 +20,29 @@ use tracing::{debug, warn};
 
 const INLINE_OUTPUT_PREVIEW_BYTES: usize = 64 * 1024;
 
+/// Drain a child pipe to EOF while keeping only the capped preview. Reading to
+/// the end (rather than stopping at the cap) keeps the child from taking SIGPIPE
+/// when it writes more than the preview limit.
+async fn read_capped_drain<R>(mut reader: R) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut preview = Vec::with_capacity(INLINE_OUTPUT_PREVIEW_BYTES + 1);
+    let mut chunk = [0_u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                if preview.len() <= INLINE_OUTPUT_PREVIEW_BYTES {
+                    let remaining = (INLINE_OUTPUT_PREVIEW_BYTES + 1).saturating_sub(preview.len());
+                    preview.extend_from_slice(&chunk[..remaining.min(read)]);
+                }
+            }
+        }
+    }
+    preview
+}
+
 fn text_preview_from_bytes(mut bytes: Vec<u8>, truncated: bool) -> String {
     let was_truncated = truncated || bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES;
     if bytes.len() > INLINE_OUTPUT_PREVIEW_BYTES {
@@ -84,16 +107,64 @@ impl MockSandboxManager {
 
     fn open_stdin(path: &PathBuf) -> Result<std::fs::File, SandboxError> {
         if Self::is_fifo(path) {
-            return OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(path)
-                .map_err(|err| {
+            // The child's stdin must be READ-ONLY: a FIFO delivers EOF only once
+            // every write end closes, so if the consumer held a write end of its
+            // own stdin (O_RDWR) it would never see EOF and an EOF-draining
+            // checker would hang forever. We can't use a plain blocking O_RDONLY
+            // open here — opening a FIFO read-only blocks until a writer appears,
+            // which would stall this async task before the producer step runs.
+            // Instead open O_RDONLY | O_NONBLOCK (returns immediately even with no
+            // writer yet) and then clear O_NONBLOCK so the child's reads block
+            // normally and observe EOF when the producer closes the write end.
+            // This mirrors the real sandbox, whose children also get read-only
+            // stdin.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                use std::os::unix::io::AsRawFd;
+
+                let file = OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(path)
+                    .map_err(|err| {
+                        SandboxError::Execution(format!(
+                            "failed to open stdin pipe {}: {err}",
+                            path.display()
+                        ))
+                    })?;
+
+                let fd = file.as_raw_fd();
+                // SAFETY: `fd` is a valid open descriptor owned by `file` for the
+                // duration of these calls.
+                let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+                if flags < 0 {
+                    return Err(SandboxError::Execution(format!(
+                        "failed to read flags for stdin pipe {}: {}",
+                        path.display(),
+                        std::io::Error::last_os_error()
+                    )));
+                }
+                let rc =
+                    unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
+                if rc < 0 {
+                    return Err(SandboxError::Execution(format!(
+                        "failed to clear O_NONBLOCK for stdin pipe {}: {}",
+                        path.display(),
+                        std::io::Error::last_os_error()
+                    )));
+                }
+                return Ok(file);
+            }
+            #[cfg(not(unix))]
+            {
+                return OpenOptions::new().read(true).open(path).map_err(|err| {
                     SandboxError::Execution(format!(
                         "failed to open stdin pipe {}: {err}",
                         path.display()
                     ))
                 });
+            }
         }
 
         std::fs::File::open(path).map_err(|err| {
@@ -428,22 +499,8 @@ impl SandboxManager for MockSandboxManager {
         let piped_stdout_handle = child.stdout.take();
         let piped_stderr_handle = child.stderr.take();
 
-        let stdout_task = piped_stdout_handle.map(|s| {
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut limited = s.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
-                let _ = limited.read_to_end(&mut buf).await;
-                buf
-            })
-        });
-        let stderr_task = piped_stderr_handle.map(|s| {
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut limited = s.take((INLINE_OUTPUT_PREVIEW_BYTES + 1) as u64);
-                let _ = limited.read_to_end(&mut buf).await;
-                buf
-            })
-        });
+        let stdout_task = piped_stdout_handle.map(|s| tokio::spawn(read_capped_drain(s)));
+        let stderr_task = piped_stderr_handle.map(|s| tokio::spawn(read_capped_drain(s)));
 
         let time_limit_secs = run_options.resource_limits.wall_time_limit.or_else(|| {
             run_options

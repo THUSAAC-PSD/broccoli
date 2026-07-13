@@ -6,7 +6,7 @@ use super::cache_leader::{
     CacheLeaderElector, CacheLeaderOpts, NoopCacheLeaderElector, RedisCacheLeaderElector,
 };
 use super::file_cacher::{BlobStoreFileCacher, FileCacher, NoopFileCacher};
-use super::models::OperationTask;
+use super::models::{MountSource, OperationTask};
 use super::sandbox::SandboxManager;
 use super::sandbox::isolate::IsolateSandboxManager;
 use super::sandbox::mock::MockSandboxManager;
@@ -22,6 +22,11 @@ use tracing::{error, info, warn};
 
 pub struct OperationTaskExecutor {
     operation_executor: OperationHandler,
+    /// Worker-local platform tools directory (`[worker.tools] dir`), mirrored
+    /// here so a job that requests a `MountSource::PlatformTool` this worker
+    /// cannot resolve is rejected *before* execution starts (see
+    /// [`Self::validate_platform_tools`]).
+    tools_dir: Option<PathBuf>,
 }
 
 impl OperationTaskExecutor {
@@ -42,6 +47,47 @@ impl OperationTaskExecutor {
         let follower_poll = Duration::from_millis(config.worker.cache_follower_poll_interval_ms);
         let follower_max_wait = Duration::from_secs(config.worker.cache_follower_max_wait_secs);
 
+        let tools_dir = config
+            .worker
+            .tools
+            .dir
+            .clone()
+            .map(std::path::PathBuf::from);
+
+        // Surface tool resolvability at startup so a deployment mistake is
+        // visible immediately instead of only when the first job needing a
+        // platform tool arrives.
+        match &tools_dir {
+            Some(dir) => match std::fs::read_dir(dir) {
+                Ok(entries) => {
+                    let tools: Vec<String> = entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect();
+                    info!(
+                        tools_dir = %dir.display(),
+                        resolvable_platform_tools = ?tools,
+                        "Platform tools directory configured"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        tools_dir = %dir.display(),
+                        error = %e,
+                        "[worker.tools] dir is configured but not readable; \
+                         jobs requesting platform tools will be rejected as retryable errors"
+                    );
+                }
+            },
+            None => {
+                warn!(
+                    "no [worker.tools] dir configured; jobs requesting platform tools \
+                     (e.g. fused standard checkers using broccoli-compare) will be \
+                     rejected as retryable errors on this worker"
+                );
+            }
+        }
+
         Ok(Self {
             operation_executor: OperationHandler::with_cache_leader(
                 sandbox_manager,
@@ -52,8 +98,51 @@ impl OperationTaskExecutor {
                 follower_max_wait,
                 fingerprint,
                 metrics,
-            ),
+            )
+            .with_tools_dir(tools_dir.clone()),
+            tools_dir,
         })
+    }
+
+    /// Reject an operation up front when it requests a platform tool this
+    /// worker cannot resolve (no `[worker.tools]` dir configured, or the tool
+    /// is missing from it).
+    ///
+    /// Without this guard the requesting step fails mid-plan with
+    /// `success = false`, which evaluator plugins interpret as a judging
+    /// outcome — a pure worker deployment mistake then surfaces as a wrong
+    /// contestant-visible verdict. Failing the whole job with an `Err` before
+    /// any environment or sibling task is launched means the consumer's
+    /// RetryTracker treats it as a transient/system error (bounded retries,
+    /// then DLQ/SystemError), and no concurrently launched step can block on
+    /// a channel whose peer never started.
+    fn validate_platform_tools(&self, operation: &OperationTask) -> Result<()> {
+        for step in &operation.tasks {
+            for mount in &step.mounts {
+                let MountSource::PlatformTool { name } = &mount.source else {
+                    continue;
+                };
+                let Some(tools_dir) = self.tools_dir.as_deref() else {
+                    anyhow::bail!(
+                        "step '{}' requests platform tool '{}' but no [worker.tools] dir \
+                         is configured on this worker; rejecting the job before execution",
+                        step.id,
+                        name
+                    );
+                };
+                let tool_path = tools_dir.join(name);
+                if !tool_path.exists() {
+                    anyhow::bail!(
+                        "step '{}' requests platform tool '{}' but it is not present at {}; \
+                         rejecting the job before execution",
+                        step.id,
+                        name,
+                        tool_path.display()
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     fn cache_leader_from_config(config: &WorkerAppConfig) -> Arc<dyn CacheLeaderElector> {
@@ -99,6 +188,7 @@ impl OperationTaskExecutor {
                 String::new(),
                 metrics,
             ),
+            tools_dir: None,
         }
     }
 
@@ -120,6 +210,7 @@ impl OperationTaskExecutor {
                 String::new(),
                 metrics,
             ),
+            tools_dir: None,
         })
     }
 
@@ -251,6 +342,10 @@ impl Executor for OperationTaskExecutor {
         let operation: OperationTask = serde_json::from_value(task.payload.clone())
             .map_err(|e| anyhow::anyhow!("Failed to deserialize operation config: {}", e))?;
 
+        // Fail fast (as a retryable infra error, never a verdict) if this
+        // worker cannot resolve a platform tool the plan requires.
+        self.validate_platform_tools(&operation)?;
+
         match self.operation_executor.execute(&operation).await {
             Ok(result) => Ok(TaskResult {
                 task_id: task.id,
@@ -272,16 +367,159 @@ impl Executor for OperationTaskExecutor {
                 worker_id: None,
                 enqueued_at_unix_ms: None,
             }),
-            Err(e) => Ok(TaskResult {
-                task_id: task.id,
-                success: false,
-                output: serde_json::json!({ "error": format!("{e:#}") }),
-                error: Some(format!("{e:#}")),
-                task_type: None,
-                operation: None,
-                worker_id: None,
-                enqueued_at_unix_ms: None,
-            }),
+            // Propagate infra/execution errors (blob fetch, sandbox setup, IO) so
+            // the worker can classify transient failures and retry them via the
+            // RetryTracker instead of finalizing a spurious SystemError. A *ran*
+            // operation that merely produced a failing verdict returns through the
+            // Ok arm with result.success=false and is unaffected.
+            Err(e) => Err(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod platform_tool_validation_tests {
+    use super::*;
+    use crate::models::operation::models::{IOConfig, MountSpec, RunOptions, Step, StepKind};
+
+    fn executor_with_tools_dir(tools_dir: Option<PathBuf>) -> OperationTaskExecutor {
+        // Use a LOCAL meter provider (not the global one): these tests do not
+        // assert metrics, and calling the global-installing init_metrics here
+        // races with and drops the provider the metrics permit-guard test relies
+        // on, making it flaky.
+        let (metrics, _provider) = common::observability::init_metrics_local("broccoli-worker-test");
+        let mut executor = OperationTaskExecutor::new_with_sandbox_manager(
+            Box::new(MockSandboxManager::default()),
+            metrics,
+        );
+        executor.tools_dir = tools_dir;
+        executor
+    }
+
+    fn step_with_mounts(id: &str, mounts: Vec<MountSpec>) -> Step {
+        Step {
+            id: id.to_string(),
+            kind: StepKind::Generic,
+            env_ref: "env".to_string(),
+            argv: vec!["true".to_string()],
+            conf: RunOptions::default(),
+            io: IOConfig::default(),
+            collect: vec![],
+            depends_on: vec![],
+            cache: None,
+            mounts,
+        }
+    }
+
+    fn operation_with_steps(steps: Vec<Step>) -> OperationTask {
+        OperationTask {
+            environments: vec![],
+            tasks: steps,
+            channels: vec![],
+            priority: None,
+            target_worker_id: None,
+            evaluate_batch_id: None,
+            test_case_id: None,
+        }
+    }
+
+    fn platform_tool_mount(name: &str) -> MountSpec {
+        MountSpec {
+            inside_path: format!("/tools/{name}"),
+            source: MountSource::PlatformTool {
+                name: name.to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn rejects_platform_tool_job_when_no_tools_dir_is_configured() {
+        let executor = executor_with_tools_dir(None);
+        let operation = operation_with_steps(vec![step_with_mounts(
+            "check",
+            vec![platform_tool_mount("broccoli-compare")],
+        )]);
+
+        let err = executor
+            .validate_platform_tools(&operation)
+            .expect_err("job requiring a platform tool must be rejected up front");
+        let msg = err.to_string();
+        assert!(msg.contains("broccoli-compare"), "message names the tool: {msg}");
+        assert!(msg.contains("[worker.tools]"), "message names the config key: {msg}");
+        // The rejection must be classified as retryable by the worker (see
+        // is_permanent_execution_failure in models/worker.rs, which only
+        // treats blob-storage errors as permanent) so it surfaces as a
+        // SystemError, never a contestant-facing verdict.
+        let lower = msg.to_ascii_lowercase();
+        for permanent_marker in [
+            "blob not found",
+            "invalid content hash",
+            "exceeds size limit",
+            "blob storage is unavailable",
+        ] {
+            assert!(
+                !lower.contains(permanent_marker),
+                "missing-tools rejection must stay retryable, but message matches \
+                 permanent marker '{permanent_marker}': {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_platform_tool_job_when_tool_is_missing_from_tools_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "broccoli-tools-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let executor = executor_with_tools_dir(Some(dir.clone()));
+        let operation = operation_with_steps(vec![step_with_mounts(
+            "check",
+            vec![platform_tool_mount("broccoli-compare")],
+        )]);
+
+        let err = executor
+            .validate_platform_tools(&operation)
+            .expect_err("job requiring an absent tool must be rejected up front");
+        assert!(err.to_string().contains("broccoli-compare"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn accepts_platform_tool_job_when_tool_is_present() {
+        let dir = std::env::temp_dir().join(format!(
+            "broccoli-tools-test-present-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broccoli-compare"), b"#!/bin/sh\n").unwrap();
+        let executor = executor_with_tools_dir(Some(dir.clone()));
+        let operation = operation_with_steps(vec![step_with_mounts(
+            "check",
+            vec![platform_tool_mount("broccoli-compare")],
+        )]);
+
+        executor
+            .validate_platform_tools(&operation)
+            .expect("resolvable platform tool must pass validation");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn job_without_platform_tools_passes_even_without_tools_dir() {
+        let executor = executor_with_tools_dir(None);
+        let operation = operation_with_steps(vec![step_with_mounts("run", vec![])]);
+
+        executor
+            .validate_platform_tools(&operation)
+            .expect("plain job must not require a tools dir");
     }
 }

@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -22,6 +22,18 @@ pub struct IsolateSandboxManager {
     enable_cgroups: bool,
     sandboxes: Arc<RwLock<HashMap<String, PathBuf>>>,
     metrics: Option<Metrics>,
+    /// Per-box cumulative CPU seconds consumed by steps that actually ran in the
+    /// box (cache-hit steps never reach `execute`, so they do not contribute).
+    ///
+    /// isolate runs every step of an environment in ONE box (one `--init`), and
+    /// with `--cg` the reported `time` and the `--time` limit are the box
+    /// cgroup's CPU usage cumulative *since `--init`*. So a later step (e.g.
+    /// `exec`) inherits an earlier step's CPU (e.g. `compile`) — charging compile
+    /// time against the run-time limit and false-TLEing legitimate solutions.
+    /// We offset each step's `--time` by this prior cumulative and report only
+    /// the step's own delta. Reset on `create_sandbox`, dropped on
+    /// `remove_sandbox`.
+    box_cpu_secs: Arc<Mutex<HashMap<String, f64>>>,
 }
 
 impl std::fmt::Debug for IsolateSandboxManager {
@@ -48,6 +60,7 @@ impl IsolateSandboxManager {
             enable_cgroups,
             sandboxes: Arc::new(RwLock::new(HashMap::new())),
             metrics,
+            box_cpu_secs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -70,6 +83,7 @@ impl Default for IsolateSandboxManager {
             enable_cgroups: cfg.map(|c| c.worker.enable_cgroups).unwrap_or(false),
             sandboxes: Arc::new(RwLock::new(HashMap::new())),
             metrics: None,
+            box_cpu_secs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -96,6 +110,15 @@ fn text_preview_from_bytes(mut bytes: Vec<u8>, truncated: bool) -> String {
     }
 
     let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    // `from_utf8_lossy` preserves NUL (0x00) bytes — they are valid UTF-8
+    // (U+0000) — but PostgreSQL TEXT columns reject 0x00. Sandbox stdout/stderr
+    // and isolate `meta` can carry stray NUL (truncated multibyte sequences,
+    // partially-flushed buffers, control bytes), so strip them at the capture
+    // origin rather than relying on every downstream persistence layer. Replace
+    // with U+FFFD to match the SDK/host sanitizers.
+    if text.contains('\0') {
+        text = text.replace('\0', "\u{FFFD}");
+    }
     if was_truncated {
         text.push_str("\n... (truncated)");
     }
@@ -355,7 +378,11 @@ impl SandboxManager for IsolateSandboxManager {
         self.sandboxes
             .write()
             .await
-            .insert(box_id, working_dir.clone());
+            .insert(box_id.clone(), working_dir.clone());
+        // Fresh box (--init resets the cgroup) -> zero prior CPU for this box.
+        if let Ok(mut m) = self.box_cpu_secs.lock() {
+            m.insert(box_id, 0.0);
+        }
 
         if let Some(metrics) = &self.metrics {
             metrics
@@ -375,6 +402,9 @@ impl SandboxManager for IsolateSandboxManager {
         let start = std::time::Instant::now();
         let box_id = parse_box_id(Some(id))?;
         self.sandboxes.write().await.remove(&box_id);
+        if let Ok(mut m) = self.box_cpu_secs.lock() {
+            m.remove(&box_id);
+        }
 
         let mut command = Command::new(&self.isolate_bin);
         command.arg(format!("--box-id={box_id}"));
@@ -442,23 +472,80 @@ impl SandboxManager for IsolateSandboxManager {
             ));
         }
 
+        // Per-box cumulative-CPU offset (see `box_cpu_secs`). isolate's `--cg`
+        // `time` and `--time` limit are the box cgroup's CPU usage cumulative
+        // since `--init`, so a step inherits prior same-box steps' CPU. Add the
+        // prior cumulative to this step's CPU `--time` so isolate enforces the
+        // step's OWN limit, then report only the step's own delta. `time_limit`
+        // is CPU seconds; wall time (`--wall-time`) is measured per `--run` and
+        // is not cumulative, so it is left untouched.
+        let box_key = parse_box_id(Some(box_id))?;
+        let prior_cpu = self
+            .box_cpu_secs
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&box_key).copied())
+            .unwrap_or(0.0);
+        let adjusted_opts =
+            if prior_cpu > 0.0 && run_options.resource_limits.time_limit.is_some() {
+                let mut ro = run_options.clone();
+                ro.resource_limits.time_limit =
+                    ro.resource_limits.time_limit.map(|t| t + prior_cpu);
+                Some(ro)
+            } else {
+                None
+            };
+        let effective_opts = adjusted_opts.as_ref().unwrap_or(run_options);
+
         const MAX_TRANSIENT_RETRIES: usize = 3;
         for attempt in 0..=MAX_TRANSIENT_RETRIES {
-            let result = self.execute_once(box_id, argv.clone(), run_options).await;
-            let Ok(exec) = result else { return result };
-            if attempt < MAX_TRANSIENT_RETRIES && is_transient_exec_failure(&exec) {
-                let backoff_ms = 25u64 << attempt;
-                tracing::warn!(
-                    box_id = %box_id,
-                    attempt = attempt + 1,
-                    backoff_ms,
-                    stderr_preview = %exec.stderr.chars().take(120).collect::<String>(),
-                    "Transient exec failure (EAGAIN), retrying after backoff",
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                continue;
+            let result = self.execute_once(box_id, argv.clone(), effective_opts).await;
+            match result {
+                // Retryable isolate setup error: under concurrent judging a
+                // box's input file can momentarily carry restrictive perms
+                // (shared cache inode being re-chmodded by another op), making
+                // isolate's open() of stdin/input fail. Re-running picks up the
+                // now-readable file. Bounded by MAX_TRANSIENT_RETRIES.
+                Err(SandboxError::Unknown(msg))
+                    if attempt < MAX_TRANSIENT_RETRIES
+                        && msg.contains("Permission denied") =>
+                {
+                    let backoff_ms = 25u64 << attempt;
+                    tracing::warn!(
+                        box_id = %box_id,
+                        attempt = attempt + 1,
+                        backoff_ms,
+                        error = %msg,
+                        "Transient isolate setup failure (EACCES), retrying after backoff",
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+                Ok(mut exec) => {
+                    if attempt < MAX_TRANSIENT_RETRIES && is_transient_exec_failure(&exec) {
+                        let backoff_ms = 25u64 << attempt;
+                        tracing::warn!(
+                            box_id = %box_id,
+                            attempt = attempt + 1,
+                            backoff_ms,
+                            stderr_preview = %exec.stderr.chars().take(120).collect::<String>(),
+                            "Transient exec failure (EAGAIN), retrying after backoff",
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                        continue;
+                    }
+                    // `exec.time_used` is the box cgroup's cumulative CPU since
+                    // --init. Persist it as the new prior, then report only this
+                    // step's own CPU (the delta above the prior cumulative).
+                    let cumulative = exec.time_used;
+                    if let Ok(mut m) = self.box_cpu_secs.lock() {
+                        m.insert(box_key.clone(), cumulative.max(prior_cpu));
+                    }
+                    exec.time_used = (cumulative - prior_cpu).max(0.0);
+                    return Ok(exec);
+                }
             }
-            return Ok(exec);
         }
         unreachable!("retry loop exits via return")
     }
@@ -528,7 +615,13 @@ impl IsolateSandboxManager {
             command.arg(format!("--stderr={}", stderr.to_string_lossy()));
         }
         if run_options.env_rules.is_empty() {
-            command.arg("--full-env");
+            // Never inherit the worker's full environment into a sandboxed
+            // (potentially contestant-controlled) program: `--full-env` would
+            // leak the DB/Redis/S3 credentials, the JWT secret, and every other
+            // BROCCOLI__* value the worker process holds. Provide a minimal,
+            // secret-free default environment instead. Callers that need extra
+            // variables must request them explicitly via `env_rules`.
+            command.arg("--env=PATH=/usr/local/bin:/usr/bin:/bin");
         } else {
             for rule in &run_options.env_rules {
                 add_env_rule_args(&mut command, rule);
@@ -638,5 +731,30 @@ impl IsolateSandboxManager {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod text_preview_tests {
+    use super::text_preview_from_bytes;
+
+    #[test]
+    fn strips_nul_bytes_from_captured_text() {
+        // NUL in sandbox stdout/stderr/meta must not survive to a Postgres TEXT column.
+        let out = text_preview_from_bytes(b"abc\0def\0\0xyz".to_vec(), false);
+        assert_eq!(out, "abc\u{FFFD}def\u{FFFD}\u{FFFD}xyz");
+        assert!(!out.contains('\0'));
+    }
+
+    #[test]
+    fn clean_text_passes_through_unchanged() {
+        let out = text_preview_from_bytes(b"999 998 997\n".to_vec(), false);
+        assert_eq!(out, "999 998 997\n");
+    }
+
+    #[test]
+    fn nul_strip_applies_before_truncation_marker() {
+        let out = text_preview_from_bytes(b"a\0b".to_vec(), true);
+        assert_eq!(out, "a\u{FFFD}b\n... (truncated)");
     }
 }

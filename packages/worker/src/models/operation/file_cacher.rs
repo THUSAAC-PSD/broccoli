@@ -6,42 +6,58 @@ use common::metrics::Metrics;
 use common::storage::{BlobStore, ContentHash};
 use opentelemetry::KeyValue;
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Materialize `src` at `dest` as cheaply as possible.
 ///
-/// On unix, attempts a hard link first (`std::fs::hard_link`) so the
-/// two paths share the same inode and no bytes are copied. Falls back to
-/// `tokio::fs::copy` on any link failure (cross-device EXDEV, permission, etc.).
-/// As a corner case, if hard_link fails with EEXIST (`dest` already exists) we
-/// remove `dest` and retry once before falling back.
-///
-/// On non-unix platforms, this is just `tokio::fs::copy`.
-///
-/// Hard-linking is only sound when the worker treats `dest` as read-only — any
-/// write through `dest` would propagate to `src` (the cache entry). The
-/// `fetch_to_path` caller chain satisfies this constraint.
+/// Copy or link `src` to `dest`, ensuring `dest` is world-readable so the
+/// isolate sandbox user can read it regardless of cache ownership/permissions.
 async fn link_or_copy(src: &Path, dest: &Path) -> std::io::Result<()> {
+    // The cache `src` may have been uploaded from inside an isolate sandbox
+    // and so be owned by a sandbox UID with restrictive (0o700) permissions
+    // that the worker user cannot read. Make it world-readable first (with a
+    // sudo-chmod last resort) so both the hard-link fast path and the copy
+    // fallback succeed.
+    ensure_world_readable(src);
+
     #[cfg(unix)]
     {
-        match std::fs::hard_link(src, dest) {
-            Ok(()) => return Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // dest already exists; remove and retry once.
-                if tokio::fs::remove_file(dest).await.is_ok()
-                    && std::fs::hard_link(src, dest).is_ok()
-                {
-                    return Ok(());
+        use std::os::unix::fs::PermissionsExt;
+        // Fast path: world-readable source → hard-link (no data copy).
+        if let Ok(meta) = std::fs::metadata(src)
+            && meta.permissions().mode() & 0o044 == 0o044
+        {
+            let linked = match std::fs::hard_link(src, dest) {
+                Ok(()) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    tokio::fs::remove_file(dest).await.is_ok()
+                        && std::fs::hard_link(src, dest).is_ok()
                 }
-                // Fall through to copy.
-            }
-            Err(_) => {
-                // EXDEV (cross-filesystem) or any other link failure: fall through to copy.
+                Err(_) => false,
+            };
+            if linked {
+                // The link shares the cache inode; another op may have linked
+                // the same blob while it was briefly 0o700. Re-assert 0o644 on
+                // the (shared) inode so the sandbox user can always read it.
+                ensure_world_readable(dest);
+                return Ok(());
             }
         }
     }
 
-    tokio::fs::copy(src, dest).await.map(|_| ())
+    // Copy fallback. Retry once on a transient permission error (e.g. a
+    // concurrent box init/cleanup racing on the dest directory).
+    match tokio::fs::copy(src, dest).await {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            ensure_world_readable(src);
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            tokio::fs::copy(src, dest).await?;
+        }
+        Err(e) => return Err(e),
+    }
+    ensure_world_readable(dest);
+    Ok(())
 }
 
 /// Compute SHA-256 of `src` by streaming. Avoids loading the whole file.
@@ -62,27 +78,48 @@ async fn hash_file(src: &Path) -> std::io::Result<ContentHash> {
     Ok(ContentHash::from_bytes(bytes))
 }
 
+/// Make `path` world-readable AND executable (0o755). Tries in order:
+/// 1. path-based `set_permissions` (fast)
+/// 2. `fchmod` via an open file descriptor (bypasses some MAC policies)
+/// 3. `sudo chmod` (last resort, requires passwordless sudo)
+///
+/// Silently ignores all failures — the file is still usable by the owner
+/// and the sandbox failure will surface as a clearer isolate error.
 #[cfg(unix)]
-fn ensure_readable(path: &Path) {
+fn ensure_world_readable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::metadata(path) {
-        let mode = meta.permissions().mode();
-        if mode & 0o044 != 0o044
-            && let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))
-        {
-            tracing::warn!(path = %path.display(), error = %e, "Failed to set readable permissions on cached file");
-        }
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    if meta.permissions().mode() & 0o005 == 0o005 {
+        return; // already world-readable + executable
     }
+    // 1. Path-based chmod
+    if std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).is_ok() {
+        return;
+    }
+    // 2. fchmod on an open FD
+    if let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
+        let _ = f.set_permissions(std::fs::Permissions::from_mode(0o755));
+    }
+    // 3. sudo chmod (worker user has NOPASSWD sudo)
+    let _ = std::process::Command::new("sudo")
+        .args(["chmod", "755"])
+        .arg(path)
+        .output();
 }
 
 #[cfg(not(unix))]
-fn ensure_readable(_path: &Path) {}
+fn ensure_world_readable(_path: &Path) {}
 
 #[async_trait]
 pub trait FileCacher: Send + Sync {
     async fn fetch_to_path(&self, content_hash: &str, dest: &Path) -> Result<(), String>;
 
     async fn upload_from_path(&self, src: &Path) -> Result<String, String>;
+
+    /// Ensure `content_hash` is present in the local cache without materializing
+    /// it to any destination (used by the pre-warm path). Returns bytes fetched
+    /// from the blob store (0 on a cache hit).
+    async fn warm(&self, content_hash: &str) -> Result<u64, String>;
 }
 
 pub struct NoopFileCacher;
@@ -94,6 +131,9 @@ impl FileCacher for NoopFileCacher {
     }
     async fn upload_from_path(&self, _src: &Path) -> Result<String, String> {
         Ok("0".repeat(64))
+    }
+    async fn warm(&self, _content_hash: &str) -> Result<u64, String> {
+        Ok(0)
     }
 }
 
@@ -124,6 +164,13 @@ impl FileCacher for UnavailableFileCacher {
         Err(format!(
             "blob storage is unavailable; cannot upload {}: {}",
             src.display(),
+            self.reason
+        ))
+    }
+
+    async fn warm(&self, content_hash: &str) -> Result<u64, String> {
+        Err(format!(
+            "blob storage is unavailable; cannot warm blob {content_hash}: {}",
             self.reason
         ))
     }
@@ -281,52 +328,45 @@ impl BlobStoreFileCacher {
         let mut state = self.state.lock().await;
         state.entries.get(hash_hex);
     }
-}
 
-#[async_trait]
-impl FileCacher for BlobStoreFileCacher {
-    #[tracing::instrument(name = "file_cacher_fetch", skip(self, dest), fields(content_hash, dest = %dest.display()))]
-    async fn fetch_to_path(&self, content_hash: &str, dest: &Path) -> Result<(), String> {
-        let hash = ContentHash::from_hex(content_hash).map_err(|e| e.to_string())?;
-        let hash_hex = hash.to_hex();
-        let cached = self.cache_path(&hash_hex);
+    /// Ensure the blob `hash` is present in the local cache, fetching it from the
+    /// blob store on a miss. Returns bytes fetched (0 on a cache hit). Shared by
+    /// `fetch_to_path` (which then links the cached file to a dest) and `warm`
+    /// (cache-only, no dest). Concurrent callers for the same hash coalesce on
+    /// the per-hash fetch lock.
+    async fn ensure_cached(&self, hash: &ContentHash, hash_hex: &str) -> Result<u64, String> {
+        let cached = self.cache_path(hash_hex);
 
         if cached.exists() {
-            self.touch(&hash_hex).await;
-            ensure_readable(&cached);
-            link_or_copy(&cached, dest)
-                .await
-                .map_err(|e| format!("Failed to materialize cached file: {e}"))?;
+            self.touch(hash_hex).await;
             if let Some(metrics) = &self.metrics {
                 metrics
                     .blob_cache_hits_total
-                    .add(1, &[KeyValue::new("operation", "fetch_to_path")]);
+                    .add(1, &[KeyValue::new("operation", "ensure_cached")]);
             }
-            return Ok(());
+            return Ok(0);
         }
 
-        let lock = self.get_fetch_lock(&hash_hex);
-        let _cleanup = FetchLockCleanup(self, hash_hex.clone());
+        let lock = self.get_fetch_lock(hash_hex);
+        let _cleanup = FetchLockCleanup(self, hash_hex.to_string());
         let _guard = lock.lock().await;
 
+        // Re-check after acquiring the fetch lock: a concurrent fetch may have
+        // populated the cache while we waited.
         if cached.exists() {
-            self.touch(&hash_hex).await;
-            ensure_readable(&cached);
-            link_or_copy(&cached, dest)
-                .await
-                .map_err(|e| format!("Failed to materialize cached file: {e}"))?;
+            self.touch(hash_hex).await;
             if let Some(metrics) = &self.metrics {
                 metrics
                     .blob_cache_hits_total
-                    .add(1, &[KeyValue::new("operation", "fetch_to_path")]);
+                    .add(1, &[KeyValue::new("operation", "ensure_cached")]);
             }
-            return Ok(());
+            return Ok(0);
         }
 
         if let Some(metrics) = &self.metrics {
             metrics
                 .blob_cache_misses_total
-                .add(1, &[KeyValue::new("operation", "fetch_to_path")]);
+                .add(1, &[KeyValue::new("operation", "ensure_cached")]);
         }
 
         let temp_path = self.cache_dir.join(format!("{}.tmp", uuid::Uuid::new_v4()));
@@ -338,11 +378,7 @@ impl FileCacher for BlobStoreFileCacher {
             )
         })?;
 
-        let mut reader = self
-            .store
-            .get_stream(&hash)
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut reader = self.store.get_stream(hash).await.map_err(|e| e.to_string())?;
 
         let file_size = tokio::io::copy(&mut reader, &mut temp_file)
             .await
@@ -354,6 +390,36 @@ impl FileCacher for BlobStoreFileCacher {
                 format!("Failed to stream blob to cache: {e}")
             })?;
 
+        // Flush + close before re-reading for verification.
+        if let Err(e) = temp_file.flush().await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(format!("Failed to flush cache temp file: {e}"));
+        }
+        drop(temp_file);
+
+        // DEFENSE-IN-DEPTH integrity check. The blob store is content-addressed,
+        // so a silently truncated/corrupt download would otherwise be renamed
+        // permanently under the CORRECT hash key, then hard-linked and executed
+        // into every sandbox needing it — systematic wrong/RE verdicts with no
+        // error surfaced. Re-hash what we actually wrote; on mismatch, drop it
+        // and return a transient error so the task layer retries the fetch
+        // rather than poisoning the cache. Re-hashing is cheap next to the
+        // network fetch it guards.
+        match hash_file(&temp_path).await {
+            Ok(actual) if actual == *hash => {}
+            Ok(actual) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(format!(
+                    "blob {hash_hex} failed integrity check: fetched {file_size} bytes hashing to {} (expected {hash_hex})",
+                    actual.to_hex()
+                ));
+            }
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(format!("Failed to verify cached blob {hash_hex}: {e}"));
+            }
+        }
+
         tokio::fs::rename(&temp_path, &cached).await.map_err(|e| {
             let temp_path_clone = temp_path.clone();
             tokio::spawn(async move {
@@ -362,14 +428,54 @@ impl FileCacher for BlobStoreFileCacher {
             format!("Failed to finalize cache file: {e}")
         })?;
 
-        ensure_readable(&cached);
-        self.record_cache_entry(hash_hex.clone(), file_size).await;
+        // Make the newly cached file world-readable so future hard_link hits
+        // don't need the copy+chmod fallback in link_or_copy.
+        ensure_world_readable(&cached);
+        self.record_cache_entry(hash_hex.to_string(), file_size).await;
+        Ok(file_size)
+    }
+}
 
-        link_or_copy(&cached, dest)
-            .await
-            .map_err(|e| format!("Failed to materialize to dest: {e}"))?;
+#[async_trait]
+impl FileCacher for BlobStoreFileCacher {
+    #[tracing::instrument(name = "file_cacher_fetch", skip(self, dest), fields(content_hash, dest = %dest.display()))]
+    async fn fetch_to_path(&self, content_hash: &str, dest: &Path) -> Result<(), String> {
+        let hash = ContentHash::from_hex(content_hash).map_err(|e| e.to_string())?;
+        let hash_hex = hash.to_hex();
 
-        Ok(())
+        // Ensure the blob is cached (fetching on a miss, coalescing concurrent
+        // fetches of the same hash), then materialize it to `dest`.
+        self.ensure_cached(&hash, &hash_hex).await?;
+
+        // link_or_copy uses hard_link when the cached file is already world-
+        // readable (common path), and falls back to read+write with explicit
+        // 0o644 when it isn't (stale caches, isolate-owned files, umask 077).
+        let cached = self.cache_path(&hash_hex);
+        match link_or_copy(&cached, dest).await {
+            Ok(()) => Ok(()),
+            // Under heavy cache pressure, LRU eviction can unlink this exact file
+            // in the window between ensure_cached returning and link_or_copy
+            // opening it — a benign race, not corruption. Re-fetch once (which
+            // re-materializes the blob and re-records the LRU entry) and retry.
+            // A second ENOENT is a real fault and propagates.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.ensure_cached(&hash, &hash_hex).await?;
+                link_or_copy(&self.cache_path(&hash_hex), dest)
+                    .await
+                    .map_err(|e| {
+                        format!("Failed to materialize cached file after re-fetch: {e}")
+                    })?;
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to materialize cached file: {e}")),
+        }
+    }
+
+    #[tracing::instrument(name = "file_cacher_warm", skip(self), fields(content_hash))]
+    async fn warm(&self, content_hash: &str) -> Result<u64, String> {
+        let hash = ContentHash::from_hex(content_hash).map_err(|e| e.to_string())?;
+        let hash_hex = hash.to_hex();
+        self.ensure_cached(&hash, &hash_hex).await
     }
 
     #[tracing::instrument(name = "file_cacher_upload", skip(self, src), fields(src = %src.display()))]
@@ -430,8 +536,11 @@ impl FileCacher for BlobStoreFileCacher {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ =
-                        std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o644));
+                    // 0o755 (not 0o644): cached compile outputs are hard-linked
+                    // into sandbox dirs and exec'd; a stable executable fixpoint
+                    // across all sites prevents a shared-inode perms race that
+                    // strips the exec bit mid-run (spurious exit-127 RuntimeError).
+                    let _ = std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o755));
                 }
                 self.record_cache_entry(hash_hex.clone(), file_size).await;
             }

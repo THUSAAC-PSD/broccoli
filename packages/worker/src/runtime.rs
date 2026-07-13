@@ -28,6 +28,7 @@ pub struct WorkerRuntime {
     heartbeat: HeartbeatHandle,
     capacity: WorkerCapacity,
     _cleanup_handle: tokio::task::JoinHandle<()>,
+    _warm_handle: crate::warm::WarmSubscriberHandle,
 }
 
 impl WorkerRuntime {
@@ -140,6 +141,10 @@ impl WorkerRuntime {
             in_flight.clone(),
         );
 
+        // Pre-warm subscriber: listens for contest cache-warm jobs and fills the
+        // local file cache ahead of the opening burst. Independent of judging.
+        let warm_handle = crate::warm::spawn(config.clone(), Some(metrics.clone()));
+
         let dlq_config = config.mq.dlq.clone();
         let retry_tracker = Arc::new(Mutex::new(RetryTracker::new(dlq_config.max_retries)));
 
@@ -169,6 +174,7 @@ impl WorkerRuntime {
             heartbeat,
             capacity,
             _cleanup_handle: cleanup_handle,
+            _warm_handle: warm_handle,
         })
     }
 

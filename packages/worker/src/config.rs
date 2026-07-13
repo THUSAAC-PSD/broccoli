@@ -28,6 +28,15 @@ impl Default for DatabaseConfig {
     }
 }
 
+/// Worker-local platform tools (e.g. the `broccoli-compare` static binary).
+/// `[worker.tools] dir = "/opt/broccoli/tools"` lets a `MountSource::PlatformTool`
+/// resolve a tool by logical name to `<dir>/<name>`, mounted read-only.
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct ToolsConfig {
+    #[serde(default)]
+    pub dir: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct WorkerConfig {
     #[serde(default = "default_worker_id")]
@@ -54,6 +63,8 @@ pub struct WorkerConfig {
     pub cache_follower_poll_interval_ms: u64,
     #[serde(default = "default_cache_follower_max_wait_secs")]
     pub cache_follower_max_wait_secs: u64,
+    #[serde(default)]
+    pub tools: ToolsConfig,
 }
 
 fn default_worker_id() -> String {
@@ -105,6 +116,7 @@ impl Default for WorkerConfig {
             cache_leader_heartbeat_interval_secs: default_cache_leader_heartbeat_interval_secs(),
             cache_follower_poll_interval_ms: default_cache_follower_poll_interval_ms(),
             cache_follower_max_wait_secs: default_cache_follower_max_wait_secs(),
+            tools: ToolsConfig::default(),
         }
     }
 }
@@ -123,7 +135,12 @@ fn default_cache_dir() -> String {
     "./data/cache".into()
 }
 fn default_max_cache_size() -> u64 {
-    4 * 1024 * 1024 * 1024
+    // 32 GiB. A single problem's test data can be large (e.g. 30 testcases ×
+    // ~40 MB input+answer ≈ 1.2 GB), so the old 4 GiB default held only ~3
+    // problems and thrashed during a contest — evicting blobs the pre-warm had
+    // just fetched. 32 GiB comfortably holds a full contest's working set on a
+    // typical judge box; operators with a smaller disk should lower this.
+    32 * 1024 * 1024 * 1024
 }
 
 impl Default for StorageConfig {
@@ -183,7 +200,10 @@ impl WorkerAppConfig {
             .set_default("storage.data_dir", "./data")?
             .set_default("storage.max_blob_size", DEFAULT_MAX_BLOB_SIZE_BYTES as i64)?
             .set_default("storage.cache_dir", "./data/cache")?
-            .set_default("storage.max_cache_size", 4 * 1024 * 1024 * 1024_i64)?
+            // Single source of truth with the serde field default. This builder
+            // default takes precedence over the `#[serde(default)]`, so both must
+            // agree — reference the function to avoid drift.
+            .set_default("storage.max_cache_size", default_max_cache_size() as i64)?
             .add_source(File::with_name(&config_path).required(false))
             .add_source(
                 Environment::with_prefix("BROCCOLI")
