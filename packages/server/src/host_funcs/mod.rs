@@ -9,6 +9,7 @@ pub mod logger;
 pub mod registry;
 pub mod sql;
 pub mod storage;
+pub mod submissions;
 
 use crate::host_funcs::context::HostFunctionDeps;
 use common::metrics::Metrics;
@@ -210,6 +211,54 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
                 txn_map_clone.clone(),
             )),
             sql::db_rollback,
+        )
+    });
+
+    // Structured, capability-gated core-WRITE path (`host.submission.*`). These
+    // build their SQL server-side from structured input and run it on the same
+    // plugin DB pool as the `sql` fns above, but behind a distinct `submission`
+    // capability so the raw `sql` channel can be restricted later (phase 2).
+    let db_clone = db.clone();
+    hr.register("submission", move |plugin_id| {
+        Function::new(
+            "submission_update",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            submissions::submission_update,
+        )
+    });
+
+    let db_clone = db.clone();
+    hr.register("submission", move |plugin_id| {
+        Function::new(
+            "submission_insert_results",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            submissions::submission_insert_results,
+        )
+    });
+
+    let db_clone = db.clone();
+    hr.register("submission", move |plugin_id| {
+        Function::new(
+            "submission_delete_results",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            submissions::submission_delete_results,
+        )
+    });
+
+    let db_clone = db.clone();
+    hr.register("submission", move |plugin_id| {
+        Function::new(
+            "submission_query_test_cases",
+            [ValType::I64],
+            [ValType::I64],
+            UserData::new((plugin_id.to_string(), db_clone.clone())),
+            submissions::submission_query_test_cases,
         )
     });
 

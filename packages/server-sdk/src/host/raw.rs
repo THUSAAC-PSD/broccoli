@@ -90,4 +90,8 @@ str_host_fns! {
     store_get(input),
     store_compare_and_set(input),
     config_get(input),
+    submission_update(input),
+    submission_insert_results(input),
+    submission_delete_results(input),
+    submission_query_test_cases(input),
 }

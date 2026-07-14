@@ -126,7 +126,9 @@ fn execute_on_fresh_connection(stmt: Statement) -> Result<sea_orm::ExecResult, s
         .clone();
     tokio::runtime::Handle::current().block_on(async move {
         let mut opt = ConnectOptions::new(url);
-        opt.max_connections(1).min_connections(1).sqlx_logging(false);
+        opt.max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
         let fresh = Database::connect(opt).await?;
         let result = fresh.execute_raw(stmt).await;
         fresh.close().await.ok();
@@ -162,7 +164,9 @@ fn query_on_fresh_connection_url(
     let url = url.to_string();
     tokio::runtime::Handle::current().block_on(async move {
         let mut opt = ConnectOptions::new(url);
-        opt.max_connections(1).min_connections(1).sqlx_logging(false);
+        opt.max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
         let fresh = Database::connect(opt).await?;
         let result = fresh.query_one_raw(stmt).await;
         fresh.close().await.ok();
@@ -192,9 +196,13 @@ fn lookup_owned_txn<'a>(
                 host_fn,
                 "Plugin attempted to use a DB transaction it does not own"
             );
-            Err(extism::Error::msg(format!("Transaction not found: {txn_id}")))
+            Err(extism::Error::msg(format!(
+                "Transaction not found: {txn_id}"
+            )))
         }
-        None => Err(extism::Error::msg(format!("Transaction not found: {txn_id}"))),
+        None => Err(extism::Error::msg(format!(
+            "Transaction not found: {txn_id}"
+        ))),
     }
 }
 
@@ -725,6 +733,127 @@ host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap)
     }
 });
 
+/// Run a plugin-authored write on the shared plugin DB pool and return the same
+/// `HostDbResponse` JSON envelope `db_execute` produces (`{"data": <rows>}` or
+/// `{"error": <msg>}`). Shared by the capability-gated `host.submission.*` write
+/// host functions, which build the SQL server-side but must hit the DB through
+/// the exact same NUL-sanitization, arg-parsing, and poisoned-connection
+/// recovery path as raw `db_execute`. Kept as a separate helper (rather than
+/// refactoring `db_execute` to call it) so the raw-SQL machinery above stays
+/// byte-for-byte unchanged in this phase.
+pub(super) fn execute_on_pool(
+    db: &DatabaseConnection,
+    plugin_id: &str,
+    sql: String,
+    args: String,
+) -> Result<String, extism::Error> {
+    let sql = sanitize_sql_text("sql", plugin_id, sql);
+    let args = sanitize_sql_text("args", plugin_id, args);
+    let mut values = parse_args(&args, plugin_id, &sql)?;
+    let stripped = strip_nul_from_sea_values(&mut values, plugin_id, &sql);
+    if stripped > 0 {
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            stripped,
+            sql = %sql.chars().take(120).collect::<String>(),
+            "Stripped NUL bytes from bound values at submission execute choke point"
+        );
+    }
+    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, &sql, values);
+
+    let mut exec_result =
+        tokio::runtime::Handle::current().block_on(async { db.execute_raw(stmt.clone()).await });
+    let mut poison_retries = 0;
+    while poison_retries < POISONED_CONNECTION_RETRIES
+        && matches!(&exec_result, Err(e) if is_poisoned_connection_nul_error(e))
+    {
+        poison_retries += 1;
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            attempt = poison_retries,
+            "submission execute hit a poisoned-connection 0x00 error on clean params; retrying on a fresh connection"
+        );
+        exec_result = tokio::runtime::Handle::current()
+            .block_on(async { db.execute_raw(stmt.clone()).await });
+    }
+
+    if matches!(&exec_result, Err(e) if is_poisoned_connection_nul_error(e)) {
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            "submission execute exhausted pool retries on poisoned-connection 0x00; falling back to a fresh connection"
+        );
+        exec_result = execute_on_fresh_connection(stmt);
+    }
+
+    match exec_result {
+        Ok(res) => HostDbResponse::ok(JsonValue::from(res.rows_affected())).to_json_string(),
+        Err(e) => {
+            let sql_preview: String = sql.chars().take(800).collect();
+            let args_preview: String = args.chars().take(800).collect();
+            error!(plugin_id = %plugin_id, sql_len = sql.len(), args_len = args.len(), poison_retries, sql = %sql_preview, args = %args_preview, "Submission DB execution error: {}", e);
+            HostDbResponse::err(e.to_string()).to_json_string()
+        }
+    }
+}
+
+/// Read-side counterpart to [`execute_on_pool`]: run a plugin-authored read on
+/// the shared plugin DB pool, json_agg-wrapped exactly like `db_query`, and
+/// return the same `HostDbResponse` JSON envelope (`{"data": [rows]}`). Used by
+/// `host.submission.query_test_cases`.
+pub(super) fn query_on_pool(
+    db: &DatabaseConnection,
+    plugin_id: &str,
+    sql: String,
+    args: String,
+) -> Result<String, extism::Error> {
+    let sql = sanitize_sql_text("sql", plugin_id, sql);
+    let args = sanitize_sql_text("args", plugin_id, args);
+    let values = parse_args(&args, plugin_id, &sql)?;
+    let wrapped_sql = format!(
+        "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM ({}) AS t",
+        sql
+    );
+    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, wrapped_sql, values);
+
+    let mut query_result =
+        tokio::runtime::Handle::current().block_on(async { db.query_one_raw(stmt.clone()).await });
+    let mut poison_retries = 0;
+    while poison_retries < POISONED_CONNECTION_RETRIES
+        && matches!(&query_result, Err(e) if is_poisoned_connection_nul_error(e))
+    {
+        poison_retries += 1;
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            attempt = poison_retries,
+            "submission query hit a poisoned-connection 0x00 error on clean params; retrying on a fresh connection"
+        );
+        query_result = tokio::runtime::Handle::current()
+            .block_on(async { db.query_one_raw(stmt.clone()).await });
+    }
+
+    if matches!(&query_result, Err(e) if is_poisoned_connection_nul_error(e)) {
+        tracing::warn!(
+            plugin_id = %plugin_id,
+            "submission query exhausted pool retries on poisoned-connection 0x00; falling back to a fresh connection"
+        );
+        query_result = query_on_fresh_connection(stmt);
+    }
+
+    match query_result {
+        Ok(Some(res)) => {
+            let json_val: serde_json::Value = res
+                .try_get("", "json_data")
+                .unwrap_or(serde_json::json!([]));
+            HostDbResponse::ok(json_val).to_json_string()
+        }
+        Ok(None) => HostDbResponse::ok(serde_json::json!([])).to_json_string(),
+        Err(e) => {
+            error!("Submission DB query error: {}", e);
+            HostDbResponse::err(e.to_string()).to_json_string()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -864,7 +993,9 @@ mod tests {
         let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
         let mut opt = ConnectOptions::new(url);
-        opt.max_connections(1).min_connections(1).sqlx_logging(false);
+        opt.max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
         let db = Database::connect(opt).await.expect("connect");
 
         let txn = db.begin().await.expect("begin orphan txn");

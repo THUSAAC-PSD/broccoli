@@ -39,17 +39,6 @@ pub(super) fn parse_affected(data: Option<JsonValue>) -> u64 {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(super) fn raw_query<T: DeserializeOwned>(
-    sql: &str,
-    args: &[impl serde::Serialize],
-) -> Result<Vec<T>, SdkError> {
-    let args_json = serde_json::to_string(args)?;
-    let result_json = unsafe { crate::host::raw::db_query(sql.to_string(), args_json)? };
-    let resp: HostDbResponse = serde_json::from_str(&result_json)?;
-    parse_rows(resp.into_result()?)
-}
-
-#[cfg(target_arch = "wasm32")]
 pub(super) fn raw_execute(sql: &str, args: &[impl serde::Serialize]) -> Result<u64, SdkError> {
     let args_json = serde_json::to_string(args)?;
     let result_json = unsafe { crate::host::raw::db_execute(sql.to_string(), args_json)? };

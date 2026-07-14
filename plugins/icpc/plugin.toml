@@ -11,6 +11,7 @@ permissions = [
     "logger",
     "plugin:register",
     "sql",
+    "submission",
     "evaluator:evaluate",
     "config:read",
     "storage",
