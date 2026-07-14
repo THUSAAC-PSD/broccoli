@@ -1,32 +1,58 @@
-use std::cell::RefCell;
-
 use anyhow::{Context, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Credentials, save_credentials_full};
 use crate::model::{SubmissionStatus, Verdict};
+use crate::tokenstore::{TokenStore, Tokens};
 
 /// Shared API client; refreshes the access token and retries once on 401.
+///
+/// The token pair lives in a [`TokenStore`] rather than the client, so the
+/// client is `Send + Sync` and several clients (or threads) can share one token
+/// rotation instead of each wrapping the whole client in `Arc<Mutex<Client>>`.
 pub struct Client {
     server: String,
-    token: RefCell<String>,
-    refresh_token: RefCell<Option<String>>,
+    tokens: TokenStore,
     agent: ureq::Agent,
 }
 
 impl Client {
+    /// Build a client that persists refreshed tokens back to the credentials
+    /// file (the default for a stand-alone CLI process).
     pub fn new(creds: Credentials) -> Self {
+        let server = creds.server;
+        let persist_server = server.clone();
+        let tokens = TokenStore::new(
+            Tokens {
+                token: creds.token,
+                refresh_token: creds.refresh_token,
+            },
+            move |t| {
+                let _ = save_credentials_full(&persist_server, &t.token, t.refresh_token.as_deref());
+            },
+        );
+        Self::with_token_store(server, tokens)
+    }
+
+    /// Build a client over an externally-owned [`TokenStore`], so multiple
+    /// clients can share one token rotation (and one persistence policy).
+    pub fn with_token_store(server: String, tokens: TokenStore) -> Self {
         let agent = crate::tls::build_agent(
             Some(std::time::Duration::from_secs(10)),
             Some(std::time::Duration::from_secs(30)),
         );
         Self {
-            server: creds.server,
-            token: RefCell::new(creds.token),
-            refresh_token: RefCell::new(creds.refresh_token),
+            server,
+            tokens,
             agent,
         }
+    }
+
+    /// The shared token store, for constructing sibling clients that share this
+    /// client's token rotation.
+    pub fn token_store(&self) -> TokenStore {
+        self.tokens.clone()
     }
 
     pub fn server(&self) -> &str {
@@ -39,54 +65,54 @@ impl Client {
     }
 
     fn bearer(&self) -> String {
-        format!("Bearer {}", self.token.borrow())
+        format!("Bearer {}", self.tokens.access_token())
     }
 
-    /// Exchange the refresh token for fresh tokens, persisting them.
-    fn refresh_access_token(&self) -> anyhow::Result<()> {
-        let refresh_token = self
-            .refresh_token
-            .borrow()
-            .clone()
-            .context("No refresh token available")?;
+    /// Refresh the access token, serialized and deduplicated across threads by
+    /// the token store. `used` is the access token the failed request carried.
+    fn refresh_on_401(&self, used: &str) -> anyhow::Result<()> {
+        self.tokens.refresh_if_current(used, |refresh_token| {
+            let resp = self
+                .agent
+                .post(&format!("{}/api/v1/auth/cli-refresh", self.server))
+                .send_json(serde_json::json!({ "refresh_token": refresh_token }))
+                .with_context(|| {
+                    format!(
+                        "Could not reach {} — check your network connection.",
+                        self.server
+                    )
+                })?;
 
-        let resp = self
-            .agent
-            .post(&format!("{}/api/v1/auth/cli-refresh", self.server))
-            .send_json(serde_json::json!({ "refresh_token": refresh_token }))
-            .with_context(|| {
-                format!(
-                    "Could not reach {} — check your network connection.",
-                    self.server
-                )
-            })?;
+            if resp.status().as_u16() != 200 {
+                bail!("Session expired. Run `broccoli login` to re-authenticate.");
+            }
 
-        if resp.status().as_u16() != 200 {
-            bail!("Session expired. Run `broccoli login` to re-authenticate.");
-        }
+            let body: CliTokenResponse = resp
+                .into_body()
+                .read_json()
+                .context("Failed to parse refresh response")?;
 
-        let body: CliTokenResponse = resp
-            .into_body()
-            .read_json()
-            .context("Failed to parse refresh response")?;
-
-        *self.token.borrow_mut() = body.token.clone();
-        *self.refresh_token.borrow_mut() = Some(body.refresh_token.clone());
-        let _ = save_credentials_full(&self.server, &body.token, Some(&body.refresh_token));
-        Ok(())
+            Ok(Tokens {
+                token: body.token,
+                refresh_token: Some(body.refresh_token),
+            })
+        })
     }
 
     /// On 401 with a refresh token, refresh and re-run `retry`; else return `resp`.
+    /// `used` is the access token `retry`'s failed attempt carried, so a racing
+    /// refresh by another thread is detected and not repeated.
     fn with_refresh<F>(
         &self,
+        used: &str,
         resp: http::Response<ureq::Body>,
         retry: F,
     ) -> anyhow::Result<http::Response<ureq::Body>>
     where
         F: FnOnce() -> anyhow::Result<http::Response<ureq::Body>>,
     {
-        let needs_refresh = resp.status().as_u16() == 401 && self.refresh_token.borrow().is_some();
-        if needs_refresh && self.refresh_access_token().is_ok() {
+        let needs_refresh = resp.status().as_u16() == 401 && self.tokens.refresh_token().is_some();
+        if needs_refresh && self.refresh_on_401(used).is_ok() {
             return retry();
         }
         Ok(resp)
@@ -106,8 +132,9 @@ impl Client {
                     )
                 })
         };
+        let used = self.tokens.access_token();
         let resp = send()?;
-        self.with_refresh(resp, send)
+        self.with_refresh(&used, resp, send)
     }
 
     fn post(
@@ -128,8 +155,9 @@ impl Client {
                     )
                 })
         };
+        let used = self.tokens.access_token();
         let resp = send()?;
-        self.with_refresh(resp, send)
+        self.with_refresh(&used, resp, send)
     }
 
     fn delete(&self, path: &str) -> anyhow::Result<http::Response<ureq::Body>> {
@@ -146,8 +174,9 @@ impl Client {
                     )
                 })
         };
+        let used = self.tokens.access_token();
         let resp = send()?;
-        self.with_refresh(resp, send)
+        self.with_refresh(&used, resp, send)
     }
 
     /// Bail on non-2xx with a clean message; return `resp` on success.

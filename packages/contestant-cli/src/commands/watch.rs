@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -319,9 +319,10 @@ pub fn run(args: WatchArgs) -> anyhow::Result<()> {
         flash_at: None,
     };
 
-    // One shared Client: refresh tokens rotate server-side, so two clients would
-    // invalidate each other's refresh token.
-    let client = Arc::new(Mutex::new(client));
+    // One shared Client across the poller and UI threads. The Client is Sync and
+    // serializes token refresh internally (via its TokenStore), so no outer lock
+    // is needed and concurrent calls never double-rotate the refresh token.
+    let client = Arc::new(client);
 
     let (tx, rx) = mpsc::channel::<PollUpdate>();
     let cid = contest_id.clone();
@@ -339,13 +340,8 @@ pub fn run(args: WatchArgs) -> anyhow::Result<()> {
     let poll_client = Arc::clone(&client);
 
     let poller = thread::spawn(move || {
-        // Lock the shared Client only per-call so a user action never waits long.
-        let fetch = |path: &str| -> Option<serde_json::Value> {
-            poll_client
-                .lock()
-                .ok()
-                .and_then(|c| c.get_json_value(path).ok())
-        };
+        let fetch =
+            |path: &str| -> Option<serde_json::Value> { poll_client.get_json_value(path).ok() };
         'outer: while poller_running.load(Ordering::Relaxed) {
             let mut ok = true;
             match fetch(&subs_path) {
@@ -398,7 +394,7 @@ fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<&mut io::Stdout>>,
     app: &mut AppData,
     rx: &mpsc::Receiver<PollUpdate>,
-    client: &Arc<Mutex<Client>>,
+    client: &Arc<Client>,
     refresh_now: &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     loop {
@@ -462,11 +458,8 @@ fn run_event_loop(
                     .unwrap_or(true);
                 if still_judging {
                     let id = id.clone();
-                    // try_lock: skip this refresh rather than block the render loop.
-                    if let Ok(c) = client.try_lock() {
-                        if let Ok(sub) = c.get_submission(&id) {
-                            app.submission_detail = Some(sub);
-                        }
+                    if let Ok(sub) = client.get_submission(&id) {
+                        app.submission_detail = Some(sub);
                     }
                 }
             }
@@ -551,11 +544,7 @@ fn run_event_loop(
                 app.flash = Some("Refreshing…".to_string());
             }
             KeyCode::Char('a') => app.compose = Some(String::new()),
-            // try_lock so a keypress never blocks behind an in-flight poll.
-            KeyCode::Enter => match client.try_lock() {
-                Ok(c) => open_detail(app, &c),
-                Err(_) => app.flash = Some("Loading… press Enter again.".to_string()),
-            },
+            KeyCode::Enter => open_detail(app, client),
             _ => {}
         }
     }
@@ -636,7 +625,7 @@ fn open_detail(app: &mut AppData, client: &Client) {
 /// Submit the compose buffer and force a refresh; keeps the text on failure.
 fn submit_clarification(
     app: &mut AppData,
-    client: &Arc<Mutex<Client>>,
+    client: &Arc<Client>,
     refresh_now: &Arc<AtomicBool>,
 ) {
     let Some(content) = app.compose.take().map(|c| c.trim().to_string()) else {
@@ -646,20 +635,14 @@ fn submit_clarification(
         app.flash = Some("Nothing to ask — clarification cancelled.".to_string());
         return;
     }
-    match client.try_lock() {
-        Ok(c) => match c.create_clarification(&app.contest_id, &content) {
-            Ok(cl) => {
-                app.flash = Some(format!("✓ Clarification #{} submitted", cl.id));
-                refresh_now.store(true, Ordering::Relaxed);
-            }
-            Err(e) => {
-                app.compose = Some(content); // keep the draft on failure
-                app.flash = Some(format!("Could not submit: {}", e));
-            }
-        },
-        Err(_) => {
-            app.compose = Some(content);
-            app.flash = Some("Busy — press Enter again.".to_string());
+    match client.create_clarification(&app.contest_id, &content) {
+        Ok(cl) => {
+            app.flash = Some(format!("✓ Clarification #{} submitted", cl.id));
+            refresh_now.store(true, Ordering::Relaxed);
+        }
+        Err(e) => {
+            app.compose = Some(content); // keep the draft on failure
+            app.flash = Some(format!("Could not submit: {}", e));
         }
     }
 }
