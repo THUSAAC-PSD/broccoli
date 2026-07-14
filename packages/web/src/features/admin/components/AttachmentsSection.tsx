@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, FileDropZone, Input } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
@@ -28,7 +28,6 @@ import {
   isImageType,
 } from '@/features/problem/api/attachments';
 import { useAttachmentUpload } from '@/features/problem/hooks/useAttachmentUpload';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface StagedFile {
   id: string;
@@ -180,7 +179,7 @@ export function AttachmentsSection({ problemId }: AttachmentsSectionProps) {
       );
       if (error) {
         toast.error(
-          extractErrorMessage(error, t('admin.attachments.deleteError')),
+          getErrorMessage(error, t('admin.attachments.deleteError')),
         );
       } else {
         toast.success(t('admin.attachments.deleted'));

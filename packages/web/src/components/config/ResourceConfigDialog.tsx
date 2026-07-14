@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { parseApiError, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import {
@@ -701,8 +701,7 @@ function SinglePluginContent({
             if (getError) {
               // No row for this namespace is fine; anything else must fail
               // the save so the admin knows enablement is inconsistent.
-              if ((getError as { code?: string }).code === 'NOT_FOUND')
-                continue;
+              if (parseApiError(getError)?.code === 'NOT_FOUND') continue;
               return { error: getError };
             }
             if (!row || (row.enabled ?? undefined) === enabled) continue;
@@ -729,8 +728,7 @@ function SinglePluginContent({
               { params: { path } },
             );
             if (getError) {
-              if ((getError as { code?: string }).code === 'NOT_FOUND')
-                continue;
+              if (parseApiError(getError)?.code === 'NOT_FOUND') continue;
               return { error: getError };
             }
             if (!row || (row.enabled ?? undefined) === enabled) continue;

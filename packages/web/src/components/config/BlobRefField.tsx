@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { Button, FileDropZone, Label } from '@broccoli/web-sdk/ui';
 import { File, Loader2, Upload, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -46,9 +46,7 @@ export function BlobRefField({
         );
 
         if (apiError) {
-          throw new Error(
-            (apiError as { message?: string }).message ?? 'Upload failed',
-          );
+          throw new Error(getErrorMessage(apiError, 'Upload failed'));
         }
 
         onChange({

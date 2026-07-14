@@ -1,4 +1,4 @@
-import type { ApiClient } from '@broccoli/web-sdk/api';
+import { type ApiClient, getErrorMessage } from '@broccoli/web-sdk/api';
 
 export interface Attachment {
   id: string;
@@ -63,8 +63,7 @@ export async function uploadAttachment(
     body: formData,
     bodySerializer: (body) => body as BodyInit,
   });
-  if (error)
-    throw new Error((error as { message?: string }).message ?? 'Upload failed');
+  if (error) throw new Error(getErrorMessage(error, 'Upload failed'));
 
   return {
     ...data,

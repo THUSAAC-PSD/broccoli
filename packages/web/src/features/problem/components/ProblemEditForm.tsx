@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge, Button, Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,7 +19,6 @@ import {
   attachmentsQueryKey,
   fetchAttachments,
 } from '@/features/problem/api/attachments';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface ProblemEditFormProps {
   problemId: number;
@@ -124,7 +123,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       },
     );
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.testCase.deleteError')));
+      toast.error(getErrorMessage(error, t('toast.testCase.deleteError')));
     } else {
       toast.success(t('toast.testCase.deleted'));
       queryClient.invalidateQueries({ queryKey: testCasesQueryKey });
@@ -172,7 +171,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
 
     setLoading(false);
     if (result.error) {
-      toast.error(extractErrorMessage(result.error, t('admin.editError')));
+      toast.error(getErrorMessage(result.error, t('admin.editError')));
     } else {
       toast.success(t('toast.problem.updated'));
       queryClient.invalidateQueries({ queryKey: ['problem', problemIdNum] });

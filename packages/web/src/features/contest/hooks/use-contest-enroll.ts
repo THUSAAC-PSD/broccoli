@@ -1,12 +1,8 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { parseApiError, useApiClient } from '@broccoli/web-sdk/api';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-
-type ApiErrorLike = {
-  code?: string;
-};
 
 type ContestEnrollState = {
   is_public: boolean;
@@ -45,7 +41,7 @@ export function useContestEnroll({
       queryClient.invalidateQueries({ queryKey: ['dashboard-contests'] });
     },
     onError: (error: unknown) => {
-      if ((error as ApiErrorLike)?.code === 'CONFLICT') {
+      if (parseApiError(error)?.code === 'CONFLICT') {
         toast.success(t('toast.contest.enrolled'));
         queryClient.invalidateQueries({ queryKey: ['contest', contestId] });
         queryClient.invalidateQueries({

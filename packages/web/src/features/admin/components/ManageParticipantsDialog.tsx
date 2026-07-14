@@ -1,4 +1,4 @@
-import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
+import { type ApiClient, getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
@@ -25,7 +25,6 @@ import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Types ──
 
@@ -157,7 +156,7 @@ function EnrolledTab({
     setRemovingId(null);
     if (error) {
       toast.error(
-        extractErrorMessage(error, t('toast.participant.removeError')),
+        getErrorMessage(error, t('toast.participant.removeError')),
       );
     } else {
       toast.success(t('toast.participant.removed'));
@@ -306,7 +305,7 @@ function AddParticipantsTab({
     });
     setAddingId(null);
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.participant.addError')));
+      toast.error(getErrorMessage(error, t('toast.participant.addError')));
     } else {
       resetKey();
       toast.success(t('toast.participant.added'));
@@ -614,7 +613,7 @@ function BulkImportTab({
     setSubmitting(false);
 
     if (error || !data) {
-      const msg = extractErrorMessage(error, t('admin.bulkParticipantsError'));
+      const msg = getErrorMessage(error, t('admin.bulkParticipantsError'));
       setErrorMsg(msg);
       toast.error(msg);
       return;

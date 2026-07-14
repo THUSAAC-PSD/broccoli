@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { parseApiError, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button } from '@broccoli/web-sdk/ui';
@@ -198,13 +198,13 @@ export function DeviceAuthPage() {
       );
 
       if (apiError) {
-        const errorBody = apiError as { code?: string; message?: string };
-        if (errorBody.code === 'NOT_FOUND') {
+        const errorBody = parseApiError(apiError);
+        if (errorBody?.code === 'NOT_FOUND') {
           setError(t('auth.device.codeNotFound'));
-        } else if (errorBody.code === 'CONFLICT') {
+        } else if (errorBody?.code === 'CONFLICT') {
           setError(t('auth.device.codeAlreadyUsed'));
         } else {
-          setError(errorBody.message || t('auth.device.error'));
+          setError(errorBody?.message || t('auth.device.error'));
         }
       } else {
         setIsAuthorized(true);

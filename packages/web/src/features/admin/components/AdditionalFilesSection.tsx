@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, FileDropZone, Input } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
@@ -14,7 +14,6 @@ import {
   groupFilesByLanguage,
 } from '@/features/problem/api/additional-files';
 import { fetchSupportedLanguages } from '@/features/problem/api/fetch-supported-languages';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface StagedFile {
   id: string;
@@ -115,15 +114,13 @@ export function AdditionalFilesSection({
         );
 
         if (error) {
-          throw new Error(
-            (error as { message?: string }).message ?? 'Upload failed',
-          );
+          throw new Error(getErrorMessage(error, 'Upload failed'));
         }
 
         return true;
       } catch (err) {
         toast.error(
-          extractErrorMessage(err, t('admin.additionalFiles.uploadError')),
+          getErrorMessage(err, t('admin.additionalFiles.uploadError')),
         );
         return false;
       }
@@ -182,7 +179,7 @@ export function AdditionalFilesSection({
       );
       if (error) {
         toast.error(
-          extractErrorMessage(error, t('admin.additionalFiles.deleteError')),
+          getErrorMessage(error, t('admin.additionalFiles.deleteError')),
         );
       } else {
         toast.success(t('admin.additionalFiles.deleted'));

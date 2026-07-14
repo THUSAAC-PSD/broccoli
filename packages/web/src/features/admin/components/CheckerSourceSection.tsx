@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, FileDropZone } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
@@ -7,7 +7,6 @@ import { FileCode, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface CheckerSourceFile {
   filename: string;
@@ -103,9 +102,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       });
 
       if (error) {
-        throw new Error(
-          (error as { message?: string }).message ?? 'Upload failed',
-        );
+        throw new Error(getErrorMessage(error, 'Upload failed'));
       }
 
       setStaged([]);
@@ -113,7 +110,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       queryClient.invalidateQueries({ queryKey });
     } catch (err) {
       toast.error(
-        extractErrorMessage(err, t('admin.checkerSource.uploadError')),
+        getErrorMessage(err, t('admin.checkerSource.uploadError')),
       );
     } finally {
       setUploading(false);
@@ -146,7 +143,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
         queryClient.invalidateQueries({ queryKey });
       } catch (err) {
         toast.error(
-          extractErrorMessage(err, t('admin.checkerSource.deleteError')),
+          getErrorMessage(err, t('admin.checkerSource.deleteError')),
         );
       }
     },
@@ -165,7 +162,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       queryClient.invalidateQueries({ queryKey });
     } catch (err) {
       toast.error(
-        extractErrorMessage(err, t('admin.checkerSource.deleteError')),
+        getErrorMessage(err, t('admin.checkerSource.deleteError')),
       );
     }
   }, [apiClient, problemId, queryClient, queryKey, t]);

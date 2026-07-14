@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
@@ -77,11 +77,9 @@ export default function PluginsPage() {
         });
 
         if (error) {
-          const msg =
-            error && typeof error === 'object' && 'message' in error
-              ? (error as { message?: string }).message
-              : undefined;
-          toast.error(msg || t('validation.pluginToggleError'));
+          toast.error(
+            getErrorMessage(error, t('validation.pluginToggleError')),
+          );
         } else {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
           queryClient.invalidateQueries({ queryKey: ['i18n'] });

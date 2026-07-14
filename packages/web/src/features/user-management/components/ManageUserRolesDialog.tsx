@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -22,7 +22,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { ManagedUserRow } from '@/features/user-management/types';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface ManageUserRolesDialogProps {
   user?: ManagedUserRow;
@@ -113,7 +112,7 @@ export function ManageUserRolesDialog({
     setIsAssigning(false);
 
     if (error) {
-      toast.error(extractErrorMessage(error, t('users.users.assignRoleError')));
+      toast.error(getErrorMessage(error, t('users.users.assignRoleError')));
       return;
     }
 
@@ -139,7 +138,7 @@ export function ManageUserRolesDialog({
     setRevokingRole(null);
 
     if (error) {
-      toast.error(extractErrorMessage(error, t('users.users.revokeRoleError')));
+      toast.error(getErrorMessage(error, t('users.users.revokeRoleError')));
       return;
     }
 

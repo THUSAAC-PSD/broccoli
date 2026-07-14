@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -22,7 +22,6 @@ import { EditUserDialog } from '@/features/user-management/components/EditUserDi
 import { ManageUserRolesDialog } from '@/features/user-management/components/ManageUserRolesDialog';
 import type { ManagedUserRow } from '@/features/user-management/types';
 import { useTableSearchParams } from '@/hooks/use-table-search-params';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 function useUserColumns({
   locale,
@@ -166,7 +165,7 @@ export function UsersManagementTab() {
     });
 
     if (error) {
-      toast.error(extractErrorMessage(error, t('users.users.deleteUserError')));
+      toast.error(getErrorMessage(error, t('users.users.deleteUserError')));
       return;
     }
 

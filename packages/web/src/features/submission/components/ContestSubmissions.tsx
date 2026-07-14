@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
@@ -29,7 +29,6 @@ import {
   fetchAllContestSubmissions,
   fetchContestSubmissions,
 } from '@/features/submission/api/fetch-contest-submissions';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 import { SubmissionsTable } from './SubmissionsTable';
 
@@ -208,7 +207,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         return data;
       }
 
-      const message = extractErrorMessage(error, '');
+      const message = getErrorMessage(error, '');
 
       // Compatibility fallback for older backend instances that still expect filter fields.
       if (message.includes('At least one filter field must be provided')) {
@@ -254,7 +253,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
     },
     onError: (error) => {
       toast.error(
-        extractErrorMessage(error, t('submissions.bulkRejudge.error')),
+        getErrorMessage(error, t('submissions.bulkRejudge.error')),
       );
     },
   });

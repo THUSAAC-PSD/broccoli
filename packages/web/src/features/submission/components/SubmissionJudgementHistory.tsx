@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { SubmissionJudgement } from '@broccoli/web-sdk/submission';
@@ -17,7 +17,6 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useSystemOverview } from '@/features/system/hooks/useSystemOverview';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 import { getVerdictBadge } from '../utils/verdict';
 import { TestCaseRow } from './TestCaseRow';
@@ -115,7 +114,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
     },
     onError: (error) => {
       toast.error(
-        extractErrorMessage(error, t('submissionDetail.rejudgeError')),
+        getErrorMessage(error, t('submissionDetail.rejudgeError')),
       );
     },
   });
@@ -136,7 +135,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
       await invalidate();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, t('submissionDetail.applyError')));
+      toast.error(getErrorMessage(error, t('submissionDetail.applyError')));
     },
   });
 
@@ -156,7 +155,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
     },
     onError: (error) => {
       toast.error(
-        extractErrorMessage(error, t('submissionDetail.discardError')),
+        getErrorMessage(error, t('submissionDetail.discardError')),
       );
     },
   });

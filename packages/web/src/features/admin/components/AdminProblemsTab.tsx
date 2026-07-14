@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import type { ContestProblem } from '@broccoli/web-sdk/contest';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
@@ -53,7 +53,6 @@ import {
 } from '@/features/problem/api/attachments';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
 import { useTableSearchParams } from '@/hooks/use-table-search-params';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 // ── Helpers ──
 
@@ -238,7 +237,7 @@ export function ProblemFormDialog({
     if (result.error) {
       setLoading(false);
       toast.error(
-        extractErrorMessage(
+        getErrorMessage(
           result.error,
           isEdit ? t('admin.editError') : t('admin.createError'),
         ),
@@ -641,7 +640,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
       params: { path: { id: problem.id } },
     });
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.problem.deleteError')));
+      toast.error(getErrorMessage(error, t('toast.problem.deleteError')));
     } else {
       toast.success(t('toast.problem.deleted'));
       // Prefix invalidation: refreshes the global list and every
@@ -659,7 +658,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
       params: { path: { id: problemId } },
     });
     if (error || !data) {
-      toast.error(extractErrorMessage(error, t('toast.problem.loadError')));
+      toast.error(getErrorMessage(error, t('toast.problem.loadError')));
       return undefined;
     }
     return data;
@@ -683,7 +682,7 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
       },
     );
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.problem.removeError')));
+      toast.error(getErrorMessage(error, t('toast.problem.removeError')));
     } else {
       toast.success(t('toast.problem.removed'));
       queryClient.invalidateQueries({ queryKey: problemsQueryKey });
