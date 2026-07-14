@@ -126,7 +126,7 @@ fn prepare_case(
                 format: checker_format.to_string(),
                 answer: req.expected_output.clone(),
                 test_input: req.test_input.clone(),
-                checker_source: req.checker_source.clone(),
+                problem_id: Some(req.problem_id),
                 config: req.checker_config.clone(),
                 output_binding: checker_output_binding(checker_format),
             })

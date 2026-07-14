@@ -235,12 +235,6 @@ pub async fn get_problem(
 
     let mut response = ProblemResponse::from(find_problem(&state.db, id).await?);
     response.samples = load_sample_test_cases(&state.db, id).await?;
-    // The checker source is authoring material: it can reveal the accepted
-    // answer or judging logic. Only problem editors may see it; participants
-    // reading the problem for a contest must not.
-    if !auth_user.has_permission("problem:edit") && !auth_user.has_permission("problem:create") {
-        response.checker_source = None;
-    }
     Ok(Json(response))
 }
 
@@ -1417,22 +1411,40 @@ pub async fn upload_checker_source(
     auth_user.require_permission("problem:edit")?;
     validate_checker_source(&payload)?;
 
-    let existing = find_problem(&state.db, id).await?;
-    let checker_source = sanitize_db_json(
+    // Existence check: 404 for a missing problem, as before.
+    find_problem(&state.db, id).await?;
+
+    let files_value = sanitize_db_json(
         serde_json::to_value(&payload.files)
             .map_err(|e| AppError::Internal(format!("Failed to serialize checker source: {e}")))?,
     );
-    let response_files = serde_json::from_value(checker_source.clone())
+    let response_files = serde_json::from_value(files_value.clone())
         .map_err(|e| AppError::Internal(format!("Failed to deserialize checker source: {e}")))?;
-    let mut active: problem::ActiveModel = existing.into();
-    active.checker_source = Set(Some(checker_source));
-    active.updated_at = Set(chrono::Utc::now());
-    active.update(&state.db).await?;
+
+    // The checker source is owned by the checker plugin's problem-scoped config,
+    // not the core problem model. standard-checkers reads it at judge time via
+    // `host.config.get_problem(id, "checker_source")`.
+    let _ = crate::services::plugin_config::upsert_config(
+        &state.db,
+        &crate::services::plugin_config::ConfigTarget::problem(id),
+        CHECKER_SOURCE_PLUGIN_ID,
+        CHECKER_SOURCE_NAMESPACE,
+        files_value,
+        None,
+        0,
+    )
+    .await?;
 
     Ok(Json(CheckerSourceResponse {
         files: Some(response_files),
     }))
 }
+
+/// The checker plugin whose problem-scoped config owns the testlib checker
+/// source. The dedicated checker-source endpoints proxy to this plugin's config
+/// (namespace resolves to `standard-checkers:checker_source`).
+const CHECKER_SOURCE_PLUGIN_ID: &str = "standard-checkers";
+const CHECKER_SOURCE_NAMESPACE: &str = "checker_source";
 
 #[utoipa::path(
     get,
@@ -1458,11 +1470,19 @@ pub async fn get_checker_source(
 ) -> Result<Json<CheckerSourceResponse>, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    let problem = find_problem(&state.db, id).await?;
-    let files: Option<Vec<CheckerSourceFile>> = problem
-        .checker_source
-        .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    find_problem(&state.db, id).await?;
+    let files: Option<Vec<CheckerSourceFile>> = match crate::services::plugin_config::get_config(
+        &state.db,
+        &crate::services::plugin_config::ConfigTarget::problem(id),
+        CHECKER_SOURCE_PLUGIN_ID,
+        CHECKER_SOURCE_NAMESPACE,
+    )
+    .await
+    {
+        Ok(resp) => serde_json::from_value(resp.0.config).ok(),
+        Err(AppError::NotFound(_)) => None,
+        Err(e) => return Err(e),
+    };
 
     Ok(Json(CheckerSourceResponse { files }))
 }
@@ -1491,11 +1511,19 @@ pub async fn delete_checker_source(
 ) -> Result<StatusCode, AppError> {
     auth_user.require_permission("problem:edit")?;
 
-    let existing = find_problem(&state.db, id).await?;
-    let mut active: problem::ActiveModel = existing.into();
-    active.checker_source = Set(None);
-    active.updated_at = Set(chrono::Utc::now());
-    active.update(&state.db).await?;
+    find_problem(&state.db, id).await?;
+    // Idempotent: absent config is a no-op (404 from the service is fine here).
+    match crate::services::plugin_config::delete_config(
+        &state.db,
+        &crate::services::plugin_config::ConfigTarget::problem(id),
+        CHECKER_SOURCE_PLUGIN_ID,
+        CHECKER_SOURCE_NAMESPACE,
+    )
+    .await
+    {
+        Ok(_) | Err(AppError::NotFound(_)) => {}
+        Err(e) => return Err(e),
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

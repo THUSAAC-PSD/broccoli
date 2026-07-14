@@ -529,7 +529,6 @@ mod tests {
             "time_limit": 1000,
             "memory_limit": 262144,
             "problem_type": "batch",
-            "checker_source": null,
             "checker_format": "exact",
             "default_contest_type": "ioi",
             "show_test_details": false,

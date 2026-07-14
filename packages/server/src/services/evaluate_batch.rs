@@ -14,7 +14,7 @@ use broccoli_server_sdk::types::{
     BuildEvalOpsInput, DetachedEvaluateCallbackAction, DetachedEvaluateCallbackEvent,
     DetachedEvaluateCallbackInput, DetachedEvaluateCallbackOutput, DetachedEvaluateSession,
     EvaluateOperationResultInput, EvaluateOperationResultsInput, FileRef, JudgeFile,
-    OperationResult, OperationTask, PreparedEvaluateCase, SourceFile,
+    OperationResult, OperationTask, PreparedEvaluateCase,
     StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput, StartEvaluateCaseInput,
     TestCaseBodyRef, TestCaseVerdict, Verdict as SdkVerdict,
 };
@@ -1678,20 +1678,8 @@ async fn resolve_inputs(
         .collect();
 
     let checker_format = Some(problem_model.checker_format.clone());
-    let parsed_checker_source: Option<Vec<SourceFile>> =
-        problem_model.checker_source.as_ref().and_then(|v| {
-            match serde_json::from_value::<Vec<SourceFile>>(v.clone()) {
-                Ok(parsed) => Some(parsed),
-                Err(e) => {
-                    tracing::warn!(
-                        problem_id,
-                        error = %e,
-                        "Failed to parse checker_source JSON"
-                    );
-                    None
-                }
-            }
-        });
+    // The checker source is no longer inlined by the host: checker plugins read it
+    // from their own per-problem config (e.g. `standard-checkers:checker_source`).
 
     let checker_config_value: Option<serde_json::Value> = checker_config_model.map(|pc| pc.config);
 
@@ -1774,7 +1762,6 @@ async fn resolve_inputs(
             expected_output: expected_output.file,
             checker_format: tc_checker_format,
             checker_config: checker_config_value.clone(),
-            checker_source: parsed_checker_source.clone(),
             additional_file_refs: additional_file_refs.clone(),
             target_worker_id: tc.target_worker_id,
         });

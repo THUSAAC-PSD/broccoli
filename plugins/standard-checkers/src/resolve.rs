@@ -408,21 +408,42 @@ fn format_tol(tol: f64) -> String {
 // validates the returned CheckerStage / CheckerVerdict shapes.
 // ---------------------------------------------------------------------------
 
+/// Load the testlib checker source for a problem from this plugin's own
+/// per-problem config (`standard-checkers:checker_source`), set by the problem
+/// editor. The checker source is owned by the checker plugin, not the core
+/// problem model nor the evaluator; the host no longer inlines it.
+#[cfg(target_arch = "wasm32")]
+fn load_checker_source(host: &Host, problem_id: Option<i32>) -> Result<Vec<SourceFile>, String> {
+    let problem_id = problem_id
+        .ok_or_else(|| "Testlib checker requires a problem_id to load its source".to_string())?;
+    let result = host
+        .config
+        .get_problem(problem_id, "checker_source")
+        .map_err(|e| format!("failed to load checker source config: {e}"))?;
+    if result.is_default {
+        return Err("Testlib checker requires checker_source".to_string());
+    }
+    let files: Vec<SourceFile> = serde_json::from_value(result.config)
+        .map_err(|e| format!("invalid checker_source config: {e}"))?;
+    if files.is_empty() {
+        return Err("Testlib checker requires checker_source".to_string());
+    }
+    Ok(files)
+}
+
 /// Dispatch a resolve request to the right stage builder. testlib additionally
-/// asks the language plugin to resolve its checker source (a host call).
+/// loads its checker source (problem-scoped config) and asks the language plugin
+/// to resolve it (both host calls).
 #[cfg(target_arch = "wasm32")]
 fn resolve_stage(host: &Host, req: &ResolveCheckerInput) -> Result<CheckerStage, String> {
     if builtin_compare_mode(&req.format).is_some() {
         resolve_builtin(&req.format, req)
     } else if req.format == "testlib" {
-        let checker_source = req
-            .checker_source
-            .as_deref()
-            .ok_or_else(|| "Testlib checker requires checker_source".to_string())?;
+        let checker_source = load_checker_source(host, req.problem_id)?;
         let (resolved, config) =
-            crate::checkers::testlib::resolve_testlib_compile(host, checker_source)?;
+            crate::checkers::testlib::resolve_testlib_compile(host, &checker_source)?;
         build_testlib_checker_stage(
-            checker_source,
+            &checker_source,
             &req.test_input,
             &req.answer,
             &resolved,
@@ -470,7 +491,7 @@ mod tests {
             format: "tokens".to_string(),
             answer: JudgeFile::inline("3 1 4\n"),
             test_input: JudgeFile::inline("3\n"),
-            checker_source: None,
+            problem_id: None,
             config: None,
             output_binding: OutputMode::Stream {
                 channel: channel.to_string(),

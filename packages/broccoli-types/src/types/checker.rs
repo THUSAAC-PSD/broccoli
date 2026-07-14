@@ -48,7 +48,13 @@ pub struct ResolveCheckerInput {
     pub format: String,
     pub answer: JudgeFile,
     pub test_input: JudgeFile,
-    pub checker_source: Option<Vec<SourceFile>>,
+    /// Problem the checker is being resolved for. Checker plugins read their own
+    /// per-problem config (e.g. the testlib checker source) via
+    /// `host.config.get_problem(problem_id, ...)` instead of receiving it inlined
+    /// by the host. Optional for callers that resolve format-only builtins.
+    #[serde(default)]
+    pub problem_id: Option<i32>,
+    #[serde(default)]
     pub config: Option<serde_json::Value>,
     pub output_binding: OutputMode,
 }
@@ -176,10 +182,7 @@ mod tests {
             format: "testlib".to_string(),
             answer: JudgeFile::inline("answer\n"),
             test_input: JudgeFile::inline("input\n"),
-            checker_source: Some(vec![SourceFile {
-                filename: "checker.cpp".to_string(),
-                content: "int main(){}".to_string(),
-            }]),
+            problem_id: Some(42),
             config: Some(serde_json::json!({"strict": true})),
             output_binding: OutputMode::File {
                 name: "result.json".to_string(),
@@ -193,7 +196,7 @@ mod tests {
         assert_eq!(back.format, "testlib");
         assert_eq!(back.answer.inline_text(), "answer\n");
         assert_eq!(back.test_input.inline_text(), "input\n");
-        assert_eq!(back.checker_source.as_ref().unwrap().len(), 1);
+        assert_eq!(back.problem_id, Some(42));
         assert_eq!(back.config, Some(serde_json::json!({"strict": true})));
         match back.output_binding {
             OutputMode::File { name } => assert_eq!(name, "result.json"),

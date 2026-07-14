@@ -77,7 +77,7 @@ mod tests {
             format: "tokens".to_string(),
             answer: JudgeFile::inline("ans\n"),
             test_input: JudgeFile::Missing,
-            checker_source: None,
+            problem_id: None,
             config: None,
             output_binding: crate::types::OutputMode::Stream {
                 channel: "verdict".to_string(),

@@ -340,7 +340,6 @@ mod tests {
             expected_output: JudgeFile::Missing,
             checker_format: None,
             checker_config: None,
-            checker_source: None,
             additional_file_refs: vec![],
             target_worker_id: None,
         }

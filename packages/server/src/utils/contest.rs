@@ -242,7 +242,6 @@ mod problem_read_access_tests {
             time_limit: 1000,
             memory_limit: 262_144,
             problem_type: "batch".into(),
-            checker_source: None,
             checker_format: "exact".into(),
             default_contest_type: "ioi".into(),
             show_test_details: false,

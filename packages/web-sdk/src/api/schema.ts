@@ -3237,7 +3237,6 @@ export interface components {
     ProblemResponse: {
       /** @example exact */
       checker_format: string;
-      checker_source?: unknown;
       /** @example Given an array of integers... */
       content: string;
       /**

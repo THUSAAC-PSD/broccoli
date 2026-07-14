@@ -326,7 +326,6 @@ mod tests {
             "time_limit": 1000,
             "memory_limit": 65536,
             "problem_type": problem_type,
-            "checker_source": null,
             "checker_format": "exact",
             "default_contest_type": contest_type,
             "show_test_details": false,

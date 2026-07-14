@@ -404,7 +404,6 @@ mod tests {
             expected_output: JudgeFile::inline("world\n"),
             checker_format: Some("exact".to_string()),
             checker_config: None,
-            checker_source: None,
             additional_file_refs: vec![],
             target_worker_id: None,
         }

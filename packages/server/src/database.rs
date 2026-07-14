@@ -94,6 +94,9 @@ pub async fn init_db_with_max_connections(
         // DEFAULT false is a security requirement: every pre-existing problem
         // must backfill to non-public so no draft is silently exposed.
         r#"ALTER TABLE IF EXISTS "problem" ADD COLUMN IF NOT EXISTS "is_public" BOOLEAN NOT NULL DEFAULT false"#,
+        // The checker source moved to problem-scoped plugin config
+        // (`standard-checkers:checker_source`); drop the legacy problem column.
+        r#"ALTER TABLE IF EXISTS "problem" DROP COLUMN IF EXISTS "checker_source""#,
     ] {
         db.execute_unprepared(stmt).await?;
     }

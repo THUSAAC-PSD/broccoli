@@ -83,13 +83,6 @@ pub struct ProblemResponse {
     pub memory_limit: i32,
     #[schema(example = "batch")]
     pub problem_type: String,
-    /// Never populated. Checker/manager source is privileged authoring
-    /// material (it can reveal accepted answers or adaptive judging logic),
-    /// so it is served exclusively through the `problem:edit`-gated
-    /// `GET /problems/{id}/checker-source` endpoint and must not travel in
-    /// this participant-visible DTO. Kept only for API-schema compatibility.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub checker_source: Option<serde_json::Value>,
     #[schema(example = "exact")]
     pub checker_format: String,
     #[schema(example = "ioi")]
@@ -310,10 +303,6 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             memory_limit: m.memory_limit,
             problem_type: m.problem_type,
             // Deliberately NOT copied from the entity: the checker source is
-            // privileged (see field doc). Leaving it out here guarantees no
-            // handler can leak it through the general problem DTO, even if a
-            // handler forgets to strip it for non-editors.
-            checker_source: None,
             checker_format: m.checker_format,
             default_contest_type: m.default_contest_type,
             show_test_details: m.show_test_details,
@@ -703,51 +692,10 @@ mod test_case_description_tests {
     }
 }
 
-#[cfg(test)]
-mod checker_source_privacy_tests {
-    use super::*;
-
-    /// The checker/manager source can encode the accepted answer or the
-    /// adaptive judging strategy. It must never ride along in the general
-    /// problem DTO (which contest participants can read); it is only served
-    /// by the `problem:edit`-gated checker-source endpoint.
-    #[test]
-    fn problem_response_never_carries_checker_source() {
-        let now = chrono::Utc::now();
-        let model = crate::entity::problem::Model {
-            id: 1,
-            title: "Guess the number".into(),
-            content: "Interactive problem".into(),
-            time_limit: 1000,
-            memory_limit: 262_144,
-            problem_type: "communication".into(),
-            checker_source: Some(serde_json::json!([{
-                "filename": "manager.cpp",
-                "content": "// secret adaptive strategy"
-            }])),
-            checker_format: "none".into(),
-            default_contest_type: "icpc".into(),
-            show_test_details: false,
-            is_public: false,
-            submission_format: None,
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-        };
-
-        let response = ProblemResponse::from(model);
-        assert!(
-            response.checker_source.is_none(),
-            "privileged checker source must not be copied into ProblemResponse"
-        );
-
-        let json = serde_json::to_value(&response).unwrap();
-        assert!(
-            json.get("checker_source").is_none(),
-            "checker_source must not be serialized in the problem DTO"
-        );
-    }
-}
+// The checker source no longer lives on the problem model: it is problem-scoped
+// config owned by the checker plugin (`standard-checkers:checker_source`), served
+// only through the `problem:edit`-gated checker-source endpoints. The obsolete
+// `ProblemResponse` privacy test (which guarded a now-removed field) was dropped.
 
 #[cfg(test)]
 mod checker_format_tests {
