@@ -68,6 +68,79 @@ impl Client {
         format!("Bearer {}", self.tokens.access_token())
     }
 
+    /// Upload a packaged plugin archive to the admin plugin-upload endpoint as
+    /// `multipart/form-data`, refreshing the access token on 401 and retrying
+    /// transient 5xx failures with exponential backoff. Routing this through the
+    /// client (instead of a raw HTTP call) means a token that expires mid
+    /// `plugin watch` session is refreshed rather than failing the upload.
+    pub fn upload_plugin(&self, archive: &[u8]) -> anyhow::Result<()> {
+        const MAX_RETRIES: u32 = 3;
+        const INITIAL_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+        let boundary = "----broccolicli7MA4YWxkTrZu0gWupload";
+        let mut body = Vec::with_capacity(archive.len() + 256);
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"plugin\"; filename=\"plugin.tar.gz\"\r\n",
+        );
+        body.extend_from_slice(b"Content-Type: application/gzip\r\n\r\n");
+        body.extend_from_slice(archive);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        let url = format!("{}/api/v1/admin/plugins/upload", self.server);
+
+        let send = || {
+            self.agent
+                .post(&url)
+                .header("Authorization", &self.bearer())
+                .header("Content-Type", &content_type)
+                .send(&body[..])
+                .with_context(|| {
+                    format!(
+                        "Could not reach {} — check your network connection.",
+                        self.server
+                    )
+                })
+        };
+
+        let mut last_err: Option<String> = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                std::thread::sleep(INITIAL_DELAY * 2u32.pow(attempt - 1));
+            }
+
+            let used = self.tokens.access_token();
+            let resp = match send() {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(e.to_string());
+                    continue;
+                }
+            };
+            let resp = self.with_refresh(&used, resp, || send())?;
+
+            let status = resp.status().as_u16();
+            if (200..300).contains(&status) {
+                return Ok(());
+            }
+            let text = resp.into_body().read_to_string().unwrap_or_default();
+            if status == 401 {
+                bail!("Authentication failed (401). Run `broccoli login` to re-authenticate.");
+            }
+            if status >= 500 {
+                last_err = Some(format!("Upload failed ({status}): {text}"));
+                continue;
+            }
+            bail!("Upload failed ({status}): {text}");
+        }
+
+        bail!(
+            "{}. Giving up after {} attempts",
+            last_err.unwrap_or_else(|| "Upload failed".into()),
+            MAX_RETRIES + 1
+        );
+    }
+
     /// Refresh the access token, serialized and deduplicated across threads by
     /// the token store. `used` is the access token the failed request carried.
     fn refresh_on_401(&self, used: &str) -> anyhow::Result<()> {
