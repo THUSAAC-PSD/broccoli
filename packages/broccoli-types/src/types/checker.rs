@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use super::evaluate::JudgeFile;
 use super::operation::{Environment, Step};
-use super::submission::SourceFile;
 use super::verdict::Verdict;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,8 +14,6 @@ pub struct CheckerParseInput {
     pub expected_output: JudgeFile,
     #[serde(default)]
     pub test_input: JudgeFile,
-    #[serde(default)]
-    pub checker_source: Option<Vec<SourceFile>>,
     #[serde(default)]
     pub config: Option<serde_json::Value>,
 }
@@ -90,7 +87,6 @@ mod tests {
             exit_code: 0,
             expected_output: JudgeFile::inline("expected\n"),
             test_input: JudgeFile::Missing,
-            checker_source: None,
             config: None,
         };
 

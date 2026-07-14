@@ -29,7 +29,6 @@ pub struct TestCaseData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProblemCheckerInfo {
     pub id: i32,
-    pub checker_source: Option<serde_json::Value>,
     pub checker_format: Option<String>,
     #[serde(default)]
     pub checker_config: Option<serde_json::Value>,
