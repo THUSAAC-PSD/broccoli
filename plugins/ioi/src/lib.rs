@@ -17,7 +17,7 @@ use crate::config::{
     ContestConfig, FeedbackLevel, ScoreboardTiebreaker, ScoreboardVisibility, ScoringMode,
     SubtaskDef, TaskConfig, TokenMode, resolve_tc_label, round_score,
 };
-use crate::evaluate_batch::handle_detached_eval_callback;
+use crate::evaluate_batch::{handle_detached_eval_callback, recover_detached_callback_error};
 use crate::judge::{JudgeContext, judge_with_context_detached};
 use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
 use crate::subtasks::{build_default_subtasks, score_all_subtasks};
@@ -389,7 +389,32 @@ pub fn handle_ioi_code_run(input: String) -> FnResult<String> {
 pub fn on_ioi_eval_result(input: String) -> FnResult<String> {
     let host = Host::new();
     let input: DetachedEvaluateCallbackInput = serde_json::from_str(&input)?;
-    let output = handle_detached_eval_callback(&host, input)?;
+    // Snapshot the session state so a mid-stream persist failure can still
+    // resolve the submission instead of stranding it: without this, the bare `?`
+    // would abort the WASM callback on any error (including a benign StaleEpoch
+    // from a concurrent rejudge), leaving the submission stuck on "Judging" with
+    // no terminal verdict.
+    let state_snapshot = input.state.clone();
+    let output = match handle_detached_eval_callback(&host, input) {
+        Ok(out) => out,
+        Err(SdkError::StaleEpoch) => {
+            // A newer judgement superseded this session — stop cleanly. The
+            // newer epoch already owns the submission; nothing to finalize.
+            let _ = host
+                .log
+                .info("IOI: detached callback epoch stale, cancelling");
+            DetachedEvaluateCallbackOutput::cancel(state_snapshot)
+        }
+        Err(e) => {
+            // Transient persist failure mid-stream. Funnel the submission to a
+            // terminal SystemError rather than leaving it on "Judging".
+            let _ = host.log.info(&format!(
+                "IOI: detached callback failed ({e:?}); finalizing as SystemError"
+            ));
+            recover_detached_callback_error(&host, &state_snapshot);
+            DetachedEvaluateCallbackOutput::cancel(state_snapshot)
+        }
+    };
     Ok(serde_json::to_string(&output)?)
 }
 

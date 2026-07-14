@@ -2,11 +2,14 @@ use std::collections::{HashMap, HashSet};
 
 use broccoli_server_sdk::Host;
 use broccoli_server_sdk::error::SdkError;
+use broccoli_server_sdk::evaluator::{
+    CaseOutcome, ContestJudge, DetachedEval, JudgeProgress, JudgeStep,
+};
 use broccoli_server_sdk::types::*;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{SubtaskDef, SubtaskScoringMethod};
 use crate::config::round_score;
+use crate::config::{SubtaskDef, SubtaskScoringMethod};
 use crate::persist::persist_results;
 use crate::subtasks::score_all_subtasks;
 use crate::subtasks::test_case_reference_keys;
@@ -31,16 +34,103 @@ pub struct EvalOutcome {
     pub stderr: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DetachedIoiState {
-    req: OnSubmissionInput,
+/// IOI judging policy for the shared detached-evaluate driver.
+///
+/// IOI scores each case on a normalized 0..1 raw score, weights it by the
+/// case's point value when persisting, and short-circuits per subtask via
+/// [`SubtaskShortCircuit`]. The final submission score is the sum of subtask
+/// scores. The short-circuit tracker and definitions ride in the policy so they
+/// survive across callbacks; the driver owns persistence, the epoch guards, the
+/// compile-error short-circuit, and the refill hint.
+#[derive(Serialize, Deserialize)]
+struct IoiJudge {
     all_test_cases: Vec<TestCaseRow>,
-    scoring_test_cases: Vec<TestCaseRow>,
     subtask_defs: Vec<SubtaskDef>,
     short_circuit: SubtaskShortCircuit,
-    outcomes: Vec<EvalOutcome>,
-    recorded_ids: HashSet<i32>,
-    marked_running: bool,
+}
+
+impl ContestJudge for IoiJudge {
+    fn score(&self, result: &TestCaseVerdict) -> CaseOutcome {
+        CaseOutcome::from_verdict(result, normalize_raw_score(result.score))
+    }
+
+    fn db_score(&self, outcome: &CaseOutcome, tc: &TestCaseRow) -> f64 {
+        // Weight the case's raw 0..1 score by its point value.
+        round_score(outcome.score * tc.score)
+    }
+
+    fn next_step(&mut self, progress: &JudgeProgress<'_>) -> JudgeStep {
+        let Some(last) = progress.last else {
+            return JudgeStep::Continue;
+        };
+        // Cases already recorded (including the just-recorded trigger) must not
+        // be re-cancelled.
+        let already_recorded: HashSet<i32> =
+            progress.outcomes.iter().map(|o| o.test_case_id).collect();
+        let cancel_ids =
+            self.short_circuit
+                .cancellable_after(last.test_case_id, last.score, &already_recorded);
+        if cancel_ids.is_empty() {
+            // The driver keeps refilling while any case is unjudged, so an
+            // unrelated pending subtask is never stranded.
+            JudgeStep::Continue
+        } else {
+            self.short_circuit.mark_cancelled(&cancel_ids);
+            JudgeStep::Cancel(cancel_ids)
+        }
+    }
+
+    fn finalize(&self, host: &Host, progress: &JudgeProgress<'_>) -> Result<(), SdkError> {
+        let id_to_keys: HashMap<i32, Vec<String>> = self
+            .all_test_cases
+            .iter()
+            .map(|tc| (tc.id, test_case_reference_keys(tc)))
+            .collect();
+        let tc_scores: HashMap<String, f64> = progress
+            .outcomes
+            .iter()
+            .filter(|outcome| !outcome.verdict.is_skipped_or_cancelled())
+            .flat_map(|outcome| {
+                id_to_keys
+                    .get(&outcome.test_case_id)
+                    .into_iter()
+                    .flat_map(|keys| keys.iter().cloned().map(|key| (key, outcome.score)))
+            })
+            .collect();
+        let subtask_results =
+            score_all_subtasks(&self.subtask_defs, &self.all_test_cases, &tc_scores);
+        let submission_score = round_score(subtask_results.iter().map(|result| result.score).sum());
+        let persist_outcomes: Vec<EvalOutcome> = progress
+            .outcomes
+            .iter()
+            .map(eval_outcome_from_case)
+            .collect();
+        persist_results(
+            host,
+            progress.request.submission_id,
+            progress.request.judgement_id,
+            progress.request.judge_epoch,
+            &persist_outcomes,
+            submission_score,
+        )?;
+        Ok(())
+    }
+}
+
+/// Adapt the driver's shared `CaseOutcome` into IOI's persistence-layer
+/// `EvalOutcome` (which `persist_results` consumes). The per-case `score` is
+/// IOI's normalized raw score; output was already stripped by the driver.
+fn eval_outcome_from_case(outcome: &CaseOutcome) -> EvalOutcome {
+    EvalOutcome {
+        test_case_id: outcome.test_case_id,
+        verdict: outcome.verdict.clone(),
+        raw_score: outcome.score,
+        time_used: outcome.time_used,
+        memory_used: outcome.memory_used,
+        message: outcome.message.clone(),
+        stdout: None,
+        stderr: None,
+    }
 }
 
 pub fn evaluate_all_detached(
@@ -48,62 +138,22 @@ pub fn evaluate_all_detached(
     req: &OnSubmissionInput,
     all_test_cases: &[TestCaseRow],
     scoring_test_cases: &[TestCaseRow],
-    submission_id: i32,
+    _submission_id: i32,
     subtask_defs: &[SubtaskDef],
 ) -> Result<OnSubmissionOutput, SdkError> {
-    let batch_input = build_batch_input(req, scoring_test_cases);
-
-    let _ = host
-        .submission
-        .delete_results(submission_id, req.judgement_id, req.judge_epoch);
-
-    let affected =
-        host.submission
-            .set_compiling(submission_id, req.judgement_id, req.judge_epoch)?;
-    if affected == 0 {
-        return Err(SdkError::StaleEpoch);
-    }
-
-    let state = DetachedIoiState {
-        req: req.clone(),
+    let policy = IoiJudge {
         all_test_cases: all_test_cases.to_vec(),
-        scoring_test_cases: scoring_test_cases.to_vec(),
         subtask_defs: subtask_defs.to_vec(),
         short_circuit: SubtaskShortCircuit::new(subtask_defs, scoring_test_cases),
-        outcomes: Vec::new(),
-        recorded_ids: HashSet::new(),
-        marked_running: false,
     };
-
-    let start_result = host
-        .eval
-        .windowed(&batch_input)
-        .concurrency(4)
-        .result_timeout_ms(default_evaluation_result_timeout_ms(req.time_limit_ms))
-        .fire_after_judging_for_submission(req)
-        .start_detached("on_ioi_eval_result", serde_json::to_value(state)?);
-
-    if let Err(e) = start_result {
-        let mut state = DetachedIoiState {
-            req: req.clone(),
-            all_test_cases: all_test_cases.to_vec(),
-            scoring_test_cases: scoring_test_cases.to_vec(),
-            subtask_defs: subtask_defs.to_vec(),
-            short_circuit: SubtaskShortCircuit::new(subtask_defs, scoring_test_cases),
-            outcomes: Vec::new(),
-            recorded_ids: HashSet::new(),
-            marked_running: false,
-        };
-        fill_unrecorded_detached(
-            host,
-            &mut state,
-            Verdict::SystemError,
-            0.0,
-            &format!("BATCH_START_FAILED: {e:?}"),
-        )?;
-        finish_detached(host, &mut state)?;
-    }
-
+    DetachedEval::start(
+        host,
+        req,
+        scoring_test_cases,
+        policy,
+        "on_ioi_eval_result",
+        4,
+    )?;
     Ok(OnSubmissionOutput {
         success: true,
         error_message: None,
@@ -114,105 +164,24 @@ pub fn handle_detached_eval_callback(
     host: &Host,
     input: DetachedEvaluateCallbackInput,
 ) -> Result<DetachedEvaluateCallbackOutput, SdkError> {
-    let mut state: DetachedIoiState = serde_json::from_value(input.state.clone())?;
-
-    match &input.event {
-        DetachedEvaluateCallbackEvent::Result { result } => {
-            let normalized = normalize_raw_score(result.score);
-            let mut outcome = outcome_from_verdict(result.clone(), normalized);
-
-            if outcome.verdict == Verdict::CompileError {
-                record_detached_outcome(host, &mut state, outcome)?;
-                fill_unrecorded_detached(
-                    host,
-                    &mut state,
-                    Verdict::Skipped,
-                    0.0,
-                    "SKIPPED_SHORT_CIRCUIT",
-                )?;
-                finish_detached(host, &mut state)?;
-                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
-                    state,
-                )?));
-            }
-
-            if !state.marked_running {
-                let affected = host.submission.set_running(
-                    state.req.submission_id,
-                    state.req.judgement_id,
-                    state.req.judge_epoch,
-                )?;
-                if affected == 0 {
-                    return Err(SdkError::StaleEpoch);
-                }
-                state.marked_running = true;
-            }
-
-            record_detached_outcome(host, &mut state, outcome.clone())?;
-
-            let cancel_ids =
-                state
-                    .short_circuit
-                    .cancellable_after(outcome.test_case_id, normalized, &state.outcomes);
-            if !cancel_ids.is_empty() {
-                state.short_circuit.mark_cancelled(&cancel_ids);
-                for test_case_id in &cancel_ids {
-                    outcome = EvalOutcome {
-                        test_case_id: *test_case_id,
-                        verdict: Verdict::Skipped,
-                        raw_score: 0.0,
-                        time_used: None,
-                        memory_used: None,
-                        message: Some("SKIPPED_SHORT_CIRCUIT".into()),
-                        stdout: None,
-                        stderr: None,
-                    };
-                    record_detached_outcome(host, &mut state, outcome)?;
-                }
-            }
-
-            if state.recorded_ids.len() == state.scoring_test_cases.len() {
-                finish_detached(host, &mut state)?;
-                return Ok(DetachedEvaluateCallbackOutput::finish(serde_json::to_value(
-                    state,
-                )?));
-            }
-
-            // The host applies `cancel_test_case_ids` to its pending queue
-            // BEFORE its refill loop, so a refill can never dispatch a case
-            // doomed by a failed subtask. A `refill=false` hint, on the other
-            // hand, makes the host break the session as soon as the active
-            // window drains, stranding every still-pending case of unrelated
-            // subtasks (they would be filled in as SystemError when the host
-            // reports Exhausted). Keep refilling while any case is unjudged.
-            let should_refill = state
-                .scoring_test_cases
-                .iter()
-                .any(|tc| !state.recorded_ids.contains(&tc.id));
-
-            Ok(DetachedEvaluateCallbackOutput::continue_with(
-                serde_json::to_value(state)?,
-            )
-            .refill(should_refill)
-            .cancel_test_case_ids(cancel_ids))
-        }
-        DetachedEvaluateCallbackEvent::Timeout { .. } | DetachedEvaluateCallbackEvent::Exhausted => {
-            fill_unrecorded_detached(
-                host,
-                &mut state,
-                Verdict::SystemError,
-                0.0,
-                "EVALUATION_TIMEOUT",
-            )?;
-            finish_detached(host, &mut state)?;
-            Ok(DetachedEvaluateCallbackOutput::cancel(serde_json::to_value(
-                state,
-            )?))
-        }
-    }
+    DetachedEval::<IoiJudge>::handle_callback(host, input)
 }
 
-fn build_batch_input(req: &OnSubmissionInput, test_cases: &[TestCaseRow]) -> StartEvaluateBatchInput {
+/// Best-effort recovery when a detached result callback fails mid-stream (a
+/// transient DB error, a rejected row). Without it, the callback's `?` would
+/// abort the WASM call and strand the submission on "Judging" with no terminal
+/// verdict. Fills any unrecorded case with `SystemError` and writes the terminal
+/// update. All steps are best-effort: a stale epoch no-ops the writes and the
+/// worker's submission-level retry re-drives judging later.
+pub fn recover_detached_callback_error(host: &Host, state_value: &serde_json::Value) {
+    DetachedEval::<IoiJudge>::recover(host, state_value);
+}
+
+#[cfg(test)]
+fn build_batch_input(
+    req: &OnSubmissionInput,
+    test_cases: &[TestCaseRow],
+) -> StartEvaluateBatchInput {
     StartEvaluateBatchInput {
         problem_type: req.problem_type.clone(),
         test_cases: test_cases
@@ -239,103 +208,6 @@ fn build_batch_input(req: &OnSubmissionInput, test_cases: &[TestCaseRow]) -> Sta
             })
             .collect(),
     }
-}
-
-fn outcome_from_verdict(verdict: TestCaseVerdict, normalized: f64) -> EvalOutcome {
-    EvalOutcome {
-        test_case_id: verdict.test_case_id,
-        verdict: verdict.verdict,
-        raw_score: normalized,
-        time_used: verdict
-            .time_used_ms
-            .map(|t| t.clamp(0, i32::MAX as i64) as i32),
-        memory_used: verdict
-            .memory_used_kb
-            .map(|m| m.clamp(0, i32::MAX as i64) as i32),
-        message: verdict.message,
-        stdout: verdict.stdout,
-        stderr: verdict.stderr,
-    }
-}
-
-fn record_detached_outcome(
-    host: &Host,
-    state: &mut DetachedIoiState,
-    outcome: EvalOutcome,
-) -> Result<(), SdkError> {
-    let tc_map: HashMap<i32, &TestCaseRow> =
-        state.scoring_test_cases.iter().map(|tc| (tc.id, tc)).collect();
-    let row = build_tc_row(
-        state.req.submission_id,
-        state.req.judgement_id,
-        state.req.judge_epoch,
-        &outcome,
-        &tc_map,
-        &|raw, tc| round_score(raw * tc.score),
-    );
-    host.submission.insert_results(&[row])?;
-    state.recorded_ids.insert(outcome.test_case_id);
-    state.outcomes.push(outcome);
-    Ok(())
-}
-
-fn fill_unrecorded_detached(
-    host: &Host,
-    state: &mut DetachedIoiState,
-    verdict: Verdict,
-    raw_score: f64,
-    message: &str,
-) -> Result<(), SdkError> {
-    for tc in state.scoring_test_cases.clone() {
-        if state.recorded_ids.contains(&tc.id) {
-            continue;
-        }
-        record_detached_outcome(
-            host,
-            state,
-            EvalOutcome {
-                test_case_id: tc.id,
-                verdict: verdict.clone(),
-                raw_score,
-                time_used: None,
-                memory_used: None,
-                message: Some(message.to_string()),
-                stdout: None,
-                stderr: None,
-            },
-        )?;
-    }
-    Ok(())
-}
-
-fn finish_detached(host: &Host, state: &mut DetachedIoiState) -> Result<(), SdkError> {
-    let id_to_keys: HashMap<i32, Vec<String>> = state
-        .all_test_cases
-        .iter()
-        .map(|tc| (tc.id, test_case_reference_keys(tc)))
-        .collect();
-    let tc_scores: HashMap<String, f64> = state
-        .outcomes
-        .iter()
-        .filter(|outcome| !outcome.verdict.is_skipped_or_cancelled())
-        .flat_map(|outcome| {
-            id_to_keys
-                .get(&outcome.test_case_id)
-                .into_iter()
-                .flat_map(|keys| keys.iter().cloned().map(|key| (key, outcome.raw_score)))
-        })
-        .collect();
-    let subtask_results = score_all_subtasks(&state.subtask_defs, &state.all_test_cases, &tc_scores);
-    let submission_score = round_score(subtask_results.iter().map(|result| result.score).sum());
-    persist_results(
-        host,
-        state.req.submission_id,
-        state.req.judgement_id,
-        state.req.judge_epoch,
-        &state.outcomes,
-        submission_score,
-    )?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -505,8 +377,13 @@ pub fn evaluate_all(
                 outcomes.push(outcome);
                 collected += 1;
 
-                let cancel_ids =
-                    short_circuit.cancellable_after(verdict.test_case_id, normalized, &outcomes);
+                let already_recorded: HashSet<i32> =
+                    outcomes.iter().map(|o| o.test_case_id).collect();
+                let cancel_ids = short_circuit.cancellable_after(
+                    verdict.test_case_id,
+                    normalized,
+                    &already_recorded,
+                );
                 if !cancel_ids.is_empty() {
                     match session.cancel_test_cases(&cancel_ids) {
                         Ok(cancelled_count) if cancelled_count == cancel_ids.len() => {
@@ -689,7 +566,7 @@ impl SubtaskShortCircuit {
         &mut self,
         test_case_id: i32,
         raw_score: f64,
-        outcomes: &[EvalOutcome],
+        already_recorded: &HashSet<i32>,
     ) -> Vec<i32> {
         self.active_cases.remove(&test_case_id);
         let failing_subtasks = self.failing_subtasks_for(test_case_id, raw_score);
@@ -699,10 +576,6 @@ impl SubtaskShortCircuit {
 
         self.failed_subtasks.extend(failing_subtasks);
 
-        let already_recorded: HashSet<i32> = outcomes
-            .iter()
-            .map(|outcome| outcome.test_case_id)
-            .collect();
         let cancellable = self
             .cancellable_cases_for_failure(test_case_id, &self.failed_subtasks)
             .into_iter()
@@ -783,6 +656,7 @@ impl SubtaskShortCircuit {
     }
 }
 
+#[cfg(test)]
 fn build_tc_row(
     submission_id: i32,
     judgement_id: i32,
@@ -857,6 +731,7 @@ fn record_outcome(
     Ok(())
 }
 
+#[cfg(test)]
 fn sanitize_optional_text(value: Option<&str>) -> Option<String> {
     value.map(|s| sanitize_result_text_field(s).into_owned())
 }
@@ -1152,15 +1027,13 @@ mod tests {
         assert!(
             outcomes
                 .iter()
-                .any(|outcome| outcome.test_case_id == 2
-                    && outcome.verdict == Verdict::Accepted),
+                .any(|outcome| outcome.test_case_id == 2 && outcome.verdict == Verdict::Accepted),
             "zero-score nested sibling must still be judged"
         );
         assert!(
             outcomes
                 .iter()
-                .any(|outcome| outcome.test_case_id == 3
-                    && outcome.verdict == Verdict::Accepted),
+                .any(|outcome| outcome.test_case_id == 3 && outcome.verdict == Verdict::Accepted),
             "scored nested sibling must still be judged"
         );
         assert!(
@@ -1389,8 +1262,7 @@ mod tests {
             assert!(
                 testcase_rows
                     .iter()
-                    .any(|row| row.test_case_id == Some(id)
-                        && row.verdict == Verdict::Accepted),
+                    .any(|row| row.test_case_id == Some(id) && row.verdict == Verdict::Accepted),
                 "subtask B case {id} must still be judged after subtask A failed"
             );
         }
@@ -1398,8 +1270,7 @@ mod tests {
             assert!(
                 testcase_rows
                     .iter()
-                    .any(|row| row.test_case_id == Some(id)
-                        && row.verdict == Verdict::Skipped),
+                    .any(|row| row.test_case_id == Some(id) && row.verdict == Verdict::Skipped),
                 "subtask A case {id} must be skipped via short-circuit"
             );
         }
