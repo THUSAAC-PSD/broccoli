@@ -198,6 +198,7 @@ impl OperationTaskExecutor {
         blob_store: Arc<dyn common::storage::BlobStore>,
         cache_dir: PathBuf,
         metrics: common::metrics::Metrics,
+        tools_dir: Option<PathBuf>,
     ) -> Result<Self> {
         let file_cacher = BlobStoreFileCacher::new(blob_store, cache_dir, 1_000_000_000, None)
             .await
@@ -210,7 +211,7 @@ impl OperationTaskExecutor {
                 String::new(),
                 metrics,
             ),
-            tools_dir: None,
+            tools_dir,
         })
     }
 
@@ -387,7 +388,8 @@ mod platform_tool_validation_tests {
         // assert metrics, and calling the global-installing init_metrics here
         // races with and drops the provider the metrics permit-guard test relies
         // on, making it flaky.
-        let (metrics, _provider) = common::observability::init_metrics_local("broccoli-worker-test");
+        let (metrics, _provider) =
+            common::observability::init_metrics_local("broccoli-worker-test");
         let mut executor = OperationTaskExecutor::new_with_sandbox_manager(
             Box::new(MockSandboxManager::default()),
             metrics,
@@ -444,8 +446,14 @@ mod platform_tool_validation_tests {
             .validate_platform_tools(&operation)
             .expect_err("job requiring a platform tool must be rejected up front");
         let msg = err.to_string();
-        assert!(msg.contains("broccoli-compare"), "message names the tool: {msg}");
-        assert!(msg.contains("[worker.tools]"), "message names the config key: {msg}");
+        assert!(
+            msg.contains("broccoli-compare"),
+            "message names the tool: {msg}"
+        );
+        assert!(
+            msg.contains("[worker.tools]"),
+            "message names the config key: {msg}"
+        );
         // The rejection must be classified as retryable by the worker (see
         // is_permanent_execution_failure in models/worker.rs, which only
         // treats blob-storage errors as permanent) so it surfaces as a

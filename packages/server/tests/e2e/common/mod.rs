@@ -229,6 +229,30 @@ fn plugins_dir() -> PathBuf {
         .join("plugins")
 }
 
+/// Worker platform-tools dir (`broccoli-compare`, ...) for real-sandbox judging.
+/// Judging fuses a `check` step that mounts `broccoli-compare` as a
+/// `MountSource::PlatformTool`, so a real-isolate run rejects the job without
+/// it. Resolution: `BROCCOLI_WORKER_TOOLS_DIR` if set, else the conventional
+/// deployment path when present. `None` for mock-sandbox runs, which never
+/// resolve a platform tool.
+fn worker_tools_dir() -> Option<PathBuf> {
+    let backend = std::env::var("E2E_SANDBOX_BACKEND").unwrap_or_else(|_| {
+        if cfg!(target_os = "linux") {
+            "isolate".into()
+        } else {
+            "mock".into()
+        }
+    });
+    if backend.eq_ignore_ascii_case("mock") {
+        return None;
+    }
+    if let Ok(dir) = std::env::var("BROCCOLI_WORKER_TOOLS_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    let default = PathBuf::from("/opt/broccoli/tools");
+    default.is_dir().then_some(default)
+}
+
 #[allow(dead_code)]
 pub struct TestResponse {
     pub status: u16,
@@ -616,6 +640,7 @@ impl E2eTestApp {
                     blob_store.clone(),
                     worker_cache_dir,
                     e2e_metrics.clone(),
+                    worker_tools_dir(),
                 )
                 .await
                 .expect("Failed to initialize e2e operation executor"),

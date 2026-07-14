@@ -498,3 +498,124 @@ int main() {
         );
     }
 }
+
+// ── Real-isolate judging through the shared detached-eval driver ────────────
+// Unlike the seeded tests above, these judge for real end to end: submission
+// POST -> dispatch routes to the icpc contest type -> on_submission ->
+// DetachedEval::start -> windowed evaluate in a real isolate sandbox ->
+// on_icpc_eval_result callback -> the shared driver's record/finalize ->
+// terminal submission verdict. Gated on a real sandbox; run with `-- --ignored`.
+
+fn is_real_sandbox() -> bool {
+    if std::env::var("E2E_SERVER_URL").is_ok() {
+        return true;
+    }
+    match std::env::var("E2E_SANDBOX_BACKEND") {
+        Ok(v) if v.eq_ignore_ascii_case("mock") => false,
+        Ok(v) if v.eq_ignore_ascii_case("isolate") => isolate_available(),
+        Ok(_) => false,
+        Err(_) => cfg!(target_os = "linux") && isolate_available(),
+    }
+}
+
+fn isolate_available() -> bool {
+    std::process::Command::new("isolate")
+        .arg("--version")
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Correct: prints the sum of the n integers (the default test case expects "15").
+const CPP_SUM_AC: &str = r#"#include <iostream>
+int main() { int n; std::cin >> n; long long s = 0, x; for (int i = 0; i < n; i++) { std::cin >> x; s += x; } std::cout << s << std::endl; return 0; }
+"#;
+
+/// Wrong: prints sum + 1 (yields "16", expected "15").
+const CPP_SUM_WA: &str = r#"#include <iostream>
+int main() { int n; std::cin >> n; long long s = 0, x; for (int i = 0; i < n; i++) { std::cin >> x; s += x; } std::cout << (s + 1) << std::endl; return 0; }
+"#;
+
+async fn judge_icpc_contest_solution(
+    prefix: &str,
+    contest_name: &str,
+    code: &str,
+) -> (E2eTestApp, i32) {
+    let app = E2eTestApp::spawn().await;
+    let admin = app
+        .create_user_with_role(&format!("{prefix}_admin"), "pass1234", "admin")
+        .await;
+    let user = app
+        .create_authenticated_user(&format!("{prefix}_user"), "pass1234")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "ICPC Detached Problem").await;
+    app.create_test_case(problem_id, &admin).await;
+
+    let contest_id = app
+        .create_typed_contest(&admin, contest_name, "icpc", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &user).await;
+
+    let sub_id = app
+        .create_contest_submission(contest_id, problem_id, &user, "cpp", code)
+        .await;
+    let res = app.wait_for_submission_terminal(sub_id, &user, 90).await;
+    assert_eq!(
+        res.body["status"], "Judged",
+        "submission should judge cleanly: {}",
+        res.text
+    );
+    (app, sub_id)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a real isolate sandbox and C++ toolchain"]
+async fn icpc_contest_accepted_through_detached_driver() {
+    if !is_real_sandbox() {
+        return;
+    }
+    let (app, sub_id) =
+        judge_icpc_contest_solution("icpc_rj_ac", "ICPC Detached AC", CPP_SUM_AC).await;
+    let sub = submission::Entity::find_by_id(sub_id)
+        .one(&app.db)
+        .await
+        .expect("query submission")
+        .expect("submission exists");
+    assert_eq!(
+        sub.verdict,
+        Some(Verdict::Accepted),
+        "a correct sum must judge Accepted through the detached driver"
+    );
+    assert_eq!(
+        sub.score,
+        Some(1.0),
+        "an accepted ICPC submission scores 1.0"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a real isolate sandbox and C++ toolchain"]
+async fn icpc_contest_wrong_answer_through_detached_driver() {
+    if !is_real_sandbox() {
+        return;
+    }
+    let (app, sub_id) =
+        judge_icpc_contest_solution("icpc_rj_wa", "ICPC Detached WA", CPP_SUM_WA).await;
+    let sub = submission::Entity::find_by_id(sub_id)
+        .one(&app.db)
+        .await
+        .expect("query submission")
+        .expect("submission exists");
+    assert_eq!(
+        sub.verdict,
+        Some(Verdict::WrongAnswer),
+        "a wrong sum must judge WrongAnswer through the detached driver"
+    );
+    assert_eq!(
+        sub.score,
+        Some(0.0),
+        "a wrong-answer ICPC submission scores 0.0"
+    );
+}
