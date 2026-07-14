@@ -2,7 +2,7 @@ use anyhow::{Context, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Credentials, save_credentials_full};
+use crate::config::{Credentials, save_credentials, save_credentials_full};
 use crate::model::{SubmissionStatus, Verdict};
 use crate::tokenstore::{TokenStore, Tokens};
 
@@ -29,7 +29,8 @@ impl Client {
                 refresh_token: creds.refresh_token,
             },
             move |t| {
-                let _ = save_credentials_full(&persist_server, &t.token, t.refresh_token.as_deref());
+                let _ =
+                    save_credentials_full(&persist_server, &t.token, t.refresh_token.as_deref());
             },
         );
         Self::with_token_store(server, tokens)
@@ -552,6 +553,25 @@ impl Client {
         let resp = self.post(&format!("/api/v1/problems/{}/code-runs", problem_id), body)?;
         self.parse_response(resp)
     }
+}
+
+/// Exchange the short-lived device-flow/callback access token for a fresh
+/// access token plus a long-lived refresh token, and store both so later
+/// commands can keep refreshing instead of dying when the access token
+/// expires. Older servers without `/auth/cli-token` fall back to storing the
+/// access token alone.
+pub fn persist_session(server: &str, access_token: &str) -> anyhow::Result<()> {
+    let client = Client::new(Credentials {
+        server: server.to_string(),
+        token: access_token.to_string(),
+        refresh_token: None,
+    });
+    match client.issue_cli_token() {
+        Ok(cli) => save_credentials_full(server, &cli.token, Some(&cli.refresh_token))
+            .context("Failed to save credentials")?,
+        Err(_) => save_credentials(server, access_token).context("Failed to save credentials")?,
+    }
+    Ok(())
 }
 
 /// Standard server error body (`{code, message, details}`).

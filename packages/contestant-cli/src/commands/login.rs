@@ -6,10 +6,8 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use console::style;
 
-use broccoli_cli_core::client::Client;
-use broccoli_cli_core::config::{
-    Credentials, load_user_config, save_credentials, save_credentials_full,
-};
+use broccoli_cli_core::client::{Client, persist_session};
+use broccoli_cli_core::config::{Credentials, load_user_config};
 
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 const SPIN_INTERVAL: Duration = Duration::from_millis(100);
@@ -75,21 +73,6 @@ fn login_direct(server: &str, username: &str, password: &str) -> Result<()> {
 
     persist_session(server, &resp.token)?;
     print_logged_in(&resp.username, server);
-    Ok(())
-}
-
-/// Swap access token for a refresh token and store both; older servers fall back to access-token-only.
-fn persist_session(server: &str, access_token: &str) -> Result<()> {
-    let client = Client::new(Credentials {
-        server: server.to_string(),
-        token: access_token.to_string(),
-        refresh_token: None,
-    });
-    match client.issue_cli_token() {
-        Ok(cli) => save_credentials_full(server, &cli.token, Some(&cli.refresh_token))
-            .context("Failed to save credentials")?,
-        Err(_) => save_credentials(server, access_token).context("Failed to save credentials")?,
-    }
     Ok(())
 }
 

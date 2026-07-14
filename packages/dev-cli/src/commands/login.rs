@@ -5,33 +5,15 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use clap::Args;
 use console::style;
-use serde::Deserialize;
 
-use broccoli_cli_core::client::Client;
-use broccoli_cli_core::config::{self, Credentials};
+use broccoli_cli_core::client::{Client, DeviceCodeResponse, PollResponse, persist_session};
+use broccoli_cli_core::config::Credentials;
 use broccoli_cli_core::tls;
 
 #[derive(Args)]
 pub struct LoginArgs {
     #[arg(long, default_value = "http://localhost:3000", env = "BROCCOLI_URL")]
     pub server: String,
-}
-
-#[derive(Deserialize)]
-struct DeviceCodeResponse {
-    device_code: String,
-    user_code: String,
-    verification_url: String,
-    expires_in: u64,
-    interval: u64,
-}
-
-#[derive(Deserialize)]
-struct PollResponse {
-    #[serde(default)]
-    error: Option<String>,
-    #[serde(default)]
-    token: Option<String>,
 }
 
 pub fn run(args: LoginArgs) -> anyhow::Result<()> {
@@ -46,24 +28,15 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
         style(&args.server).cyan()
     );
 
-    let resp = agent
-        .post(&format!("{}/api/v1/auth/device-code", args.server))
-        .send_json(serde_json::json!({}))
+    let client = Client::new(Credentials {
+        server: args.server.to_string(),
+        token: String::new(),
+        refresh_token: None,
+    });
+
+    let device_code_resp: DeviceCodeResponse = client
+        .request_device_code()
         .context("Failed to connect to server. Is it running?")?;
-
-    if resp.status() != 200 {
-        let status = resp.status();
-        let body = resp
-            .into_body()
-            .read_to_string()
-            .unwrap_or_else(|_| "(unreadable)".into());
-        bail!("Server returned {}: {}", status, body);
-    }
-
-    let device_code_resp: DeviceCodeResponse = resp
-        .into_body()
-        .read_json()
-        .context("Failed to parse device code response")?;
 
     println!();
     println!(
@@ -144,25 +117,4 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
 
     println!();
     bail!("Timed out waiting for authorization. Run `broccoli-dev login` again.");
-}
-
-/// Exchange the short-lived (5 minute) device-flow access token for a fresh
-/// access token plus a long-lived refresh token, and store both so later
-/// commands (e.g. `plugin watch`) can keep refreshing instead of dying when
-/// the access token expires. Older servers without `/auth/cli-token` fall
-/// back to storing the access token alone.
-fn persist_session(server: &str, access_token: &str) -> anyhow::Result<()> {
-    let client = Client::new(Credentials {
-        server: server.to_string(),
-        token: access_token.to_string(),
-        refresh_token: None,
-    });
-    match client.issue_cli_token() {
-        Ok(cli) => config::save_credentials_full(server, &cli.token, Some(&cli.refresh_token))
-            .context("Failed to save credentials")?,
-        Err(_) => {
-            config::save_credentials(server, access_token).context("Failed to save credentials")?;
-        }
-    }
-    Ok(())
 }
