@@ -2,6 +2,7 @@ mod checker;
 mod code_run;
 mod config;
 mod evaluate;
+mod hook;
 pub mod hook_events;
 mod http;
 mod operation;
@@ -27,6 +28,7 @@ pub use evaluate::{
     StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput, StartEvaluateCaseInput,
     TestCaseBodyRef, TestCaseVerdict, default_evaluation_result_timeout_ms, seconds_from_ms,
 };
+pub use hook::HookResponse;
 pub use hook_events::{AfterJudgingEvent, AfterSubmissionEvent, BeforeSubmissionEvent, HookEvent};
 pub use http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
 pub use operation::{

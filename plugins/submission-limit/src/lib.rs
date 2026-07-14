@@ -31,16 +31,12 @@ mod plugin {
                 let _ = host.log.info(&format!(
                     "[submission-limit] Failed to resolve config: {e}, using default (unlimited)"
                 ));
-                return Ok(serde_json::to_string(
-                    &serde_json::json!({"action": "pass"}),
-                )?);
+                return Ok(serde_json::to_string(&HookResponse::pass())?);
             }
         };
 
         if !eff.is_enabled {
-            return Ok(serde_json::to_string(
-                &serde_json::json!({"action": "pass"}),
-            )?);
+            return Ok(serde_json::to_string(&HookResponse::pass())?);
         }
 
         let config: LimitsConfig = eff.parse_config().unwrap_or_default();
@@ -48,9 +44,7 @@ mod plugin {
 
         // 0 means unlimited
         if max == 0 {
-            return Ok(serde_json::to_string(
-                &serde_json::json!({"action": "pass"}),
-            )?);
+            return Ok(serde_json::to_string(&HookResponse::pass())?);
         }
 
         // Query submission count for this user/problem, scoped to contest if present.
@@ -74,22 +68,19 @@ mod plugin {
             .unwrap_or(0) as u32;
 
         if count >= max {
-            let resp = serde_json::json!({
-                "action": "reject",
-                "code": "SUBMISSION_LIMIT_EXCEEDED",
-                "message": format!("Submission limit reached ({}/{})", count, max),
-                "status_code": 429,
-                "details": {
+            let resp = HookResponse::reject(
+                "SUBMISSION_LIMIT_EXCEEDED",
+                format!("Submission limit reached ({}/{})", count, max),
+                429,
+                Some(serde_json::json!({
                     "submissions_made": count,
                     "max_submissions": max,
-                }
-            });
+                })),
+            );
             return Ok(serde_json::to_string(&resp)?);
         }
 
-        Ok(serde_json::to_string(
-            &serde_json::json!({"action": "pass"}),
-        )?)
+        Ok(serde_json::to_string(&HookResponse::pass())?)
     }
 
     // API: GET /api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status

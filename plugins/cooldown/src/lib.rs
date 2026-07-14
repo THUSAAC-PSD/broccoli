@@ -113,16 +113,19 @@ mod plugin {
     }
 
     fn reject_response(remaining: u64, cooldown: u32) -> FnResult<String> {
-        let resp = serde_json::json!({
-            "action": "reject",
-            "code": "COOLDOWN_ACTIVE",
-            "message": format!("Please wait {} more second{}", remaining, if remaining == 1 { "" } else { "s" }),
-            "status_code": 429,
-            "details": {
+        let resp = HookResponse::reject(
+            "COOLDOWN_ACTIVE",
+            format!(
+                "Please wait {} more second{}",
+                remaining,
+                if remaining == 1 { "" } else { "s" }
+            ),
+            429,
+            Some(serde_json::json!({
                 "remaining_seconds": remaining,
                 "cooldown_seconds": cooldown,
-            }
-        });
+            })),
+        );
         Ok(serde_json::to_string(&resp)?)
     }
 
@@ -140,25 +143,19 @@ mod plugin {
                 let _ = host.log.info(&format!(
                     "[cooldown] Failed to resolve config: {e}, using default (disabled)"
                 ));
-                return Ok(serde_json::to_string(
-                    &serde_json::json!({"action": "pass"}),
-                )?);
+                return Ok(serde_json::to_string(&HookResponse::pass())?);
             }
         };
 
         if !eff.is_enabled {
-            return Ok(serde_json::to_string(
-                &serde_json::json!({"action": "pass"}),
-            )?);
+            return Ok(serde_json::to_string(&HookResponse::pass())?);
         }
 
         let config: CooldownConfig = eff.parse_config().unwrap_or_default();
         let cooldown = config.cooldown_seconds.unwrap_or(0);
 
         if cooldown == 0 {
-            return Ok(serde_json::to_string(
-                &serde_json::json!({"action": "pass"}),
-            )?);
+            return Ok(serde_json::to_string(&HookResponse::pass())?);
         }
 
         let mut p = Params::new();
@@ -231,9 +228,7 @@ mod plugin {
             return reject_response(remaining, cooldown);
         }
 
-        Ok(serde_json::to_string(
-            &serde_json::json!({"action": "pass"}),
-        )?)
+        Ok(serde_json::to_string(&HookResponse::pass())?)
     }
 
     #[derive(Serialize)]

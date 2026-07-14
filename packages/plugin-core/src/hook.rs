@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use broccoli_server_sdk::types::HookResponse;
 use common::event::GenericEvent;
 use common::hook::{GenericHook, GenericHookAction, HookAction};
 use serde::{Deserialize, Serialize};
@@ -26,68 +27,39 @@ pub enum HookMode {
     Notify,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "action", rename_all = "lowercase")]
-pub enum HookResponse {
-    Pass,
-    Stop,
-    Reject {
-        #[serde(default = "default_reject_code")]
-        code: String,
-        #[serde(default = "default_reject_message")]
-        message: String,
-        #[serde(default = "default_reject_status")]
-        status_code: u16,
-        #[serde(default)]
-        details: Option<serde_json::Value>,
-    },
-    Modified {
-        event: serde_json::Value,
-    },
-}
-
-fn default_reject_code() -> String {
-    "PLUGIN_REJECTED".into()
-}
-fn default_reject_message() -> String {
-    "Request rejected by plugin".into()
-}
-fn default_reject_status() -> u16 {
-    400
-}
-
-impl HookResponse {
-    fn into_hook_action(self, original_topic: &str) -> GenericHookAction {
-        match self {
-            HookResponse::Pass => HookAction::Pass,
-            HookResponse::Stop => HookAction::Stop,
-            HookResponse::Reject {
-                code,
-                message,
-                status_code,
-                details,
-            } => {
-                let mut detail = serde_json::json!({
-                    "code": code,
-                    "message": message,
-                    "status_code": status_code,
-                });
-                if let Some(d) = details {
-                    detail["details"] = d;
-                }
-                HookAction::Reject(detail.to_string())
+/// Map a plugin's `HookResponse` onto the host's hook action. Free function
+/// (rather than an inherent impl) because `HookResponse` is the shared
+/// guest<->host contract type owned by `broccoli-server-sdk`.
+fn into_hook_action(response: HookResponse, original_topic: &str) -> GenericHookAction {
+    match response {
+        HookResponse::Pass => HookAction::Pass,
+        HookResponse::Stop => HookAction::Stop,
+        HookResponse::Reject {
+            code,
+            details,
+            message,
+            status_code,
+        } => {
+            let mut detail = serde_json::json!({
+                "code": code,
+                "message": message,
+                "status_code": status_code,
+            });
+            if let Some(d) = details {
+                detail["details"] = d;
             }
-            HookResponse::Modified { event } => {
-                let generic = GenericEvent {
-                    topic: event
-                        .get("topic")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or(original_topic)
-                        .to_string(),
-                    payload: event,
-                };
-                HookAction::Modified(generic)
-            }
+            HookAction::Reject(detail.to_string())
+        }
+        HookResponse::Modified { event } => {
+            let generic = GenericEvent {
+                topic: event
+                    .get("topic")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or(original_topic)
+                    .to_string(),
+                payload: event,
+            };
+            HookAction::Modified(generic)
         }
     }
 }
@@ -179,7 +151,7 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
 
         match call_result {
             Ok(output_bytes) => match serde_json::from_slice::<HookResponse>(&output_bytes) {
-                Ok(hook_response) => Ok(hook_response.into_hook_action(&event.topic)),
+                Ok(hook_response) => Ok(into_hook_action(hook_response, &event.topic)),
                 Err(e) => {
                     tracing::warn!(
                         plugin_id = %self.plugin_id,
