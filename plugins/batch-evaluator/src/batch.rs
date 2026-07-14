@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
     BuildEvalOpsInput, Channel, CheckerStage, Environment, EvaluationTimeoutBudget, IOConfig,
-    IOTarget, JudgeFile, OperationTask, OutputMode, OutputSpec, ResolveLanguageOutput,
+    IOTarget, OperationTask, OutputMode, OutputSpec, ResolveLanguageOutput,
     ResourceLimits, RunOptions, SessionFile, Step, StepCacheConfig, StepKind, seconds_from_ms,
 };
 use serde::Deserialize;
@@ -157,7 +157,7 @@ pub fn build_operation(
 
     files_in.push((
         "input.txt".to_string(),
-        session_file_from_judge_file(&req.test_input),
+        req.test_input.to_session_file(),
     ));
 
     let env = Environment {
@@ -366,19 +366,6 @@ fn splice_checker_stage(
     }
 }
 
-fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
-    match file {
-        JudgeFile::Blob { file } => SessionFile::Blob {
-            hash: file.blob_hash.clone(),
-        },
-        JudgeFile::Inline { text } => SessionFile::Content {
-            content: text.clone(),
-        },
-        JudgeFile::Missing => SessionFile::Content {
-            content: String::new(),
-        },
-    }
-}
 
 #[cfg(test)]
 mod tests {

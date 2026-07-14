@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::operation::{OperationResult, OperationTask, ResourceLimits};
+use super::operation::{OperationResult, OperationTask, ResourceLimits, SessionFile};
 use super::submission::SourceFile;
 use super::verdict::Verdict;
 
@@ -157,6 +157,24 @@ impl JudgeFile {
         match self {
             Self::Inline { text } => text,
             Self::Blob { .. } | Self::Missing => "",
+        }
+    }
+
+    /// Convert to the [`SessionFile`] an operation environment mounts: a blob
+    /// reference stays a blob; inline text and a missing file become content
+    /// (empty for missing). Shared by the evaluator plugins that stage judge
+    /// inputs into a sandbox environment.
+    pub fn to_session_file(&self) -> SessionFile {
+        match self {
+            Self::Blob { file } => SessionFile::Blob {
+                hash: file.blob_hash.clone(),
+            },
+            Self::Inline { text } => SessionFile::Content {
+                content: text.clone(),
+            },
+            Self::Missing => SessionFile::Content {
+                content: String::new(),
+            },
         }
     }
 }

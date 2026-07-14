@@ -1,5 +1,5 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, JudgeFile, OperationTask,
+    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask,
     OutputSpec, ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig, StepKind,
 };
 
@@ -59,7 +59,7 @@ pub fn build_operation(
         .collect();
     manager_files_in.push((
         "input.txt".to_string(),
-        session_file_from_judge_file(&req.test_input),
+        req.test_input.to_session_file(),
     ));
 
     environments.push(Environment {
@@ -304,19 +304,6 @@ pub fn build_operation(
     }])
 }
 
-fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
-    match file {
-        JudgeFile::Blob { file } => SessionFile::Blob {
-            hash: file.blob_hash.clone(),
-        },
-        JudgeFile::Inline { text } => SessionFile::Content {
-            content: text.clone(),
-        },
-        JudgeFile::Missing => SessionFile::Content {
-            content: String::new(),
-        },
-    }
-}
 
 #[cfg(test)]
 mod tests {
