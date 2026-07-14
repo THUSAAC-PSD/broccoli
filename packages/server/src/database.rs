@@ -207,6 +207,17 @@ pub async fn init_db_with_max_connections(
         "GRANT USAGE, CREATE ON SCHEMA public TO broccoli_plugin",
         "GRANT SELECT ON ALL TABLES IN SCHEMA public TO broccoli_plugin",
         "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO broccoli_plugin",
+        // Existing-DB upgrade: bundled plugin tables created before this change
+        // are owned by the app role, which would leave them read-only under
+        // `broccoli_plugin`. Reassign just those tables (never core) to the role
+        // so the plugins keep write access; on a fresh DB the plugin's own
+        // `CREATE TABLE` already creates them owned by the role, so these are
+        // idempotent no-ops. `REASSIGN OWNED` is deliberately NOT used — it would
+        // also hand core tables to the role and re-open DROP/ALTER.
+        "ALTER TABLE IF EXISTS submission_limit_claim OWNER TO broccoli_plugin",
+        "ALTER TABLE IF EXISTS cooldown_claim OWNER TO broccoli_plugin",
+        "ALTER TABLE IF EXISTS print_job OWNER TO broccoli_plugin",
+        "ALTER TABLE IF EXISTS print_station OWNER TO broccoli_plugin",
     ] {
         db.execute_unprepared(stmt).await?;
     }
