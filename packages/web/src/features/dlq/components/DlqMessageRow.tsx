@@ -1,4 +1,7 @@
-import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  type I18nContextValue,
+  useTranslation,
+} from '@broccoli/web-sdk/i18n';
 import { Badge } from '@broccoli/web-sdk/ui';
 
 import type { DlqMessage } from '@/features/dlq/types';
@@ -9,7 +12,7 @@ interface Props {
   onClick: (id: number) => void;
 }
 
-function timeAgo(iso: string, t: (k: string, p?: object) => string) {
+function timeAgo(iso: string, t: I18nContextValue['t']) {
   const seconds = Math.max(
     0,
     Math.floor((Date.now() - new Date(iso).getTime()) / 1000),

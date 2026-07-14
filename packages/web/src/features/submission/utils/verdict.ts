@@ -66,7 +66,7 @@ function getVerdictVariant(verdict: Verdict): BadgeVariant {
     case 'Cancelled':
       return 'secondary';
     default:
-      return 'outline-solid';
+      return 'outline';
   }
 }
 

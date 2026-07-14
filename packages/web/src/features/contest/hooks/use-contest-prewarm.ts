@@ -21,6 +21,9 @@ export function useContestPrewarm(contestId: number, active: boolean) {
         params: { path: { id: contestId } },
       });
       if (error) throw error;
+      // Failed responses without a JSON body (401/403/404) surface as neither
+      // `error` nor `data`; treat them as errors instead of crashing onSuccess.
+      if (!data) throw new Error('Prewarm start returned no response body');
       return data;
     },
     onSuccess: (data) => {

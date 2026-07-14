@@ -22,15 +22,16 @@ import type { ConfigScope, InheritedConfig } from './types';
 type ConfigSchemaResponse = PluginDetail['config_schemas'][number];
 type PluginDetailResponse = PluginDetail;
 
-/** A config entry returned by resource-scoped config list endpoints. */
+/** A config entry returned by resource-scoped config list endpoints.
+ *  Mirrors the generated `PluginConfigResponse` schema shape. */
 interface ConfigEntry {
   plugin_id: string;
   namespace: string;
   config: unknown;
-  enabled: boolean | null;
+  enabled?: boolean | null;
   position: number;
-  updated_at: string | null;
-  json_schema?: Record<string, unknown>;
+  updated_at?: string | null;
+  json_schema?: unknown;
   description?: string | null;
 }
 

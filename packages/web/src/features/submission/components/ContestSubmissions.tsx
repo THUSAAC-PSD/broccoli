@@ -217,6 +217,9 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         for (const submissionId of submissionIds) {
           const single = await apiClient.POST('/submissions/{id}/rejudge', {
             params: { path: { id: submissionId } },
+            // Carry the user's choice through the fallback; an empty body
+            // would silently default to apply_immediately=true server-side.
+            body: { apply_immediately: bulkApplyImmediately },
           });
 
           if (!single.error) {

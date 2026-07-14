@@ -6333,13 +6333,14 @@ export interface operations {
   };
   getPrewarmStatus: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Specific warm job to report; defaults to the contest's most recent warm. */
+        job?: string;
+      };
       header?: never;
       path: {
         /** @description Contest id */
         id: number;
-        /** @description Specific warm job to report; defaults to the contest's most recent warm. */
-        job: string | null;
       };
       cookie?: never;
     };
