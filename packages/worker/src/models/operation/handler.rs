@@ -247,7 +247,7 @@ mod tests {
         sandbox_exit_kind, sandbox_status_label, step_kind,
     };
     use crate::models::operation::models::{IOConfig, RunOptions, Step, StepKind};
-    use broccoli_server_sdk::types::SessionFile;
+    use broccoli_types::types::SessionFile;
 
     #[test]
     fn classifies_sandbox_exit_kind_for_metrics() {

@@ -274,9 +274,9 @@ impl<'de> Deserialize<'de> for Verdict {
     }
 }
 
-impl From<broccoli_server_sdk::types::Verdict> for Verdict {
-    fn from(v: broccoli_server_sdk::types::Verdict) -> Self {
-        use broccoli_server_sdk::types::Verdict as Sdk;
+impl From<broccoli_types::types::Verdict> for Verdict {
+    fn from(v: broccoli_types::types::Verdict) -> Self {
+        use broccoli_types::types::Verdict as Sdk;
         match v {
             Sdk::Accepted => Self::Accepted,
             Sdk::WrongAnswer => Self::WrongAnswer,

@@ -153,11 +153,19 @@ up:
 down:
     docker compose down
 
+# Dry-run publish the shared types crate to crates.io
+publish-types-dry:
+    cargo publish -p broccoli-types --dry-run
+
+# Publish the shared types crate to crates.io (must precede publish-server-sdk)
+publish-types:
+    cargo publish -p broccoli-types
+
 # Dry-run publish server SDK to crates.io
 publish-server-sdk-dry:
     cargo publish -p broccoli-server-sdk --dry-run
 
-# Publish server SDK to crates.io
+# Publish server SDK to crates.io (run publish-types first: it is a dependency)
 publish-server-sdk:
     cargo publish -p broccoli-server-sdk
 

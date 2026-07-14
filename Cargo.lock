@@ -873,6 +873,16 @@ name = "broccoli-server-sdk"
 version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
+ "broccoli-types",
+ "extism-pdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "broccoli-types"
+version = "0.1.1"
+dependencies = [
  "extism-pdk",
  "serde",
  "serde_json",
@@ -1227,7 +1237,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "broccoli-server-sdk",
+ "broccoli-types",
  "chrono",
  "config",
  "futures",
@@ -4759,7 +4769,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "broccoli-server-sdk",
+ "broccoli-types",
  "common",
  "extism",
  "matchit 0.9.1",
@@ -9161,7 +9171,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "broccoli-server-sdk",
+ "broccoli-types",
  "chrono",
  "common",
  "config",

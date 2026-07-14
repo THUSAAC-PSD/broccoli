@@ -104,6 +104,7 @@ rust-s3 = { version = "0.37", default-features = false, features = [
 tokio-util = { version = "0.7", features = ["io"] }
 zip = { version = "7", default-features = false, features = ["deflate"] }
 broccoli-server-sdk = { path = "packages/server-sdk" }
+broccoli-types = { path = "packages/broccoli-types" }
 crossbeam = "0.8"
 dashmap = "6.1"
 flate2 = "1"

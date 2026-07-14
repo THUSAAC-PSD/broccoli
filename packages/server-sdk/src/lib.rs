@@ -1,7 +1,11 @@
 pub mod api;
 pub mod contest;
-pub mod error;
-pub mod types;
+
+// The wire/domain types and SdkError live in the dependency-light `broccoli-types`
+// crate at the bottom of the graph. Re-export them here so the published guest SDK
+// surface (`broccoli_server_sdk::types::*`, `::error`, and the prelude) is unchanged
+// for every plugin and downstream crate.
+pub use broccoli_types::{error, types};
 
 #[cfg(feature = "guest")]
 pub mod db;

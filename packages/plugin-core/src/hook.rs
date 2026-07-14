@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use broccoli_server_sdk::types::HookResponse;
+use broccoli_types::types::HookResponse;
 use common::event::GenericEvent;
 use common::hook::{GenericHook, GenericHookAction, HookAction};
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ pub enum HookMode {
 
 /// Map a plugin's `HookResponse` onto the host's hook action. Free function
 /// (rather than an inherent impl) because `HookResponse` is the shared
-/// guest<->host contract type owned by `broccoli-server-sdk`.
+/// guest<->host contract type owned by `broccoli-types` (re-exported via `broccoli-server-sdk`).
 fn into_hook_action(response: HookResponse, original_topic: &str) -> GenericHookAction {
     match response {
         HookResponse::Pass => HookAction::Pass,
