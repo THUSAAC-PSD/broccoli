@@ -2675,6 +2675,8 @@ export interface components {
       content: string;
       /** @example ioi */
       default_contest_type?: string;
+      /** @example false */
+      is_public?: boolean | null;
       /**
        * Format: int32
        * @example 262144
@@ -3204,6 +3206,8 @@ export interface components {
        * @example 1
        */
       id: number;
+      /** @example false */
+      is_public: boolean;
       /**
        * Format: int32
        * @example 262144
@@ -3248,6 +3252,8 @@ export interface components {
        * @example 1
        */
       id: number;
+      /** @example false */
+      is_public: boolean;
       /**
        * Format: int32
        * @example 262144
@@ -3817,6 +3823,8 @@ export interface components {
       content?: string | null;
       /** @example ioi */
       default_contest_type?: string | null;
+      /** @example true */
+      is_public?: boolean | null;
       /**
        * Format: int32
        * @example 524288

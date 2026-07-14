@@ -545,6 +545,9 @@ export const en: Record<string, string> = {
   'admin.field.contestTypeNone': 'None (default)',
   'admin.field.submissionFormat': 'Submission Format',
   'admin.field.showTestDetails': 'Show Test Details',
+  'admin.field.problemIsPublic': 'Public Problem',
+  'admin.field.problemIsPublicHelp':
+    'Anyone can view and submit to this problem outside of a contest.',
   'admin.field.options': 'Options',
   'admin.field.createdAt': 'Created',
   'admin.submissionFormat.language': 'Select language',

@@ -101,6 +101,7 @@ export function ProblemFormDialog({
   const [checkerFormat, setCheckerFormat] = useState('exact');
   const [defaultContestType, setDefaultContestType] = useState('standard');
   const [showTestDetails, setShowTestDetails] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
   const [submissionFormat, setSubmissionFormat] = useState<
     Record<string, string[]>
   >({});
@@ -124,6 +125,7 @@ export function ProblemFormDialog({
     checkerFormat,
     defaultContestType,
     showTestDetails,
+    isPublic,
     submissionFormat,
   };
 
@@ -136,6 +138,7 @@ export function ProblemFormDialog({
     setCheckerFormat(data.checkerFormat);
     setDefaultContestType(data.defaultContestType);
     setShowTestDetails(data.showTestDetails);
+    setIsPublic(data.isPublic);
     setSubmissionFormat(data.submissionFormat);
   };
 
@@ -156,6 +159,7 @@ export function ProblemFormDialog({
           setCheckerFormat(data.checker_format);
           setDefaultContestType(data.default_contest_type);
           setShowTestDetails(data.show_test_details);
+          setIsPublic(data.is_public);
           setSubmissionFormat(data.submission_format ?? {});
         });
     } else {
@@ -167,6 +171,7 @@ export function ProblemFormDialog({
       setCheckerFormat('exact');
       setDefaultContestType('standard');
       setShowTestDetails(false);
+      setIsPublic(false);
       setSubmissionFormat({});
     }
   }, [apiClient, open, problem]);
@@ -215,6 +220,7 @@ export function ProblemFormDialog({
       checker_format: checkerFormat,
       default_contest_type: defaultContestType,
       show_test_details: showTestDetails,
+      is_public: isPublic,
       submission_format:
         Object.keys(submissionFormat).length > 0 ? submissionFormat : null,
     };

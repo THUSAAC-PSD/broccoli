@@ -40,6 +40,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     checkerFormat: 'exact',
     defaultContestType: 'standard',
     showTestDetails: false,
+    isPublic: false,
     submissionFormat: {},
   });
   const [loading, setLoading] = useState(false);
@@ -77,6 +78,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
         checkerFormat: data.checker_format,
         defaultContestType: data.default_contest_type,
         showTestDetails: data.show_test_details,
+        isPublic: data.is_public,
         submissionFormat: data.submission_format ?? {},
       });
       setLoadingData(false);
@@ -156,6 +158,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       checker_format: formData.checkerFormat,
       default_contest_type: formData.defaultContestType,
       show_test_details: formData.showTestDetails,
+      is_public: formData.isPublic,
       submission_format:
         Object.keys(formData.submissionFormat).length > 0
           ? formData.submissionFormat
