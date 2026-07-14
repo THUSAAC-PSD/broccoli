@@ -201,12 +201,116 @@ pub async fn require_problem_read_access<C: sea_orm::ConnectionTrait>(
     auth_user: &AuthUser,
     problem_id: i32,
 ) -> Result<(), AppError> {
+    let problem = problem::Entity::find_active_by_id(problem_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
     if auth_user.has_permission("problem:create") || auth_user.has_permission("problem:edit") {
-        problem::Entity::find_active_by_id(problem_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
         return Ok(());
     }
+    if problem.is_public {
+        // Published to the public problemset; readable by any authenticated
+        // user even when the problem belongs to zero contests.
+        return Ok(());
+    }
+    // Hidden draft: only reachable through a contest the user can access.
+    // A problem in no accessible contest stays 404.
     can_access_problem_via_contest(db, auth_user, problem_id).await
+}
+
+#[cfg(test)]
+mod problem_read_access_tests {
+    use sea_orm::{DatabaseBackend, MockDatabase};
+
+    use super::*;
+
+    fn user(permissions: &[&str]) -> AuthUser {
+        AuthUser {
+            user_id: 42,
+            username: "contestant".into(),
+            roles: vec![],
+            permissions: permissions.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    fn problem_row(is_public: bool) -> problem::Model {
+        let now = chrono::Utc::now();
+        problem::Model {
+            id: 1,
+            title: "Standalone".into(),
+            content: "statement".into(),
+            time_limit: 1000,
+            memory_limit: 262_144,
+            problem_type: "batch".into(),
+            checker_source: None,
+            checker_format: "exact".into(),
+            default_contest_type: "ioi".into(),
+            show_test_details: false,
+            is_public,
+            submission_format: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        }
+    }
+
+    /// A non-public problem attached to zero contests must stay 404 for an
+    /// unprivileged user (the pre-existing IDOR protection).
+    #[tokio::test]
+    async fn hidden_draft_in_zero_contests_is_not_found_for_unprivileged_user() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres)
+            // 1: fetch the problem (exists, but not public)
+            .append_query_results([vec![problem_row(false)]])
+            // 2: contest_problem lookup finds no contests
+            .append_query_results([Vec::<contest_problem::Model>::new()])
+            .into_connection();
+
+        let err = require_problem_read_access(&db, &user(&[]), 1)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::NotFound(_)),
+            "hidden zero-contest problem must be NotFound, got {err:?}"
+        );
+    }
+
+    /// An explicitly published (`is_public = true`) problem is readable by any
+    /// authenticated user even when it belongs to zero contests. Only one
+    /// query result is stubbed: reaching for the contest tables would error.
+    #[tokio::test]
+    async fn public_problem_in_zero_contests_is_readable_by_unprivileged_user() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres)
+            .append_query_results([vec![problem_row(true)]])
+            .into_connection();
+
+        require_problem_read_access(&db, &user(&[]), 1)
+            .await
+            .expect("published standalone problem must be readable");
+    }
+
+    /// Editors keep full access regardless of `is_public`.
+    #[tokio::test]
+    async fn editor_can_read_hidden_problem() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres)
+            .append_query_results([vec![problem_row(false)]])
+            .into_connection();
+
+        require_problem_read_access(&db, &user(&["problem:edit"]), 1)
+            .await
+            .expect("editor must read hidden problems");
+    }
+
+    /// A missing (or soft-deleted) problem is 404 even for editors — the gate
+    /// fetches the row before any permission short-circuit.
+    #[tokio::test]
+    async fn missing_problem_is_not_found_even_for_editor() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres)
+            .append_query_results([Vec::<problem::Model>::new()])
+            .into_connection();
+
+        let err = require_problem_read_access(&db, &user(&["problem:edit"]), 1)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    }
 }

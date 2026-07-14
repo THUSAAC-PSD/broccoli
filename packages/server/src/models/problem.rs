@@ -38,6 +38,8 @@ pub struct CreateProblemRequest {
     pub default_contest_type: String,
     #[schema(example = false)]
     pub show_test_details: Option<bool>,
+    #[schema(example = false)]
+    pub is_public: Option<bool>,
     #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
 }
@@ -60,6 +62,8 @@ pub struct UpdateProblemRequest {
     pub default_contest_type: Option<String>,
     #[schema(example = true)]
     pub show_test_details: Option<bool>,
+    #[schema(example = true)]
+    pub is_public: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     #[schema(value_type = Option<std::collections::HashMap<String, Vec<String>>>, example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<Option<std::collections::HashMap<String, Vec<String>>>>,
@@ -92,6 +96,8 @@ pub struct ProblemResponse {
     pub default_contest_type: String,
     #[schema(example = false)]
     pub show_test_details: bool,
+    #[schema(example = false)]
+    pub is_public: bool,
     #[schema(example = json!({"cpp": ["solution.cpp"], "java": ["Main.java"]}))]
     pub submission_format: Option<std::collections::HashMap<String, Vec<String>>>,
     pub samples: Vec<SampleTestCaseMeta>,
@@ -131,6 +137,8 @@ pub struct ProblemListItem {
     pub default_contest_type: String,
     #[schema(example = false)]
     pub show_test_details: bool,
+    #[schema(example = false)]
+    pub is_public: bool,
     #[schema(example = "2025-09-01T08:00:00Z")]
     pub created_at: DateTime<Utc>,
     #[schema(example = "2025-09-01T08:30:00Z")]
@@ -309,6 +317,7 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             checker_format: m.checker_format,
             default_contest_type: m.default_contest_type,
             show_test_details: m.show_test_details,
+            is_public: m.is_public,
             submission_format,
             samples: vec![],
             created_at: m.created_at,
@@ -719,6 +728,7 @@ mod checker_source_privacy_tests {
             checker_format: "none".into(),
             default_contest_type: "icpc".into(),
             show_test_details: false,
+            is_public: false,
             submission_format: None,
             created_at: now,
             updated_at: now,

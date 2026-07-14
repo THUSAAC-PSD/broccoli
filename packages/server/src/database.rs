@@ -91,6 +91,9 @@ pub async fn init_db_with_max_connections(
         r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "expected_output_size" BIGINT"#,
         r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "input_preview" TEXT"#,
         r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "expected_output_preview" TEXT"#,
+        // DEFAULT false is a security requirement: every pre-existing problem
+        // must backfill to non-public so no draft is silently exposed.
+        r#"ALTER TABLE IF EXISTS "problem" ADD COLUMN IF NOT EXISTS "is_public" BOOLEAN NOT NULL DEFAULT false"#,
     ] {
         db.execute_unprepared(stmt).await?;
     }

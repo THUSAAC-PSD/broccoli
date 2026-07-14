@@ -104,6 +104,7 @@ pub async fn create_problem(
         checker_format: Set(payload.checker_format),
         default_contest_type: Set(default_contest_type),
         show_test_details: Set(payload.show_test_details.unwrap_or(false)),
+        is_public: Set(payload.is_public.unwrap_or(false)),
         submission_format: Set(submission_format_json),
         created_at: Set(now),
         updated_at: Set(now),
@@ -189,6 +190,7 @@ pub async fn list_problems(
         .column(problem::Column::CheckerFormat)
         .column(problem::Column::DefaultContestType)
         .column(problem::Column::ShowTestDetails)
+        .column(problem::Column::IsPublic)
         .column(problem::Column::CreatedAt)
         .column(problem::Column::UpdatedAt)
         .offset(Some((page - 1) * per_page))
@@ -324,6 +326,9 @@ pub async fn update_problem(
     }
     if let Some(show_test_details) = payload.show_test_details {
         active.show_test_details = Set(show_test_details);
+    }
+    if let Some(is_public) = payload.is_public {
+        active.is_public = Set(is_public);
     }
     match payload.submission_format {
         Some(Some(sf)) => {
