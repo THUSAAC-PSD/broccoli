@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
+use async_trait::async_trait;
 use broccoli_server_sdk::types::{
     BuildEvalOpsInput, DetachedEvaluateCallbackAction, DetachedEvaluateCallbackEvent,
     DetachedEvaluateCallbackInput, DetachedEvaluateCallbackOutput, DetachedEvaluateSession,
@@ -30,6 +31,9 @@ use crate::entity::{additional_file, plugin_config, problem, test_case};
 use crate::host_funcs::context::EvaluateHostDeps;
 use crate::registry::{BatchState, EvaluateBatches, PluginHandler};
 use crate::services::submission_dispatch::fire_after_judging_hooks_for_detached_completion;
+use crate::services::windowed_session::{
+    SessionAction, SessionDecision, SlotEvent, SlotOutcome, WindowedSession, run_windowed_session,
+};
 
 const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 const EVALUATE_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
@@ -334,11 +338,193 @@ pub fn start_detached_windowed_evaluate(
     Ok(session)
 }
 
-#[derive(Debug)]
-struct DetachedEvaluateResult {
-    test_case_id: i32,
-    batch_id: String,
-    result: anyhow::Result<Option<TestCaseVerdict>>,
+/// [`WindowedSession`] driver for detached evaluate batches. Evaluate adds three
+/// things over the plain operation shape: a server-side retry pool for timed-out
+/// ops, after-judging completion hooks, and Redis op-cancel-key signaling on
+/// cancellation. The slot id is the test case id, and the verdict already arrives
+/// typed (`decode` is identity).
+struct EvaluateDriver {
+    caller_plugin_id: String,
+    session_id: String,
+    callback_fn: String,
+    deps: EvaluateHostDeps,
+    problem_type: String,
+    submission_completion: Option<broccoli_server_sdk::types::DetachedSubmissionCompletion>,
+    /// Clones of cheap-bodied test cases, so a timed-out op can be re-dispatched.
+    retry_pool: HashMap<i32, StartEvaluateCaseInput>,
+    /// Per-test-case retry attempts consumed so far.
+    op_retries: HashMap<i32, u32>,
+}
+
+#[async_trait]
+impl WindowedSession for EvaluateDriver {
+    type Item = StartEvaluateCaseInput;
+    type Raw = TestCaseVerdict;
+    type Final = TestCaseVerdict;
+    type SlotId = i32;
+
+    fn plugin_id(&self) -> &str {
+        &self.caller_plugin_id
+    }
+
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn slot_id(&self, _index: usize, item: &StartEvaluateCaseInput) -> i32 {
+        item.test_case_id
+    }
+
+    async fn start_slot(
+        &self,
+        slot_id: i32,
+        item: StartEvaluateCaseInput,
+        timeout: Duration,
+        tx: mpsc::Sender<SlotOutcome<i32, TestCaseVerdict>>,
+    ) -> anyhow::Result<String> {
+        let batch_id = start_evaluate_batch(
+            self.caller_plugin_id.clone(),
+            self.deps.clone(),
+            StartEvaluateBatchInput {
+                problem_type: self.problem_type.clone(),
+                test_cases: vec![item],
+            },
+        )
+        .await?;
+        let wait_batch_id = batch_id.clone();
+        let wait_plugin_id = self.caller_plugin_id.clone();
+        let deps = self.deps.clone();
+        tokio::spawn(async move {
+            let batches = deps.evaluate_batches.clone();
+            let registry = deps.evaluate_ops_registry.clone();
+            let metrics = deps.metrics.clone();
+            // Await the verdict as a cheap future instead of holding a blocking
+            // thread for the test case's whole execution.
+            let result = next_evaluate_result_async(
+                &wait_plugin_id,
+                &batches,
+                metrics.as_ref(),
+                &registry,
+                &wait_batch_id,
+                timeout,
+            )
+            .await;
+            let _ = tx
+                .send(SlotOutcome {
+                    slot_id,
+                    batch_id: wait_batch_id,
+                    result,
+                })
+                .await;
+        });
+        Ok(batch_id)
+    }
+
+    fn decode(&self, raw: TestCaseVerdict) -> Result<TestCaseVerdict, String> {
+        Ok(raw)
+    }
+
+    fn timeout_message(&self, slot_id: i32) -> String {
+        format!("Test case {slot_id} timed out")
+    }
+
+    async fn call_callback(
+        &self,
+        event: SlotEvent<i32, TestCaseVerdict>,
+        state: serde_json::Value,
+        completed: usize,
+        total: usize,
+    ) -> anyhow::Result<SessionDecision<i32>> {
+        let cb_event = match event {
+            // The verdict carries its own test_case_id, so the slot id is redundant.
+            SlotEvent::Result { result, .. } => DetachedEvaluateCallbackEvent::Result { result },
+            SlotEvent::Timeout { message } => DetachedEvaluateCallbackEvent::Timeout { message },
+            SlotEvent::Exhausted => DetachedEvaluateCallbackEvent::Exhausted,
+        };
+        let input = DetachedEvaluateCallbackInput {
+            session_id: self.session_id.clone(),
+            state,
+            event: cb_event,
+            completed,
+            total,
+        };
+        let output = call_detached_evaluate_callback(
+            self.deps.plugin_manager.as_ref(),
+            &self.caller_plugin_id,
+            &self.callback_fn,
+            input,
+        )
+        .await?;
+        Ok(SessionDecision {
+            state: output.state,
+            action: match output.action {
+                DetachedEvaluateCallbackAction::Continue => SessionAction::Continue,
+                DetachedEvaluateCallbackAction::Finish => SessionAction::Finish,
+                DetachedEvaluateCallbackAction::Cancel => SessionAction::Cancel,
+            },
+            refill: output.refill,
+            cancel_ids: output.cancel_test_case_ids,
+        })
+    }
+
+    async fn cancel_active(&self, active: &[(i32, String)]) {
+        cancel_active_evaluate_slots(&self.caller_plugin_id, &self.deps, active).await;
+    }
+
+    async fn cancel_selected(&self, active: &mut Vec<(i32, String)>, ids: &HashSet<i32>) {
+        cancel_evaluate_test_case_ids(&self.caller_plugin_id, &self.deps, active, ids).await;
+    }
+
+    async fn take_retry(
+        &mut self,
+        slot_id: i32,
+        _batch_id: &str,
+    ) -> Option<StartEvaluateCaseInput> {
+        let attempts = self.op_retries.get(&slot_id).copied().unwrap_or(0);
+        if attempts < MAX_DETACHED_OP_RETRIES {
+            return self.retry_pool.get(&slot_id).cloned();
+        }
+        None
+    }
+
+    fn note_retry(&mut self, slot_id: i32, old_batch_id: &str) {
+        let attempts = self.op_retries.entry(slot_id).or_insert(0);
+        *attempts += 1;
+        // Best-effort: drop the superseded batch's registry entry so its
+        // started_at/op refs don't linger.
+        self.deps.evaluate_ops_registry.remove_batch(old_batch_id);
+        tracing::warn!(
+            caller_plugin_id = %self.caller_plugin_id,
+            session_id = %self.session_id,
+            test_case_id = slot_id,
+            attempt = *attempts,
+            max = MAX_DETACHED_OP_RETRIES,
+            "Detached evaluate op timed out; re-dispatching on a fresh op batch"
+        );
+    }
+
+    fn note_retry_failed(&self, slot_id: i32, error: &anyhow::Error) {
+        tracing::error!(
+            caller_plugin_id = %self.caller_plugin_id,
+            session_id = %self.session_id,
+            test_case_id = slot_id,
+            error = %error,
+            "Failed to re-dispatch timed-out detached evaluate op; surfacing timeout"
+        );
+    }
+
+    async fn on_terminal(&self, action: SessionAction) {
+        let cb_action = match action {
+            SessionAction::Continue => DetachedEvaluateCallbackAction::Continue,
+            SessionAction::Finish => DetachedEvaluateCallbackAction::Finish,
+            SessionAction::Cancel => DetachedEvaluateCallbackAction::Cancel,
+        };
+        fire_detached_evaluate_completion_hooks(
+            &self.deps,
+            detached_evaluate_completion(self.submission_completion.as_ref(), cb_action),
+        )
+        .await;
+    }
 }
 
 /// Whether a test-case body is cheap enough to keep a clone of for the whole
@@ -365,319 +551,46 @@ async fn run_detached_windowed_evaluate(
     session_id: String,
     input: StartDetachedWindowedEvaluateInput,
 ) {
-    let total = input.batch.test_cases.len();
-    let concurrency = input.concurrency.max(1);
-    let timeout = Duration::from_millis(input.result_timeout_ms);
-    let submission_completion = input.submission_completion.clone();
-    let problem_type = input.batch.problem_type.clone();
-    let mut pending = input.batch.test_cases.into_iter().rev().collect::<Vec<_>>();
+    let StartDetachedWindowedEvaluateInput {
+        batch,
+        concurrency,
+        result_timeout_ms,
+        callback_fn,
+        state,
+        submission_completion,
+    } = input;
+    let StartEvaluateBatchInput {
+        problem_type,
+        test_cases,
+    } = batch;
     // Retain a clone of each cheap-bodied test case so a timed-out op can be
     // re-dispatched (see MAX_DETACHED_OP_RETRIES). Large inline bodies are
     // skipped to keep memory bounded; under the object_storage backend every
     // body is a hash ref, so this map is a few KB per case and retry covers all
     // test cases.
-    let retry_pool: HashMap<i32, StartEvaluateCaseInput> = pending
+    let retry_pool: HashMap<i32, StartEvaluateCaseInput> = test_cases
         .iter()
         .filter(|tc| test_case_cheap_to_retain(tc))
         .map(|tc| (tc.test_case_id, tc.clone()))
         .collect();
-    let mut op_retries: HashMap<i32, u32> = HashMap::new();
-    let mut active = Vec::<(i32, String)>::new();
-    let (tx, mut rx) = mpsc::channel::<DetachedEvaluateResult>(concurrency * 2);
-    let mut state = input.state;
-    let mut completed = 0usize;
-
-    while active.len() < concurrency {
-        let Some(test_case) = pending.pop() else {
-            break;
-        };
-        match start_detached_evaluate_slot(
-            &caller_plugin_id,
-            deps.clone(),
-            tx.clone(),
-            problem_type.clone(),
-            test_case,
-            timeout,
-        )
-        .await
-        {
-            Ok((test_case_id, batch_id)) => active.push((test_case_id, batch_id)),
-            Err(e) => {
-                let callback = DetachedEvaluateCallbackInput {
-                    session_id: session_id.clone(),
-                    state: state.clone(),
-                    event: DetachedEvaluateCallbackEvent::Timeout {
-                        message: e.to_string(),
-                    },
-                    completed,
-                    total,
-                };
-                let output = call_detached_evaluate_callback(
-                    deps.plugin_manager.as_ref(),
-                    &caller_plugin_id,
-                    &input.callback_fn,
-                    callback,
-                )
-                .await
-                .ok();
-                cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
-                let action = output
-                    .map(|output| output.action)
-                    .unwrap_or(DetachedEvaluateCallbackAction::Cancel);
-                fire_detached_evaluate_completion_hooks(
-                    &deps,
-                    detached_evaluate_completion(submission_completion.as_ref(), action),
-                )
-                .await;
-                return;
-            }
-        }
-    }
-
-    if active.is_empty() {
-        if let Some(output) = send_detached_evaluate_exhausted(
-            deps.plugin_manager.as_ref(),
-            &caller_plugin_id,
-            &input.callback_fn,
-            session_id,
-            state,
-            completed,
-            total,
-        )
-        .await
-        {
-            fire_detached_evaluate_completion_hooks(
-                &deps,
-                detached_evaluate_completion(submission_completion.as_ref(), output.action),
-            )
-            .await;
-        }
-        return;
-    }
-
-    while let Some(item) = rx.recv().await {
-        if !remove_active_evaluate_slot_by_batch_id(&mut active, &item.batch_id) {
-            continue;
-        }
-
-        // Infra-timeout retry (server-side, before surfacing to the plugin): a
-        // timed-out / lost op is re-dispatched on a fresh op batch up to
-        // MAX_DETACHED_OP_RETRIES times. A timeout does NOT count toward
-        // `completed` and does not invoke the plugin callback — only a genuinely
-        // exhausted retry budget falls through to the Timeout event below. Each
-        // re-dispatch gets a new op batch_id (and fresh started_at tracking); a
-        // late result from the superseded batch is harmlessly dropped by the
-        // slot-removal guard above.
-        let is_timeout = !matches!(item.result, Ok(Some(_)));
-        if is_timeout {
-            let attempts = op_retries.entry(item.test_case_id).or_insert(0);
-            if *attempts < MAX_DETACHED_OP_RETRIES {
-                if let Some(test_case) = retry_pool.get(&item.test_case_id).cloned() {
-                    match start_detached_evaluate_slot(
-                        &caller_plugin_id,
-                        deps.clone(),
-                        tx.clone(),
-                        problem_type.clone(),
-                        test_case,
-                        timeout,
-                    )
-                    .await
-                    {
-                        Ok((tc_id, batch_id)) => {
-                            *attempts += 1;
-                            // Best-effort: drop the superseded batch's registry
-                            // entry so its started_at/op refs don't linger.
-                            deps.evaluate_ops_registry.remove_batch(&item.batch_id);
-                            active.push((tc_id, batch_id));
-                            tracing::warn!(
-                                %caller_plugin_id,
-                                %session_id,
-                                test_case_id = item.test_case_id,
-                                attempt = *attempts,
-                                max = MAX_DETACHED_OP_RETRIES,
-                                "Detached evaluate op timed out; re-dispatching on a fresh op batch"
-                            );
-                            continue;
-                        }
-                        Err(e) => {
-                            // Re-dispatch failed — surface the timeout to the
-                            // plugin rather than silently dropping the test case.
-                            tracing::error!(
-                                %caller_plugin_id,
-                                %session_id,
-                                test_case_id = item.test_case_id,
-                                error = %e,
-                                "Failed to re-dispatch timed-out detached evaluate op; surfacing timeout"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        completed += 1;
-
-        let event = match item.result {
-            Ok(Some(result)) => DetachedEvaluateCallbackEvent::Result { result },
-            Ok(None) => DetachedEvaluateCallbackEvent::Timeout {
-                message: format!("Test case {} timed out", item.test_case_id),
-            },
-            Err(e) => DetachedEvaluateCallbackEvent::Timeout {
-                message: e.to_string(),
-            },
-        };
-
-        let callback = DetachedEvaluateCallbackInput {
-            session_id: session_id.clone(),
-            state: state.clone(),
-            event,
-            completed,
-            total,
-        };
-        let output = match call_detached_evaluate_callback(
-            deps.plugin_manager.as_ref(),
-            &caller_plugin_id,
-            &input.callback_fn,
-            callback,
-        )
-        .await
-        {
-            Ok(output) => output,
-            Err(e) => {
-                tracing::error!(%caller_plugin_id, %session_id, error = %e, "Detached evaluate callback failed");
-                cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
-                return;
-            }
-        };
-
-        state = output.state;
-        let refill_enabled = output.refill;
-
-        if !output.cancel_test_case_ids.is_empty() {
-            let cancel_set: HashSet<i32> = output.cancel_test_case_ids.iter().copied().collect();
-            cancel_evaluate_test_case_ids(&caller_plugin_id, &deps, &mut active, &cancel_set).await;
-            pending.retain(|case| !cancel_set.contains(&case.test_case_id));
-        }
-
-        match output.action {
-            DetachedEvaluateCallbackAction::Continue => {}
-            DetachedEvaluateCallbackAction::Finish | DetachedEvaluateCallbackAction::Cancel => {
-                cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
-                fire_detached_evaluate_completion_hooks(
-                    &deps,
-                    detached_evaluate_completion(submission_completion.as_ref(), output.action),
-                )
-                .await;
-                return;
-            }
-        }
-
-        while refill_enabled && active.len() < concurrency {
-            let Some(test_case) = pending.pop() else {
-                break;
-            };
-            match start_detached_evaluate_slot(
-                &caller_plugin_id,
-                deps.clone(),
-                tx.clone(),
-                problem_type.clone(),
-                test_case,
-                timeout,
-            )
-            .await
-            {
-                Ok((test_case_id, batch_id)) => active.push((test_case_id, batch_id)),
-                Err(e) => {
-                    tracing::error!(%caller_plugin_id, %session_id, error = %e, "Failed to refill detached evaluate slot");
-                    let callback = DetachedEvaluateCallbackInput {
-                        session_id: session_id.clone(),
-                        state: state.clone(),
-                        event: DetachedEvaluateCallbackEvent::Timeout {
-                            message: e.to_string(),
-                        },
-                        completed,
-                        total,
-                    };
-                    let output = match call_detached_evaluate_callback(
-                        deps.plugin_manager.as_ref(),
-                        &caller_plugin_id,
-                        &input.callback_fn,
-                        callback,
-                    )
-                    .await
-                    {
-                        Ok(output) => output,
-                        Err(e) => {
-                            tracing::error!(%caller_plugin_id, %session_id, error = %e, "Detached evaluate callback failed after refill start failure");
-                            cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
-                            return;
-                        }
-                    };
-                    state = output.state;
-                    match output.action {
-                        DetachedEvaluateCallbackAction::Continue => {}
-                        DetachedEvaluateCallbackAction::Finish
-                        | DetachedEvaluateCallbackAction::Cancel => {
-                            cancel_active_evaluate_slots(&caller_plugin_id, &deps, &active).await;
-                            fire_detached_evaluate_completion_hooks(
-                                &deps,
-                                detached_evaluate_completion(
-                                    submission_completion.as_ref(),
-                                    output.action,
-                                ),
-                            )
-                            .await;
-                            return;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        if active.is_empty() && (!refill_enabled || pending.is_empty()) {
-            break;
-        }
-    }
-
-    if let Some(output) = send_detached_evaluate_exhausted(
-        deps.plugin_manager.as_ref(),
-        &caller_plugin_id,
-        &input.callback_fn,
+    let driver = EvaluateDriver {
+        caller_plugin_id,
         session_id,
-        state,
-        completed,
-        total,
-    )
-    .await
-    {
-        fire_detached_evaluate_completion_hooks(
-            &deps,
-            detached_evaluate_completion(submission_completion.as_ref(), output.action),
-        )
-        .await;
-    }
-}
-
-async fn send_detached_evaluate_exhausted(
-    plugin_manager: &dyn plugin_core::traits::PluginManager,
-    caller_plugin_id: &str,
-    callback_fn: &str,
-    session_id: String,
-    state: serde_json::Value,
-    completed: usize,
-    total: usize,
-) -> Option<DetachedEvaluateCallbackOutput> {
-    let callback = DetachedEvaluateCallbackInput {
-        session_id,
-        state,
-        event: DetachedEvaluateCallbackEvent::Exhausted,
-        completed,
-        total,
+        callback_fn,
+        deps,
+        problem_type,
+        submission_completion,
+        retry_pool,
+        op_retries: HashMap::new(),
     };
-    call_detached_evaluate_callback(plugin_manager, caller_plugin_id, callback_fn, callback)
-        .await
-        .ok()
+    run_windowed_session(
+        driver,
+        test_cases,
+        concurrency,
+        Duration::from_millis(result_timeout_ms),
+        state,
+    )
+    .await;
 }
 
 fn detached_evaluate_completion(
@@ -707,53 +620,6 @@ async fn fire_detached_evaluate_completion_hooks(
         &completion,
     )
     .await;
-}
-
-async fn start_detached_evaluate_slot(
-    caller_plugin_id: &str,
-    deps: EvaluateHostDeps,
-    tx: mpsc::Sender<DetachedEvaluateResult>,
-    problem_type: String,
-    test_case: StartEvaluateCaseInput,
-    timeout: Duration,
-) -> anyhow::Result<(i32, String)> {
-    let test_case_id = test_case.test_case_id;
-    let batch_id = start_evaluate_batch(
-        caller_plugin_id.to_string(),
-        deps.clone(),
-        StartEvaluateBatchInput {
-            problem_type,
-            test_cases: vec![test_case],
-        },
-    )
-    .await?;
-    let wait_batch_id = batch_id.clone();
-    let wait_plugin_id = caller_plugin_id.to_string();
-    tokio::spawn(async move {
-        let batches = deps.evaluate_batches.clone();
-        let registry = deps.evaluate_ops_registry.clone();
-        let metrics = deps.metrics.clone();
-        let batch_id_for_wait = wait_batch_id.clone();
-        // Await the verdict as a cheap future instead of holding a blocking
-        // thread for the test case's whole execution.
-        let result = next_evaluate_result_async(
-            &wait_plugin_id,
-            &batches,
-            metrics.as_ref(),
-            &registry,
-            &batch_id_for_wait,
-            timeout,
-        )
-        .await;
-        let _ = tx
-            .send(DetachedEvaluateResult {
-                test_case_id,
-                batch_id: wait_batch_id,
-                result,
-            })
-            .await;
-    });
-    Ok((test_case_id, batch_id))
 }
 
 async fn call_detached_evaluate_callback(
@@ -861,20 +727,6 @@ async fn set_evaluate_cancel_op_keys(
             "Failed to set Redis op cancel keys for detached evaluate cancellation"
         );
     }
-}
-
-fn remove_active_evaluate_slot_by_batch_id(
-    active: &mut Vec<(i32, String)>,
-    batch_id: &str,
-) -> bool {
-    let Some(index) = active
-        .iter()
-        .position(|(_, active_batch_id)| active_batch_id == batch_id)
-    else {
-        return false;
-    };
-    active.swap_remove(index);
-    true
 }
 
 fn is_batch_evaluator_callback_path(evaluator: &PluginHandler) -> bool {
@@ -2055,21 +1907,6 @@ mod tests {
     use common::worker::TaskResult;
 
     use super::*;
-
-    #[test]
-    fn detached_evaluate_ignores_results_for_cancelled_slots() {
-        let mut active = vec![(1, "batch-1".to_string()), (2, "batch-2".to_string())];
-
-        assert!(remove_active_evaluate_slot_by_batch_id(
-            &mut active,
-            "batch-1"
-        ));
-        assert!(!remove_active_evaluate_slot_by_batch_id(
-            &mut active,
-            "batch-1"
-        ));
-        assert_eq!(active, vec![(2, "batch-2".to_string())]);
-    }
 
     #[test]
     fn giveup_drains_verdict_buffered_in_the_send_before_decrement_race() {

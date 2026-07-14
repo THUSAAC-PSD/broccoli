@@ -21,6 +21,9 @@ use uuid::Uuid;
 
 use crate::host_funcs::context::OperationHostDeps;
 use crate::registry::{BatchState, OperationBatches, OperationWaiter, OperationWaiters};
+use crate::services::windowed_session::{
+    SessionAction, SessionDecision, SlotEvent, SlotOutcome, WindowedSession, run_windowed_session,
+};
 
 const INLINE_FILE_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
 
@@ -355,11 +358,129 @@ pub fn start_detached_windowed_operation(
     Ok(session)
 }
 
-#[derive(Debug)]
-struct DetachedOperationResult {
-    operation_index: usize,
-    batch_id: String,
-    result: anyhow::Result<Option<TaskResult>>,
+/// [`WindowedSession`] driver for detached operation batches. Operation is the
+/// plain shape: a `usize` slot index, an MQ round-trip per slot, a raw
+/// `TaskResult` decoded into an `OperationResult`, no server-side retry, and no
+/// terminal hooks.
+struct OperationDriver {
+    plugin_id: String,
+    session_id: String,
+    callback_fn: String,
+    plugin_manager: Arc<dyn plugin_core::traits::PluginManager>,
+    deps: OperationHostDeps,
+}
+
+#[async_trait]
+impl WindowedSession for OperationDriver {
+    type Item = OperationTask;
+    type Raw = TaskResult;
+    type Final = OperationResult;
+    type SlotId = usize;
+
+    fn plugin_id(&self) -> &str {
+        &self.plugin_id
+    }
+
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn slot_id(&self, index: usize, _item: &OperationTask) -> usize {
+        index
+    }
+
+    async fn start_slot(
+        &self,
+        slot_id: usize,
+        item: OperationTask,
+        timeout: Duration,
+        tx: mpsc::Sender<SlotOutcome<usize, TaskResult>>,
+    ) -> anyhow::Result<String> {
+        let batch_id =
+            start_operation_batch(self.plugin_id.clone(), self.deps.clone(), vec![item]).await?;
+        let wait_batch_id = batch_id.clone();
+        let wait_plugin_id = self.plugin_id.clone();
+        let deps = self.deps.clone();
+        tokio::spawn(async move {
+            let batches = deps.operation_batches.clone();
+            let metrics = deps.metrics.clone();
+            // Await the result as a cheap future instead of occupying a blocking
+            // thread for the op's whole lifetime.
+            let result = next_operation_result_async(
+                &wait_plugin_id,
+                &batches,
+                metrics.as_ref(),
+                &wait_batch_id,
+                timeout,
+            )
+            .await;
+            let _ = tx
+                .send(SlotOutcome {
+                    slot_id,
+                    batch_id: wait_batch_id,
+                    result,
+                })
+                .await;
+        });
+        Ok(batch_id)
+    }
+
+    fn decode(&self, raw: TaskResult) -> Result<OperationResult, String> {
+        operation_result_from_task_result(raw).map_err(|e| e.to_string())
+    }
+
+    fn timeout_message(&self, slot_id: usize) -> String {
+        format!("Operation {slot_id} timed out")
+    }
+
+    async fn call_callback(
+        &self,
+        event: SlotEvent<usize, OperationResult>,
+        state: serde_json::Value,
+        completed: usize,
+        total: usize,
+    ) -> anyhow::Result<SessionDecision<usize>> {
+        let cb_event = match event {
+            SlotEvent::Result { slot_id, result } => DetachedOperationCallbackEvent::Result {
+                operation_index: slot_id,
+                result,
+            },
+            SlotEvent::Timeout { message } => DetachedOperationCallbackEvent::Timeout { message },
+            SlotEvent::Exhausted => DetachedOperationCallbackEvent::Exhausted,
+        };
+        let input = DetachedOperationCallbackInput {
+            session_id: self.session_id.clone(),
+            state,
+            event: cb_event,
+            completed,
+            total,
+        };
+        let output = call_detached_operation_callback(
+            self.plugin_manager.as_ref(),
+            &self.plugin_id,
+            &self.callback_fn,
+            input,
+        )
+        .await?;
+        Ok(SessionDecision {
+            state: output.state,
+            action: match output.action {
+                DetachedOperationCallbackAction::Continue => SessionAction::Continue,
+                DetachedOperationCallbackAction::Finish => SessionAction::Finish,
+                DetachedOperationCallbackAction::Cancel => SessionAction::Cancel,
+            },
+            refill: output.refill,
+            cancel_ids: output.cancel_operation_indices,
+        })
+    }
+
+    async fn cancel_active(&self, active: &[(usize, String)]) {
+        cancel_active_operation_slots(&self.plugin_id, &self.deps, active);
+    }
+
+    async fn cancel_selected(&self, active: &mut Vec<(usize, String)>, ids: &HashSet<usize>) {
+        cancel_operation_indices(&self.plugin_id, &self.deps, active, ids);
+    }
 }
 
 async fn run_detached_windowed_operation(
@@ -369,261 +490,28 @@ async fn run_detached_windowed_operation(
     session_id: String,
     input: StartDetachedWindowedOperationInput,
 ) {
-    let total = input.operations.len();
-    let concurrency = input.concurrency.max(1);
-    let timeout = Duration::from_millis(input.result_timeout_ms);
-    let mut pending = input.operations.into_iter().enumerate().collect::<Vec<_>>();
-    pending.reverse();
-    let mut active = Vec::<(usize, String)>::new();
-    let (tx, mut rx) = mpsc::channel::<DetachedOperationResult>(concurrency * 2);
-    let mut state = input.state;
-    let mut completed = 0usize;
-
-    while active.len() < concurrency {
-        let Some((operation_index, operation)) = pending.pop() else {
-            break;
-        };
-        match start_detached_operation_slot(
-            &plugin_id,
-            deps.clone(),
-            tx.clone(),
-            operation_index,
-            operation,
-            timeout,
-        )
-        .await
-        {
-            Ok(batch_id) => active.push((operation_index, batch_id)),
-            Err(e) => {
-                let callback = DetachedOperationCallbackInput {
-                    session_id: session_id.clone(),
-                    state: state.clone(),
-                    event: DetachedOperationCallbackEvent::Timeout {
-                        message: e.to_string(),
-                    },
-                    completed,
-                    total,
-                };
-                let _ = call_detached_operation_callback(
-                    plugin_manager.as_ref(),
-                    &plugin_id,
-                    &input.callback_fn,
-                    callback,
-                )
-                .await;
-                cancel_active_operation_slots(&plugin_id, &deps, &active);
-                return;
-            }
-        }
-    }
-
-    if active.is_empty() {
-        send_detached_operation_exhausted(
-            plugin_manager.as_ref(),
-            &plugin_id,
-            &input.callback_fn,
-            session_id,
-            state,
-            completed,
-            total,
-        )
-        .await;
-        return;
-    }
-
-    while let Some(item) = rx.recv().await {
-        if !remove_active_operation_slot_by_batch_id(&mut active, &item.batch_id) {
-            continue;
-        }
-        completed += 1;
-
-        let event = match item.result {
-            Ok(Some(task_result)) => match operation_result_from_task_result(task_result) {
-                Ok(result) => DetachedOperationCallbackEvent::Result {
-                    operation_index: item.operation_index,
-                    result,
-                },
-                Err(e) => DetachedOperationCallbackEvent::Timeout {
-                    message: e.to_string(),
-                },
-            },
-            Ok(None) => DetachedOperationCallbackEvent::Timeout {
-                message: format!("Operation {} timed out", item.operation_index),
-            },
-            Err(e) => DetachedOperationCallbackEvent::Timeout {
-                message: e.to_string(),
-            },
-        };
-
-        let callback = DetachedOperationCallbackInput {
-            session_id: session_id.clone(),
-            state: state.clone(),
-            event,
-            completed,
-            total,
-        };
-
-        let output = match call_detached_operation_callback(
-            plugin_manager.as_ref(),
-            &plugin_id,
-            &input.callback_fn,
-            callback,
-        )
-        .await
-        {
-            Ok(output) => output,
-            Err(e) => {
-                tracing::error!(%plugin_id, %session_id, error = %e, "Detached operation callback failed");
-                cancel_active_operation_slots(&plugin_id, &deps, &active);
-                return;
-            }
-        };
-
-        state = output.state;
-        let refill_enabled = output.refill;
-
-        if !output.cancel_operation_indices.is_empty() {
-            let cancel_set: HashSet<usize> =
-                output.cancel_operation_indices.iter().copied().collect();
-            cancel_operation_indices(&plugin_id, &deps, &mut active, &cancel_set);
-            pending.retain(|(idx, _)| !cancel_set.contains(idx));
-        }
-
-        match output.action {
-            DetachedOperationCallbackAction::Continue => {}
-            DetachedOperationCallbackAction::Finish | DetachedOperationCallbackAction::Cancel => {
-                cancel_active_operation_slots(&plugin_id, &deps, &active);
-                return;
-            }
-        }
-
-        while refill_enabled && active.len() < concurrency {
-            let Some((operation_index, operation)) = pending.pop() else {
-                break;
-            };
-            match start_detached_operation_slot(
-                &plugin_id,
-                deps.clone(),
-                tx.clone(),
-                operation_index,
-                operation,
-                timeout,
-            )
-            .await
-            {
-                Ok(batch_id) => active.push((operation_index, batch_id)),
-                Err(e) => {
-                    tracing::error!(%plugin_id, %session_id, operation_index, error = %e, "Failed to refill detached operation slot");
-                    let callback = DetachedOperationCallbackInput {
-                        session_id: session_id.clone(),
-                        state: state.clone(),
-                        event: DetachedOperationCallbackEvent::Timeout {
-                            message: e.to_string(),
-                        },
-                        completed,
-                        total,
-                    };
-                    let output = match call_detached_operation_callback(
-                        plugin_manager.as_ref(),
-                        &plugin_id,
-                        &input.callback_fn,
-                        callback,
-                    )
-                    .await
-                    {
-                        Ok(output) => output,
-                        Err(e) => {
-                            tracing::error!(%plugin_id, %session_id, error = %e, "Detached operation callback failed after refill start failure");
-                            cancel_active_operation_slots(&plugin_id, &deps, &active);
-                            return;
-                        }
-                    };
-                    state = output.state;
-                    match output.action {
-                        DetachedOperationCallbackAction::Continue => {}
-                        DetachedOperationCallbackAction::Finish
-                        | DetachedOperationCallbackAction::Cancel => {
-                            cancel_active_operation_slots(&plugin_id, &deps, &active);
-                            return;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        if active.is_empty() && (!refill_enabled || pending.is_empty()) {
-            break;
-        }
-    }
-
-    send_detached_operation_exhausted(
-        plugin_manager.as_ref(),
-        &plugin_id,
-        &input.callback_fn,
-        session_id,
+    let StartDetachedWindowedOperationInput {
+        operations,
+        concurrency,
+        result_timeout_ms,
+        callback_fn,
         state,
-        completed,
-        total,
+    } = input;
+    let driver = OperationDriver {
+        plugin_id,
+        session_id,
+        callback_fn,
+        plugin_manager,
+        deps,
+    };
+    run_windowed_session(
+        driver,
+        operations,
+        concurrency,
+        Duration::from_millis(result_timeout_ms),
+        state,
     )
     .await;
-}
-
-async fn send_detached_operation_exhausted(
-    plugin_manager: &dyn plugin_core::traits::PluginManager,
-    plugin_id: &str,
-    callback_fn: &str,
-    session_id: String,
-    state: serde_json::Value,
-    completed: usize,
-    total: usize,
-) {
-    let callback = DetachedOperationCallbackInput {
-        session_id,
-        state,
-        event: DetachedOperationCallbackEvent::Exhausted,
-        completed,
-        total,
-    };
-    let _ =
-        call_detached_operation_callback(plugin_manager, plugin_id, callback_fn, callback).await;
-}
-
-async fn start_detached_operation_slot(
-    plugin_id: &str,
-    deps: OperationHostDeps,
-    tx: mpsc::Sender<DetachedOperationResult>,
-    operation_index: usize,
-    operation: OperationTask,
-    timeout: Duration,
-) -> anyhow::Result<String> {
-    let batch_id =
-        start_operation_batch(plugin_id.to_string(), deps.clone(), vec![operation]).await?;
-    let wait_batch_id = batch_id.clone();
-    let wait_plugin_id = plugin_id.to_string();
-    tokio::spawn(async move {
-        let batches = deps.operation_batches.clone();
-        let metrics = deps.metrics.clone();
-        let batch_id_for_wait = wait_batch_id.clone();
-        // Await the result as a cheap future instead of occupying a blocking
-        // thread for the op's whole lifetime.
-        let result = next_operation_result_async(
-            &wait_plugin_id,
-            &batches,
-            metrics.as_ref(),
-            &batch_id_for_wait,
-            timeout,
-        )
-        .await;
-        let _ = tx
-            .send(DetachedOperationResult {
-                operation_index,
-                batch_id: wait_batch_id,
-                result,
-            })
-            .await;
-    });
-    Ok(batch_id)
 }
 
 async fn call_detached_operation_callback(
@@ -699,20 +587,6 @@ fn cancel_operation_indices(
     if !cancelled.is_empty() {
         tracing::debug!(?cancelled, "Detached operation slots cancelled by callback");
     }
-}
-
-fn remove_active_operation_slot_by_batch_id(
-    active: &mut Vec<(usize, String)>,
-    batch_id: &str,
-) -> bool {
-    let Some(index) = active
-        .iter()
-        .position(|(_, active_batch_id)| active_batch_id == batch_id)
-    else {
-        return false;
-    };
-    active.swap_remove(index);
-    true
 }
 
 const OPERATION_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
@@ -1197,21 +1071,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn detached_operation_ignores_results_for_cancelled_slots() {
-        let mut active = vec![(0, "batch-1".to_string()), (1, "batch-2".to_string())];
-
-        assert!(remove_active_operation_slot_by_batch_id(
-            &mut active,
-            "batch-1"
-        ));
-        assert!(!remove_active_operation_slot_by_batch_id(
-            &mut active,
-            "batch-1"
-        ));
-        assert_eq!(active, vec![(1, "batch-2".to_string())]);
-    }
-
     fn test_operation_batch(
         rx: flume::Receiver<TaskResult>,
         pending: usize,
@@ -1312,7 +1171,10 @@ mod tests {
             outcome.is_ok(),
             "wait must end promptly on a dropped sender, not linger to the ceiling"
         );
-        assert!(outcome.unwrap().is_err(), "dropped sender surfaces as an error");
+        assert!(
+            outcome.unwrap().is_err(),
+            "dropped sender surfaces as an error"
+        );
     }
 
     #[test]
