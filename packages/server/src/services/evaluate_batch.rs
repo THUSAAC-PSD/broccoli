@@ -14,9 +14,9 @@ use broccoli_server_sdk::types::{
     BuildEvalOpsInput, DetachedEvaluateCallbackAction, DetachedEvaluateCallbackEvent,
     DetachedEvaluateCallbackInput, DetachedEvaluateCallbackOutput, DetachedEvaluateSession,
     EvaluateOperationResultInput, EvaluateOperationResultsInput, FileRef, JudgeFile,
-    OperationResult, OperationTask, PreparedEvaluateCase,
-    StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput, StartEvaluateCaseInput,
-    TestCaseBodyRef, TestCaseVerdict, Verdict as SdkVerdict,
+    OperationResult, OperationTask, PreparedEvaluateCase, StartDetachedWindowedEvaluateInput,
+    StartEvaluateBatchInput, StartEvaluateCaseInput, TestCaseBodyRef, TestCaseVerdict,
+    Verdict as SdkVerdict,
 };
 use common::storage::{BlobStore, ContentHash};
 use opentelemetry::KeyValue;
@@ -351,9 +351,7 @@ struct DetachedEvaluateResult {
 fn body_cheap_to_retain(body: &TestCaseBodyRef) -> bool {
     match body {
         TestCaseBodyRef::Blob { .. } | TestCaseBodyRef::Missing => true,
-        TestCaseBodyRef::Inline { text } => {
-            text.len() <= INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES
-        }
+        TestCaseBodyRef::Inline { text } => text.len() <= INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES,
     }
 }
 
@@ -1335,12 +1333,8 @@ pub fn next_evaluate_result(
             &pending_count,
             wait_start,
             result_rx.try_recv().map_err(|err| match err {
-                flume::TryRecvError::Empty => {
-                    flume::RecvTimeoutError::Timeout
-                }
-                flume::TryRecvError::Disconnected => {
-                    flume::RecvTimeoutError::Disconnected
-                }
+                flume::TryRecvError::Empty => flume::RecvTimeoutError::Timeout,
+                flume::TryRecvError::Disconnected => flume::RecvTimeoutError::Disconnected,
             }),
         );
     }
@@ -1372,6 +1366,23 @@ pub fn next_evaluate_result(
                         "Evaluate result wait extended while operation execution budget remains"
                     );
                     continue;
+                }
+
+                // The dispatch task sends the verdict BEFORE decrementing
+                // pending_count, so this give-up branch can observe the timeout
+                // with a completed verdict already buffered. Deliver it instead
+                // of dropping it into a spurious timeout.
+                if let Some(delivered) = drain_evaluate_verdict_before_giveup(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    evaluate_ops_registry,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                ) {
+                    return delivered;
                 }
 
                 if let Some(metrics) = metrics {
@@ -1474,6 +1485,20 @@ pub async fn next_evaluate_result_async(
                         "Evaluate result wait extended while operation execution budget remains"
                     );
                     continue;
+                }
+                // Same race as the sync path: a verdict may have landed in the
+                // channel just as this branch decided to give up. Deliver it.
+                if let Some(delivered) = drain_evaluate_verdict_before_giveup(
+                    plugin_id,
+                    batches,
+                    metrics,
+                    evaluate_ops_registry,
+                    batch_id,
+                    &result_rx,
+                    &pending_count,
+                    wait_start,
+                ) {
+                    return delivered;
                 }
                 record_evaluate_wait_metric(plugin_id, metrics, wait_start, "timeout");
                 return Ok(None);
@@ -1604,6 +1629,42 @@ fn handle_evaluate_verdict(
     }
 
     Ok(Some(verdict))
+}
+
+/// Non-blocking drain attempted before a blocking result-wait give-up branch
+/// returns `Ok(None)`. The per-test-case dispatch task ([`start_evaluate_batch`])
+/// does `batch_tx.send(verdict)` BEFORE `decrement_pending`, so the instant a
+/// give-up branch observes the timeout a completed verdict may ALREADY be
+/// buffered in `result_rx`. Returning `Ok(None)` without this check drops it, and
+/// the detached windowed driver maps `Ok(None)` to a Timeout event -> a spurious
+/// SystemError (or a wasted retry) under load. Delivers the buffered verdict
+/// (running the normal bookkeeping via [`handle_evaluate_verdict`]) when present;
+/// returns `None` only when the channel is genuinely empty. Mirrors
+/// `operation_batch::drain_delivered_before_giveup`.
+fn drain_evaluate_verdict_before_giveup(
+    plugin_id: &str,
+    batches: &EvaluateBatches,
+    metrics: Option<&common::metrics::Metrics>,
+    evaluate_ops_registry: &crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry,
+    batch_id: &str,
+    result_rx: &flume::Receiver<TestCaseVerdict>,
+    pending_count: &Arc<AtomicUsize>,
+    wait_start: Instant,
+) -> Option<anyhow::Result<Option<TestCaseVerdict>>> {
+    match result_rx.try_recv() {
+        Ok(verdict) => Some(handle_evaluate_verdict(
+            plugin_id,
+            batches,
+            metrics,
+            evaluate_ops_registry,
+            batch_id,
+            result_rx,
+            pending_count,
+            wait_start,
+            verdict,
+        )),
+        Err(_) => None,
+    }
 }
 
 pub fn cancel_evaluate_batch(
@@ -2011,6 +2072,82 @@ mod tests {
     }
 
     #[test]
+    fn giveup_drains_verdict_buffered_in_the_send_before_decrement_race() {
+        // The per-test-case dispatch task sends the verdict BEFORE decrementing
+        // pending_count, so a give-up branch can observe the timeout with a
+        // completed verdict already buffered in the channel. The drain must
+        // deliver it, never drop it into a spurious timeout -> SystemError.
+        let batches = EvaluateBatches::default();
+        let registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (tx, rx) = flume::unbounded::<TestCaseVerdict>();
+        let pending_count = Arc::new(AtomicUsize::new(0));
+        let batch_id = "eval-drain-buffered";
+        batches.insert(
+            batch_id.to_string(),
+            BatchState {
+                result_rx: rx.clone(),
+                pending_count: pending_count.clone(),
+                created_at: Instant::now(),
+                cleanup_keys: Arc::new(Vec::new()),
+                poisoned: AtomicBool::new(false),
+            },
+        );
+        tx.send(system_error_verdict(7, "buffered in race window"))
+            .unwrap();
+
+        let delivered = drain_evaluate_verdict_before_giveup(
+            "plugin",
+            &batches,
+            None,
+            &registry,
+            batch_id,
+            &rx,
+            &pending_count,
+            Instant::now(),
+        );
+        let verdict = delivered
+            .expect("a buffered verdict must be drained, not dropped")
+            .expect("drain runs the normal delivery path")
+            .expect("delivery yields the verdict");
+        assert_eq!(verdict.test_case_id, 7);
+    }
+
+    #[test]
+    fn giveup_drain_is_none_when_channel_genuinely_empty() {
+        let batches = EvaluateBatches::default();
+        let registry =
+            crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (_tx, rx) = flume::unbounded::<TestCaseVerdict>();
+        let pending_count = Arc::new(AtomicUsize::new(0));
+        let batch_id = "eval-drain-empty";
+        batches.insert(
+            batch_id.to_string(),
+            BatchState {
+                result_rx: rx.clone(),
+                pending_count: pending_count.clone(),
+                created_at: Instant::now(),
+                cleanup_keys: Arc::new(Vec::new()),
+                poisoned: AtomicBool::new(false),
+            },
+        );
+
+        assert!(
+            drain_evaluate_verdict_before_giveup(
+                "plugin",
+                &batches,
+                None,
+                &registry,
+                batch_id,
+                &rx,
+                &pending_count,
+                Instant::now(),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn detached_evaluate_completion_hooks_only_follow_terminal_callback_actions() {
         let input = StartDetachedWindowedEvaluateInput {
             batch: StartEvaluateBatchInput {
@@ -2387,7 +2524,9 @@ mod tests {
         assert!(body_cheap_to_retain(&TestCaseBodyRef::Missing));
         assert!(body_cheap_to_retain(&TestCaseBodyRef::blob("deadbeef")));
         // A small inline body is fine too.
-        assert!(body_cheap_to_retain(&TestCaseBodyRef::inline("a".repeat(1024))));
+        assert!(body_cheap_to_retain(&TestCaseBodyRef::inline(
+            "a".repeat(1024)
+        )));
         // At exactly the threshold it is still retained.
         assert!(body_cheap_to_retain(&TestCaseBodyRef::inline(
             "x".repeat(INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES)
