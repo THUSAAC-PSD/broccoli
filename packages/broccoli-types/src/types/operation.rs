@@ -401,6 +401,45 @@ pub struct TaskExecutionResult {
     pub collected_outputs: HashMap<String, String>,
 }
 
+/// Normalized sandbox termination status, mapped once at the worker sandbox
+/// boundary from backend-specific signals (e.g. isolate's `meta` status codes).
+/// Consumers should match on this instead of the raw [`ExecutionResult::status`]
+/// string, which is retained for diagnostics only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxStatus {
+    /// The program ran to completion and exited with code 0.
+    Ok,
+    /// The program exceeded its CPU or wall-clock time limit.
+    TimedOut,
+    /// The program was terminated by a signal.
+    Signaled,
+    /// The program exited with a non-zero exit code.
+    NonZeroExit,
+    /// The sandbox itself failed internally (isolate `XX`).
+    InternalError,
+    /// No status was recorded (step never ran, or an older result without the
+    /// typed field). Callers should fall back to the raw status string.
+    #[default]
+    Unknown,
+}
+
+impl SandboxStatus {
+    /// Map an isolate `meta` status code (or the empty/`OK`/`UNKNOWN` sentinels)
+    /// to a normalized status. This is the single place raw isolate status
+    /// strings are interpreted.
+    pub fn from_isolate(status: &str) -> Self {
+        match status {
+            "OK" => Self::Ok,
+            "TO" => Self::TimedOut,
+            "SG" => Self::Signaled,
+            "RE" => Self::NonZeroExit,
+            "XX" => Self::InternalError,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
     #[serde(default)]
@@ -417,14 +456,33 @@ pub struct ExecutionResult {
     pub killed: bool,
     #[serde(default)]
     pub cg_oom_killed: bool,
+    /// Raw backend status string (isolate `meta` code), kept for diagnostics.
+    /// Match on [`ExecutionResult::status_kind`] for control flow instead.
     #[serde(default)]
     pub status: String,
+    /// Normalized sandbox status, mapped once at the sandbox backend. Older
+    /// results omit it (defaults to [`SandboxStatus::Unknown`]); use
+    /// [`ExecutionResult::status_kind`] to read it with a raw-string fallback.
+    #[serde(default)]
+    pub sandbox_status: SandboxStatus,
     #[serde(default)]
     pub message: String,
     #[serde(default)]
     pub stdout: String,
     #[serde(default)]
     pub stderr: String,
+}
+
+impl ExecutionResult {
+    /// The normalized sandbox status. Returns the typed `sandbox_status` when the
+    /// backend set it, and otherwise derives it from the raw `status` string so
+    /// results produced before the field existed still classify correctly.
+    pub fn status_kind(&self) -> SandboxStatus {
+        match self.sandbox_status {
+            SandboxStatus::Unknown => SandboxStatus::from_isolate(&self.status),
+            known => known,
+        }
+    }
 }
 
 impl Default for ExecutionResult {
@@ -438,6 +496,7 @@ impl Default for ExecutionResult {
             killed: false,
             cg_oom_killed: false,
             status: "UNKNOWN".to_string(),
+            sandbox_status: SandboxStatus::Unknown,
             message: String::new(),
             stdout: String::new(),
             stderr: String::new(),
@@ -450,6 +509,40 @@ pub type SandboxResult = ExecutionResult;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sandbox_status_maps_isolate_codes() {
+        assert_eq!(SandboxStatus::from_isolate("OK"), SandboxStatus::Ok);
+        assert_eq!(SandboxStatus::from_isolate("TO"), SandboxStatus::TimedOut);
+        assert_eq!(SandboxStatus::from_isolate("SG"), SandboxStatus::Signaled);
+        assert_eq!(SandboxStatus::from_isolate("RE"), SandboxStatus::NonZeroExit);
+        assert_eq!(
+            SandboxStatus::from_isolate("XX"),
+            SandboxStatus::InternalError
+        );
+        assert_eq!(SandboxStatus::from_isolate(""), SandboxStatus::Unknown);
+        assert_eq!(SandboxStatus::from_isolate("UNKNOWN"), SandboxStatus::Unknown);
+    }
+
+    #[test]
+    fn status_kind_prefers_typed_field_then_falls_back() {
+        // Typed field set: used verbatim, ignoring the raw string.
+        let typed = ExecutionResult {
+            status: "TO".into(),
+            sandbox_status: SandboxStatus::NonZeroExit,
+            ..Default::default()
+        };
+        assert_eq!(typed.status_kind(), SandboxStatus::NonZeroExit);
+
+        // Typed field unset (Unknown): derive from the raw string so results
+        // produced before `sandbox_status` existed still classify.
+        let legacy = ExecutionResult {
+            status: "TO".into(),
+            ..Default::default()
+        };
+        assert_eq!(legacy.sandbox_status, SandboxStatus::Unknown);
+        assert_eq!(legacy.status_kind(), SandboxStatus::TimedOut);
+    }
 
     #[test]
     fn step_kind_defaults_to_generic_for_legacy_payloads() {

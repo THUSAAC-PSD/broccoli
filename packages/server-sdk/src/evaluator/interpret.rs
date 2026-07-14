@@ -225,8 +225,11 @@ pub(crate) fn precheck_verdict(
             });
         }
 
-        match sandbox.status.as_str() {
-            "TO" => {
+        // Classify the sandbox termination once, via the normalized status.
+        // `status_kind()` derives from the raw string when the typed field is
+        // absent, so results predating `sandbox_status` still classify.
+        match sandbox.status_kind() {
+            SandboxStatus::TimedOut => {
                 let time_ms = extract_time_used(result);
                 return Some(TestCaseVerdict {
                     test_case_id,
@@ -242,7 +245,7 @@ pub(crate) fn precheck_verdict(
                     stderr: exec_stderr,
                 });
             }
-            "SG" => {
+            SandboxStatus::Signaled => {
                 return Some(TestCaseVerdict {
                     test_case_id,
                     verdict: Verdict::RuntimeError,
@@ -254,7 +257,7 @@ pub(crate) fn precheck_verdict(
                     stderr: exec_stderr,
                 });
             }
-            "RE" => {
+            SandboxStatus::NonZeroExit => {
                 return Some(TestCaseVerdict {
                     test_case_id,
                     verdict: Verdict::RuntimeError,
@@ -266,7 +269,7 @@ pub(crate) fn precheck_verdict(
                     stderr: exec_stderr,
                 });
             }
-            _ => {}
+            SandboxStatus::Ok | SandboxStatus::InternalError | SandboxStatus::Unknown => {}
         }
     }
 

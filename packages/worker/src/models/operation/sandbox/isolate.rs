@@ -1,6 +1,9 @@
 use super::capture::{INLINE_OUTPUT_PREVIEW_BYTES, read_text_preview, text_preview_from_bytes};
 use super::error::SandboxError;
-use super::{DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions, SandboxManager};
+use super::{
+    DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions, SandboxManager,
+    SandboxStatus,
+};
 use crate::config::WorkerAppConfig;
 use async_trait::async_trait;
 use common::metrics::Metrics;
@@ -267,6 +270,12 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
             .unwrap_or(0.0)
     };
 
+    // isolate omits the status line on a clean exit-0 run; treat that as "OK".
+    let status = raw
+        .get("status")
+        .cloned()
+        .unwrap_or_else(|| "OK".to_string());
+
     Ok(ExecutionResult {
         exit_code: parse_i32("exitcode"),
         signal: parse_i32("exitsig"),
@@ -275,10 +284,8 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
         memory_used: parse_u32("cg-mem").or(parse_u32("max-rss")),
         cg_oom_killed: parse_i32("cg-oom-killed").map(|v| v != 0).unwrap_or(false),
         killed: parse_i32("killed").map(|v| v != 0).unwrap_or(false),
-        status: raw
-            .get("status")
-            .cloned()
-            .unwrap_or_else(|| "OK".to_string()),
+        sandbox_status: SandboxStatus::from_isolate(&status),
+        status,
         message: raw.get("message").cloned().unwrap_or_default(),
         stdout: String::new(),
         stderr: String::new(),

@@ -8,6 +8,7 @@ pub mod mock;
 use async_trait::async_trait;
 pub use broccoli_types::types::{
     DirectoryOptions, DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions,
+    SandboxStatus,
 };
 use error::SandboxError;
 use std::path::PathBuf;

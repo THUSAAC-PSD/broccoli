@@ -36,8 +36,9 @@ pub use operation::{
     DetachedOperationCallbackEvent, DetachedOperationCallbackInput,
     DetachedOperationCallbackOutput, DetachedOperationSession, DirectoryOptions, DirectoryRule,
     EnvRule, Environment, ExecutionResult, IOConfig, IOTarget, MountSource, MountSpec,
-    OperationResult, OperationTask, ResourceLimits, RunOptions, SandboxResult, SessionFile,
-    StartDetachedWindowedOperationInput, Step, StepCacheConfig, StepKind, TaskExecutionResult,
+    OperationResult, OperationTask, ResourceLimits, RunOptions, SandboxResult, SandboxStatus,
+    SessionFile, StartDetachedWindowedOperationInput, Step, StepCacheConfig, StepKind,
+    TaskExecutionResult,
 };
 pub use persistence::{
     CodeRunResultRow, CodeRunUpdate, SubmissionStatus, SubmissionUpdate, TestCaseResultRow,

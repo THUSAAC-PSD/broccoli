@@ -1,6 +1,6 @@
 use super::capture::{INLINE_OUTPUT_PREVIEW_BYTES, read_text_preview, text_preview_from_bytes};
 use super::error::SandboxError;
-use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager};
+use super::{DirectoryRule, ExecutionResult, RunOptions, SandboxManager, SandboxStatus};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -566,6 +566,16 @@ impl SandboxManager for MockSandboxManager {
             warn!(box_id = %box_id, exit_code = ?exit_code, signal = ?signal, time_used = elapsed, "Mock sandbox command failed");
         }
 
+        let status = if timed_out {
+            "TO".to_string()
+        } else if success {
+            "OK".to_string()
+        } else if signal.is_some() {
+            "SG".to_string()
+        } else {
+            "RE".to_string()
+        };
+
         Ok(ExecutionResult {
             exit_code,
             signal,
@@ -574,15 +584,8 @@ impl SandboxManager for MockSandboxManager {
             memory_used: None,
             killed: timed_out || signal.is_some(),
             cg_oom_killed: false,
-            status: if timed_out {
-                "TO".to_string()
-            } else if success {
-                "OK".to_string()
-            } else if signal.is_some() {
-                "SG".to_string()
-            } else {
-                "RE".to_string()
-            },
+            sandbox_status: SandboxStatus::from_isolate(&status),
+            status,
             message: if timed_out {
                 "wall-time limit exceeded".to_string()
             } else if success {
