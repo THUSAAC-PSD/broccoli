@@ -15,7 +15,7 @@ mod submission_creation {
             .create_authenticated_user("sub_cr2", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Submit Problem").await;
+        let pid = app.create_public_problem(&admin, "Submit Problem").await;
 
         let res = app
             .post_with_token(
@@ -163,6 +163,78 @@ mod submission_creation {
     }
 }
 
+mod standalone_problem_visibility {
+    use super::*;
+
+    /// IDOR guard: a non-public problem in zero contests must stay 404 for an
+    /// unprivileged user — both reading it and submitting to it — while an
+    /// explicitly published problem is reachable. Submitting against hidden
+    /// problems would be a stronger oracle than viewing since it runs secret
+    /// tests.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hidden_standalone_problem_is_404_for_plain_user() {
+        let app = E2eTestApp::spawn_without_plugins().await;
+        let admin = app
+            .create_user_with_role("sub_vis1", "password123", "admin")
+            .await;
+        let user = app
+            .create_authenticated_user("sub_vis2", "password123")
+            .await;
+
+        let hidden_pid = app.create_problem(&admin, "Hidden Draft Problem").await;
+        let public_pid = app
+            .create_public_problem(&admin, "Published Problem")
+            .await;
+
+        let payload = json!({
+            "files": [{"filename": "main.cpp", "content": "int main() {}"}],
+            "language": "cpp",
+        });
+
+        // Hidden draft: not readable, not submittable — indistinguishable
+        // from a nonexistent problem.
+        let get_hidden = app
+            .get_with_token(&format!("/api/v1/problems/{hidden_pid}"), &user)
+            .await;
+        assert_eq!(get_hidden.status, 404, "hidden problem must not be readable: {}", get_hidden.text);
+        assert_eq!(get_hidden.body["code"], "NOT_FOUND");
+
+        let submit_hidden = app
+            .post_with_token(
+                &format!("/api/v1/problems/{hidden_pid}/submissions"),
+                &payload,
+                &user,
+            )
+            .await;
+        assert_eq!(
+            submit_hidden.status, 404,
+            "hidden problem must not accept submissions: {}",
+            submit_hidden.text
+        );
+        assert_eq!(submit_hidden.body["code"], "NOT_FOUND");
+
+        // Published problem: same user, same payload — readable and
+        // submittable.
+        let get_public = app
+            .get_with_token(&format!("/api/v1/problems/{public_pid}"), &user)
+            .await;
+        assert_eq!(get_public.status, 200, "public problem must be readable: {}", get_public.text);
+
+        let submit_public = app
+            .post_with_token(
+                &format!("/api/v1/problems/{public_pid}/submissions"),
+                &payload,
+                &user,
+            )
+            .await;
+        assert_eq!(
+            submit_public.status, 201,
+            "public problem must accept submissions: {}",
+            submit_public.text
+        );
+    }
+}
+
 mod submission_retrieval {
     use super::*;
 
@@ -176,7 +248,7 @@ mod submission_retrieval {
             .create_authenticated_user("sub_get2", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Get Sub Problem").await;
+        let pid = app.create_public_problem(&admin, "Get Sub Problem").await;
         let sid = app
             .create_submission(pid, &user, "cpp", "int main() {}")
             .await;
@@ -202,7 +274,11 @@ mod submission_retrieval {
             .create_authenticated_user("sub_get5", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Hidden Sub Problem").await;
+        // Public so user1 can submit; the 404 below asserts submission
+        // ownership, which is independent of problem visibility.
+        let pid = app
+            .create_public_problem(&admin, "Hidden Sub Problem")
+            .await;
         let sid = app
             .create_submission(pid, &user1, "cpp", "int main() {}")
             .await;
@@ -225,7 +301,9 @@ mod submission_retrieval {
             .create_authenticated_user("sub_get7", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Admin View Problem").await;
+        let pid = app
+            .create_public_problem(&admin, "Admin View Problem")
+            .await;
         let sid = app
             .create_submission(pid, &user, "cpp", "int main() {}")
             .await;
@@ -268,7 +346,7 @@ mod submission_listing {
             .create_authenticated_user("sub_ls3", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "List Sub Problem").await;
+        let pid = app.create_public_problem(&admin, "List Sub Problem").await;
         app.create_submission(pid, &user1, "cpp", "int main() { return 0; }")
             .await;
         app.create_submission(pid, &user2, "cpp", "int main() { return 1; }")
@@ -291,7 +369,9 @@ mod submission_listing {
             .create_authenticated_user("sub_ls5", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Admin List Problem").await;
+        let pid = app
+            .create_public_problem(&admin, "Admin List Problem")
+            .await;
         app.create_submission(pid, &user, "cpp", "int main() { return 0; }")
             .await;
         app.create_submission(pid, &admin, "cpp", "int main() { return 1; }")

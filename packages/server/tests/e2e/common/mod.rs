@@ -935,9 +935,18 @@ impl E2eTestApp {
             .to_string()
     }
 
+    /// Creates a hidden-draft problem (`is_public = false`, the server
+    /// default): unprivileged users can only reach it through a contest.
     pub async fn create_problem(&self, token: &str, title: &str) -> i32 {
-        self.create_problem_with_checker_format(token, title, "exact")
-            .await
+        self.create_problem_with(token, title, "exact", false).await
+    }
+
+    /// Creates a problem published to the standalone problemset
+    /// (`is_public = true`): any authenticated user can read and submit to it
+    /// without a contest. Use this when a test's plain user legitimately
+    /// submits outside a contest.
+    pub async fn create_public_problem(&self, token: &str, title: &str) -> i32 {
+        self.create_problem_with(token, title, "exact", true).await
     }
 
     pub async fn create_problem_with_checker_format(
@@ -945,6 +954,17 @@ impl E2eTestApp {
         token: &str,
         title: &str,
         checker_format: &str,
+    ) -> i32 {
+        self.create_problem_with(token, title, checker_format, false)
+            .await
+    }
+
+    async fn create_problem_with(
+        &self,
+        token: &str,
+        title: &str,
+        checker_format: &str,
+        is_public: bool,
     ) -> i32 {
         let res = self
             .post_with_token(
@@ -956,6 +976,7 @@ impl E2eTestApp {
                     "memory_limit": 262144,
                     "problem_type": "batch",
                     "checker_format": checker_format,
+                    "is_public": is_public,
                 }),
                 token,
             )

@@ -422,7 +422,8 @@ mod stress {
         let admin = app
             .create_user_with_role("v_stress_admin", "pass1234", "admin")
             .await;
-        let problem_id = app.create_problem(&admin, "Stress Problem").await;
+        // Public: twenty plain contestants submit outside any contest.
+        let problem_id = app.create_public_problem(&admin, "Stress Problem").await;
         app.create_test_case(problem_id, &admin).await;
         app.create_test_case_with(problem_id, "3\n10 20 30", "60", 10, false, &admin)
             .await;
