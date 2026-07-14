@@ -17,7 +17,13 @@ use crate::services::operation_batch::{MqOperationTaskPublisher, OperationTaskPu
 
 #[derive(Clone)]
 pub struct HostFunctionSystemDeps {
+    /// The RESTRICTED plugin pool (runs as `broccoli_plugin`). Backs the raw
+    /// `sql` capability and read-only host fns; cannot write/DDL core tables.
     pub db: DatabaseConnection,
+    /// The PRIVILEGED plugin pool (runs as the app role, no `SET ROLE`). Backs
+    /// the gated core-WRITE host fns: `host.submission.*`, `host.storage.*`,
+    /// and `config:write`. See `database::init_plugin_db_privileged`.
+    pub privileged_db: DatabaseConnection,
     pub mq: Option<Arc<MqQueue>>,
     pub operation_batches: OperationBatches,
     pub operation_waiters: OperationWaiters,

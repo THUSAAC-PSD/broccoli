@@ -54,7 +54,14 @@ pub(crate) fn host_fn_span(host_fn: &'static str, plugin_id: &str) -> Span {
 
 pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
+    // RESTRICTED pool (runs as `broccoli_plugin`): backs the raw `sql`
+    // capability and read-only `config:read`. Cannot write/DDL core tables.
     let db = deps.system.db.clone();
+    // PRIVILEGED pool (runs as the app role): backs the gated core-WRITE host
+    // fns — `host.storage.*`, `host.submission.*` (phase 1), and `config:write`.
+    // Each builds server-owned, plugin-scoped SQL that legitimately writes a
+    // core table, so they must not be constrained to the read-only plugin role.
+    let privileged_db = deps.system.privileged_db.clone();
 
     hr.register("logger", |plugin_id| {
         Function::new(
@@ -66,7 +73,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("storage", move |plugin_id| {
         Function::new(
             "store_set",
@@ -77,7 +84,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("storage", move |plugin_id| {
         Function::new(
             "store_get",
@@ -88,7 +95,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("storage", move |plugin_id| {
         Function::new(
             "store_compare_and_set",
@@ -99,7 +106,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("storage", move |plugin_id| {
         Function::new(
             "store_delete",
@@ -215,10 +222,11 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     });
 
     // Structured, capability-gated core-WRITE path (`host.submission.*`). These
-    // build their SQL server-side from structured input and run it on the same
-    // plugin DB pool as the `sql` fns above, but behind a distinct `submission`
-    // capability so the raw `sql` channel can be restricted later (phase 2).
-    let db_clone = db.clone();
+    // build their SQL server-side from structured input; behind a distinct
+    // `submission` capability, they run on the PRIVILEGED pool (the raw `sql`
+    // channel above is now restricted to the read-only `broccoli_plugin` role,
+    // phase 2), so their legitimate core writes keep working.
+    let db_clone = privileged_db.clone();
     hr.register("submission", move |plugin_id| {
         Function::new(
             "submission_update",
@@ -229,7 +237,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("submission", move |plugin_id| {
         Function::new(
             "submission_insert_results",
@@ -240,7 +248,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("submission", move |plugin_id| {
         Function::new(
             "submission_delete_results",
@@ -251,7 +259,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    let db_clone = privileged_db.clone();
     hr.register("submission", move |plugin_id| {
         Function::new(
             "submission_query_test_cases",
@@ -332,7 +340,9 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db.clone();
+    // `config:read` is a pure read of `plugin_config`, so it stays on the
+    // RESTRICTED pool (SELECT is granted to `broccoli_plugin`).
+    let db_clone = db;
     let registry = deps.plugin_manager.get_registry().clone();
     hr.register("config:read", move |plugin_id| {
         config::create_config_get_function(
@@ -342,9 +352,11 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    let db_clone = db;
+    // `config:write` mutates the core `plugin_config` table, so — like
+    // `host.submission.*` and `host.storage.*` — it runs on the PRIVILEGED pool.
+    let priv_clone = privileged_db;
     hr.register("config:write", move |plugin_id| {
-        config::create_config_set_function(plugin_id.to_string(), db_clone.clone())
+        config::create_config_set_function(plugin_id.to_string(), priv_clone.clone())
     });
 
     hr

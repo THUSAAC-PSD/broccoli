@@ -543,6 +543,11 @@ impl E2eTestApp {
             app_config.plugin.clone(),
             server::host_funcs::context::HostFunctionSystemDeps {
                 db: db.clone(),
+                // Test harness reuses the single app-role pool for both the
+                // restricted and privileged plugin pools; the phase-2 role
+                // restriction is proven directly against a real DB in
+                // `server::database`'s unit tests.
+                privileged_db: db.clone(),
                 mq: Some(Arc::clone(&mq)),
                 operation_batches: operation_batches.clone(),
                 operation_waiters: operation_waiters.clone(),

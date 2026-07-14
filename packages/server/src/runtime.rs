@@ -89,9 +89,18 @@ impl ServerRuntime {
             app_config.database.plugin_max_connections,
         )
         .await?;
+        // Second, PRIVILEGED plugin pool (same URL, no `SET ROLE`), used only by
+        // the gated core-WRITE host fns (`host.submission.*`, `host.storage.*`,
+        // `config:write`). The `plugin_db` above is restricted to the read-only
+        // `broccoli_plugin` role for the raw `sql` capability (phase 2).
+        let privileged_plugin_db = crate::database::init_plugin_db_privileged(
+            &app_config.database.url,
+            app_config.database.plugin_max_connections,
+        )
+        .await?;
         info!(
             plugin_max_connections = app_config.database.plugin_max_connections,
-            "Initialized isolated plugin host-function DB pool"
+            "Initialized isolated plugin host-function DB pools (restricted sql + privileged writes)"
         );
         // URL for the guaranteed fresh-connection fallback when pool retries are
         // exhausted by poisoned-connection 0x00 errors.
@@ -249,6 +258,7 @@ impl ServerRuntime {
             app_config.plugin.clone(),
             HostFunctionSystemDeps {
                 db: plugin_db,
+                privileged_db: privileged_plugin_db,
                 mq: mq.clone(),
                 operation_batches: operation_batches.clone(),
                 operation_waiters: operation_waiters.clone(),
