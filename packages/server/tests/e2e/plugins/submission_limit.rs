@@ -1,8 +1,12 @@
+use std::sync::Arc;
+use std::time::Instant;
+
 use chrono::Utc;
 use common::{SubmissionStatus, Verdict};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-use serde_json::json;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use serde_json::{Value, json};
 use server::entity::{submission, user};
+use tokio::sync::Barrier;
 
 use crate::common::E2eTestApp;
 
@@ -68,19 +72,36 @@ async fn limit_rejects_after_max_submissions() {
     )
     .await;
 
-    seed_counted_submission(&app, "sl_user1", problem_id, contest_id).await;
-    seed_counted_submission(&app, "sl_user1", problem_id, contest_id).await;
+    // The claim counter only advances for submissions that actually clear the
+    // `check_limit` hook, so the two "prior" submissions must be REAL POSTs
+    // (direct DB seeds are invisible to the gate under claim semantics).
+    let sub_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    let submit_body = |n: i32| {
+        json!({
+            "files": [{"filename": "main.cpp", "content": format!("int main() {{ return {n}; }}")}],
+            "language": "cpp",
+        })
+    };
 
-    let sub3_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    let sub1 = app
+        .post_with_token(&sub_path, &submit_body(0), &contestant)
+        .await;
+    assert_eq!(
+        sub1.status, 201,
+        "First submission should be accepted: {}",
+        sub1.text
+    );
+    let sub2 = app
+        .post_with_token(&sub_path, &submit_body(1), &contestant)
+        .await;
+    assert_eq!(
+        sub2.status, 201,
+        "Second submission should be accepted: {}",
+        sub2.text
+    );
+
     let sub3_res = app
-        .post_with_token(
-            &sub3_path,
-            &json!({
-                "files": [{"filename": "main.cpp", "content": "int main() { return 2; }"}],
-                "language": "cpp",
-            }),
-            &contestant,
-        )
+        .post_with_token(&sub_path, &submit_body(2), &contestant)
         .await;
     assert_eq!(
         sub3_res.status, 429,
@@ -122,8 +143,25 @@ async fn limit_zero_means_unlimited() {
     )
     .await;
 
-    seed_counted_submission(&app, "sl_user2", problem_id, contest_id).await;
-    seed_counted_submission(&app, "sl_user2", problem_id, contest_id).await;
+    // max = 0 is unlimited: every real submission must be accepted, never 429.
+    let sub_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    for n in 0..3 {
+        let res = app
+            .post_with_token(
+                &sub_path,
+                &json!({
+                    "files": [{"filename": "main.cpp", "content": format!("int main() {{ return {n}; }}")}],
+                    "language": "cpp",
+                }),
+                &contestant,
+            )
+            .await;
+        assert_eq!(
+            res.status, 201,
+            "Submission {n} must be accepted while unlimited: {}",
+            res.text
+        );
+    }
 
     let status_path = format!(
         "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
@@ -136,7 +174,11 @@ async fn limit_zero_means_unlimited() {
     );
     assert_eq!(res.body["unlimited"].as_bool(), Some(true));
     assert_eq!(res.body["remaining"], serde_json::Value::Null);
-    assert_eq!(res.body["submissions_made"].as_u64(), Some(2));
+    // Claim semantics: max = 0 short-circuits to pass BEFORE any claim is taken,
+    // so the authoritative claim counter stays 0 even though 3 submissions were
+    // accepted. `submissions_made` reflects the claim counter, not the
+    // `submission` table.
+    assert_eq!(res.body["submissions_made"].as_u64(), Some(0));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -167,7 +209,20 @@ async fn limit_status_endpoint_shows_remaining() {
     )
     .await;
 
-    seed_counted_submission(&app, "sl_user3", problem_id, contest_id).await;
+    // One real submission takes exactly one claim, so the status endpoint,
+    // which reads the same claim counter the gate enforces, reports it.
+    let sub_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    let sub = app
+        .post_with_token(
+            &sub_path,
+            &json!({
+                "files": [{"filename": "main.cpp", "content": "int main() { return 0; }"}],
+                "language": "cpp",
+            }),
+            &contestant,
+        )
+        .await;
+    assert_eq!(sub.status, 201, "Submission should be accepted: {}", sub.text);
 
     let status_path = format!(
         "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
@@ -206,40 +261,58 @@ async fn different_problems_have_independent_limits() {
         .await;
     app.register_for_contest(contest_id, &contestant).await;
 
-    let config_a =
-        format!("/api/v1/contests/{contest_id}/problems/{prob_a}/config/submission-limit/limits");
-    app.put_with_token(
-        &config_a,
-        &json!({ "config": { "max_submissions": 1 }, "enabled": true }),
-        &admin,
-    )
-    .await;
-
-    seed_counted_submission(&app, "sl_user4", prob_a, contest_id).await;
-
-    let sub_a2_path = format!("/api/v1/contests/{contest_id}/problems/{prob_a}/submissions");
-    let sub_a2 = app
-        .post_with_token(
-            &sub_a2_path,
-            &json!({
-                "files": [{"filename": "main.cpp", "content": "int main() { return 1; }"}],
-                "language": "cpp",
-            }),
-            &contestant,
+    // Both problems capped at 1; their claim counters are independent.
+    for prob in [prob_a, prob_b] {
+        let config =
+            format!("/api/v1/contests/{contest_id}/problems/{prob}/config/submission-limit/limits");
+        app.put_with_token(
+            &config,
+            &json!({ "config": { "max_submissions": 1 }, "enabled": true }),
+            &admin,
         )
         .await;
+    }
+
+    let submit = |prob: i32, n: i32| {
+        (
+            format!("/api/v1/contests/{contest_id}/problems/{prob}/submissions"),
+            json!({
+                "files": [{"filename": "main.cpp", "content": format!("int main() {{ return {n}; }}")}],
+                "language": "cpp",
+            }),
+        )
+    };
+
+    // Problem A: the first real POST fills its cap; the second is rejected.
+    let (a1_path, a1_body) = submit(prob_a, 0);
+    let a1 = app.post_with_token(&a1_path, &a1_body, &contestant).await;
+    assert_eq!(
+        a1.status, 201,
+        "Problem A first submission should be accepted: {}",
+        a1.text
+    );
+
+    let (a2_path, a2_body) = submit(prob_a, 1);
+    let sub_a2 = app.post_with_token(&a2_path, &a2_body, &contestant).await;
     assert_eq!(
         sub_a2.status, 429,
         "Problem A second submission should be rejected: {}",
         sub_a2.text
     );
-
-    let status_b = format!(
-        "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{prob_b}/status"
+    assert_eq!(
+        sub_a2.body["code"].as_str().unwrap_or(""),
+        "SUBMISSION_LIMIT_EXCEEDED"
     );
-    let res = app.get_with_token(&status_b, &contestant).await;
-    assert_eq!(res.status, 200, "Problem B status failed: {}", res.text);
-    assert_eq!(res.body["submissions_made"].as_u64(), Some(0));
+
+    // Problem B has its own counter, so a real POST there is still accepted
+    // even though problem A is already at its cap.
+    let (b1_path, b1_body) = submit(prob_b, 0);
+    let b1 = app.post_with_token(&b1_path, &b1_body, &contestant).await;
+    assert_eq!(
+        b1.status, 201,
+        "Problem B submission should be accepted (independent limit): {}",
+        b1.text
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -281,4 +354,220 @@ async fn different_users_have_independent_limits() {
     assert_eq!(res.status, 200, "User B status failed: {}", res.text);
     assert_eq!(res.body["submissions_made"].as_u64(), Some(0));
     assert_eq!(res.body["remaining"].as_u64(), Some(1));
+}
+
+/// Sequential companion to the concurrent race test below: proves the atomic
+/// claim gate still enforces the cap on the ordinary one-at-a-time POST path.
+/// Unlike the older seed-based tests, the prior submissions go through the REAL
+/// submission endpoint, so each one clears the `check_limit` hook and takes a
+/// claim. With max = 2, the first two POSTs are accepted and the third is
+/// rejected 429 SUBMISSION_LIMIT_EXCEEDED.
+#[tokio::test(flavor = "multi_thread")]
+async fn limit_sequential_real_posts_rejected_after_max() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("sl_admin_seq", "password", "admin")
+        .await;
+    let contestant = app
+        .create_authenticated_user("sl_user_seq", "password")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "Limit Problem Seq").await;
+    let contest_id = app
+        .create_typed_contest(&admin, "Limit Contest Seq", "icpc", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant).await;
+
+    let config_path = format!(
+        "/api/v1/contests/{contest_id}/problems/{problem_id}/config/submission-limit/limits"
+    );
+    app.put_with_token(
+        &config_path,
+        &json!({ "config": { "max_submissions": 2 }, "enabled": true }),
+        &admin,
+    )
+    .await;
+
+    let sub_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    let submit = |n: i32| {
+        json!({
+            "files": [{"filename": "main.cpp", "content": format!("int main() {{ return {n}; }}")}],
+            "language": "cpp",
+        })
+    };
+
+    let r1 = app.post_with_token(&sub_path, &submit(1), &contestant).await;
+    assert_eq!(r1.status, 201, "1st submission should be accepted: {}", r1.text);
+    let r2 = app.post_with_token(&sub_path, &submit(2), &contestant).await;
+    assert_eq!(r2.status, 201, "2nd submission should be accepted: {}", r2.text);
+    let r3 = app.post_with_token(&sub_path, &submit(3), &contestant).await;
+    assert_eq!(
+        r3.status, 429,
+        "3rd submission should be rejected once the cap is reached: {}",
+        r3.text
+    );
+    assert_eq!(
+        r3.body["code"].as_str().unwrap_or(""),
+        "SUBMISSION_LIMIT_EXCEEDED",
+        "rejection must carry SUBMISSION_LIMIT_EXCEEDED"
+    );
+}
+
+/// TOCTOU regression: with `max_submissions = 1`, fire N submissions for the
+/// same (user, problem, contest) SIMULTANEOUSLY and assert the atomic claim
+/// gate admits EXACTLY ONE. Before commit d749a3f the gate was a count-then-pass
+/// check: every concurrent POST read the same `COUNT(*) == 0` (the server
+/// inserts the submission row only after the hook returns), so all N slipped
+/// through and the cap was blown. The atomic `INSERT .. ON CONFLICT DO UPDATE ..
+/// WHERE count < max` claim must let exactly one win and reject the other N-1
+/// with 429 SUBMISSION_LIMIT_EXCEEDED.
+///
+/// The requests are made genuinely concurrent (not sequential): each runs in its
+/// own task with its own HTTP client/connection, and an N-party barrier parks
+/// every task until all N have built their request, so the release fires the
+/// POSTs together and their `check_limit` hooks overlap in flight.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn limit_rejects_concurrent_submissions_race() {
+    const N: usize = 8;
+    // The submission handler holds its DB transaction open across the
+    // `before_submission` hook, and the e2e harness routes the plugin's claim
+    // query through the same pool, so each in-flight submission needs two
+    // connections at once. Size the pool for 2 × N (plus slack) so the pool
+    // itself never becomes the bottleneck — otherwise concurrent requests fail
+    // with a "connection pool timed out" 500 unrelated to the gate.
+    let app = E2eTestApp::spawn_with_db_pool(2 * N as u32 + 8).await;
+
+    let admin = app
+        .create_user_with_role("sl_admin_race", "password", "admin")
+        .await;
+    let contestant = app
+        .create_authenticated_user("sl_user_race", "password")
+        .await;
+
+    let problem_id = app.create_problem(&admin, "Limit Problem Race").await;
+    let contest_id = app
+        .create_typed_contest(&admin, "Limit Contest Race", "icpc", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant).await;
+
+    // Cap at exactly one accepted submission for this problem.
+    let config_path = format!(
+        "/api/v1/contests/{contest_id}/problems/{problem_id}/config/submission-limit/limits"
+    );
+    app.put_with_token(
+        &config_path,
+        &json!({ "config": { "max_submissions": 1 }, "enabled": true }),
+        &admin,
+    )
+    .await;
+
+    let url = format!(
+        "{}/api/v1/contests/{contest_id}/problems/{problem_id}/submissions",
+        app.base_url
+    );
+
+    let barrier = Arc::new(Barrier::new(N));
+    let start = Instant::now();
+    let mut handles = Vec::with_capacity(N);
+    for i in 0..N {
+        let url = url.clone();
+        let token = contestant.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(tokio::spawn(async move {
+            // Independent client per task => independent TCP connection, so the
+            // POSTs race in parallel instead of multiplexing on one pooled
+            // connection.
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("build client");
+            let body = json!({
+                "files": [{"filename": "main.cpp", "content": format!("int main() {{ return {i}; }}")}],
+                "language": "cpp",
+            });
+            let req = client
+                .post(&url)
+                .header("Authorization", format!("Bearer {token}"))
+                .json(&body);
+            // Everyone parks here; the last arrival releases all N at once.
+            barrier.wait().await;
+            let fired_us = start.elapsed().as_micros();
+            let res = req.send().await.expect("send submission");
+            let status = res.status().as_u16();
+            let text = res.text().await.unwrap_or_default();
+            let code = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|v| v["code"].as_str().map(str::to_string));
+            (status, code, text, fired_us)
+        }));
+    }
+
+    let mut accepted = 0usize;
+    let mut rejected = 0usize;
+    let mut other = Vec::new();
+    let mut fired = Vec::with_capacity(N);
+    for h in handles {
+        let (status, code, text, fired_us) = h.await.expect("join submission task");
+        fired.push(fired_us);
+        match status {
+            201 => accepted += 1,
+            429 => {
+                assert_eq!(
+                    code.as_deref(),
+                    Some("SUBMISSION_LIMIT_EXCEEDED"),
+                    "429 must carry SUBMISSION_LIMIT_EXCEEDED, got: {text}"
+                );
+                rejected += 1;
+            }
+            _ => other.push((status, text)),
+        }
+    }
+
+    // Evidence that the POSTs really were in flight together, not serialized.
+    let spread_us = fired.iter().max().unwrap() - fired.iter().min().unwrap();
+    eprintln!(
+        "[race] N={N} accepted={accepted} rejected429={rejected} other={} send-window={spread_us}us",
+        other.len()
+    );
+
+    assert!(
+        other.is_empty(),
+        "every response must be 201 or 429; got unexpected: {other:?}"
+    );
+    assert_eq!(
+        accepted, 1,
+        "the atomic gate must admit EXACTLY ONE submission (accepted={accepted}, rejected={rejected})"
+    );
+    assert_eq!(
+        rejected,
+        N - 1,
+        "the other {} concurrent submissions must be rejected 429 (rejected={rejected})",
+        N - 1
+    );
+
+    // Independent confirmation from the database: exactly one submission row was
+    // actually persisted for this (user, problem, contest).
+    let contestant_id = user::Entity::find()
+        .filter(user::Column::Username.eq("sl_user_race"))
+        .one(&app.db)
+        .await
+        .expect("query user")
+        .expect("user should exist")
+        .id;
+    let persisted = submission::Entity::find()
+        .filter(submission::Column::UserId.eq(contestant_id))
+        .filter(submission::Column::ProblemId.eq(problem_id))
+        .filter(submission::Column::ContestId.eq(contest_id))
+        .count(&app.db)
+        .await
+        .expect("count submissions");
+    assert_eq!(
+        persisted, 1,
+        "exactly one submission row must be persisted, found {persisted}"
+    );
 }

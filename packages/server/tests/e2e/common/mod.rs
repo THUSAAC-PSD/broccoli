@@ -307,11 +307,15 @@ fn close_database_pool(db: DatabaseConnection) {
 
 #[allow(dead_code)]
 impl E2eTestApp {
+    /// Default app DB pool size. Small on purpose: e2e runs many isolated test
+    /// databases and Postgres backend slots are finite.
+    const DEFAULT_DB_MAX_CONNECTIONS: u32 = 3;
+
     pub async fn spawn() -> Self {
         if let Ok(server_url) = std::env::var("E2E_SERVER_URL") {
             Self::connect(&server_url).await
         } else {
-            Self::spawn_internal(true).await
+            Self::spawn_internal(true, Self::DEFAULT_DB_MAX_CONNECTIONS).await
         }
     }
 
@@ -319,7 +323,24 @@ impl E2eTestApp {
         if let Ok(server_url) = std::env::var("E2E_SERVER_URL") {
             Self::connect(&server_url).await
         } else {
-            Self::spawn_internal(false).await
+            Self::spawn_internal(false, Self::DEFAULT_DB_MAX_CONNECTIONS).await
+        }
+    }
+
+    /// Like [`spawn`], but with a larger app DB pool. The e2e harness routes
+    /// plugin host-function DB calls through the same pool the HTTP handlers use
+    /// (production isolates them into a dedicated plugin pool). A submission
+    /// handler holds its transaction open across the `before_submission` hook,
+    /// so every in-flight submission needs TWO pooled connections at once (its
+    /// own txn plus the plugin's claim query). Tests that fire many submissions
+    /// concurrently must size the pool for `2 × concurrency` or the pool
+    /// deadlocks and requests fail with a spurious "connection pool timed out"
+    /// 500 that has nothing to do with the code under test.
+    pub async fn spawn_with_db_pool(db_max_connections: u32) -> Self {
+        if let Ok(server_url) = std::env::var("E2E_SERVER_URL") {
+            Self::connect(&server_url).await
+        } else {
+            Self::spawn_internal(true, db_max_connections).await
         }
     }
 
@@ -370,7 +391,7 @@ impl E2eTestApp {
         }
     }
 
-    async fn spawn_internal(load_plugins: bool) -> Self {
+    async fn spawn_internal(load_plugins: bool, db_max_connections: u32) -> Self {
         let test_id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let (pg_port, redis_port) = tokio::join!(shared_pg_port(), shared_redis_port());
@@ -384,7 +405,7 @@ impl E2eTestApp {
 
         let db_url = format!("postgres://postgres:postgres@127.0.0.1:{pg_port}/{db_name}");
         let mut opts = ConnectOptions::new(&db_url);
-        opts.max_connections(3)
+        opts.max_connections(db_max_connections)
             .min_connections(0)
             .idle_timeout(Duration::from_secs(3));
         let db = Database::connect(opts)
@@ -455,7 +476,7 @@ impl E2eTestApp {
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
-                max_connections: 3,
+                max_connections: db_max_connections,
                 plugin_max_connections: 1,
             },
             auth: AuthConfig {
