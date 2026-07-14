@@ -101,6 +101,7 @@ pub async fn prewarm_contest(
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct WarmStatusQuery {
     /// Specific warm job to report; defaults to the contest's most recent warm.
     pub job: Option<String>,
