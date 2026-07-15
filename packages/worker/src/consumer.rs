@@ -12,7 +12,6 @@ use tracing::{error, info, warn};
 use common::cancel::RedisCancelChecker;
 
 use crate::dedup::{ClaimOutcome, RedisTaskDedup};
-use crate::heartbeat::InFlightCounter;
 use crate::metrics::{
     TaskMetricGuard, WorkerPermitMetricGuard, record_mq_consume, record_mq_publish,
 };
@@ -59,30 +58,19 @@ impl WorkerConsumer {
         }
     }
 
-    pub fn handler(
-        self,
-        in_flight: InFlightCounter,
-        shutdown: Arc<std::sync::atomic::AtomicBool>,
-    ) -> impl Fn(
-        BrokerMessage<Task>,
-    ) -> futures::future::BoxFuture<'static, Result<(), BroccoliError>>
-    + Clone {
-        move |message: BrokerMessage<Task>| {
-            let consumer = self.clone();
-            let in_flight = in_flight.clone();
-            let shutdown = shutdown.clone();
-            Box::pin(async move {
-                let _worker_permit_guard =
-                    WorkerPermitMetricGuard::new(&consumer.metrics, &consumer.worker_id);
-                if shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Err(BroccoliError::Consume(
-                        "worker is shutting down; requeuing".into(),
-                    ));
-                }
-                let _guard = in_flight.guard();
-                consumer.process_message(message).await
-            })
-        }
+    /// Process one already-consumed task under the per-task worker-permit metric
+    /// guard, returning the ack/reject decision (`Ok` -> acknowledge, `Err` ->
+    /// reject/retry).
+    ///
+    /// Unlike the former `handler`, this does NOT short-circuit on shutdown. The
+    /// manual consume loop in [`crate::runtime`] stops CONSUMING the instant
+    /// shutdown is signaled, so a task that has already been taken off the queue
+    /// is always run to completion during the drain window instead of being
+    /// rejected — the old shutdown-reject path burned the retry budget and pushed
+    /// still-valid tasks into the failed queue on every graceful shutdown.
+    pub async fn run_task(&self, message: BrokerMessage<Task>) -> Result<(), BroccoliError> {
+        let _worker_permit_guard = WorkerPermitMetricGuard::new(&self.metrics, &self.worker_id);
+        self.process_message(message).await
     }
 
     #[tracing::instrument(skip(self, message), fields(job_id, task_type, executor))]

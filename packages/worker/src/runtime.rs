@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Context;
 use common::retry::{RetryTracker, spawn_cleanup_task};
 use common::worker::Task;
-use mq::{BroccoliError, BrokerMessage, MqConfig, init_mq};
+use mq::{BrokerMessage, MqConfig, init_mq};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -201,75 +201,108 @@ impl WorkerRuntime {
             "Subscribing to operation queues"
         );
 
-        enum OpOutcome {
-            Shutdown,
-            Done(&'static str),
-            Reconnect(&'static str, BroccoliError),
-        }
+        // Manual consume loop. The worker OWNS the consume decision so that the
+        // instant shutdown is signaled it STOPS pulling new tasks, leaving any
+        // still-queued work in Redis for another worker to pick up. The previous
+        // `process_messages(Some(N))` spawned DETACHED consume tasks that a dropped
+        // future does not abort, so they kept pulling through the 30s drain window
+        // and rejected every pulled task straight into the failed queue (3 rejects
+        // -> permanently lost) on every graceful shutdown / rolling deploy.
+        //
+        // A single semaphore bounds total in-flight work to the worker's capacity
+        // across BOTH queues (the shared queue and this worker's private
+        // pinned-task queue). The old per-queue bound allowed up to 2x capacity and
+        // over-subscribed the isolate slots; the private queue is low volume
+        // (pinned rejudges / probes), so sharing capacity only ever delays a pinned
+        // task under a fully loaded shared queue.
+        let queues = [shared_queue, private_queue];
+        let permits = Arc::new(tokio::sync::Semaphore::new(
+            self.capacity.max_concurrency.max(1),
+        ));
+        let idle_poll = Duration::from_millis(50);
+        let consume_backoff = Duration::from_secs(1);
+        let mut next_queue = 0usize;
 
-        loop {
+        while !shutdown.load(Ordering::Relaxed) {
+            // Bound concurrency, but wake on shutdown rather than blocking on a
+            // permit while every slot is busy.
+            let permit = tokio::select! {
+                biased;
+                _ = wait_for_shutdown(&shutdown) => break,
+                permit = Arc::clone(&permits).acquire_owned() => match permit {
+                    Ok(p) => p,
+                    Err(_) => break,
+                }
+            };
             if shutdown.load(Ordering::Relaxed) {
                 break;
             }
 
-            let handler = self
-                .consumer
-                .clone()
-                .handler(self.in_flight.clone(), shutdown.clone());
-
-            let shared_fut = self.mq.process_messages(
-                &shared_queue,
-                Some(self.capacity.max_concurrency),
-                None,
-                move |message: BrokerMessage<Task>| handler(message),
-            );
-            let handler = self
-                .consumer
-                .clone()
-                .handler(self.in_flight.clone(), shutdown.clone());
-            let private_fut = self.mq.process_messages(
-                &private_queue,
-                Some(self.capacity.max_concurrency),
-                None,
-                move |message: BrokerMessage<Task>| handler(message),
-            );
-
-            tokio::pin!(shared_fut, private_fut);
-
-            let outcome = tokio::select! {
-                biased;
-                _ = wait_for_shutdown(&shutdown) => OpOutcome::Shutdown,
-                result = &mut shared_fut => match result {
-                    Ok(()) => OpOutcome::Done("shared"),
-                    Err(e) => OpOutcome::Reconnect("shared", e),
-                },
-                result = &mut private_fut => match result {
-                    Ok(()) => OpOutcome::Done("private"),
-                    Err(e) => OpOutcome::Reconnect("private", e),
-                },
-            };
-
-            match outcome {
-                OpOutcome::Shutdown => {
-                    drain_in_flight(&self.in_flight, drain_timeout).await;
-                    break;
-                }
-                OpOutcome::Done(which) => {
-                    info!(consumer = which, "Operation consumer exited normally");
-                    break;
-                }
-                OpOutcome::Reconnect(which, e) => {
-                    error!(consumer = which, error = %e, "Operation MQ error, reconnecting in 5s...");
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                        _ = wait_for_shutdown(&shutdown) => {
-                            drain_in_flight(&self.in_flight, drain_timeout).await;
-                            break;
-                        }
+            // Poll each queue once (round-robin) for a ready task. `try_consume` is
+            // non-blocking, so an empty queue never parks us past a shutdown check.
+            let mut taken: Option<(String, BrokerMessage<Task>)> = None;
+            let mut had_error = false;
+            for _ in 0..queues.len() {
+                let queue = queues[next_queue % queues.len()].clone();
+                next_queue = next_queue.wrapping_add(1);
+                match self.mq.try_consume::<Task>(&queue, None).await {
+                    Ok(Some(message)) => {
+                        taken = Some((queue, message));
+                        break;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        warn!(queue = %queue, error = %e, "Operation consume error; backing off");
+                        had_error = true;
+                        break;
                     }
                 }
             }
+
+            let Some((queue, message)) = taken else {
+                // Nothing ready (or a transient consume error): release the permit
+                // and idle briefly, still responsive to shutdown. The broker's own
+                // connection layer self-heals, so a consume error just backs off.
+                drop(permit);
+                let backoff = if had_error {
+                    consume_backoff
+                } else {
+                    idle_poll
+                };
+                tokio::select! {
+                    _ = tokio::time::sleep(backoff) => {}
+                    _ = wait_for_shutdown(&shutdown) => break,
+                }
+                continue;
+            };
+
+            let consumer = self.consumer.clone();
+            let mq = Arc::clone(&self.mq);
+            let in_flight = self.in_flight.clone();
+            tokio::spawn(async move {
+                // Hold the in-flight guard and the permit across BOTH processing and
+                // the ack/reject, so `drain_in_flight` waits until the task is fully
+                // resolved (acked or rejected), not just executed.
+                let _in_flight = in_flight.guard();
+                let _permit = permit;
+                match consumer.run_task(message.clone()).await {
+                    Ok(()) => {
+                        if let Err(e) = mq.acknowledge::<Task>(&queue, message).await {
+                            error!(queue = %queue, error = %e, "Failed to acknowledge task");
+                        }
+                    }
+                    Err(e) => {
+                        warn!(queue = %queue, error = %e, "Task processing failed; rejecting for retry");
+                        if let Err(e) = mq.reject::<Task>(&queue, message).await {
+                            error!(queue = %queue, error = %e, "Failed to reject task");
+                        }
+                    }
+                }
+            });
         }
+
+        info!("Shutdown signaled; no longer consuming. Draining in-flight tasks");
+        drain_in_flight(&self.in_flight, drain_timeout).await;
 
         self.heartbeat.shutdown().await;
         info!("Worker stopped");
