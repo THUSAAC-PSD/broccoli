@@ -21,6 +21,13 @@ fn main() -> anyhow::Result<()> {
 
     let app_config = AppConfig::load().context("Failed to load configuration")?;
 
+    if app_config.jwt_secret_is_weak() {
+        tracing::warn!(
+            min_recommended_bytes = server::config::MIN_RECOMMENDED_JWT_SECRET_BYTES,
+            "auth.jwt_secret is shorter than the recommended minimum; a weak HS256 secret makes all access tokens forgeable (full account takeover). Set a long, random secret."
+        );
+    }
+
     let max_blocking_threads = app_config.server.effective_max_blocking_threads();
     info!(
         max_blocking_threads,

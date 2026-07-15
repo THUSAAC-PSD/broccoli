@@ -677,7 +677,18 @@ impl ServerConfig {
     }
 }
 
+/// Below this length the HS256 signing key is weak enough to brute-force, and a
+/// forged token is full account + permission takeover. Not enforced with a hard
+/// error -- that could block a restart mid-contest -- only warned at startup,
+/// consistent with the availability-first stance on auth.
+pub const MIN_RECOMMENDED_JWT_SECRET_BYTES: usize = 32;
+
 impl AppConfig {
+    /// True when `auth.jwt_secret` is shorter than the recommended minimum.
+    pub fn jwt_secret_is_weak(&self) -> bool {
+        self.auth.jwt_secret.len() < MIN_RECOMMENDED_JWT_SECRET_BYTES
+    }
+
     pub fn load() -> Result<Self, ConfigError> {
         // Defaults live on the struct fields as `#[serde(default = ...)]`
         // attributes — the single source of truth. Builder-level
@@ -850,6 +861,23 @@ mod tests {
     fn server_config_defaults_max_stuck_retries_to_five() {
         let cfg = server_config_fixture(None);
         assert_eq!(cfg.max_stuck_retries, 5);
+    }
+
+    #[test]
+    fn weak_jwt_secret_is_flagged_below_the_recommended_minimum() {
+        let cfg = |secret: &str| -> AppConfig {
+            Config::builder()
+                .set_override("auth.jwt_secret", secret)
+                .unwrap()
+                .build()
+                .unwrap()
+                .try_deserialize()
+                .unwrap()
+        };
+        assert!(cfg("short").jwt_secret_is_weak());
+        assert!(cfg("test-secret").jwt_secret_is_weak());
+        assert!(!cfg(&"a".repeat(MIN_RECOMMENDED_JWT_SECRET_BYTES)).jwt_secret_is_weak());
+        assert!(!cfg(&"x".repeat(64)).jwt_secret_is_weak());
     }
 
     /// Guards the single-source-of-truth contract of `AppConfig::load`:
