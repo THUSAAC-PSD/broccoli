@@ -27,6 +27,13 @@ const AUTH_RATE_LIMIT_BURST: u32 = 10;
 const REGISTER_RATE_LIMIT_PERIOD: Duration = Duration::from_secs(60);
 const REGISTER_RATE_LIMIT_BURST: u32 = 30;
 
+// The device-authorization request endpoint mints a device+user code pair per
+// call; leave it unthrottled and a single source can flood the pending-code
+// store. Same lenient per-IP quota as registration: never blocks a real CLI
+// login, caps automated minting.
+const DEVICE_CODE_RATE_LIMIT_PERIOD: Duration = Duration::from_secs(60);
+const DEVICE_CODE_RATE_LIMIT_BURST: u32 = 30;
+
 pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
     let submission_max_size = config.submission.max_size;
 
@@ -93,13 +100,32 @@ fn auth_routes(rate_limit_auth: bool) -> OpenApiRouter<AppState> {
             )
     };
 
+    let device_code = {
+        let mut builder = GovernorConfigBuilder::default();
+        builder
+            .period(DEVICE_CODE_RATE_LIMIT_PERIOD)
+            .burst_size(DEVICE_CODE_RATE_LIMIT_BURST)
+            .methods(vec![Method::POST]);
+        let mut builder = builder.key_extractor(ConfiguredClientIpKeyExtractor);
+        OpenApiRouter::new()
+            .routes(routes!(handlers::auth::request_device_code))
+            .layer(
+                tower_governor::GovernorLayer::new(Arc::new(
+                    builder
+                        .finish()
+                        .expect("valid device-code rate-limit quota"),
+                ))
+                .error_handler(auth_rate_limit_error_response),
+            )
+    };
+
     OpenApiRouter::new()
         .merge(register)
         .merge(login)
+        .merge(device_code)
         .routes(routes!(handlers::auth::refresh))
         .routes(routes!(handlers::auth::logout))
         .routes(routes!(handlers::auth::me))
-        .routes(routes!(handlers::auth::request_device_code))
         .routes(routes!(handlers::auth::authorize_device))
         .routes(routes!(handlers::auth::poll_device_token))
         .routes(routes!(handlers::auth::issue_cli_token))
