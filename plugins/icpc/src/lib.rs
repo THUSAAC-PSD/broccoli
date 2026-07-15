@@ -156,21 +156,39 @@ mod filter_tests {
     fn private_standings_hide_other_teams_during_contest_only() {
         // during the contest: hidden regardless of the freeze.
         assert!(must_hide_other_submission(
-            false, 0, "during", false, DUR, PRE_FREEZE_SUB, 50 * 60_000
+            false,
+            0,
+            "during",
+            false,
+            DUR,
+            PRE_FREEZE_SUB,
+            50 * 60_000
         ));
         assert!(must_hide_other_submission(
             false, 0, "before", false, DUR, 0, 0
         ));
         // after the contest the standings open up (no freeze configured).
         assert!(!must_hide_other_submission(
-            false, 0, "after", false, DUR, 400 * 60_000, 50 * 60_000
+            false,
+            0,
+            "after",
+            false,
+            DUR,
+            400 * 60_000,
+            50 * 60_000
         ));
     }
 
     #[test]
     fn public_standings_show_pre_freeze_verdicts() {
         assert!(!must_hide_other_submission(
-            true, 60, "during", false, DUR, NOW_IN_WINDOW, PRE_FREEZE_SUB
+            true,
+            60,
+            "during",
+            false,
+            DUR,
+            NOW_IN_WINDOW,
+            PRE_FREEZE_SUB
         ));
     }
 
@@ -178,18 +196,42 @@ mod filter_tests {
     fn freeze_hides_in_window_submissions_until_revealed() {
         // in the window, not revealed: hidden, through the 'after' phase.
         assert!(must_hide_other_submission(
-            true, 60, "during", false, DUR, NOW_IN_WINDOW, IN_FREEZE_SUB
+            true,
+            60,
+            "during",
+            false,
+            DUR,
+            NOW_IN_WINDOW,
+            IN_FREEZE_SUB
         ));
         assert!(must_hide_other_submission(
-            true, 60, "after", false, DUR, 400 * 60_000, IN_FREEZE_SUB
+            true,
+            60,
+            "after",
+            false,
+            DUR,
+            400 * 60_000,
+            IN_FREEZE_SUB
         ));
         // revealed: visible again.
         assert!(!must_hide_other_submission(
-            true, 60, "after", true, DUR, 400 * 60_000, IN_FREEZE_SUB
+            true,
+            60,
+            "after",
+            true,
+            DUR,
+            400 * 60_000,
+            IN_FREEZE_SUB
         ));
         // before the window opens nothing is frozen.
         assert!(!must_hide_other_submission(
-            true, 60, "during", false, DUR, 100 * 60_000, PRE_FREEZE_SUB
+            true,
+            60,
+            "during",
+            false,
+            DUR,
+            100 * 60_000,
+            PRE_FREEZE_SUB
         ));
     }
 
@@ -299,12 +341,12 @@ use serde::{Deserialize, Serialize};
 use crate::config::{ContestConfig, ProblemState, freeze_view, freeze_window_start_ms};
 #[cfg(target_arch = "wasm32")]
 use crate::evaluate::{
-    evaluate_short_circuit_detached, handle_detached_eval_callback,
-    recover_detached_callback_error,
+    evaluate_short_circuit_detached, handle_detached_eval_callback, recover_detached_callback_error,
 };
 #[cfg(target_arch = "wasm32")]
 use crate::standings::{
-    StandingsSubmission, counts_as_live, compute_pending, compute_problem_states,
+    StandingsSubmission, compute_first_solvers, compute_pending, compute_problem_states,
+    counts_as_live,
 };
 
 // ── Plugin entry points ─────────────────────────────────────────────────
@@ -702,10 +744,11 @@ fn handle_reveal(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRespo
     let info = contest::check_access(host, req, contest_id)?;
     info.require_type("icpc")?;
     if !req.has_permission("contest:manage") {
-        return Err(
-            PluginHttpResponse::error(403, "Revealing the scoreboard requires contest:manage")
-                .into(),
-        );
+        return Err(PluginHttpResponse::error(
+            403,
+            "Revealing the scoreboard requires contest:manage",
+        )
+        .into());
     }
     let config: ContestConfig = contest::load_config(host, contest_id)?;
     let phase = info.phase.as_str();
@@ -895,9 +938,10 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
             .partition(|s| counts_as_live(s, freeze_start_ms, own_uid));
     let all_states = compute_problem_states(&pre_freeze, config.count_compile_error);
     let pending_map = compute_pending(&during_freeze, &all_states);
-
-    // Track first solve per problem for highlighting
-    let mut first_solve_time: HashMap<i32, (i32, i64)> = HashMap::new(); // problem_id -> (user_id, solve_time_ms)
+    // First-to-solve balloon owner per problem. Global by nature, so it is
+    // suppressed (empty) in the restricted private-standings view, which only
+    // loaded the viewer's own submissions — see `compute_first_solvers`.
+    let first_solvers = compute_first_solvers(&all_states, restricted_user_id.is_some());
 
     // Build entries
     #[derive(Serialize)]
@@ -948,15 +992,6 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
                 total_penalty += pen;
                 let time_min = state.solve_time_ms.unwrap_or(0).div_euclid(60_000) as i32;
 
-                // Track first solve
-                let solve_ms = state.solve_time_ms.unwrap_or(i64::MAX);
-                let entry = first_solve_time
-                    .entry(pid)
-                    .or_insert((participant.user_id, solve_ms));
-                if solve_ms < entry.1 {
-                    *entry = (participant.user_id, solve_ms);
-                }
-
                 problem_cells.insert(
                     label.clone(),
                     ProblemCell {
@@ -996,14 +1031,13 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         });
     }
 
-    // Mark first solves
+    // Mark first solves (empty map in the restricted view -> no balloons).
     for entry in &mut entries {
         for (i, &pid) in problem_ids.iter().enumerate() {
             let label = &problem_labels[i];
             if let Some(cell) = entry.problems.get_mut(label)
                 && cell.solved
-                && let Some(&(first_uid, _)) = first_solve_time.get(&pid)
-                && first_uid == entry.user_id
+                && first_solvers.get(&pid) == Some(&entry.user_id)
             {
                 cell.first_solve = Some(true);
             }

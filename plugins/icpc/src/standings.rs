@@ -95,6 +95,46 @@ pub fn counts_as_live(
     sub.elapsed_ms < freeze_start_ms || Some(sub.user_id) == own_user_id
 }
 
+/// Owner of the coveted "first to solve" balloon per problem: the contestant
+/// with the earliest accepted solve, computed over ALL contestants' solved
+/// states (ties broken by the smaller `user_id` for a deterministic result).
+/// Returns `problem_id -> first-solver user_id`.
+///
+/// `restricted` is the private-standings contestant view, where the caller only
+/// loaded the requesting contestant's OWN submissions. First-solve is a GLOBAL
+/// property that cannot be derived from a single team's data, and the
+/// private-standings invariant keeps other teams' progress hidden until the
+/// contest ends — announcing "you were first" would itself leak that no one else
+/// solved the problem earlier. So the flag is suppressed entirely (empty map)
+/// rather than falsely crowning the viewer on every problem they solved.
+pub fn compute_first_solvers(
+    states: &HashMap<(i32, i32), ProblemState>,
+    restricted: bool,
+) -> HashMap<i32, i32> {
+    if restricted {
+        return HashMap::new();
+    }
+
+    let mut best: HashMap<i32, (i64, i32)> = HashMap::new(); // problem_id -> (solve_ms, user_id)
+    for (&(user_id, problem_id), state) in states {
+        if !state.solved {
+            continue;
+        }
+        let solve_ms = state.solve_time_ms.unwrap_or(i64::MAX);
+        best.entry(problem_id)
+            .and_modify(|current| {
+                if (solve_ms, user_id) < *current {
+                    *current = (solve_ms, user_id);
+                }
+            })
+            .or_insert((solve_ms, user_id));
+    }
+
+    best.into_iter()
+        .map(|(problem_id, (_, user_id))| (problem_id, user_id))
+        .collect()
+}
+
 fn is_penalty_attempt(row: &StandingsSubmission, count_compile_error: bool) -> bool {
     if row.status == "SystemError" || row.verdict == Some(Verdict::SystemError) {
         return false;
@@ -264,5 +304,73 @@ mod tests {
         assert!(counts_as_live(&pre, freeze_start, Some(7)));
         // Anonymous / organizer viewer: no self-exception.
         assert!(!counts_as_live(&during(7), freeze_start, None));
+    }
+
+    #[test]
+    fn first_solver_is_the_globally_earliest_accepted() {
+        // Two teams solved problem 100; user 8 solved it earlier than user 7.
+        let states = compute_problem_states(
+            &[
+                StandingsSubmission {
+                    submission_id: 1,
+                    user_id: 7,
+                    problem_id: 100,
+                    verdict: Some(Verdict::Accepted),
+                    status: "Judged".into(),
+                    elapsed_ms: 30 * 60_000,
+                },
+                StandingsSubmission {
+                    submission_id: 2,
+                    user_id: 8,
+                    problem_id: 100,
+                    verdict: Some(Verdict::Accepted),
+                    status: "Judged".into(),
+                    elapsed_ms: 10 * 60_000,
+                },
+                // user 7 also solved problem 200 (only solver) -> first there.
+                StandingsSubmission {
+                    submission_id: 3,
+                    user_id: 7,
+                    problem_id: 200,
+                    verdict: Some(Verdict::Accepted),
+                    status: "Judged".into(),
+                    elapsed_ms: 40 * 60_000,
+                },
+            ],
+            false,
+        );
+
+        let first = compute_first_solvers(&states, false);
+        assert_eq!(first.get(&100), Some(&8), "user 8 solved 100 first");
+        assert_eq!(
+            first.get(&200),
+            Some(&7),
+            "user 7 is the only solver of 200"
+        );
+    }
+
+    #[test]
+    fn restricted_view_never_flags_a_first_solve() {
+        // The private-standings restricted view loaded only the viewer's (user 7)
+        // own submissions. Even though user 7 solved problem 100, first-solve is a
+        // global property that someone else may already own — so the restricted
+        // path must NOT crown the viewer. Suppressed entirely -> empty map.
+        let states = compute_problem_states(
+            &[StandingsSubmission {
+                submission_id: 1,
+                user_id: 7,
+                problem_id: 100,
+                verdict: Some(Verdict::Accepted),
+                status: "Judged".into(),
+                elapsed_ms: 30 * 60_000,
+            }],
+            false,
+        );
+
+        let first = compute_first_solvers(&states, true);
+        assert!(
+            first.is_empty(),
+            "restricted view must not flag any first solve, got {first:?}"
+        );
     }
 }
