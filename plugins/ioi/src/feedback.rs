@@ -3,6 +3,8 @@ use broccoli_server_sdk::prelude::*;
 use crate::config::{ContestConfig, FeedbackLevel};
 #[cfg(target_arch = "wasm32")]
 use crate::load_token_state;
+#[cfg(target_arch = "wasm32")]
+use crate::scoreboard::full_scoreboard_visible_for_phase;
 
 const DETAIL_TEXT_RESPONSE_LIMIT_BYTES: usize = 65_536;
 
@@ -119,8 +121,45 @@ pub(crate) fn apply_feedback_filter(
     }
 
     let contest_config: ContestConfig = contest::load_config(host, contest_id)?;
-    let level = contest_config.feedback_level;
 
+    // Scoreboard-integrity gate (mirrors the ICPC filter's rationale): when the
+    // full scoreboard is not visible to a non-owner in this phase -- e.g. the
+    // default `admins_only` during the live contest -- a peer must not read
+    // another contestant's verdict/score/per-test-case results through the
+    // submission endpoint. `feedback_level` alone would leak exactly the data
+    // the scoreboard withholds, so when the scoreboard is hidden we redact the
+    // scoring data entirely (the None-level redaction), regardless of
+    // feedback_level. The IOI scoreboard depends only on the contest phase (no
+    // ICPC-style per-submission freeze window), so only the phase is needed.
+    #[derive(serde::Deserialize)]
+    struct ContestPhase {
+        phase: String,
+    }
+    let mut p = Params::new();
+    let phase_sql = format!(
+        "SELECT CASE WHEN NOW() < start_time THEN 'before' \
+                     WHEN NOW() > end_time THEN 'after' \
+                     ELSE 'during' END AS phase \
+         FROM contest WHERE id = {}",
+        p.bind(contest_id)
+    );
+    let phase = match host
+        .db
+        .query_one_with_args::<ContestPhase>(&phase_sql, &p.into_args())?
+    {
+        Some(row) => row.phase,
+        // Contest row missing: fail closed rather than leak.
+        None => {
+            redact_submission_for_level(&mut submission, FeedbackLevel::None);
+            return Ok(submission);
+        }
+    };
+    if !full_scoreboard_visible_for_phase(&phase, false, contest_config.scoreboard_visibility) {
+        redact_submission_for_level(&mut submission, FeedbackLevel::None);
+        return Ok(submission);
+    }
+
+    let level = contest_config.feedback_level;
     redact_submission_for_level(&mut submission, level);
     Ok(submission)
 }
