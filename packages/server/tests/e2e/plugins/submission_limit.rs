@@ -3,7 +3,9 @@ use std::time::Instant;
 
 use chrono::Utc;
 use common::{SubmissionStatus, Verdict};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+};
 use serde_json::{Value, json};
 use server::entity::{submission, user};
 use tokio::sync::Barrier;
@@ -587,5 +589,133 @@ async fn limit_rejects_concurrent_submissions_race() {
     assert_eq!(
         persisted, 1,
         "exactly one submission row must be persisted, found {persisted}"
+    );
+}
+
+async fn user_id_of(app: &E2eTestApp, username: &str) -> i32 {
+    user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&app.db)
+        .await
+        .expect("query user")
+        .expect("user should exist")
+        .id
+}
+
+/// A submission that claimed a slot but was then rejected by a later hook (or
+/// failed to insert) leaves an UNCONFIRMED reservation. The old monotonic
+/// counter burned that slot permanently; the reservation ledger must reclaim it
+/// once it ages past the grace window so the slot is not lost.
+#[tokio::test(flavor = "multi_thread")]
+async fn dangling_reservation_past_grace_is_reclaimed_not_burned() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("sl_admin_reclaim", "password", "admin")
+        .await;
+    let contestant = app
+        .create_authenticated_user("sl_user_reclaim", "password")
+        .await;
+    let problem_id = app.create_problem(&admin, "Reclaim Problem").await;
+    let contest_id = app
+        .create_typed_contest(&admin, "Reclaim Contest", "icpc", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant).await;
+
+    let config_path = format!(
+        "/api/v1/contests/{contest_id}/problems/{problem_id}/config/submission-limit/limits"
+    );
+    app.put_with_token(
+        &config_path,
+        &json!({ "config": { "max_submissions": 1 }, "enabled": true }),
+        &admin,
+    )
+    .await;
+
+    // Simulate a failed submission's dangling PENDING claim: aged well past the
+    // grace window. With the old monotonic counter this permanently consumed the
+    // only slot; the pending must now be reclaimed.
+    let uid = user_id_of(&app, "sl_user_reclaim").await;
+    app.db
+        .execute_unprepared(&format!(
+            "INSERT INTO submission_limit_claim \
+               (user_id, problem_id, contest_id, confirmed, pending, oldest_pending_at) \
+             VALUES ({uid}, {problem_id}, {contest_id}, 0, 1, NOW() - INTERVAL '120 seconds')"
+        ))
+        .await
+        .expect("seed dangling pending claim");
+
+    let sub_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    let body = json!({
+        "files": [{"filename": "main.cpp", "content": "int main() { return 0; }"}],
+        "language": "cpp",
+    });
+    let res = app.post_with_token(&sub_path, &body, &contestant).await;
+    assert_eq!(
+        res.status, 201,
+        "a dangling unconfirmed reservation past grace must be reclaimed, not burn the slot: {}",
+        res.text
+    );
+}
+
+/// A CONFIRMED reservation (a real prior success) durably consumes a slot: with
+/// max=1 and one confirmed reservation already present, a new submission is
+/// rejected — the reclaim only frees UNCONFIRMED (failed) reservations.
+#[tokio::test(flavor = "multi_thread")]
+async fn confirmed_reservation_durably_consumes_a_slot() {
+    let app = E2eTestApp::spawn().await;
+
+    let admin = app
+        .create_user_with_role("sl_admin_confirmed", "password", "admin")
+        .await;
+    let contestant = app
+        .create_authenticated_user("sl_user_confirmed", "password")
+        .await;
+    let problem_id = app.create_problem(&admin, "Confirmed Problem").await;
+    let contest_id = app
+        .create_typed_contest(&admin, "Confirmed Contest", "icpc", true, true)
+        .await;
+    app.add_problem_to_contest(contest_id, problem_id, &admin)
+        .await;
+    app.register_for_contest(contest_id, &contestant).await;
+
+    let config_path = format!(
+        "/api/v1/contests/{contest_id}/problems/{problem_id}/config/submission-limit/limits"
+    );
+    app.put_with_token(
+        &config_path,
+        &json!({ "config": { "max_submissions": 1 }, "enabled": true }),
+        &admin,
+    )
+    .await;
+
+    // A confirmed submission still counts durably (no pending, so grace is
+    // irrelevant).
+    let uid = user_id_of(&app, "sl_user_confirmed").await;
+    app.db
+        .execute_unprepared(&format!(
+            "INSERT INTO submission_limit_claim \
+               (user_id, problem_id, contest_id, confirmed, pending, oldest_pending_at) \
+             VALUES ({uid}, {problem_id}, {contest_id}, 1, 0, NULL)"
+        ))
+        .await
+        .expect("seed confirmed claim");
+
+    let sub_path = format!("/api/v1/contests/{contest_id}/problems/{problem_id}/submissions");
+    let body = json!({
+        "files": [{"filename": "main.cpp", "content": "int main() { return 0; }"}],
+        "language": "cpp",
+    });
+    let res = app.post_with_token(&sub_path, &body, &contestant).await;
+    assert_eq!(
+        res.status, 429,
+        "a confirmed reservation must durably consume the slot: {}",
+        res.text
+    );
+    assert_eq!(
+        res.body["code"].as_str().unwrap_or(""),
+        "SUBMISSION_LIMIT_EXCEEDED"
     );
 }

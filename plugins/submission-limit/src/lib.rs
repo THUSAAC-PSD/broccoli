@@ -1,7 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 mod plugin {
     use broccoli_server_sdk::prelude::*;
-    use broccoli_server_sdk::types::ConfigSource;
+    use broccoli_server_sdk::types::{AfterSubmissionEvent, ConfigSource};
     use extism_pdk::{FnResult, plugin_fn};
     use serde::{Deserialize, Serialize};
 
@@ -16,24 +16,47 @@ mod plugin {
         count: i64,
     }
 
-    /// Plugin-owned claim table backing the atomic submission-limit gate.
+    /// Seconds a PENDING claim counts toward the cap before it is reclaimed.
     ///
-    /// Counting `submission` rows and then passing is a check-then-insert TOCTOU:
-    /// the server inserts the submission row only AFTER this hook returns, so N
-    /// parallel POSTs all read the same COUNT, all pass, and the cap is exceeded.
-    /// Instead each pass atomically increments a per-(user, problem, contest)
-    /// counter in one statement, so Postgres serializes concurrent claims on the
-    /// row and the (max+1)-th is rejected.
+    /// A claim is made PENDING by `check_limit` in the `before_submission` hook
+    /// and CONFIRMED by `on_submission_created` in the `after_submission` hook —
+    /// which fires ONLY after the submission row durably commits. A submission
+    /// rejected by a later hook (e.g. the cooldown gate) or a failed insert never
+    /// confirms, so its pending claim must be reclaimed rather than permanently
+    /// consuming a slot (the old monotonic counter never reclaimed, so such a
+    /// failure permanently burned a slot). A successful submission is always
+    /// counted regardless of confirm timing (see [`confirm_claim`], which bumps
+    /// `confirmed` even if the pending was already reclaimed). The only tradeoff
+    /// is a temporary false-lockout: after a failed claim the slot is held for up
+    /// to this long. The dominant failure — a cooldown rejection after this gate
+    /// already claimed — masks it: the user is serving that cooldown meanwhile.
+    const PENDING_GRACE_SECS: i64 = 30;
+
+    /// Plugin-owned single-row counter backing the atomic submission-limit gate.
     ///
-    /// `contest_id` uses 0 as the "no contest" sentinel (real contest ids start
-    /// at 1) so standalone slots share a key under Postgres' NULLs-are-distinct
-    /// unique semantics. The counter is authoritative and independent of the
-    /// `submission` table, so it starts empty on first deploy of this gate.
+    /// ONE row per (user, problem, contest): `confirmed` counts durably-committed
+    /// submissions, `pending` counts in-flight claims not yet confirmed, and
+    /// `oldest_pending_at` ages the pending set. A slot counts toward the cap as
+    /// `confirmed + (pending while oldest_pending_at is within the grace window)`.
+    ///
+    /// Every mutation is a SINGLE atomic `INSERT .. ON CONFLICT DO UPDATE`
+    /// statement, exactly like the original design: `ON CONFLICT` takes the row
+    /// lock so concurrent claims serialize on that one row and cannot both take
+    /// the last slot. Crucially this uses NO explicit transaction and NO advisory
+    /// lock — the plugin host runs each `host.db.*` call via a blocking
+    /// `block_on`, so holding a transaction open across several such calls (or
+    /// blocking one on `pg_advisory_xact_lock`) starves the runtime's worker
+    /// threads under concurrency and deadlocks. A single self-contained statement
+    /// never holds a lock across host calls.
+    ///
+    /// `contest_id` uses 0 as the "no contest" sentinel (real ids start at 1).
     const SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS submission_limit_claim (\
-         user_id    INTEGER NOT NULL, \
-         problem_id INTEGER NOT NULL, \
-         contest_id INTEGER NOT NULL DEFAULT 0, \
-         count      INTEGER NOT NULL DEFAULT 0, \
+         user_id           INTEGER NOT NULL, \
+         problem_id        INTEGER NOT NULL, \
+         contest_id        INTEGER NOT NULL DEFAULT 0, \
+         confirmed         INTEGER NOT NULL DEFAULT 0, \
+         pending           INTEGER NOT NULL DEFAULT 0, \
+         oldest_pending_at TIMESTAMPTZ, \
          PRIMARY KEY (user_id, problem_id, contest_id))";
 
     fn ensure_schema(host: &Host) -> Result<(), SdkError> {
@@ -49,16 +72,18 @@ mod plugin {
         Ok("ok".into())
     }
 
-    /// The claim table's `contest_id` key: real id, or 0 for a standalone submission.
+    /// The claim key's `contest_id`: real id, or 0 for a standalone submission.
     fn contest_key(contest_id: Option<i32>) -> i32 {
         contest_id.unwrap_or(0)
     }
 
     /// Atomically claim a submission slot. Returns Ok(true) when the claim wins
-    /// (the counter was below `max` and was incremented), Ok(false) when the cap
-    /// is reached. Single statement: `ON CONFLICT DO UPDATE ... WHERE` re-checks
-    /// the row version committed by a concurrent winner, so two racing POSTs can
-    /// never both take the last slot.
+    /// (`confirmed + live pending < max`, and a pending was recorded), Ok(false)
+    /// when the cap is reached. One statement: `ON CONFLICT DO UPDATE ... WHERE`
+    /// re-evaluates the cap against the row version a concurrent winner committed,
+    /// so two racing POSTs can never both take the last slot. When
+    /// `oldest_pending_at` is already past the grace window the pending set is
+    /// reclaimed (reset to just this new claim) in the same statement.
     fn try_claim(
         host: &Host,
         user_id: i32,
@@ -67,23 +92,68 @@ mod plugin {
         max: u32,
     ) -> Result<bool, SdkError> {
         let mut p = Params::new();
+        // Bind order matters; the grace value is reused several times.
+        let u = p.bind(user_id);
+        let pr = p.bind(problem_id);
+        let c = p.bind(contest_key);
+        let g1 = p.bind(PENDING_GRACE_SECS);
+        let g2 = p.bind(PENDING_GRACE_SECS);
+        let g3 = p.bind(PENDING_GRACE_SECS);
+        let m = p.bind(max);
         let sql = format!(
-            "INSERT INTO submission_limit_claim (user_id, problem_id, contest_id, count) \
-             VALUES ({}, {}, {}, 1) \
-             ON CONFLICT (user_id, problem_id, contest_id) DO UPDATE \
-             SET count = submission_limit_claim.count + 1 \
-             WHERE submission_limit_claim.count < {}",
-            p.bind(user_id),
-            p.bind(problem_id),
-            p.bind(contest_key),
-            p.bind(max)
+            "INSERT INTO submission_limit_claim \
+               (user_id, problem_id, contest_id, confirmed, pending, oldest_pending_at) \
+             VALUES ({u}, {pr}, {c}, 0, 1, NOW()) \
+             ON CONFLICT (user_id, problem_id, contest_id) DO UPDATE SET \
+               pending = CASE \
+                 WHEN submission_limit_claim.oldest_pending_at IS NULL \
+                   OR submission_limit_claim.oldest_pending_at <= NOW() - ({g1} * INTERVAL '1 second') \
+                 THEN 1 ELSE submission_limit_claim.pending + 1 END, \
+               oldest_pending_at = CASE \
+                 WHEN submission_limit_claim.oldest_pending_at IS NULL \
+                   OR submission_limit_claim.oldest_pending_at <= NOW() - ({g2} * INTERVAL '1 second') \
+                 THEN NOW() ELSE submission_limit_claim.oldest_pending_at END \
+             WHERE submission_limit_claim.confirmed + (CASE \
+                 WHEN submission_limit_claim.oldest_pending_at IS NOT NULL \
+                   AND submission_limit_claim.oldest_pending_at > NOW() - ({g3} * INTERVAL '1 second') \
+                 THEN submission_limit_claim.pending ELSE 0 END) < {m}"
         );
         Ok(host.db.execute_with_args(&sql, &p.into_args())? > 0)
     }
 
-    /// The committed claim count for a slot (advisory: for the status endpoint and
-    /// the rejection message; the atomic claim is the authority).
-    fn claim_count(
+    /// Confirm a durably-committed submission: bump `confirmed` and release one
+    /// pending. Single atomic statement. If no row exists yet (a confirm arriving
+    /// before/without a recorded pending) it inserts `confirmed = 1`, so a
+    /// successful submission is NEVER left uncounted regardless of timing.
+    fn confirm_claim(
+        host: &Host,
+        user_id: i32,
+        problem_id: i32,
+        contest_key: i32,
+    ) -> Result<(), SdkError> {
+        let mut p = Params::new();
+        let sql = format!(
+            "INSERT INTO submission_limit_claim \
+               (user_id, problem_id, contest_id, confirmed, pending, oldest_pending_at) \
+             VALUES ({}, {}, {}, 1, 0, NULL) \
+             ON CONFLICT (user_id, problem_id, contest_id) DO UPDATE SET \
+               confirmed = submission_limit_claim.confirmed + 1, \
+               pending = GREATEST(submission_limit_claim.pending - 1, 0), \
+               oldest_pending_at = CASE \
+                 WHEN GREATEST(submission_limit_claim.pending - 1, 0) = 0 \
+                 THEN NULL ELSE submission_limit_claim.oldest_pending_at END",
+            p.bind(user_id),
+            p.bind(problem_id),
+            p.bind(contest_key)
+        );
+        host.db.execute_with_args(&sql, &p.into_args())?;
+        Ok(())
+    }
+
+    /// The active slot count: `confirmed` plus `pending` while the pending set is
+    /// still within the grace window (advisory: for the status endpoint and the
+    /// rejection message; the atomic claim is the authority).
+    fn active_count(
         host: &Host,
         user_id: i32,
         problem_id: i32,
@@ -91,8 +161,13 @@ mod plugin {
     ) -> Result<u32, SdkError> {
         let mut p = Params::new();
         let sql = format!(
-            "SELECT count::bigint AS count FROM submission_limit_claim \
+            "SELECT (confirmed + CASE \
+                 WHEN oldest_pending_at IS NOT NULL \
+                   AND oldest_pending_at > NOW() - ({} * INTERVAL '1 second') \
+                 THEN pending ELSE 0 END)::bigint AS count \
+             FROM submission_limit_claim \
              WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
+            p.bind(PENDING_GRACE_SECS),
             p.bind(user_id),
             p.bind(problem_id),
             p.bind(contest_key)
@@ -135,14 +210,13 @@ mod plugin {
             return Ok(serde_json::to_string(&HookResponse::pass())?);
         }
 
-        // Atomically claim a slot: wins iff the committed count is below max.
         let ck = contest_key(event.contest_id);
         if try_claim(&host, event.user_id, event.problem_id, ck, max)? {
             return Ok(serde_json::to_string(&HookResponse::pass())?);
         }
 
-        // Cap reached: report the committed count (which equals max).
-        let count = claim_count(&host, event.user_id, event.problem_id, ck)?;
+        // Cap reached: report the active count (which equals max).
+        let count = active_count(&host, event.user_id, event.problem_id, ck)?;
         let resp = HookResponse::reject(
             "SUBMISSION_LIMIT_EXCEEDED",
             format!("Submission limit reached ({}/{})", count, max),
@@ -153,6 +227,46 @@ mod plugin {
             })),
         );
         Ok(serde_json::to_string(&resp)?)
+    }
+
+    /// Confirm the submission's pending claim once it has durably committed.
+    ///
+    /// The host fires `after_submission` ONLY after the submission row is inserted
+    /// and committed. A claim that never reaches this point stays pending and is
+    /// reclaimed by [`try_claim`] after the grace window instead of permanently
+    /// consuming a slot.
+    #[plugin_fn]
+    pub fn on_submission_created(input: String) -> FnResult<String> {
+        let host = Host::new();
+        let event: AfterSubmissionEvent = serde_json::from_str(&input)?;
+
+        // Only confirm when the gate is actually active for this resource,
+        // mirroring `check_limit`. If the limit is disabled or unlimited (max=0),
+        // `check_limit` short-circuited and took NO claim, so there is nothing to
+        // confirm — confirming anyway would create a phantom count for a
+        // submission that was never limited.
+        let eff = match host
+            .config
+            .get_effective("limits", event.problem_id, event.contest_id)
+        {
+            Ok(e) => e,
+            Err(_) => return Ok(serde_json::to_string(&HookResponse::pass())?),
+        };
+        if !eff.is_enabled {
+            return Ok(serde_json::to_string(&HookResponse::pass())?);
+        }
+        let config: LimitsConfig = eff.parse_config().unwrap_or_default();
+        if config.max_submissions.unwrap_or(0) == 0 {
+            return Ok(serde_json::to_string(&HookResponse::pass())?);
+        }
+
+        confirm_claim(
+            &host,
+            event.user_id,
+            event.problem_id,
+            contest_key(event.contest_id),
+        )?;
+        Ok(serde_json::to_string(&HookResponse::pass())?)
     }
 
     // API: GET /api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status
@@ -218,9 +332,9 @@ mod plugin {
         let max = config.max_submissions.unwrap_or(0);
         let unlimited = max == 0;
 
-        // Read the same authoritative claim counter the gate enforces, so the
-        // reported count matches what a submission would be checked against.
-        let count = claim_count(host, user_id, problem_id, contest_key(contest_id))?;
+        // Read the same active count the gate enforces, so the reported count
+        // matches what a submission would be checked against.
+        let count = active_count(host, user_id, problem_id, contest_key(contest_id))?;
 
         let remaining = if unlimited {
             None
