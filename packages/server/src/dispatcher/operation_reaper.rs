@@ -34,7 +34,7 @@ use mq::Mq;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
-const WORKER_HEARTBEAT_PREFIX: &str = "broccoli:worker:heartbeat:";
+const WORKER_HEARTBEAT_PREFIX: &str = common::worker::WORKER_HEARTBEAT_KEY_PREFIX;
 const WORKER_DEAD_SINCE_PREFIX: &str = "broccoli:worker:dead_since:";
 const DEDUP_PREFIX: &str = "broccoli:dedup:";
 /// Broker sub-key suffixes for one queue. The empty suffix is the main ZSET and

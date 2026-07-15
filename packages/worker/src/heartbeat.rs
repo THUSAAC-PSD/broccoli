@@ -13,7 +13,7 @@ use tracing::{info, warn};
 
 use crate::system_info::SystemInfo;
 
-const KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
+const KEY_PREFIX: &str = common::worker::WORKER_HEARTBEAT_KEY_PREFIX;
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const KEY_TTL_SECS: u64 = 15;
 

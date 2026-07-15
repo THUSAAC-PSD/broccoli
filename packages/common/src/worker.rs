@@ -41,6 +41,17 @@ pub fn worker_private_queue_name(shared_queue: &str, worker_id: &str) -> String 
     format!("{shared_queue}:worker:{worker_id}")
 }
 
+/// Redis key prefix for a worker's liveness heartbeat: the full key is
+/// `{WORKER_HEARTBEAT_KEY_PREFIX}{worker_id}` (15s TTL, written by the worker).
+///
+/// This is the coupling between the worker (which WRITES its heartbeat) and the
+/// server (which READS it for the system dashboard, the dead-worker operation
+/// reaper, and pinned-task liveness routing) plus the worker-side dedup claim
+/// (which checks a prior owner's heartbeat). Every one of those sites must use
+/// the identical prefix, so it lives here as the single source of truth rather
+/// than as a hand-copied literal in each crate.
+pub const WORKER_HEARTBEAT_KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
+
 #[cfg(test)]
 mod tests {
     use super::{Task, worker_private_queue_name};
