@@ -321,6 +321,7 @@ async fn operation_result_burst_has_no_missing_waiters() {
         metrics: Some(metrics.clone()),
         evaluate_ops_registry,
         operation_batch_publish_concurrency: 128,
+        redis_client: None,
     };
 
     let batch_id = start_operation_batch(

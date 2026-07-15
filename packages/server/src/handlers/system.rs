@@ -19,7 +19,7 @@ use crate::models::system::{
 };
 use crate::state::AppState;
 
-const HEARTBEAT_KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
+pub(crate) const HEARTBEAT_KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
 const STALE_AFTER_SECS: i64 = 10;
 
 #[utoipa::path(

@@ -61,6 +61,9 @@ pub struct OperationHostDeps {
     /// operations inside `start_operation_batch`. Sourced from
     /// `server.operation_batch_publish_concurrency`.
     pub operation_batch_publish_concurrency: usize,
+    /// Redis handle used only to check a pinned target worker's liveness at
+    /// publish time, so a task is not routed to a dead worker's private queue.
+    pub redis_client: Option<Arc<redis::Client>>,
 }
 
 #[derive(Clone)]
@@ -106,6 +109,7 @@ impl HostFunctionSystemDeps {
                 .server
                 .operation_batch_publish_concurrency
                 as usize,
+            redis_client: self.redis_client.clone(),
         }
     }
 }

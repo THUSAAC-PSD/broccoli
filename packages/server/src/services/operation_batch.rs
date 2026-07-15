@@ -215,15 +215,34 @@ pub async fn start_operation_batch(
                 deps.metrics.clone(),
             );
 
+            // Resolve the target queue for a pinned operation. An invalid worker
+            // id, OR a valid id whose worker has no live heartbeat, falls back to
+            // the shared queue rather than stranding the task on a dead worker's
+            // private queue. Only pinned ops pay the Redis liveness check, and it
+            // fails open so a transient Redis hiccup never drops a live pin.
+            let effective_target = match op.target_worker_id.as_deref() {
+                Some(worker_id) if !crate::config::is_valid_server_id(worker_id) => {
+                    tracing::warn!(
+                        plugin_id = %plugin_id,
+                        target = %worker_id,
+                        "Rejecting operation with invalid target_worker_id; falling back to shared queue"
+                    );
+                    None
+                }
+                Some(worker_id)
+                    if !target_worker_is_live(deps.redis_client.as_deref(), worker_id).await =>
+                {
+                    tracing::warn!(
+                        plugin_id = %plugin_id,
+                        target = %worker_id,
+                        "Pinned target worker has no live heartbeat; falling back to shared queue"
+                    );
+                    None
+                }
+                other => other,
+            };
             let target_queue =
-                target_operation_queue(&deps.operation_queue_name, op.target_worker_id.as_deref());
-            if op.target_worker_id.is_some() && target_queue == deps.operation_queue_name {
-                tracing::warn!(
-                    plugin_id = %plugin_id,
-                    target = ?op.target_worker_id,
-                    "Rejecting operation with invalid target_worker_id; falling back to shared queue"
-                );
-            }
+                target_operation_queue(&deps.operation_queue_name, effective_target);
 
             if let (Some(eval_batch_id), Some(test_case_id)) =
                 (op.evaluate_batch_id.clone(), op.test_case_id)
@@ -1004,6 +1023,27 @@ fn target_operation_queue(shared_queue: &str, target_worker_id: Option<&str>) ->
     }
 }
 
+/// Whether a pinned target worker currently has a live heartbeat in Redis.
+/// Worker heartbeat keys carry a 15s TTL (see the worker heartbeat writer), so a
+/// simple `EXISTS` is a fresh-liveness signal. Fails OPEN: a missing Redis handle
+/// or a lookup error returns `true` (keep the pin), so a transient Redis hiccup
+/// never mis-routes a legitimately pinned task off its target worker.
+async fn target_worker_is_live(redis: Option<&redis::Client>, worker_id: &str) -> bool {
+    let Some(client) = redis else {
+        return true;
+    };
+    let Ok(mut conn) = client.get_multiplexed_async_connection().await else {
+        return true;
+    };
+    let key = format!(
+        "{}{worker_id}",
+        crate::handlers::system::HEARTBEAT_KEY_PREFIX
+    );
+    let exists: Result<i64, redis::RedisError> =
+        redis::cmd("EXISTS").arg(&key).query_async(&mut conn).await;
+    matches!(exists, Ok(n) if n > 0)
+}
+
 /// Clamp a plugin-authored operation priority into broccoli_queue's valid
 /// `1..=5` range (1 = highest, 5 = lowest). `PublishConfig::builder().priority`
 /// `assert!`s the value is in range and PANICS otherwise; the priority comes
@@ -1249,6 +1289,51 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn target_worker_is_live_reflects_the_heartbeat_key() {
+        use testcontainers::runners::AsyncRunner;
+        use testcontainers_modules::redis::Redis;
+
+        let container = Redis::default().start().await.expect("start redis");
+        let port = container
+            .get_host_port_ipv4(6379)
+            .await
+            .expect("redis port");
+        let client =
+            redis::Client::open(format!("redis://127.0.0.1:{port}")).expect("redis client");
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .expect("connect");
+
+        // Mirror the worker heartbeat writer: a key with a TTL under the prefix.
+        let key = format!(
+            "{}worker-alive",
+            crate::handlers::system::HEARTBEAT_KEY_PREFIX
+        );
+        let _: () = redis::cmd("SET")
+            .arg(&key)
+            .arg("{}")
+            .arg("EX")
+            .arg(15)
+            .query_async(&mut conn)
+            .await
+            .expect("seed heartbeat");
+
+        assert!(
+            target_worker_is_live(Some(&client), "worker-alive").await,
+            "a worker with a live heartbeat key is live"
+        );
+        assert!(
+            !target_worker_is_live(Some(&client), "worker-dead").await,
+            "a worker with no heartbeat key is not live"
+        );
+        assert!(
+            target_worker_is_live(None, "anything").await,
+            "no Redis handle fails open so a legitimately pinned task keeps its target"
+        );
+    }
+
     #[test]
     fn normalize_publish_priority_clamps_out_of_range() {
         // None stays None; in-range passes through; 0 and >5 clamp into 1..=5 so
@@ -1313,6 +1398,7 @@ mod tests {
             evaluate_ops_registry:
                 crate::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default(),
             operation_batch_publish_concurrency: 32,
+            redis_client: None,
         };
 
         let err = start_operation_batch("plugin".to_string(), deps, vec![])
@@ -1361,6 +1447,7 @@ mod tests {
             metrics: None,
             evaluate_ops_registry: evaluate_ops_registry.clone(),
             operation_batch_publish_concurrency: 32,
+            redis_client: None,
         };
 
         cleanup_failed_operation_batch(
