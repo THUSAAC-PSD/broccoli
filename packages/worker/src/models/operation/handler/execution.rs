@@ -13,8 +13,9 @@ use super::paths::{
 };
 use super::{EnvironmentList, OperationHandler, StepMetricRecord};
 use anyhow::{Context, Result, anyhow};
-use futures::future::join_all;
+use futures::future::{FutureExt, join_all};
 use std::collections::{HashMap, HashSet};
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -207,52 +208,71 @@ impl OperationHandler {
         let mut task_results = HashMap::new();
         let mut global_success = true;
 
-        for layer in execution_layers {
-            let mut futures = Vec::new();
-            for task_id in &layer {
-                let task = operation
-                    .tasks
-                    .iter()
-                    .find(|t| t.id == *task_id)
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Task '{}' not found — dependency graph inconsistency",
-                            task_id
-                        )
-                    })?;
+        // Run the execution layers under a panic guard so the sandbox + channels
+        // cleanup below ALWAYS runs. A panicking step future — or the `?` on a
+        // dependency-graph inconsistency — would otherwise unwind straight past
+        // the cleanup and orphan the isolate boxes and the shared channels dir.
+        let layer_outcome: std::thread::Result<Result<()>> = AssertUnwindSafe(async {
+            for layer in execution_layers {
+                let mut futures = Vec::new();
+                for task_id in &layer {
+                    let task = operation
+                        .tasks
+                        .iter()
+                        .find(|t| t.id == *task_id)
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "Task '{}' not found — dependency graph inconsistency",
+                                task_id
+                            )
+                        })?;
 
-                let deps_ok = task.depends_on.iter().all(|dep_id| {
-                    task_results
-                        .get(dep_id)
-                        .map(|r: &TaskExecutionResult| r.success)
-                        .unwrap_or(false)
-                });
+                    let deps_ok = task.depends_on.iter().all(|dep_id| {
+                        task_results
+                            .get(dep_id)
+                            .map(|r: &TaskExecutionResult| r.success)
+                            .unwrap_or(false)
+                    });
 
-                futures.push(self.execute_step_with_deps(
-                    task,
-                    &environments,
-                    &step_working_dirs,
-                    deps_ok,
-                    shared_channels_dir.as_deref(),
-                    &channel_names,
-                ));
-            }
-
-            let results = join_all(futures).await;
-            for result in results {
-                if !result.success {
-                    global_success = false;
+                    futures.push(self.execute_step_with_deps(
+                        task,
+                        &environments,
+                        &step_working_dirs,
+                        deps_ok,
+                        shared_channels_dir.as_deref(),
+                        &channel_names,
+                    ));
                 }
-                task_results.insert(result.task_id.clone(), result);
-            }
-        }
 
+                let results = join_all(futures).await;
+                for result in results {
+                    if !result.success {
+                        global_success = false;
+                    }
+                    task_results.insert(result.task_id.clone(), result);
+                }
+            }
+            Ok(())
+        })
+        .catch_unwind()
+        .await;
+
+        // Always clean up, whatever the layers did (completed, errored, panicked).
         if let Some(dir) = &shared_channels_dir
             && let Err(e) = tokio::fs::remove_dir_all(dir).await
         {
             error!(error = %e, "Failed to clean up shared channels directory");
         }
         self.cleanup_environments(&environments).await.ok();
+
+        match layer_outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(panic) => {
+                error!("A step future panicked; sandboxes cleaned up, re-raising the panic");
+                std::panic::resume_unwind(panic);
+            }
+        }
 
         info!(
             success = global_success,
