@@ -77,6 +77,20 @@ pub(crate) fn handle_use_token(
     }
     let problem_id = sub_info.problem_id;
 
+    // Tokens may only be spent WHILE the contest is running. Without this gate a
+    // participant could POST to this endpoint after the contest ends and, under
+    // best_tokened_or_last scoring, rewrite their final task score (and rank)
+    // after results were published: `elapsed_minutes` keeps growing past the end
+    // so the regenerating budget usually still shows tokens available in "after".
+    let info = contest::check_access(host, req, contest_id)?;
+    info.require_type("ioi")?;
+    if info.phase != "during" {
+        return Ok(PluginHttpResponse::error(
+            403,
+            "Tokens can only be used while the contest is running",
+        ));
+    }
+
     let contest_config: ContestConfig = contest::load_config(host, contest_id)?;
 
     if !tokens_enabled(&contest_config) {
