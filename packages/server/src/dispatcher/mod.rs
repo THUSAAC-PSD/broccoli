@@ -1,6 +1,7 @@
 pub mod claim;
 pub mod fanout;
 pub mod lease;
+pub mod operation_reaper;
 pub mod permits;
 pub mod queue_depth;
 pub mod steal;
@@ -52,6 +53,15 @@ impl Dispatcher {
 
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let mut handles = Vec::new();
+
+        // Capture the operation-reaper inputs before the lease/steal block below
+        // conditionally moves `deps.state` / `deps.redis_client`. The reaper is
+        // independent of the lease/steal toggle (that governs submission judging,
+        // not the operation MQ) but needs both a Redis client and an MQ handle.
+        let reaper_redis = deps.redis_client.clone();
+        let reaper_mq = deps.state.mq.clone();
+        let reaper_shared_queue = deps.state.config.mq.operation_queue_name.clone();
+        let reaper_cancel = cancel_rx.clone();
 
         if claim_enabled {
             // Fail loudly at startup on a 0 batch-size rather than logging
@@ -120,6 +130,30 @@ impl Dispatcher {
             }
         } else {
             info!("Lease refresh and steal scanning disabled by config");
+        }
+
+        if deps.config.operation_reaper_enabled {
+            match (reaper_redis, reaper_mq) {
+                (Some(redis_client), Some(mq)) => {
+                    handles.push(tokio::spawn(operation_reaper::run(
+                        redis_client,
+                        mq,
+                        operation_reaper::ReaperConfig {
+                            shared_queue: reaper_shared_queue,
+                            interval_secs: deps.config.operation_reaper_interval_secs,
+                            grace_secs: deps.config.operation_reaper_grace_secs,
+                            max_requeues_per_tick: deps
+                                .config
+                                .operation_reaper_max_requeues_per_tick,
+                            dry_run: deps.config.operation_reaper_dry_run,
+                        },
+                        reaper_cancel,
+                    )));
+                }
+                _ => info!(
+                    "Operation reaper disabled because the Redis client or MQ handle is unavailable"
+                ),
+            }
         }
 
         info!(

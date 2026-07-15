@@ -175,6 +175,29 @@ pub struct ServerConfig {
     /// audit what would be deleted before letting the sweeper act.
     #[serde(default = "default_sweeper_dry_run")]
     pub sweeper_dry_run: bool,
+    /// Master switch for the dead-worker operation reaper. When a worker crashes,
+    /// the broker (no visibility timeout) strands its in-flight operation in
+    /// `<queue>_processing` and any queued work in its private ZSET; the reaper
+    /// requeues both onto the shared queue once the owner's heartbeat lapses,
+    /// closing the up-to-30-minute waiter-timeout recovery gap. Active by default.
+    #[serde(default = "default_operation_reaper_enabled")]
+    pub operation_reaper_enabled: bool,
+    /// Tick period for the operation reaper.
+    #[serde(default = "default_operation_reaper_interval_secs")]
+    pub operation_reaper_interval_secs: u64,
+    /// Debounce a dead worker for this long (on top of the 15s heartbeat TTL)
+    /// before requeuing its strands, so a worker briefly between heartbeats is
+    /// not reaped out from under itself.
+    #[serde(default = "default_operation_reaper_grace_secs")]
+    pub operation_reaper_grace_secs: i64,
+    /// Per-tick requeue cap, bounding the reaper's blast radius. Any remainder is
+    /// logged and picked up on the next tick.
+    #[serde(default = "default_operation_reaper_max_requeues_per_tick")]
+    pub operation_reaper_max_requeues_per_tick: usize,
+    /// When true, the operation reaper logs the strands it WOULD requeue without
+    /// mutating Redis. Defaults false (the reaper is a recovery, not a delete).
+    #[serde(default = "default_operation_reaper_dry_run")]
+    pub operation_reaper_dry_run: bool,
     /// Master switch for Redis-backed operation cancellation keys. Defaults
     /// off so worker-side cancellation checks can soak independently.
     #[serde(default)]
@@ -292,6 +315,12 @@ impl Default for ServerConfig {
             max_stuck_retries: default_max_stuck_retries(),
             max_system_error_retries: default_max_system_error_retries(),
             sweeper_dry_run: default_sweeper_dry_run(),
+            operation_reaper_enabled: default_operation_reaper_enabled(),
+            operation_reaper_interval_secs: default_operation_reaper_interval_secs(),
+            operation_reaper_grace_secs: default_operation_reaper_grace_secs(),
+            operation_reaper_max_requeues_per_tick: default_operation_reaper_max_requeues_per_tick(
+            ),
+            operation_reaper_dry_run: default_operation_reaper_dry_run(),
             cancel_primitive_enabled: false,
             max_blocking_threads: None,
             batch_evaluator_fanout_concurrency: default_batch_evaluator_fanout_concurrency(),
@@ -368,6 +397,26 @@ fn default_max_system_error_retries() -> u32 {
 }
 
 fn default_sweeper_dry_run() -> bool {
+    false
+}
+
+fn default_operation_reaper_enabled() -> bool {
+    true
+}
+
+fn default_operation_reaper_interval_secs() -> u64 {
+    30
+}
+
+fn default_operation_reaper_grace_secs() -> i64 {
+    30
+}
+
+fn default_operation_reaper_max_requeues_per_tick() -> usize {
+    1000
+}
+
+fn default_operation_reaper_dry_run() -> bool {
     false
 }
 
