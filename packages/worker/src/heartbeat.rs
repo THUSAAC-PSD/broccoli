@@ -2,49 +2,23 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
+
+// The heartbeat wire payload is defined once in `common` so the worker (producer)
+// and the server (consumer) cannot drift. See [`common::worker::HeartbeatPayload`].
+use common::worker::HeartbeatPayload;
 
 use crate::system_info::SystemInfo;
 
 const KEY_PREFIX: &str = common::worker::WORKER_HEARTBEAT_KEY_PREFIX;
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const KEY_TTL_SECS: u64 = 15;
-
-fn default_fairness_mode() -> String {
-    "unknown".into()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeartbeatPayload {
-    pub id: String,
-    pub started_at: DateTime<Utc>,
-    pub last_seen: DateTime<Utc>,
-    pub in_flight: u32,
-    pub max_concurrency: Option<u32>,
-    #[serde(default = "default_fairness_mode")]
-    pub fairness_mode: String,
-    pub sandbox_backend: String,
-    pub version: String,
-    #[serde(default)]
-    pub hostname: Option<String>,
-    #[serde(default)]
-    pub ip_addresses: Vec<String>,
-    #[serde(default)]
-    pub os: Option<String>,
-    #[serde(default)]
-    pub arch: Option<String>,
-    #[serde(default)]
-    pub cpu_count: Option<u32>,
-    #[serde(default)]
-    pub pid: Option<u32>,
-}
 
 #[derive(Clone)]
 pub struct InFlightCounter(Arc<AtomicU32>);

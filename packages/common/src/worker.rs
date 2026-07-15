@@ -52,6 +52,43 @@ pub fn worker_private_queue_name(shared_queue: &str, worker_id: &str) -> String 
 /// than as a hand-copied literal in each crate.
 pub const WORKER_HEARTBEAT_KEY_PREFIX: &str = "broccoli:worker:heartbeat:";
 
+fn default_fairness_mode() -> String {
+    "unknown".into()
+}
+
+/// The worker liveness heartbeat wire payload, serialized by the worker into
+/// `{WORKER_HEARTBEAT_KEY_PREFIX}{id}` and deserialized by the server (system
+/// dashboard, dead-worker operation reaper). It lives here as the single source
+/// of truth so the producer and consumer cannot drift: previously each crate
+/// hand-mirrored this struct and they had already diverged (`fairness_mode` was
+/// `String` on one side and `Option<String>` on the other). All the trailing
+/// fields are `#[serde(default)]` so heartbeats written by older workers still
+/// deserialize.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatPayload {
+    pub id: String,
+    pub started_at: chrono::DateTime<Utc>,
+    pub last_seen: chrono::DateTime<Utc>,
+    pub in_flight: u32,
+    pub max_concurrency: Option<u32>,
+    #[serde(default = "default_fairness_mode")]
+    pub fairness_mode: String,
+    pub sandbox_backend: String,
+    pub version: String,
+    #[serde(default)]
+    pub hostname: Option<String>,
+    #[serde(default)]
+    pub ip_addresses: Vec<String>,
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+    #[serde(default)]
+    pub cpu_count: Option<u32>,
+    #[serde(default)]
+    pub pid: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Task, worker_private_queue_name};
