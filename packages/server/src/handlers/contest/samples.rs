@@ -12,7 +12,7 @@ use crate::state::AppState;
 use crate::utils::contest::{
     check_contest_access, find_contest, find_contest_problem, require_contest_started,
 };
-use crate::utils::test_case_body::read_test_case_body;
+use crate::utils::test_case_body::read_test_case_body_preview;
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ProblemSamplesResponse {
@@ -63,12 +63,22 @@ pub async fn get_contest_problem_samples(
         .all(&state.db)
         .await?;
 
+    // Bounded reads: a setter can mark an arbitrarily large test case as a
+    // sample, and this contestant-facing endpoint is polled by every
+    // participant. Reading the full body (up to the ~1 GB body limit) per sample
+    // per caller would OOM the server. A legitimate sample is tiny and well under
+    // the preview cap, so it is still served in full; only an abusive oversized
+    // sample is truncated, and peak memory stays bounded regardless of size or
+    // request concurrency.
     let mut samples = Vec::with_capacity(sample_test_cases.len());
     for tc in sample_test_cases {
-        let input =
-            read_test_case_body(&tc.input, tc.input_blob_hash.as_deref(), &*state.blob_store)
-                .await?;
-        let output = read_test_case_body(
+        let input = read_test_case_body_preview(
+            &tc.input,
+            tc.input_blob_hash.as_deref(),
+            &*state.blob_store,
+        )
+        .await?;
+        let output = read_test_case_body_preview(
             &tc.expected_output,
             tc.expected_output_blob_hash.as_deref(),
             &*state.blob_store,
