@@ -26,45 +26,48 @@ pub async fn consume_operation_dlq(db: DatabaseConnection, mq: Arc<Mq>, queue_na
             move |message: BrokerMessage<DlqEnvelope>| {
                 let db = db.clone();
                 async move {
-                    let envelope = message.payload;
-                    let message_id = envelope.message_id.clone();
+                    crate::consumers::guard_handler("operation_dlq", async move {
+                        let envelope = message.payload;
+                        let message_id = envelope.message_id.clone();
 
-                    let txn = match db.begin().await {
-                        Ok(txn) => txn,
-                        Err(e) => {
-                            error!(error = %e, "Failed to begin operation DLQ transaction");
+                        let txn = match db.begin().await {
+                            Ok(txn) => txn,
+                            Err(e) => {
+                                error!(error = %e, "Failed to begin operation DLQ transaction");
+                                return Err(mq::BroccoliError::Job(format!(
+                                    "Transaction failed: {}",
+                                    e
+                                )));
+                            }
+                        };
+
+                        let dlq = DlqService::new(&txn);
+                        if let Err(e) = dlq.send_to_dlq(&envelope).await {
+                            error!(
+                                message_id = %message_id,
+                                error = %e,
+                                "Failed to persist operation DLQ envelope to database"
+                            );
                             return Err(mq::BroccoliError::Job(format!(
-                                "Transaction failed: {}",
+                                "DB persistence failed: {}",
                                 e
                             )));
                         }
-                    };
 
-                    let dlq = DlqService::new(&txn);
-                    if let Err(e) = dlq.send_to_dlq(&envelope).await {
-                        error!(
+                        if let Err(e) = txn.commit().await {
+                            error!(error = %e, "Failed to commit operation DLQ entry");
+                            return Err(mq::BroccoliError::Job(format!("Commit failed: {}", e)));
+                        }
+
+                        info!(
                             message_id = %message_id,
-                            error = %e,
-                            "Failed to persist operation DLQ envelope to database"
+                            error_code = ?envelope.error_code,
+                            "Persisted operation DLQ envelope"
                         );
-                        return Err(mq::BroccoliError::Job(format!(
-                            "DB persistence failed: {}",
-                            e
-                        )));
-                    }
 
-                    if let Err(e) = txn.commit().await {
-                        error!(error = %e, "Failed to commit operation DLQ entry");
-                        return Err(mq::BroccoliError::Job(format!("Commit failed: {}", e)));
-                    }
-
-                    info!(
-                        message_id = %message_id,
-                        error_code = ?envelope.error_code,
-                        "Persisted operation DLQ envelope"
-                    );
-
-                    Ok(())
+                        Ok(())
+                    })
+                    .await
                 }
             },
         )

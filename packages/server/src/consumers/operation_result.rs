@@ -36,7 +36,8 @@ pub async fn consume_operation_results(
                 let evaluate_ops_registry = evaluate_ops_registry.clone();
                 let metrics = metrics.clone();
                 async move {
-                    let started = std::time::Instant::now();
+                    crate::consumers::guard_handler("operation_result", async move {
+                        let started = std::time::Instant::now();
                     let (reply_type, outcome, task_success) = match message.payload {
                         TaskReply::Started { notification } => {
                             let task_id = notification.task_id;
@@ -90,7 +91,9 @@ pub async fn consume_operation_results(
                         .operation_result_consume_duration
                         .record(started.elapsed().as_secs_f64(), &attrs);
 
-                    Ok(())
+                        Ok(())
+                    })
+                    .await
                 }
             },
         )
