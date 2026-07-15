@@ -81,13 +81,17 @@ fn default_mq_url() -> String {
 fn default_mq_pool_size() -> u8 {
     5
 }
-fn default_operation_queue_name() -> String {
+// `pub` so the worker's config builder can reference these as the single source
+// of truth instead of re-hardcoding the same string literals in its
+// `set_default(...)` calls (the builder default overrides the serde default, so
+// the two must agree).
+pub fn default_operation_queue_name() -> String {
     "operation_tasks".into()
 }
-fn default_operation_result_queue_name() -> String {
+pub fn default_operation_result_queue_name() -> String {
     "operation_results".into()
 }
-fn default_operation_dlq_queue_name() -> String {
+pub fn default_operation_dlq_queue_name() -> String {
     "operation_tasks_dlq".into()
 }
 

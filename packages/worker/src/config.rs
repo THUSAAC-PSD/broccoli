@@ -188,9 +188,20 @@ impl WorkerAppConfig {
             .set_default("mq.enabled", true)?
             .set_default("mq.url", "redis://localhost:6379")?
             .set_default("mq.pool_size", 5_i64)?
-            .set_default("mq.operation_queue_name", "operation_tasks")?
-            .set_default("mq.operation_result_queue_name", "operation_results")?
-            .set_default("mq.operation_dlq_queue_name", "operation_tasks_dlq")?
+            // Reference the shared `common` serde defaults so the worker's
+            // builder defaults cannot drift from the server's.
+            .set_default(
+                "mq.operation_queue_name",
+                common::config::default_operation_queue_name(),
+            )?
+            .set_default(
+                "mq.operation_result_queue_name",
+                common::config::default_operation_result_queue_name(),
+            )?
+            .set_default(
+                "mq.operation_dlq_queue_name",
+                common::config::default_operation_dlq_queue_name(),
+            )?
             .set_default("observability.log_format", "pretty")?
             .set_default("observability.log_filter", "info")?
             .set_default("observability.otlp.service_name", "broccoli-worker")?
