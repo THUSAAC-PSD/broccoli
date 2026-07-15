@@ -6,6 +6,14 @@ pub async fn init_db(db_url: &str) -> Result<DatabaseConnection, DbErr> {
     init_db_with_max_connections(db_url, 100).await
 }
 
+/// The restricted, NOLOGIN Postgres role raw plugin SQL runs under. Applied per
+/// connection via `SET ROLE` on the restricted pool ([`init_plugin_db`]'s
+/// `after_connect`) and re-applied by the raw-path fresh-connection fallback in
+/// [`crate::host_funcs::sql`]. Single source of truth for those two `SET ROLE`
+/// sites so they cannot drift; the migration DDL that CREATEs/GRANTs the role
+/// keeps its own literal since that is statement text, not a role handle.
+pub const PLUGIN_DB_ROLE: &str = "broccoli_plugin";
+
 /// The RESTRICTED plugin pool for the raw `sql` capability (`host.db.*`).
 ///
 /// Two properties, both essential:
@@ -57,9 +65,12 @@ pub async fn init_plugin_db(
         // restricted. This is what makes the negative security test pass.
         .after_connect(|conn, _meta| {
             Box::pin(async move {
-                sea_orm::sqlx::Executor::execute(conn, "SET ROLE broccoli_plugin")
-                    .await
-                    .map(|_| ())
+                sea_orm::sqlx::Executor::execute(
+                    conn,
+                    format!("SET ROLE {PLUGIN_DB_ROLE}").as_str(),
+                )
+                .await
+                .map(|_| ())
             })
         });
 

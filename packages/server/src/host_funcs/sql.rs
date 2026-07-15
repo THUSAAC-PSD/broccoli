@@ -115,21 +115,74 @@ pub fn set_plugin_db_fallback_url(url: String) {
     let _ = PLUGIN_DB_FALLBACK_URL.set(url);
 }
 
+/// Which DB role a fresh fallback connection must assume before running its
+/// statement. Pooled plugin connections downshift to the restricted
+/// `broccoli_plugin` role via `after_connect` (see
+/// [`crate::database::init_plugin_db`]), but a fresh fallback connection is
+/// opened OUTSIDE that pool and would otherwise default to the privileged app
+/// role. The raw `sql` path must re-apply the restricted role so a plugin write
+/// the role forbids cannot succeed merely by riding the 0x00 fallback; the
+/// server-owned structured `host.submission.*` path is privileged by design and
+/// keeps the app role.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FallbackRole {
+    /// Raw plugin SQL: `SET ROLE broccoli_plugin`, matching the restricted pool.
+    Restricted,
+    /// Server-owned structured writes (`host.submission.*`): keep the app role.
+    Privileged,
+}
+
+/// Re-apply the restricted plugin role on a freshly opened fallback connection.
+/// A no-op for [`FallbackRole::Privileged`]. The fallback pool holds exactly one
+/// connection (`max`/`min` = 1), so this `SET ROLE` and the statement that
+/// follows provably run on the same physical connection.
+async fn apply_fallback_role(
+    conn: &DatabaseConnection,
+    role: FallbackRole,
+) -> Result<(), sea_orm::DbErr> {
+    if role == FallbackRole::Restricted {
+        conn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            format!("SET ROLE {}", crate::database::PLUGIN_DB_ROLE),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
 /// Open a fresh single connection and execute `stmt` on it, then drop it. The
 /// connection is brand-new, so it is guaranteed free of stale wire-protocol
 /// framing from any prior operation — the guaranteed cure for a poisoned-
-/// connection 0x00 when the pool retries are exhausted.
-fn execute_on_fresh_connection(stmt: Statement) -> Result<sea_orm::ExecResult, sea_orm::DbErr> {
+/// connection 0x00 when the pool retries are exhausted. `role` decides whether
+/// the fresh connection first downshifts to the restricted plugin role, so the
+/// fallback carries the SAME privilege as the pool the call came from.
+fn execute_on_fresh_connection(
+    stmt: Statement,
+    role: FallbackRole,
+) -> Result<sea_orm::ExecResult, sea_orm::DbErr> {
     let url = PLUGIN_DB_FALLBACK_URL
         .get()
         .ok_or_else(|| sea_orm::DbErr::Custom("plugin DB fallback URL not set".to_string()))?
         .clone();
+    execute_on_fresh_connection_url(&url, stmt, role)
+}
+
+/// Inner helper split out from [`execute_on_fresh_connection`] so the
+/// fresh-connection behaviour (including the role downshift) is testable against
+/// a real database without the process-global `PLUGIN_DB_FALLBACK_URL` `OnceLock`.
+fn execute_on_fresh_connection_url(
+    url: &str,
+    stmt: Statement,
+    role: FallbackRole,
+) -> Result<sea_orm::ExecResult, sea_orm::DbErr> {
+    let url = url.to_string();
     tokio::runtime::Handle::current().block_on(async move {
         let mut opt = ConnectOptions::new(url);
         opt.max_connections(1)
             .min_connections(1)
             .sqlx_logging(false);
         let fresh = Database::connect(opt).await?;
+        apply_fallback_role(&fresh, role).await?;
         let result = fresh.execute_raw(stmt).await;
         fresh.close().await.ok();
         result
@@ -143,15 +196,17 @@ fn execute_on_fresh_connection(stmt: Statement) -> Result<sea_orm::ExecResult, s
 /// connection, so a query could still surface a `0x00` error to the plugin — and
 /// a plugin DB error becomes a `SystemError`. A brand-new connection is clean by
 /// construction, turning that into a deterministic recovery, matching the
-/// guarantee the write path already has.
+/// guarantee the write path already has. `role` mirrors the calling pool's
+/// privilege (restricted for raw `sql`, privileged for `host.submission.*`).
 fn query_on_fresh_connection(
     stmt: Statement,
+    role: FallbackRole,
 ) -> Result<Option<sea_orm::QueryResult>, sea_orm::DbErr> {
     let url = PLUGIN_DB_FALLBACK_URL
         .get()
         .ok_or_else(|| sea_orm::DbErr::Custom("plugin DB fallback URL not set".to_string()))?
         .clone();
-    query_on_fresh_connection_url(&url, stmt)
+    query_on_fresh_connection_url(&url, stmt, role)
 }
 
 /// Inner helper split out from [`query_on_fresh_connection`] so the
@@ -160,6 +215,7 @@ fn query_on_fresh_connection(
 fn query_on_fresh_connection_url(
     url: &str,
     stmt: Statement,
+    role: FallbackRole,
 ) -> Result<Option<sea_orm::QueryResult>, sea_orm::DbErr> {
     let url = url.to_string();
     tokio::runtime::Handle::current().block_on(async move {
@@ -168,6 +224,7 @@ fn query_on_fresh_connection_url(
             .min_connections(1)
             .sqlx_logging(false);
         let fresh = Database::connect(opt).await?;
+        apply_fallback_role(&fresh, role).await?;
         let result = fresh.query_one_raw(stmt).await;
         fresh.close().await.ok();
         result
@@ -451,7 +508,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
             plugin_id = %plugin_id,
             "db_execute exhausted pool retries on poisoned-connection 0x00; falling back to a fresh connection"
         );
-        exec_result = execute_on_fresh_connection(stmt);
+        exec_result = execute_on_fresh_connection(stmt, FallbackRole::Restricted);
     }
 
     match exec_result {
@@ -511,7 +568,7 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
             plugin_id = %plugin_id,
             "db_query exhausted pool retries on poisoned-connection 0x00; falling back to a fresh connection"
         );
-        query_result = query_on_fresh_connection(stmt);
+        query_result = query_on_fresh_connection(stmt, FallbackRole::Restricted);
     }
 
     match query_result {
@@ -782,7 +839,7 @@ pub(super) fn execute_on_pool(
             plugin_id = %plugin_id,
             "submission execute exhausted pool retries on poisoned-connection 0x00; falling back to a fresh connection"
         );
-        exec_result = execute_on_fresh_connection(stmt);
+        exec_result = execute_on_fresh_connection(stmt, FallbackRole::Privileged);
     }
 
     match exec_result {
@@ -836,7 +893,7 @@ pub(super) fn query_on_pool(
             plugin_id = %plugin_id,
             "submission query exhausted pool retries on poisoned-connection 0x00; falling back to a fresh connection"
         );
-        query_result = query_on_fresh_connection(stmt);
+        query_result = query_on_fresh_connection(stmt, FallbackRole::Privileged);
     }
 
     match query_result {
@@ -959,15 +1016,101 @@ mod tests {
         // host function does in production, where it runs on a `spawn_blocking`
         // thread (not a runtime worker). Replicate that here so `block_on` is
         // legal — calling it directly on the test's runtime thread would panic.
-        let row = tokio::task::spawn_blocking(move || query_on_fresh_connection_url(&url, stmt))
-            .await
-            .expect("blocking task joins")
-            .expect("fresh-connection query should succeed")
-            .expect("a row is returned");
+        let row = tokio::task::spawn_blocking(move || {
+            query_on_fresh_connection_url(&url, stmt, FallbackRole::Privileged)
+        })
+        .await
+        .expect("blocking task joins")
+        .expect("fresh-connection query should succeed")
+        .expect("a row is returned");
         let json: serde_json::Value = row
             .try_get("", "json_data")
             .expect("json_data column present");
         assert_eq!(json, serde_json::json!([{ "n": 7 }]));
+    }
+
+    /// Security regression: the raw `sql` path opens its 0x00 fallback with
+    /// [`FallbackRole::Restricted`], so a write the `broccoli_plugin` role is not
+    /// granted MUST be denied on the fresh connection just as it is on the pooled
+    /// one — the fallback must not become a privilege-escalation hatch back to the
+    /// app role. The structured path's [`FallbackRole::Privileged`] keeps the app
+    /// role so its server-owned core writes still land.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn restricted_fallback_denies_writes_the_plugin_role_lacks() {
+        use testcontainers::ImageExt;
+        use testcontainers::runners::AsyncRunner;
+        use testcontainers_modules::postgres::Postgres;
+
+        let container = Postgres::default()
+            .with_tag("17-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres host port");
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+
+        // Set up the restricted role exactly as the migration does: NOLOGIN,
+        // app-role is a member, SELECT-only on the table under test (no INSERT).
+        let admin = Database::connect(url.clone())
+            .await
+            .expect("connect as app role");
+        for ddl in [
+            "CREATE ROLE broccoli_plugin NOLOGIN",
+            "GRANT broccoli_plugin TO CURRENT_USER",
+            "CREATE TABLE core_t (id int)",
+            "GRANT SELECT ON core_t TO broccoli_plugin",
+        ] {
+            admin
+                .execute_raw(Statement::from_string(DbBackend::Postgres, ddl))
+                .await
+                .unwrap_or_else(|e| panic!("setup `{ddl}` failed: {e}"));
+        }
+
+        // Restricted fallback: the INSERT the role lacks must be denied.
+        let insert = Statement::from_string(DbBackend::Postgres, "INSERT INTO core_t VALUES (1)");
+        let denied_url = url.clone();
+        let denied = tokio::task::spawn_blocking(move || {
+            execute_on_fresh_connection_url(&denied_url, insert, FallbackRole::Restricted)
+        })
+        .await
+        .expect("blocking task joins");
+        assert!(
+            denied.is_err(),
+            "a restricted fallback must not perform a write the plugin role lacks"
+        );
+
+        // Restricted fallback read: SELECT is granted, so it must still succeed.
+        let read = Statement::from_string(
+            DbBackend::Postgres,
+            "SELECT COALESCE(json_agg(t), '[]'::json) AS json_data FROM (SELECT id FROM core_t) AS t",
+        );
+        let read_url = url.clone();
+        let read_ok = tokio::task::spawn_blocking(move || {
+            query_on_fresh_connection_url(&read_url, read, FallbackRole::Restricted)
+        })
+        .await
+        .expect("blocking task joins");
+        assert!(
+            read_ok.is_ok(),
+            "a restricted fallback must still perform a granted read"
+        );
+
+        // Privileged fallback: the same INSERT runs as the app role and lands.
+        let privileged_insert =
+            Statement::from_string(DbBackend::Postgres, "INSERT INTO core_t VALUES (2)");
+        let priv_url = url.clone();
+        let allowed = tokio::task::spawn_blocking(move || {
+            execute_on_fresh_connection_url(&priv_url, privileged_insert, FallbackRole::Privileged)
+        })
+        .await
+        .expect("blocking task joins");
+        assert!(
+            allowed.is_ok(),
+            "a privileged fallback keeps the app role so server-owned writes land"
+        );
     }
 
     /// A transaction orphaned by a trapped guest (never committed or rolled
