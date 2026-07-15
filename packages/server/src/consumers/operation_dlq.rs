@@ -11,9 +11,17 @@ pub async fn consume_operation_dlq(db: DatabaseConnection, mq: Arc<Mq>, queue_na
     info!(queue = %queue_name, "Starting operation DLQ consumer");
 
     let result = mq
+        // Concurrency `Some(1)`, NOT `None`: the `None` code path in
+        // `process_messages` propagates a transient consume error out with `?`,
+        // which returns from this function and — since the caller only
+        // `spawn`s it with no reconnect loop — permanently halts DLQ
+        // persistence (silent failed-job loss) on a single Redis hiccup. The
+        // `Some(n)` path instead loops and retries the consume forever, the
+        // same self-healing the result and worker consumers rely on. `1` keeps
+        // DLQ handling sequential, matching the previous behaviour.
         .process_messages(
             &queue_name,
-            None,
+            Some(1),
             None,
             move |message: BrokerMessage<DlqEnvelope>| {
                 let db = db.clone();
