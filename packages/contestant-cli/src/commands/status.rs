@@ -204,7 +204,6 @@ fn print_submission(sub: &SubmissionResponse) {
     println!();
 }
 
-
 /// Truncate (with ellipsis) and right-pad to exactly `width` display columns.
 fn pad(s: &str, width: usize) -> String {
     let total = UnicodeWidthStr::width(s);

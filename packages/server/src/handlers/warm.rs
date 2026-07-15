@@ -72,7 +72,9 @@ pub async fn prewarm_contest(
     find_contest(&state.db, id).await?;
 
     let client = state.redis_client.as_ref().ok_or_else(|| {
-        AppError::Internal("Cache warming requires the message queue (Redis) to be configured".into())
+        AppError::Internal(
+            "Cache warming requires the message queue (Redis) to be configured".into(),
+        )
     })?;
 
     let hashes = enumerate_contest_blob_hashes(&state.db, id).await?;
@@ -133,7 +135,9 @@ pub async fn prewarm_status(
     find_contest(&state.db, id).await?;
 
     let client = state.redis_client.as_ref().ok_or_else(|| {
-        AppError::Internal("Cache warming requires the message queue (Redis) to be configured".into())
+        AppError::Internal(
+            "Cache warming requires the message queue (Redis) to be configured".into(),
+        )
     })?;
     let mut conn = client
         .get_multiplexed_async_connection()

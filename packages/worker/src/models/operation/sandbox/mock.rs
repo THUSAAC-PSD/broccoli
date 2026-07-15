@@ -122,8 +122,7 @@ impl MockSandboxManager {
                         std::io::Error::last_os_error()
                     )));
                 }
-                let rc =
-                    unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
+                let rc = unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
                 if rc < 0 {
                     return Err(SandboxError::Execution(format!(
                         "failed to clear O_NONBLOCK for stdin pipe {}: {}",

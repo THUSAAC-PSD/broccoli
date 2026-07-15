@@ -49,10 +49,7 @@ impl Verdict {
 /// Both readers are consumed in fixed-size chunks so ~10 MB inputs do not need
 /// to be buffered in full. `output` is borrowed so the caller keeps the reader
 /// (and can drain any unread bytes after this returns early).
-pub fn compare_exact<O: Read, A: Read>(
-    output: &mut O,
-    mut answer: A,
-) -> std::io::Result<Verdict> {
+pub fn compare_exact<O: Read, A: Read>(output: &mut O, mut answer: A) -> std::io::Result<Verdict> {
     const CHUNK: usize = 64 * 1024;
     let mut out_buf = vec![0u8; CHUNK];
     let mut ans_buf = vec![0u8; CHUNK];
@@ -505,8 +502,14 @@ mod tests {
 
     #[test]
     fn detects_mismatch_across_chunk_boundaries() {
-        let mut out = OneByteAtATime { bytes: b"42\n", pos: 0 };
-        let ans = OneByteAtATime { bytes: b"42", pos: 0 };
+        let mut out = OneByteAtATime {
+            bytes: b"42\n",
+            pos: 0,
+        };
+        let ans = OneByteAtATime {
+            bytes: b"42",
+            pos: 0,
+        };
         assert_eq!(compare_exact(&mut out, ans).unwrap(), Verdict::WrongAnswer);
     }
 
@@ -594,7 +597,10 @@ mod tests {
     #[test]
     fn tokens_ci_hello_world() {
         // checkers/tokens_case.rs::hello_world_case_insensitive
-        assert_eq!(tokens_ci(b"Hello World\n", b"hello world"), Verdict::Accepted);
+        assert_eq!(
+            tokens_ci(b"Hello World\n", b"hello world"),
+            Verdict::Accepted
+        );
     }
 
     #[test]
@@ -624,7 +630,10 @@ mod tests {
     #[test]
     fn lines_trailing_whitespace_per_line_ignored() {
         // checkers/lines.rs::trailing_whitespace_per_line_ignored
-        assert_eq!(lines(b"hello  \nworld  \n", b"hello\nworld\n"), Verdict::Accepted);
+        assert_eq!(
+            lines(b"hello  \nworld  \n", b"hello\nworld\n"),
+            Verdict::Accepted
+        );
     }
 
     #[test]
@@ -636,7 +645,10 @@ mod tests {
     #[test]
     fn lines_internal_whitespace_preserved() {
         // checkers/lines.rs::internal_whitespace_preserved
-        assert_eq!(lines(b"hello  world\n", b"hello world\n"), Verdict::WrongAnswer);
+        assert_eq!(
+            lines(b"hello  world\n", b"hello world\n"),
+            Verdict::WrongAnswer
+        );
     }
 
     #[test]
@@ -789,24 +801,48 @@ mod tests {
     #[test]
     fn exact_asymmetric_chunks_identical_is_ac() {
         // output 3 bytes/read, answer 2 bytes/read; identical content -> AC.
-        let mut out = ChunkedReader { bytes: b"abcdefg", pos: 0, chunk: 3 };
-        let ans = ChunkedReader { bytes: b"abcdefg", pos: 0, chunk: 2 };
+        let mut out = ChunkedReader {
+            bytes: b"abcdefg",
+            pos: 0,
+            chunk: 3,
+        };
+        let ans = ChunkedReader {
+            bytes: b"abcdefg",
+            pos: 0,
+            chunk: 2,
+        };
         assert_eq!(compare_exact(&mut out, ans).unwrap(), Verdict::Accepted);
     }
 
     #[test]
     fn exact_asymmetric_chunks_interior_diff_is_wa() {
         // Differ at an interior byte that straddles the asymmetric boundaries.
-        let mut out = ChunkedReader { bytes: b"abcXefg", pos: 0, chunk: 3 };
-        let ans = ChunkedReader { bytes: b"abcdefg", pos: 0, chunk: 2 };
+        let mut out = ChunkedReader {
+            bytes: b"abcXefg",
+            pos: 0,
+            chunk: 3,
+        };
+        let ans = ChunkedReader {
+            bytes: b"abcdefg",
+            pos: 0,
+            chunk: 2,
+        };
         assert_eq!(compare_exact(&mut out, ans).unwrap(), Verdict::WrongAnswer);
     }
 
     #[test]
     fn exact_asymmetric_chunks_length_diff_is_wa() {
         // Identical prefix, output longer -> exercises the one-side-empty path.
-        let mut out = ChunkedReader { bytes: b"abcdefg", pos: 0, chunk: 3 };
-        let ans = ChunkedReader { bytes: b"abcde", pos: 0, chunk: 2 };
+        let mut out = ChunkedReader {
+            bytes: b"abcdefg",
+            pos: 0,
+            chunk: 3,
+        };
+        let ans = ChunkedReader {
+            bytes: b"abcde",
+            pos: 0,
+            chunk: 2,
+        };
         assert_eq!(compare_exact(&mut out, ans).unwrap(), Verdict::WrongAnswer);
     }
 
@@ -819,7 +855,10 @@ mod tests {
 
     #[test]
     fn tokens_multibyte_utf8_split_across_reads_is_ac() {
-        let mut out = OneByteAtATime { bytes: "café α β\n".as_bytes(), pos: 0 };
+        let mut out = OneByteAtATime {
+            bytes: "café α β\n".as_bytes(),
+            pos: 0,
+        };
         assert_eq!(
             compare_tokens(&mut out, "café α β".as_bytes(), TokenMode::Exact).unwrap(),
             Verdict::Accepted
@@ -828,7 +867,10 @@ mod tests {
 
     #[test]
     fn tokens_multibyte_utf8_split_mismatch_is_wa() {
-        let mut out = OneByteAtATime { bytes: "café α β\n".as_bytes(), pos: 0 };
+        let mut out = OneByteAtATime {
+            bytes: "café α β\n".as_bytes(),
+            pos: 0,
+        };
         assert_eq!(
             compare_tokens(&mut out, "café α γ".as_bytes(), TokenMode::Exact).unwrap(),
             Verdict::WrongAnswer
@@ -838,7 +880,10 @@ mod tests {
     #[test]
     fn tokens_ci_multibyte_utf8_split_is_ac() {
         // Case-fold across split reads: "CAFÉ Ω" lowercases to "café ω".
-        let mut out = OneByteAtATime { bytes: "CAFÉ Ω\n".as_bytes(), pos: 0 };
+        let mut out = OneByteAtATime {
+            bytes: "CAFÉ Ω\n".as_bytes(),
+            pos: 0,
+        };
         assert_eq!(
             compare_tokens(&mut out, "café ω".as_bytes(), TokenMode::CaseInsensitive).unwrap(),
             Verdict::Accepted
@@ -847,7 +892,10 @@ mod tests {
 
     #[test]
     fn lines_multibyte_utf8_split_across_reads_is_ac() {
-        let mut out = OneByteAtATime { bytes: "café\nα β\n".as_bytes(), pos: 0 };
+        let mut out = OneByteAtATime {
+            bytes: "café\nα β\n".as_bytes(),
+            pos: 0,
+        };
         assert_eq!(
             compare_lines(&mut out, "café\nα β\n".as_bytes()).unwrap(),
             Verdict::Accepted
@@ -880,13 +928,19 @@ mod tests {
     #[test]
     fn float_rel_tol_regime_is_ac() {
         // abs_tol 0; tol = rel_tol*max(|a|,|b|) = 1e-3*1001 = 1.001; diff 1.0 -> AC.
-        assert_eq!(float_tol(b"1001.0", b"1000.0", 0.0, 1e-3), Verdict::Accepted);
+        assert_eq!(
+            float_tol(b"1001.0", b"1000.0", 0.0, 1e-3),
+            Verdict::Accepted
+        );
     }
 
     #[test]
     fn float_rel_tol_just_over_is_wa() {
         // tol = 1e-4*1000.5 = 0.10005; diff 0.5 -> WA.
-        assert_eq!(float_tol(b"1000.5", b"1000.0", 0.0, 1e-4), Verdict::WrongAnswer);
+        assert_eq!(
+            float_tol(b"1000.5", b"1000.0", 0.0, 1e-4),
+            Verdict::WrongAnswer
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -930,7 +984,10 @@ mod tests {
     fn lines_trailing_unicode_whitespace_trimmed() {
         // trim_end strips Unicode White_Space: a trailing ideographic space
         // (U+3000) is removed, matching the answer without it.
-        assert_eq!(lines("hello\u{3000}\n".as_bytes(), b"hello\n"), Verdict::Accepted);
+        assert_eq!(
+            lines("hello\u{3000}\n".as_bytes(), b"hello\n"),
+            Verdict::Accepted
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -939,8 +996,14 @@ mod tests {
 
     #[test]
     fn exact_multibyte_unicode_ac_and_wa() {
-        assert_eq!(exact("café α\n".as_bytes(), "café α\n".as_bytes()), Verdict::Accepted);
-        assert_eq!(exact("café α\n".as_bytes(), "café β\n".as_bytes()), Verdict::WrongAnswer);
+        assert_eq!(
+            exact("café α\n".as_bytes(), "café α\n".as_bytes()),
+            Verdict::Accepted
+        );
+        assert_eq!(
+            exact("café α\n".as_bytes(), "café β\n".as_bytes()),
+            Verdict::WrongAnswer
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -978,7 +1041,10 @@ mod tests {
             compare_tokens(
                 &mut out,
                 b"1.0".as_slice(),
-                TokenMode::Float { abs_tol: ABS, rel_tol: REL }
+                TokenMode::Float {
+                    abs_tol: ABS,
+                    rel_tol: REL
+                }
             )
             .unwrap(),
             Verdict::WrongAnswer
@@ -988,7 +1054,10 @@ mod tests {
     #[test]
     fn lines_invalid_utf8_output_is_wa() {
         let mut out = b"\xff\xfe".as_slice();
-        assert_eq!(compare_lines(&mut out, b"hello".as_slice()).unwrap(), Verdict::WrongAnswer);
+        assert_eq!(
+            compare_lines(&mut out, b"hello".as_slice()).unwrap(),
+            Verdict::WrongAnswer
+        );
     }
 
     #[test]
@@ -1006,7 +1075,10 @@ mod tests {
     fn lines_invalid_utf8_output_is_wa_mid_stream() {
         // Invalid byte after a valid prefix is still WrongAnswer for the line mode.
         let mut out = b"hello\n\xff".as_slice();
-        assert_eq!(compare_lines(&mut out, b"hello\n".as_slice()).unwrap(), Verdict::WrongAnswer);
+        assert_eq!(
+            compare_lines(&mut out, b"hello\n".as_slice()).unwrap(),
+            Verdict::WrongAnswer
+        );
     }
 
     #[test]
@@ -1014,7 +1086,10 @@ mod tests {
         // Author-side broken answer stays a hard error (interpreter -> SystemError).
         let mut out = b"5".as_slice();
         let r = compare_tokens(&mut out, b"\xff\xfe".as_slice(), TokenMode::Exact);
-        assert!(r.is_err(), "answer-side invalid UTF-8 must remain an error, got {r:?}");
+        assert!(
+            r.is_err(),
+            "answer-side invalid UTF-8 must remain an error, got {r:?}"
+        );
         assert_eq!(r.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
@@ -1022,7 +1097,10 @@ mod tests {
     fn lines_invalid_utf8_answer_is_error() {
         let mut out = b"hello\n".as_slice();
         let r = compare_lines(&mut out, b"\xff\xfe".as_slice());
-        assert!(r.is_err(), "answer-side invalid UTF-8 must remain an error, got {r:?}");
+        assert!(
+            r.is_err(),
+            "answer-side invalid UTF-8 must remain an error, got {r:?}"
+        );
         assert_eq!(r.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 }

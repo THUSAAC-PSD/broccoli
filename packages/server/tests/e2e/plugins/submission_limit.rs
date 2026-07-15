@@ -222,7 +222,11 @@ async fn limit_status_endpoint_shows_remaining() {
             &contestant,
         )
         .await;
-    assert_eq!(sub.status, 201, "Submission should be accepted: {}", sub.text);
+    assert_eq!(
+        sub.status, 201,
+        "Submission should be accepted: {}",
+        sub.text
+    );
 
     let status_path = format!(
         "/api/v1/p/submission-limit/api/plugins/submission-limit/contests/{contest_id}/problems/{problem_id}/status"
@@ -399,11 +403,25 @@ async fn limit_sequential_real_posts_rejected_after_max() {
         })
     };
 
-    let r1 = app.post_with_token(&sub_path, &submit(1), &contestant).await;
-    assert_eq!(r1.status, 201, "1st submission should be accepted: {}", r1.text);
-    let r2 = app.post_with_token(&sub_path, &submit(2), &contestant).await;
-    assert_eq!(r2.status, 201, "2nd submission should be accepted: {}", r2.text);
-    let r3 = app.post_with_token(&sub_path, &submit(3), &contestant).await;
+    let r1 = app
+        .post_with_token(&sub_path, &submit(1), &contestant)
+        .await;
+    assert_eq!(
+        r1.status, 201,
+        "1st submission should be accepted: {}",
+        r1.text
+    );
+    let r2 = app
+        .post_with_token(&sub_path, &submit(2), &contestant)
+        .await;
+    assert_eq!(
+        r2.status, 201,
+        "2nd submission should be accepted: {}",
+        r2.text
+    );
+    let r3 = app
+        .post_with_token(&sub_path, &submit(3), &contestant)
+        .await;
     assert_eq!(
         r3.status, 429,
         "3rd submission should be rejected once the cap is reached: {}",

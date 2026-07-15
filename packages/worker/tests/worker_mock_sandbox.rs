@@ -233,11 +233,7 @@ async fn platform_tool_mount_executes_tool_inside_box() {
 
     let result = handler.execute(&operation).await.unwrap();
     let step = result.task_results.get("step-1").unwrap();
-    assert!(
-        step.success,
-        "tool step failed: {:?}",
-        step.sandbox_result
-    );
+    assert!(step.success, "tool step failed: {:?}", step.sandbox_result);
     assert!(
         step.sandbox_result.stdout.contains("tool-ran"),
         "tool did not run; stdout: {:?}",
@@ -670,16 +666,19 @@ async fn try_object_storage_store_for_test() -> Option<Arc<dyn BlobStore>> {
         .trim()
         .eq_ignore_ascii_case("true");
 
-    let store = match ObjectStorageBlobStore::new(ObjectStorageConfig {
-        bucket,
-        region,
-        endpoint: Some(endpoint),
-        access_key: Some(access_key),
-        secret_key: Some(secret_key),
-        path_style,
-        max_size: 128 * 1024 * 1024,
-        temp_dir: None,
-    }, None) {
+    let store = match ObjectStorageBlobStore::new(
+        ObjectStorageConfig {
+            bucket,
+            region,
+            endpoint: Some(endpoint),
+            access_key: Some(access_key),
+            secret_key: Some(secret_key),
+            path_style,
+            max_size: 128 * 1024 * 1024,
+            temp_dir: None,
+        },
+        None,
+    ) {
         Ok(store) => Arc::new(store) as Arc<dyn BlobStore>,
         Err(err) => {
             eprintln!("skip object storage test: invalid config: {err}");
@@ -1042,7 +1041,11 @@ async fn non_channel_pipe_still_works_with_channels_present() {
 // that file (read-only), never the producer's whole environment.
 // ===========================================================================
 
-fn two_env_op(producer_argv: &str, consumer_argv: &str, consumer_deps: Vec<String>) -> OperationTask {
+fn two_env_op(
+    producer_argv: &str,
+    consumer_argv: &str,
+    consumer_deps: Vec<String>,
+) -> OperationTask {
     use worker::models::operation::models::{MountSource, MountSpec};
     OperationTask {
         environments: vec![
@@ -1060,7 +1063,11 @@ fn two_env_op(producer_argv: &str, consumer_argv: &str, consumer_deps: Vec<Strin
                 id: "producer".to_string(),
                 kind: StepKind::Generic,
                 env_ref: "a".to_string(),
-                argv: vec!["/bin/sh".to_string(), "-c".to_string(), producer_argv.to_string()],
+                argv: vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    producer_argv.to_string(),
+                ],
                 conf: RunOptions::default(),
                 io: IOConfig::default(),
                 // out.txt is NOT collected -> it is never uploaded as a blob.
@@ -1073,7 +1080,11 @@ fn two_env_op(producer_argv: &str, consumer_argv: &str, consumer_deps: Vec<Strin
                 id: "consumer".to_string(),
                 kind: StepKind::Generic,
                 env_ref: "b".to_string(),
-                argv: vec!["/bin/sh".to_string(), "-c".to_string(), consumer_argv.to_string()],
+                argv: vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    consumer_argv.to_string(),
+                ],
                 conf: RunOptions::default(),
                 io: IOConfig::default(),
                 collect: vec![],

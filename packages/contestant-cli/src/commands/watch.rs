@@ -623,11 +623,7 @@ fn open_detail(app: &mut AppData, client: &Client) {
 }
 
 /// Submit the compose buffer and force a refresh; keeps the text on failure.
-fn submit_clarification(
-    app: &mut AppData,
-    client: &Arc<Client>,
-    refresh_now: &Arc<AtomicBool>,
-) {
+fn submit_clarification(app: &mut AppData, client: &Arc<Client>, refresh_now: &Arc<AtomicBool>) {
     let Some(content) = app.compose.take().map(|c| c.trim().to_string()) else {
         return;
     };
@@ -1404,10 +1400,7 @@ fn render_submissions(f: &mut Frame, app: &AppData, area: Rect) {
                 Some(v) => (v.human().to_string(), v.color()),
                 None => (s.status.human().to_string(), s.status.color()),
             };
-            let score = s
-                .score
-                .map(fmt::score)
-                .unwrap_or_else(|| "—".into());
+            let score = s.score.map(fmt::score).unwrap_or_else(|| "—".into());
             let time = s.time_used.map(fmt::time_ms).unwrap_or_else(|| "—".into());
             let memory = s
                 .memory_used

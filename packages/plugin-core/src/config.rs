@@ -234,10 +234,9 @@ mod tests {
     fn missing_timeout_fields_deserialize_to_bounded_defaults() {
         // Operators upgrading an existing config file must still get an
         // execution deadline and an acquisition timeout.
-        let cfg: PluginConfig = serde_json::from_str(
-            r#"{"plugins_dir": "./plugins", "enable_wasi": true}"#,
-        )
-        .expect("deserialize minimal config");
+        let cfg: PluginConfig =
+            serde_json::from_str(r#"{"plugins_dir": "./plugins", "enable_wasi": true}"#)
+                .expect("deserialize minimal config");
         assert_eq!(cfg.call_timeout_secs, 300);
         assert_eq!(cfg.pool_acquire_timeout_secs, 300);
     }

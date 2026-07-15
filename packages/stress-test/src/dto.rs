@@ -397,9 +397,17 @@ mod tests {
             let wire = serde_json::to_string(canonical).unwrap();
             let local: SubmissionStatus = serde_json::from_str(&wire).unwrap();
             assert_eq!(local, SubmissionStatus::from(canonical.clone()));
-            assert_ne!(local, SubmissionStatus::Unknown, "known status {wire} must not fall back");
+            assert_ne!(
+                local,
+                SubmissionStatus::Unknown,
+                "known status {wire} must not fall back"
+            );
             assert_eq!(serde_json::to_string(&local).unwrap(), wire);
-            assert_eq!(local.is_terminal(), canonical.is_terminal(), "terminality of {wire}");
+            assert_eq!(
+                local.is_terminal(),
+                canonical.is_terminal(),
+                "terminality of {wire}"
+            );
         }
     }
 

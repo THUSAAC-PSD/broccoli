@@ -512,14 +512,13 @@ pub trait PluginManager: Send + Sync {
                     // (e.g. blob_read_range) add to it during the call so the
                     // pool can weigh how much data this instance churned through.
                     crate::host_context::reset_stream_bytes();
-                    let call_result: Result<Vec<u8>, PluginError> =
-                        plugin.call(func_name.as_str(), input).map_err(|e| {
-                        PluginError::ExecutionFailed {
+                    let call_result: Result<Vec<u8>, PluginError> = plugin
+                        .call(func_name.as_str(), input)
+                        .map_err(|e| PluginError::ExecutionFailed {
                             plugin_id: plugin_id.clone(),
                             func_name: func_name.clone(),
                             message: e.to_string(),
-                        }
-                    });
+                        });
                     // Heap-profile hook (opt-in via BROCCOLI_PROFILE_PLUGIN_IO): record the
                     // bytes marshalled in/out of WASM per plugin call. Copying input/output
                     // across the host<->guest boundary grows the pooled instance's WASM
@@ -543,9 +542,8 @@ pub trait PluginManager: Send + Sync {
                     // bytes — data pulled in via host functions like
                     // blob_read_range — are the real driver; call I/O is added
                     // for completeness.
-                    let processed_bytes = input_len as u64
-                        + output_len as u64
-                        + crate::host_context::stream_bytes();
+                    let processed_bytes =
+                        input_len as u64 + output_len as u64 + crate::host_context::stream_bytes();
                     if pool.note_call(&plugin, processed_bytes) {
                         debug!(
                             plugin_id = %plugin_id,
@@ -554,10 +552,9 @@ pub trait PluginManager: Send + Sync {
                             "Recycled plugin instance to reclaim WASM linear memory"
                         );
                         if let Some(metrics) = metrics.as_ref() {
-                            metrics.plugin_instance_recycled_total.add(
-                                1,
-                                &[KeyValue::new("plugin.id", plugin_id.clone())],
-                            );
+                            metrics
+                                .plugin_instance_recycled_total
+                                .add(1, &[KeyValue::new("plugin.id", plugin_id.clone())]);
                         }
                     }
                     call_result

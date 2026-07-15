@@ -350,7 +350,10 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
     // it alone while it re-judges). Epoch-gated so a concurrent steal/retry that
     // already advanced this judgement wins and we abandon (rows == 0).
     let judgement_rows = submission_judgement::Entity::update_many()
-        .col_expr(submission_judgement::Column::JudgeEpoch, Expr::value(new_epoch))
+        .col_expr(
+            submission_judgement::Column::JudgeEpoch,
+            Expr::value(new_epoch),
+        )
         .col_expr(
             submission_judgement::Column::Status,
             Expr::value(SubmissionStatus::Pending.to_string()),
@@ -367,18 +370,30 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
             submission_judgement::Column::ErrorMessage,
             Expr::value(None::<String>),
         )
-        .col_expr(submission_judgement::Column::Score, Expr::value(None::<f64>))
-        .col_expr(submission_judgement::Column::TimeUsed, Expr::value(None::<i32>))
+        .col_expr(
+            submission_judgement::Column::Score,
+            Expr::value(None::<f64>),
+        )
+        .col_expr(
+            submission_judgement::Column::TimeUsed,
+            Expr::value(None::<i32>),
+        )
         .col_expr(
             submission_judgement::Column::MemoryUsed,
             Expr::value(None::<i32>),
         )
-        .col_expr(submission_judgement::Column::IsFinalized, Expr::value(false))
+        .col_expr(
+            submission_judgement::Column::IsFinalized,
+            Expr::value(false),
+        )
         .col_expr(
             submission_judgement::Column::FinalizedAt,
             Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
-        .col_expr(submission_judgement::Column::RetryCount, Expr::value(new_retry))
+        .col_expr(
+            submission_judgement::Column::RetryCount,
+            Expr::value(new_retry),
+        )
         .col_expr(
             submission_judgement::Column::OwnerServerId,
             Expr::value(Some(server_id.to_string())),
@@ -426,10 +441,7 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
             submission::Column::OwnerServerId,
             Expr::value(Some(server_id.to_string())),
         )
-        .col_expr(
-            submission::Column::LeaseHeartbeatAt,
-            Expr::value(Some(now)),
-        )
+        .col_expr(submission::Column::LeaseHeartbeatAt, Expr::value(Some(now)))
         .filter(submission::Column::Id.eq(submission_id))
         .filter(submission::Column::JudgeEpoch.eq(expected_epoch))
         .exec(&txn)
@@ -448,7 +460,9 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
 
     txn.commit().await?;
 
-    Ok(submission::Entity::find_by_id(submission_id).one(db).await?)
+    Ok(submission::Entity::find_by_id(submission_id)
+        .one(db)
+        .await?)
 }
 
 async fn record_dispatch_failure(
@@ -965,10 +979,7 @@ mod tests {
         let now = Utc::now();
         submission::Entity::update_many()
             .col_expr(submission::Column::JudgeEpoch, Expr::value(epoch))
-            .col_expr(
-                submission::Column::Status,
-                Expr::value(status.to_string()),
-            )
+            .col_expr(submission::Column::Status, Expr::value(status.to_string()))
             .col_expr(
                 submission::Column::Verdict,
                 Expr::value(verdict.as_ref().map(|v| v.as_str().to_string())),
@@ -1022,9 +1033,15 @@ mod tests {
     async fn finalized_system_error_judgement_is_requeued_for_retry() {
         let (_pg, db) = start_pg().await;
         let sub = seed_owned_submission(&db, "srv-A").await;
-        let jid =
-            finalize_judgement(&db, &sub, 0, 0, SubmissionStatus::Judged, Some(Verdict::SystemError))
-                .await;
+        let jid = finalize_judgement(
+            &db,
+            &sub,
+            0,
+            0,
+            SubmissionStatus::Judged,
+            Some(Verdict::SystemError),
+        )
+        .await;
         seed_tcr(&db, sub.id, jid, 0).await;
 
         let resub = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 5)
@@ -1080,8 +1097,7 @@ mod tests {
     async fn stuck_terminal_system_error_status_is_requeued_within_system_error_budget() {
         let (_pg, db) = start_pg().await;
         let sub = seed_owned_submission(&db, "srv-A").await;
-        let jid =
-            finalize_judgement(&db, &sub, 0, 5, SubmissionStatus::SystemError, None).await;
+        let jid = finalize_judgement(&db, &sub, 0, 5, SubmissionStatus::SystemError, None).await;
         seed_tcr(&db, sub.id, jid, 0).await;
 
         let resub = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 50)
@@ -1110,9 +1126,15 @@ mod tests {
         let (_pg, db) = start_pg().await;
         let sub = seed_owned_submission(&db, "srv-A").await;
         // retry_count + 1 > max(5) => exhausted.
-        let jid =
-            finalize_judgement(&db, &sub, 0, 5, SubmissionStatus::Judged, Some(Verdict::SystemError))
-                .await;
+        let jid = finalize_judgement(
+            &db,
+            &sub,
+            0,
+            5,
+            SubmissionStatus::Judged,
+            Some(Verdict::SystemError),
+        )
+        .await;
 
         let out = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 0, "srv-A", 5)
             .await
@@ -1181,9 +1203,15 @@ mod tests {
     async fn superseded_epoch_judgement_is_not_requeued() {
         let (_pg, db) = start_pg().await;
         let sub = seed_owned_submission(&db, "srv-A").await;
-        let jid =
-            finalize_judgement(&db, &sub, 3, 0, SubmissionStatus::Judged, Some(Verdict::SystemError))
-                .await;
+        let jid = finalize_judgement(
+            &db,
+            &sub,
+            3,
+            0,
+            SubmissionStatus::Judged,
+            Some(Verdict::SystemError),
+        )
+        .await;
 
         // We dispatched at epoch 2, but the judgement is now at epoch 3.
         let out = requeue_judgement_for_system_error_retry(&db, sub.id, jid, 2, "srv-A", 5)

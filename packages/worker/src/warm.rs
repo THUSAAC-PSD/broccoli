@@ -167,7 +167,14 @@ async fn handle_job(
         if processed % PROGRESS_UPDATE_EVERY == 0 && processed < total {
             write_progress(
                 cmd,
-                &progress(&job, worker_id, warmed, fetched_bytes, WarmState::Warming, None),
+                &progress(
+                    &job,
+                    worker_id,
+                    warmed,
+                    fetched_bytes,
+                    WarmState::Warming,
+                    None,
+                ),
             )
             .await;
         }

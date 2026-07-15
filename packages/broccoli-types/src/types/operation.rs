@@ -515,13 +515,19 @@ mod tests {
         assert_eq!(SandboxStatus::from_isolate("OK"), SandboxStatus::Ok);
         assert_eq!(SandboxStatus::from_isolate("TO"), SandboxStatus::TimedOut);
         assert_eq!(SandboxStatus::from_isolate("SG"), SandboxStatus::Signaled);
-        assert_eq!(SandboxStatus::from_isolate("RE"), SandboxStatus::NonZeroExit);
+        assert_eq!(
+            SandboxStatus::from_isolate("RE"),
+            SandboxStatus::NonZeroExit
+        );
         assert_eq!(
             SandboxStatus::from_isolate("XX"),
             SandboxStatus::InternalError
         );
         assert_eq!(SandboxStatus::from_isolate(""), SandboxStatus::Unknown);
-        assert_eq!(SandboxStatus::from_isolate("UNKNOWN"), SandboxStatus::Unknown);
+        assert_eq!(
+            SandboxStatus::from_isolate("UNKNOWN"),
+            SandboxStatus::Unknown
+        );
     }
 
     #[test]

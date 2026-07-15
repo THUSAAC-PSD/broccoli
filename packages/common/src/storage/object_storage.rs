@@ -360,9 +360,7 @@ impl BlobStore for ObjectStorageBlobStore {
                 let resp = get_range_with_retry(&bucket, &key, offset, end, metrics.as_ref())
                     .await
                     .map_err(|e| {
-                        std::io::Error::other(format!(
-                            "get_object_range failed after retries: {e}"
-                        ))
+                        std::io::Error::other(format!("get_object_range failed after retries: {e}"))
                     })?;
 
                 let code = resp.status_code();
@@ -391,7 +389,9 @@ impl BlobStore for ObjectStorageBlobStore {
 
         // `Box::pin` makes the stream `Unpin` (try_unfold's future is not),
         // which `StreamReader`/`BoxReader` require.
-        Ok(Box::new(tokio_util::io::StreamReader::new(Box::pin(stream))))
+        Ok(Box::new(tokio_util::io::StreamReader::new(Box::pin(
+            stream,
+        ))))
     }
 
     async fn get_range(

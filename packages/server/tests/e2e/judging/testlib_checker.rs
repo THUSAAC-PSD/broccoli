@@ -161,7 +161,10 @@ async fn testlib_checker_judges_via_problem_config() {
 
     // Sanity: the upload actually persisted the config the resolver will read.
     let got = app
-        .get_with_token(&format!("/api/v1/problems/{problem_id}/checker-source"), &admin)
+        .get_with_token(
+            &format!("/api/v1/problems/{problem_id}/checker-source"),
+            &admin,
+        )
         .await;
     assert_eq!(got.status, 200, "get checker-source: {}", got.text);
     let files = got.body["files"].as_array().expect("files array");

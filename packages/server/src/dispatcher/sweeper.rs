@@ -334,7 +334,10 @@ mod tests {
             .exists("operation_results.server-1_processing")
             .await
             .expect("exists failed");
-        assert!(queue_exists, "queue of a live server must survive the sweep");
+        assert!(
+            queue_exists,
+            "queue of a live server must survive the sweep"
+        );
         let dead_since_exists: bool = conn
             .exists("broccoli:server:dead_since:server-1")
             .await

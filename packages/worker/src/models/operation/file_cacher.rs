@@ -88,7 +88,9 @@ async fn hash_file(src: &Path) -> std::io::Result<ContentHash> {
 #[cfg(unix)]
 fn ensure_world_readable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    let Ok(meta) = std::fs::metadata(path) else { return };
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
     if meta.permissions().mode() & 0o005 == 0o005 {
         return; // already world-readable + executable
     }
@@ -378,7 +380,11 @@ impl BlobStoreFileCacher {
             )
         })?;
 
-        let mut reader = self.store.get_stream(hash).await.map_err(|e| e.to_string())?;
+        let mut reader = self
+            .store
+            .get_stream(hash)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let file_size = tokio::io::copy(&mut reader, &mut temp_file)
             .await
@@ -431,7 +437,8 @@ impl BlobStoreFileCacher {
         // Make the newly cached file world-readable so future hard_link hits
         // don't need the copy+chmod fallback in link_or_copy.
         ensure_world_readable(&cached);
-        self.record_cache_entry(hash_hex.to_string(), file_size).await;
+        self.record_cache_entry(hash_hex.to_string(), file_size)
+            .await;
         Ok(file_size)
     }
 }
@@ -540,7 +547,8 @@ impl FileCacher for BlobStoreFileCacher {
                     // into sandbox dirs and exec'd; a stable executable fixpoint
                     // across all sites prevents a shared-inode perms race that
                     // strips the exec bit mid-run (spurious exit-127 RuntimeError).
-                    let _ = std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o755));
+                    let _ =
+                        std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o755));
                 }
                 self.record_cache_entry(hash_hex.clone(), file_size).await;
             }

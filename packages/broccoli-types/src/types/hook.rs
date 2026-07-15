@@ -140,7 +140,10 @@ mod tests {
     fn modified_round_trips_with_event_payload() {
         let resp = HookResponse::modified(serde_json::json!({"topic": "t", "user_id": 1}));
         let json = serde_json::to_string(&resp).unwrap();
-        assert_eq!(json, r#"{"action":"modified","event":{"topic":"t","user_id":1}}"#);
+        assert_eq!(
+            json,
+            r#"{"action":"modified","event":{"topic":"t","user_id":1}}"#
+        );
         let back: HookResponse = serde_json::from_str(&json).unwrap();
         match back {
             HookResponse::Modified { event } => assert_eq!(event["topic"], "t"),

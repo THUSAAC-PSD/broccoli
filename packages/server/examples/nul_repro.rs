@@ -27,7 +27,9 @@ fn db_url() -> String {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let mode = std::env::args().nth(1).unwrap_or_else(|| "bridge".to_string());
+    let mode = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "bridge".to_string());
     let concurrency: usize = std::env::args()
         .nth(2)
         .and_then(|s| s.parse().ok())

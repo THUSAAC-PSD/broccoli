@@ -182,9 +182,7 @@ mod standalone_problem_visibility {
             .await;
 
         let hidden_pid = app.create_problem(&admin, "Hidden Draft Problem").await;
-        let public_pid = app
-            .create_public_problem(&admin, "Published Problem")
-            .await;
+        let public_pid = app.create_public_problem(&admin, "Published Problem").await;
 
         let payload = json!({
             "files": [{"filename": "main.cpp", "content": "int main() {}"}],
@@ -196,7 +194,11 @@ mod standalone_problem_visibility {
         let get_hidden = app
             .get_with_token(&format!("/api/v1/problems/{hidden_pid}"), &user)
             .await;
-        assert_eq!(get_hidden.status, 404, "hidden problem must not be readable: {}", get_hidden.text);
+        assert_eq!(
+            get_hidden.status, 404,
+            "hidden problem must not be readable: {}",
+            get_hidden.text
+        );
         assert_eq!(get_hidden.body["code"], "NOT_FOUND");
 
         let submit_hidden = app
@@ -218,7 +220,11 @@ mod standalone_problem_visibility {
         let get_public = app
             .get_with_token(&format!("/api/v1/problems/{public_pid}"), &user)
             .await;
-        assert_eq!(get_public.status, 200, "public problem must be readable: {}", get_public.text);
+        assert_eq!(
+            get_public.status, 200,
+            "public problem must be readable: {}",
+            get_public.text
+        );
 
         let submit_public = app
             .post_with_token(

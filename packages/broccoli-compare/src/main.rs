@@ -313,7 +313,9 @@ mod tests {
         assert_eq!(&buf[..n], &data[..n]);
 
         // The preview is disabled after the error; later reads keep working.
-        let n2 = tee.read(&mut buf).expect("read still works after preview died");
+        let n2 = tee
+            .read(&mut buf)
+            .expect("read still works after preview died");
         assert!(n2 > 0);
     }
 
@@ -346,6 +348,9 @@ mod tests {
             Ok(()),
             Ok(()),
         );
-        assert!(r.is_err(), "a real comparison failure must not be swallowed");
+        assert!(
+            r.is_err(),
+            "a real comparison failure must not be swallowed"
+        );
     }
 }

@@ -171,7 +171,12 @@ fn float_custom_rel_epsilon_accepts_large_relative_diff_ac() {
     // Same inputs, but rel_tol 1e-3 -> tol ~1.0005 -> AC. Pins the rel_tol knob
     // that was previously unreachable from the CLI.
     assert_eq!(
-        run_args("tokens-float", b"1000.5", "1000.0", &["--rel-epsilon", "1e-3"]),
+        run_args(
+            "tokens-float",
+            b"1000.5",
+            "1000.0",
+            &["--rel-epsilon", "1e-3"]
+        ),
         0
     );
 }
@@ -361,7 +366,14 @@ fn error_missing_answer_exits_64() {
 fn error_invalid_epsilon_exits_64() {
     let (_d, ans) = answer_file("x");
     assert_eq!(
-        run_raw(&["--mode", "tokens-float", "--answer", &ans, "--epsilon", "notanumber"]),
+        run_raw(&[
+            "--mode",
+            "tokens-float",
+            "--answer",
+            &ans,
+            "--epsilon",
+            "notanumber"
+        ]),
         64
     );
 }
@@ -370,7 +382,14 @@ fn error_invalid_epsilon_exits_64() {
 fn error_invalid_rel_epsilon_exits_64() {
     let (_d, ans) = answer_file("x");
     assert_eq!(
-        run_raw(&["--mode", "tokens-float", "--answer", &ans, "--rel-epsilon", "notanumber"]),
+        run_raw(&[
+            "--mode",
+            "tokens-float",
+            "--answer",
+            &ans,
+            "--rel-epsilon",
+            "notanumber"
+        ]),
         64
     );
 }
@@ -378,7 +397,10 @@ fn error_invalid_rel_epsilon_exits_64() {
 #[test]
 fn error_unknown_flag_exits_64() {
     let (_d, ans) = answer_file("x");
-    assert_eq!(run_raw(&["--mode", "exact", "--answer", &ans, "--bogus"]), 64);
+    assert_eq!(
+        run_raw(&["--mode", "exact", "--answer", &ans, "--bogus"]),
+        64
+    );
 }
 
 #[test]
