@@ -242,8 +242,13 @@ pub async fn create_clarification(
         return Err(AppError::PermissionDenied);
     }
 
+    // Only admins may direct a clarification to a specific recipient. Honoring a
+    // caller-supplied recipient_id for a non-admin would let a contestant inject
+    // a privately-visible clarification into any chosen user's view.
+    let recipient_id = if is_admin { payload.recipient_id } else { None };
+
     let mut recipient_name = None;
-    if let Some(recipient_id) = payload.recipient_id {
+    if let Some(recipient_id) = recipient_id {
         let recipient = user::Entity::find_by_id(recipient_id)
             .one(&state.db)
             .await?
@@ -263,7 +268,7 @@ pub async fn create_clarification(
         author_id: Set(auth_user.user_id),
         content: Set(sanitize_db_text(payload.content.trim())),
         clarification_type: Set(payload.clarification_type.clone()),
-        recipient_id: Set(payload.recipient_id),
+        recipient_id: Set(recipient_id),
         is_public: Set(is_public),
         reply_is_public: Set(false),
         created_at: Set(now),
