@@ -29,8 +29,19 @@ exclude = [
   "packages/plugins/icpc-contest",
   "packages/plugins/standard-evaluators",
   "packages/plugins/standard-checkers",
+  # Locally-patched copy of the broccoli_queue crate (see VENDOR-PATCHES.md and
+  # the [patch.crates-io] table below). Excluded so it is not treated as a
+  # workspace member (it is edition 2021 with its own dev-deps/benches/tests).
+  "third_party",
 ]
 resolver = "3"
+
+# We vendor broccoli_queue to fix two message-loss bugs in its 0.4.6 release
+# that cannot be worked around from the outside (a broken `reject` retry path
+# and a `process_messages` deserialize leak). See VENDOR-PATCHES.md for the
+# exact diffs. Keep the vendored version at 0.4.6 so this patch stays a drop-in.
+[patch.crates-io]
+broccoli_queue = { path = "third_party/broccoli_queue" }
 
 # Size optimized profile for the broccoli binary.
 [profile.release-cli]
