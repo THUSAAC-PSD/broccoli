@@ -132,16 +132,22 @@ async fn scan_once(
             max_dispatch_retries,
         )
         .await?;
-        for ((sub, judgement_id), dispatch_slot) in
+        for ((sub, judgement_id, is_current), dispatch_slot) in
             deferred_judgements.into_iter().zip(deferred_slots)
         {
             let state = state.clone();
+            // Mirror every sibling recovery path (`system_error_retry.rs`,
+            // `stuck.rs`): fire after-judging hooks (scoreboard recompute,
+            // notifications) iff this judgement is the current/live-verdict one.
+            // `claim_deferred_judgement_rows` filters `is_current = TRUE`, so a
+            // reclaimed row is always current; hardcoding `false` here silently
+            // dropped those hooks and left the board/notifications stale.
             dispatch_slot.spawn("steal_deferred_judgement", async move {
                 crate::handlers::submission::dispatch_to_plugin_with_judgement(
                     state,
                     sub,
                     Some(judgement_id),
-                    false,
+                    is_current,
                 )
                 .await;
             });
@@ -173,8 +179,9 @@ async fn scan_once(
 /// can reclaim them.
 ///
 /// A restarted coordinator keeps the **same** `server_id`, so every submission,
-/// code-run, and current-unfinalized judgement it owned before the restart is
-/// still tagged `owner_server_id = <self>` in the DB — but the in-memory
+/// code-run, and unfinalized in-flight judgement (current OR not) it owned
+/// before the restart is still tagged `owner_server_id = <self>` in the DB — but
+/// the in-memory
 /// evaluate/operation driver that was actually judging it died with the old
 /// process. The lease-refresh fiber ([`crate::dispatcher::lease`]) filters on
 /// `owner_server_id = <self>`, so it would keep renewing those dead leases
@@ -249,8 +256,12 @@ pub async fn recover_orphaned_leases(
             submission_judgement::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
         )
+        // Scoped strictly to `owner_server_id = <self>`: a sibling replica's rows
+        // are never touched. We intentionally do NOT filter on `is_current` — a
+        // NON-current in-flight deferred rejudge (e.g. an admin-triggered
+        // re-judge that was superseded) owned by this restarting server would
+        // otherwise never be released and would hang until the 6-hour ceiling.
         .filter(submission_judgement::Column::OwnerServerId.eq(server_id))
-        .filter(submission_judgement::Column::IsCurrent.eq(true))
         .filter(submission_judgement::Column::IsFinalized.eq(false))
         .filter(submission_judgement::Column::Status.is_in(leased()))
         .exec(db)
@@ -295,7 +306,7 @@ async fn claim_submissions(
     let plan = ClaimPlan::from_rows(rows, max_dispatch_retries);
 
     if !plan.redispatch_ids.is_empty() {
-        open_stolen_submission_judgements(&txn, &plan.redispatch_ids).await?;
+        open_stolen_submission_judgements(&txn, server_id, &plan.redispatch_ids).await?;
         clear_current_submission_results(&txn, &plan.redispatch_ids).await?;
 
         submission::Entity::update_many()
@@ -429,6 +440,7 @@ async fn claim_submissions(
 
 async fn open_stolen_submission_judgements(
     txn: &DatabaseTransaction,
+    server_id: &str,
     submission_ids: &[i32],
 ) -> anyhow::Result<()> {
     if submission_ids.is_empty() {
@@ -475,6 +487,15 @@ async fn open_stolen_submission_judgements(
             error_code: Set(None),
             error_message: Set(None),
             judge_epoch: Set(sub.judge_epoch.saturating_add(1)),
+            // Stamp ownership + a live lease on the replacement current judgement,
+            // matching the sibling steal (`claim_deferred_judgements`) and
+            // `requeue_judgement_for_system_error_retry`. Without this the row is
+            // inserted with NULL owner/heartbeat: `ensure_active_judgement_id`
+            // returns this existing id without setting either, the lease fiber
+            // (owner = self) never refreshes it, and the steal sweeper re-claims it
+            // (`owner_server_id IS NULL AND created_at < threshold`) mid-re-judge.
+            owner_server_id: Set(Some(server_id.to_string())),
+            lease_heartbeat_at: Set(Some(chrono::Utc::now())),
             created_at: Set(chrono::Utc::now()),
             finalized_at: Set(None),
             ..Default::default()
@@ -522,7 +543,7 @@ async fn claim_deferred_judgements(
     lease_ttl_secs: u64,
     batch_size: u32,
     max_dispatch_retries: u32,
-) -> anyhow::Result<Vec<(submission::Model, i32)>> {
+) -> anyhow::Result<Vec<(submission::Model, i32, bool)>> {
     let txn = db.begin().await?;
     let rows = claim_deferred_judgement_rows(&txn, lease_ttl_secs, batch_size).await?;
     let plan = ClaimPlan::from_rows(rows, max_dispatch_retries);
@@ -778,7 +799,7 @@ async fn claim_deferred_judgements(
         sub.owner_server_id = Some(server_id.to_string());
         sub.lease_heartbeat_at = judgement.lease_heartbeat_at;
         sub.retry_count = judgement.retry_count;
-        dispatches.push((sub, judgement.id));
+        dispatches.push((sub, judgement.id, judgement.is_current));
     }
 
     if !dispatches.is_empty() || !plan.exhausted_rows.is_empty() {
@@ -1404,7 +1425,11 @@ mod deferred_steal_db_tests {
         let claimed = claim_deferred_judgements(&db, "live-server", 60, 10, 5)
             .await
             .expect("claim deferred judgements");
-        assert_eq!(claimed.len(), 1, "the stale deferred judgement is reclaimed");
+        assert_eq!(
+            claimed.len(),
+            1,
+            "the stale deferred judgement is reclaimed"
+        );
 
         let judgement = current_judgement(&db, sub_id).await;
         assert_eq!(judgement.judge_epoch, 1, "judgement epoch is bumped to 1");
@@ -1440,7 +1465,11 @@ mod deferred_steal_db_tests {
         let claimed = claim_deferred_judgements(&db, "live-server", 60, 10, 5)
             .await
             .expect("claim deferred judgements");
-        assert_eq!(claimed.len(), 0, "an exhausted judgement is not re-dispatched");
+        assert_eq!(
+            claimed.len(),
+            0,
+            "an exhausted judgement is not re-dispatched"
+        );
 
         let judgement = current_judgement(&db, sub_id).await;
         assert_eq!(judgement.status, SubmissionStatus::SystemError);
@@ -1472,7 +1501,11 @@ mod deferred_steal_db_tests {
         let pre = claim_deferred_judgements(&db, "server-1", 60, 10, 5)
             .await
             .expect("pre-recovery claim");
-        assert_eq!(pre.len(), 0, "fresh-leased own judgement is not stealable yet");
+        assert_eq!(
+            pre.len(),
+            0,
+            "fresh-leased own judgement is not stealable yet"
+        );
 
         // Recovery releases the lease on both the judgement and its parent.
         let (subs, _cr, judg) = recover_orphaned_leases(&db, "server-1")
@@ -1498,6 +1531,110 @@ mod deferred_steal_db_tests {
             submission.status,
             SubmissionStatus::Pending,
             "the recovered submission returns to Pending for re-judging"
+        );
+    }
+
+    /// Fix regression: a NON-current in-flight deferred rejudge owned by the
+    /// restarting server must ALSO be released by boot recovery. Previously the
+    /// `is_current = TRUE` filter left it hanging until the 6-hour ceiling. The
+    /// release must stay strictly scoped to `owner_server_id = <self>`.
+    #[tokio::test]
+    async fn recover_orphaned_leases_releases_own_non_current_inflight() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        let now = chrono::Utc::now();
+        submission_judgement::ActiveModel {
+            submission_id: Set(sub_id),
+            version: Set(1),
+            is_current: Set(false),
+            is_finalized: Set(false),
+            status: Set(SubmissionStatus::Running),
+            judge_epoch: Set(0),
+            owner_server_id: Set(Some("server-1".to_string())),
+            lease_heartbeat_at: Set(Some(now)),
+            retry_count: Set(0),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("insert non-current owned judgement");
+
+        let (_subs, _cr, judg) = recover_orphaned_leases(&db, "server-1")
+            .await
+            .expect("recover orphaned leases");
+        assert_eq!(
+            judg, 1,
+            "a non-current in-flight judgement owned by self is released"
+        );
+
+        let judgement = current_judgement(&db, sub_id).await;
+        assert_eq!(
+            judgement.owner_server_id.as_deref(),
+            Some("server-1#orphaned"),
+            "the released judgement is retagged with the orphan sentinel"
+        );
+        assert!(
+            judgement.lease_heartbeat_at.is_none(),
+            "the released judgement's heartbeat is nulled so the steal reclaims it"
+        );
+    }
+
+    /// Fix regression: the replacement `is_current = TRUE` judgement inserted
+    /// when a submission lease is stolen must be stamped with the stealing
+    /// server's ownership AND a live lease heartbeat — mirroring the
+    /// deferred-steal (`claim_deferred_judgements`) and
+    /// `requeue_judgement_for_system_error_retry` inserts. A NULL-owner /
+    /// NULL-heartbeat row is never refreshed by the lease fiber (owner = self)
+    /// and gets re-claimed by the steal sweeper mid-re-judge.
+    #[tokio::test]
+    async fn stolen_submission_judgement_insert_stamps_owner_and_heartbeat() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+
+        let txn = db.begin().await.expect("begin txn");
+        open_stolen_submission_judgements(&txn, "live-server", &[sub_id])
+            .await
+            .expect("open stolen submission judgement");
+        txn.commit().await.expect("commit txn");
+
+        let judgement = current_judgement(&db, sub_id).await;
+        assert!(judgement.is_current, "the inserted judgement is current");
+        assert_eq!(
+            judgement.owner_server_id.as_deref(),
+            Some("live-server"),
+            "the inserted judgement is owned by the stealing server"
+        );
+        assert!(
+            judgement.lease_heartbeat_at.is_some(),
+            "the inserted judgement carries a live lease heartbeat so the lease \
+             fiber refreshes it instead of the steal sweeper re-claiming it"
+        );
+    }
+
+    /// Fix regression: a reclaimed deferred judgement is always current
+    /// (`claim_deferred_judgement_rows` filters `is_current = TRUE`), so the
+    /// steal must surface `is_current` so `scan_once` re-dispatches it with
+    /// `fire_after_judging = true`. Otherwise a re-judged live verdict never
+    /// fires its after-judging hooks (scoreboard recompute, notifications).
+    #[tokio::test]
+    async fn deferred_redispatch_reports_current_for_fire_after_judging() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        seed_stale_deferred_judgement(&db, sub_id, 0, 0).await;
+
+        let claimed = claim_deferred_judgements(&db, "live-server", 60, 10, 5)
+            .await
+            .expect("claim deferred judgements");
+        assert_eq!(
+            claimed.len(),
+            1,
+            "the stale deferred judgement is reclaimed"
+        );
+        let (_sub, _judgement_id, is_current) = &claimed[0];
+        assert!(
+            *is_current,
+            "a reclaimed current judgement must re-dispatch with fire_after_judging = true"
         );
     }
 
