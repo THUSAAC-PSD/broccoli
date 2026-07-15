@@ -233,6 +233,47 @@ pub async fn init_db_with_max_connections(
         db.execute_unprepared(stmt).await?;
     }
 
+    // --- SQL-capability read narrowing: curated view + sensitive-table revokes -
+    //
+    // `GRANT SELECT ON ALL TABLES` above lets raw plugin SQL read EVERY core
+    // table, including credentials (`user.password`), auth tokens
+    // (`refresh_tokens`), authz config (`role`/`role_permission`/`user_role`),
+    // and OTHER plugins' private rows (`plugin_config`/`plugin_storage`, whose
+    // structured host fns are per-plugin scoped — raw SQL bypassed that
+    // isolation). No contest plugin legitimately reads any of these. Revoke
+    // SELECT on them (a deny-list layered on the blanket grant) and expose only a
+    // curated, PII-free view of `user` for plugins that must resolve a display
+    // name. `config:read`/`storage` reads already moved to the privileged pool,
+    // so they keep serving each plugin its OWN rows.
+    //
+    // The revoke runs per table inside an exception-guarded loop so a table that
+    // does not exist yet (schema evolution) is skipped rather than failing boot.
+    //
+    // Residual (documented): `ALTER DEFAULT PRIVILEGES ... GRANT SELECT` above
+    // still auto-grants SELECT on FUTURE tables, so a newly added sensitive core
+    // table must be added to this revoke list. Flipping to a pure allow-list is a
+    // larger, plugin-ecosystem-breaking change left for a future phase.
+    for stmt in [
+        r#"CREATE OR REPLACE VIEW plugin_user_public AS SELECT id, username FROM "user" WHERE deleted_at IS NULL"#,
+        "GRANT SELECT ON plugin_user_public TO broccoli_plugin",
+        r#"DO $$
+           DECLARE t text;
+           BEGIN
+             FOREACH t IN ARRAY ARRAY[
+               'user', 'refresh_tokens', 'role', 'role_permission', 'user_role',
+               'plugin', 'plugin_config', 'plugin_storage', 'idempotency_key',
+               'dead_letter_message'
+             ] LOOP
+               BEGIN
+                 EXECUTE format('REVOKE SELECT ON %I FROM broccoli_plugin', t);
+               EXCEPTION WHEN undefined_table THEN NULL;
+               END;
+             END LOOP;
+           END $$;"#,
+    ] {
+        db.execute_unprepared(stmt).await?;
+    }
+
     Ok(db)
 }
 
@@ -379,5 +420,77 @@ mod tests {
             .execute_unprepared("UPDATE submission SET score = 0")
             .await
             .expect("privileged pool must be able to write core tables");
+    }
+
+    /// SECURITY — SQL-capability read narrowing.
+    ///
+    /// Even with SELECT-only access, the blanket `GRANT SELECT ON ALL TABLES`
+    /// let raw plugin SQL read credentials, auth tokens, authz config, and other
+    /// plugins' private storage/config. The migration revokes SELECT on those and
+    /// exposes only a curated, PII-free `plugin_user_public` view. This drives the
+    /// REAL migration + REAL restricted pool against a live Postgres.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn broccoli_plugin_role_cannot_read_sensitive_tables_but_can_read_curated_view() {
+        use testcontainers::ImageExt;
+        use testcontainers::runners::AsyncRunner;
+        use testcontainers_modules::postgres::Postgres;
+
+        let container = Postgres::default()
+            .with_tag("17-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres host port");
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+
+        let _app = init_db_with_max_connections(&url, 5)
+            .await
+            .expect("app migration + schema sync");
+        let restricted = init_plugin_db(&url, 2)
+            .await
+            .expect("restricted plugin pool");
+
+        // NEGATIVE: SELECT on each sensitive table is denied. `user` (password
+        // hash), `refresh_tokens` (session tokens), and `plugin_config` /
+        // `plugin_storage` (another plugin's private rows) are the load-bearing
+        // ones; the rest are authz/internal tables no plugin needs.
+        for table in [
+            r#""user""#,
+            "refresh_tokens",
+            "role",
+            "role_permission",
+            "user_role",
+            "plugin",
+            "plugin_config",
+            "plugin_storage",
+            "idempotency_key",
+            "dead_letter_message",
+        ] {
+            let err = restricted
+                .execute_unprepared(&format!("SELECT * FROM {table} LIMIT 1"))
+                .await
+                .expect_err(&format!(
+                    "SELECT from {table} must be denied for broccoli_plugin"
+                ));
+            assert!(
+                err.to_string().to_lowercase().contains("permission denied"),
+                "expected permission-denied SELECT on {table}, got: {err}"
+            );
+        }
+
+        // POSITIVE: contest-data tables stay readable (not on the revoke list).
+        restricted
+            .execute_unprepared("SELECT id FROM submission LIMIT 1")
+            .await
+            .expect("contest-data reads must still work");
+
+        // POSITIVE: the curated view exposes id + username with no PII column.
+        restricted
+            .execute_unprepared("SELECT id, username FROM plugin_user_public LIMIT 1")
+            .await
+            .expect("the curated user view must be readable");
     }
 }

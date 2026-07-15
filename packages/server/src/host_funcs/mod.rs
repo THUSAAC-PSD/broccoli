@@ -340,9 +340,14 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    // `config:read` is a pure read of `plugin_config`, so it stays on the
-    // RESTRICTED pool (SELECT is granted to `broccoli_plugin`).
-    let db_clone = db;
+    // `config:read` reads `plugin_config`, which raw plugin SQL can no longer
+    // SELECT (SELECT is revoked from `broccoli_plugin` so one plugin cannot read
+    // another's config via raw SQL). It runs on the PRIVILEGED pool like
+    // `config:write`: the SQL is server-owned and plugin-scoped (the row key's
+    // namespace is always prefixed with the caller's `plugin_id`, and
+    // `validate_raw_namespace` forbids `:` so the prefix cannot be forged), so a
+    // plugin can still only read its OWN config.
+    let db_clone = privileged_db.clone();
     let registry = deps.plugin_manager.get_registry().clone();
     hr.register("config:read", move |plugin_id| {
         config::create_config_get_function(
