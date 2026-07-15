@@ -141,20 +141,17 @@ async fn list_config_inner<C: ConnectionTrait>(
 }
 
 fn validate_plugin_id(id: &str) -> Result<(), AppError> {
-    if id.is_empty() || id.len() > 128 {
-        return Err(AppError::Validation(
-            "Plugin ID must be 1-128 characters".into(),
-        ));
+    // Delegate to the single canonical validator so the upload path and the
+    // config handlers enforce exactly the same rule.
+    if crate::handlers::admin::is_valid_plugin_id(id) {
+        Ok(())
+    } else {
+        Err(AppError::Validation(
+            "Plugin ID must be 1-128 characters, start with a letter or digit, and contain only \
+             alphanumeric, hyphen, or underscore characters"
+                .into(),
+        ))
     }
-    if !id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(AppError::Validation(
-            "Plugin ID must contain only alphanumeric, hyphen, or underscore characters".into(),
-        ));
-    }
-    Ok(())
 }
 
 #[utoipa::path(

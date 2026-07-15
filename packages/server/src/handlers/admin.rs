@@ -332,8 +332,14 @@ pub fn upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
-fn is_valid_plugin_id(id: &str) -> bool {
-    if id.is_empty() {
+/// Canonical plugin-id validation, shared by the plugin-upload path and the
+/// plugin-config handlers so the two can never disagree (they previously did:
+/// one enforced an alphanumeric first char, the other a 128-char cap). A plugin
+/// id becomes a filesystem path segment, so it is deliberately strict: non-empty,
+/// at most 128 chars, starts with an ASCII alphanumeric, and otherwise contains
+/// only ASCII alphanumeric, `_`, or `-`.
+pub(crate) fn is_valid_plugin_id(id: &str) -> bool {
+    if id.is_empty() || id.len() > 128 {
         return false;
     }
     let first = id.as_bytes()[0];
