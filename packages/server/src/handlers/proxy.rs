@@ -126,6 +126,13 @@ async fn handle_plugin_request_impl(
         query,
         headers: headers
             .iter()
+            // Never forward the caller's credentials to a plugin: it receives
+            // identity via `auth`. `Authorization` carries the access JWT and
+            // `Cookie` carries the long-lived HttpOnly refresh token.
+            .filter(|(k, _)| {
+                !k.as_str().eq_ignore_ascii_case("authorization")
+                    && !k.as_str().eq_ignore_ascii_case("cookie")
+            })
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
             .collect(),
         body: serde_json::from_str(&body).ok(),
