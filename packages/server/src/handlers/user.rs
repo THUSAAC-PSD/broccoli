@@ -298,7 +298,15 @@ pub async fn revoke_role(
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User role not found".into()))?;
-    active.delete(&state.db).await?;
+
+    // Revoke the user's refresh tokens in the same transaction as the role
+    // delete, mirroring `assign_role`. Removing a role is a de-authorization, so
+    // existing sessions must be forced to re-authenticate and re-read the reduced
+    // role set rather than lingering on a stale cached permission.
+    let txn = state.db.begin().await?;
+    active.delete(&txn).await?;
+    refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
