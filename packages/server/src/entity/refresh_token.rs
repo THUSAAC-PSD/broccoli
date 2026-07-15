@@ -13,6 +13,14 @@ pub struct Model {
     pub expires_at: DateTimeUtc,
     pub created_at: DateTimeUtc,
 
+    /// When this token was rotated out and superseded. `None` for a live token.
+    /// A rotated token is retained (with this set) rather than deleted so that a
+    /// replay of an already-rotated token can be detected as reuse (a stolen
+    /// refresh chain) instead of being indistinguishable from a random invalid
+    /// selector. Rows are cleaned up once expired.
+    #[sea_orm(nullable)]
+    pub revoked_at: Option<DateTimeUtc>,
+
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<super::user::Entity>,
 }

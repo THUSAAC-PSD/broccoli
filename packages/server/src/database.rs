@@ -180,6 +180,9 @@ pub async fn init_db_with_max_connections(
         // The checker source moved to problem-scoped plugin config
         // (`standard-checkers:checker_source`); drop the legacy problem column.
         r#"ALTER TABLE IF EXISTS "problem" DROP COLUMN IF EXISTS "checker_source""#,
+        // Refresh-token reuse detection: a rotated token is retained with this
+        // set rather than deleted, so a replay can be detected as theft.
+        r#"ALTER TABLE IF EXISTS "refresh_tokens" ADD COLUMN IF NOT EXISTS "revoked_at" TIMESTAMPTZ"#,
     ] {
         db.execute_unprepared(stmt).await?;
     }

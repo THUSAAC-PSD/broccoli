@@ -283,6 +283,81 @@ mod token_refresh {
         let replay_b_body: serde_json::Value = replay_b.json().await.unwrap();
         assert_eq!(replay_b_body["code"], "TOKEN_INVALID");
     }
+
+    /// Replaying a rotated refresh token AFTER the benign-race grace window is
+    /// treated as theft: it revokes the user's entire token family, so even the
+    /// current (legitimately rotated) token stops working.
+    #[tokio::test]
+    async fn reused_refresh_token_past_grace_kills_the_family() {
+        fn extract_refresh_cookie(resp: &TestResponse) -> String {
+            for hv in resp.headers.get_all("set-cookie").iter() {
+                let s = hv.to_str().expect("set-cookie utf-8");
+                if let Some(rest) = s.strip_prefix("broccoli_refresh=") {
+                    let val = rest.split(';').next().unwrap_or("").to_string();
+                    if !val.is_empty() {
+                        return val;
+                    }
+                }
+            }
+            panic!("no broccoli_refresh Set-Cookie on response");
+        }
+
+        let app = TestApp::spawn().await;
+        let body = json!({"username": "carol", "password": "securepass"});
+        app.post_without_token(routes::REGISTER, &body).await;
+        let login_res = app.post_without_token(routes::LOGIN, &body).await;
+        let cookie_a = extract_refresh_cookie(&login_res);
+
+        // Rotate A -> B (A is now retained as revoked).
+        let r1 = app.post_without_token(routes::REFRESH, &json!({})).await;
+        assert_eq!(r1.status, 200);
+        let cookie_b = extract_refresh_cookie(&r1);
+
+        // Backdate the revoked token past the grace window so a replay reads as
+        // theft rather than a concurrent-refresh race (avoids sleeping the grace
+        // period). A is the only revoked row in this fresh DB.
+        {
+            use sea_orm::ConnectionTrait;
+            app.db
+                .execute_unprepared(
+                    "UPDATE refresh_tokens SET revoked_at = NOW() - INTERVAL '1 hour' \
+                     WHERE revoked_at IS NOT NULL",
+                )
+                .await
+                .expect("backdate revoked_at");
+        }
+
+        let raw = reqwest::Client::builder()
+            .no_proxy()
+            .cookie_store(false)
+            .build()
+            .unwrap();
+
+        // Replay A past grace: reuse detected -> family kill -> 401.
+        let replay_a = raw
+            .post(format!("http://{}{}", app.addr, routes::REFRESH))
+            .header("cookie", format!("broccoli_refresh={cookie_a}"))
+            .json(&json!({}))
+            .send()
+            .await
+            .expect("send refresh replay A past grace");
+        assert_eq!(replay_a.status(), 401);
+
+        // The current token B was legitimately issued, but the family kill revoked
+        // it too: a stolen chain cannot outlive detection.
+        let use_b = raw
+            .post(format!("http://{}{}", app.addr, routes::REFRESH))
+            .header("cookie", format!("broccoli_refresh={cookie_b}"))
+            .json(&json!({}))
+            .send()
+            .await
+            .expect("send refresh with current token B");
+        assert_eq!(
+            use_b.status(),
+            401,
+            "reuse past grace must revoke the whole token family, including the current token"
+        );
+    }
 }
 
 mod logout {
