@@ -144,9 +144,14 @@ fn is_penalty_attempt(row: &StandingsSubmission, count_compile_error: bool) -> b
         return count_compile_error;
     }
 
+    // Cancelled joins Skipped as a non-attempt: neither was a real judged
+    // attempt, so neither incurs an ICPC penalty (consistent with
+    // Verdict::is_skipped_or_cancelled used elsewhere). A submission-level
+    // Cancelled is not written on the current ICPC path, so this is hardening
+    // against a future change rather than a live bug.
     !matches!(
         row.verdict,
-        Some(Verdict::Accepted) | Some(Verdict::Skipped)
+        Some(Verdict::Accepted) | Some(Verdict::Skipped) | Some(Verdict::Cancelled)
     )
 }
 
