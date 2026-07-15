@@ -19,6 +19,14 @@ use crate::state::AppState;
 const AUTH_RATE_LIMIT_PERIOD: Duration = Duration::from_secs(60);
 const AUTH_RATE_LIMIT_BURST: u32 = 10;
 
+// Registration is always throttled per client IP, but leniently: a generous
+// burst so realistic self-registration (even a shared venue NAT) is never
+// blocked, while automated account-spam from one source is capped. Unlike the
+// login limiter this is not gated behind rate_limit_auth, since an unthrottled
+// public register endpoint invites spam by default.
+const REGISTER_RATE_LIMIT_PERIOD: Duration = Duration::from_secs(60);
+const REGISTER_RATE_LIMIT_BURST: u32 = 30;
+
 pub fn routes(config: &AppConfig) -> OpenApiRouter<AppState> {
     let submission_max_size = config.submission.max_size;
 
@@ -68,8 +76,25 @@ fn auth_routes(rate_limit_auth: bool) -> OpenApiRouter<AppState> {
         login
     };
 
+    let register = {
+        let mut builder = GovernorConfigBuilder::default();
+        builder
+            .period(REGISTER_RATE_LIMIT_PERIOD)
+            .burst_size(REGISTER_RATE_LIMIT_BURST)
+            .methods(vec![Method::POST]);
+        let mut builder = builder.key_extractor(ConfiguredClientIpKeyExtractor);
+        OpenApiRouter::new()
+            .routes(routes!(handlers::auth::register))
+            .layer(
+                tower_governor::GovernorLayer::new(Arc::new(
+                    builder.finish().expect("valid register rate-limit quota"),
+                ))
+                .error_handler(auth_rate_limit_error_response),
+            )
+    };
+
     OpenApiRouter::new()
-        .routes(routes!(handlers::auth::register))
+        .merge(register)
         .merge(login)
         .routes(routes!(handlers::auth::refresh))
         .routes(routes!(handlers::auth::logout))
