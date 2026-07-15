@@ -1198,6 +1198,8 @@ mod tests {
                 auth: AuthConfig {
                     jwt_secret: "test-secret".to_string(),
                     secure_cookies: false,
+                    login_failure_limit: 0,
+                    login_failure_window_secs: 60,
                 },
                 plugin: PluginConfig::default(),
                 submission: SubmissionConfig::default(),
@@ -1227,6 +1229,10 @@ mod tests {
             metrics,
             prometheus_registry,
             dispatcher_permits,
+            login_throttle: Arc::new(crate::utils::login_throttle::LoginThrottle::new(
+                0,
+                std::time::Duration::from_secs(60),
+            )),
         };
 
         scan_once(state, "server-b", 1, 8, 5)

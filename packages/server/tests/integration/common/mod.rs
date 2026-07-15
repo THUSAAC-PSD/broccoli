@@ -628,6 +628,8 @@ impl TestApp {
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),
                 secure_cookies: false,
+                login_failure_limit: 0,
+                login_failure_window_secs: 60,
             },
             plugin: PluginConfig {
                 plugins_dir: fixtures_dir(),
@@ -773,6 +775,10 @@ impl TestApp {
             metrics: test_metrics.clone(),
             prometheus_registry: test_prom_registry.clone(),
             dispatcher_permits: server::dispatcher::permits::DispatcherSemaphore::default(),
+            login_throttle: std::sync::Arc::new(server::utils::login_throttle::LoginThrottle::new(
+                0,
+                std::time::Duration::from_secs(60),
+            )),
         };
         let dispatcher = options.start_dispatcher.then(|| {
             server::dispatcher::Dispatcher::spawn(server::dispatcher::DispatcherDeps {

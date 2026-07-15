@@ -1,7 +1,10 @@
+use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::http::HeaderMap;
+use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum_client_ip::ClientIpSource;
@@ -9,6 +12,62 @@ use ipnet::IpNet;
 use tracing::warn;
 
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
+
+/// Best-effort client IP for handler-side use (e.g. login throttling), honoring
+/// the trusted-proxy [`ClientIpSource`] chosen by [`client_ip_source_middleware`].
+///
+/// The rejection is [`Infallible`] and the value is an `Option`: when the IP
+/// cannot be determined the extractor yields `None` so callers FAIL OPEN rather
+/// than break the request. This is deliberately NOT `axum_client_ip::ClientIp`,
+/// whose extraction failure rejects the request — a login endpoint must never
+/// 4xx merely because a proxy header was missing.
+pub struct ClientIp(pub Option<IpAddr>);
+
+impl<S> FromRequestParts<S> for ClientIp
+where
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
+        let source = parts
+            .extensions
+            .get::<ClientIpSource>()
+            .cloned()
+            .unwrap_or(ClientIpSource::ConnectInfo);
+        let connect_ip = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.ip());
+        Ok(ClientIp(resolve_client_ip(
+            &source,
+            &parts.headers,
+            connect_ip,
+        )))
+    }
+}
+
+/// Resolve the effective client IP from the chosen source. Only the two sources
+/// [`client_ip_source_middleware`] ever sets are honored; anything else falls
+/// back to the socket peer address.
+fn resolve_client_ip(
+    source: &ClientIpSource,
+    headers: &HeaderMap,
+    connect_ip: Option<IpAddr>,
+) -> Option<IpAddr> {
+    match source {
+        ClientIpSource::RightmostXForwardedFor => rightmost_x_forwarded_for(headers).or(connect_ip),
+        _ => connect_ip,
+    }
+}
+
+fn rightmost_x_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
+    let value = headers.get(X_FORWARDED_FOR)?.to_str().ok()?;
+    value
+        .split(',')
+        .rev()
+        .find_map(|part| part.trim().parse::<IpAddr>().ok())
+}
 
 pub fn parse_trusted_proxy_networks(entries: &[String]) -> Arc<Vec<IpNet>> {
     Arc::new(
@@ -142,6 +201,56 @@ mod tests {
         assert_eq!(
             select_client_ip_source(&request, &trusted),
             ClientIpSource::ConnectInfo
+        );
+    }
+
+    fn headers(xff: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(v) = xff {
+            h.insert(X_FORWARDED_FOR, v.parse().unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn resolve_connect_info_source_uses_socket_peer() {
+        let connect = Some("198.51.100.9".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            resolve_client_ip(
+                &ClientIpSource::ConnectInfo,
+                &headers(Some("203.0.113.10")),
+                connect
+            ),
+            connect,
+            "ConnectInfo source ignores the forwarded header"
+        );
+    }
+
+    #[test]
+    fn resolve_xff_source_takes_the_rightmost_entry() {
+        // Rightmost is the entry appended by the closest trusted proxy.
+        let connect = Some("10.0.0.4".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            resolve_client_ip(
+                &ClientIpSource::RightmostXForwardedFor,
+                &headers(Some("203.0.113.10, 198.51.100.5")),
+                connect,
+            ),
+            Some("198.51.100.5".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn resolve_xff_source_falls_back_to_peer_when_header_unparseable() {
+        let connect = Some("10.0.0.4".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            resolve_client_ip(
+                &ClientIpSource::RightmostXForwardedFor,
+                &headers(Some("not-an-ip")),
+                connect,
+            ),
+            connect,
+            "a malformed forwarded header must not lose the client IP entirely"
         );
     }
 }

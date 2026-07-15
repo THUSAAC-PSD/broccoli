@@ -465,10 +465,30 @@ pub struct AuthConfig {
     pub jwt_secret: String,
     #[serde(default = "default_secure_cookies")]
     pub secure_cookies: bool,
+    /// Max FAILED login attempts per (username, client IP) within
+    /// `login_failure_window_secs` before the pair is briefly throttled. Counts
+    /// only failures and clears on success, so it never throttles a legitimate
+    /// sign-in even when hundreds of contestants share one venue NAT IP. `0`
+    /// disables it. Deliberately generous — a false throttle during a live
+    /// contest is worse than a slightly looser brute-force bound.
+    #[serde(default = "default_login_failure_limit")]
+    pub login_failure_limit: u32,
+    /// Sliding window (seconds) over which `login_failure_limit` is counted, and
+    /// the maximum a throttled pair ever waits before it frees on its own.
+    #[serde(default = "default_login_failure_window_secs")]
+    pub login_failure_window_secs: u64,
 }
 
 fn default_secure_cookies() -> bool {
     true
+}
+
+fn default_login_failure_limit() -> u32 {
+    10
+}
+
+fn default_login_failure_window_secs() -> u64 {
+    60
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

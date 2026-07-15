@@ -5,6 +5,7 @@ use axum_extra::extract::CookieJar;
 use sea_orm::*;
 use tracing::instrument;
 
+use crate::client_ip::ClientIp;
 use crate::entity::{refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -94,12 +95,23 @@ pub async fn register(
 #[instrument(skip(state, payload, jar), fields(username = %payload.username))]
 pub async fn login(
     State(state): State<AppState>,
+    ClientIp(client_ip): ClientIp,
     jar: CookieJar,
     AppJson(payload): AppJson<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     validate_login_request(&payload)?;
 
     let username = payload.username.trim();
+
+    // Contest-safe brute-force throttle: only FAILED attempts for this
+    // (username, client IP) pair count and a success clears them, so a
+    // legitimate sign-in is never blocked even when a whole venue shares one NAT
+    // IP. Fails open when the client IP is unknown.
+    if let Some(ip) = client_ip {
+        if let Some(retry_after) = state.login_throttle.check(username, ip) {
+            return Err(AppError::RateLimited { retry_after });
+        }
+    }
 
     let maybe_user = user::Entity::find_active()
         .filter(user::Column::Username.eq(username))
@@ -114,8 +126,18 @@ pub async fn login(
 
     let user = match maybe_user {
         Some(u) if is_valid => u,
-        _ => return Err(AppError::InvalidCredentials),
+        _ => {
+            if let Some(ip) = client_ip {
+                state.login_throttle.record_failure(username, ip);
+            }
+            return Err(AppError::InvalidCredentials);
+        }
     };
+
+    // Successful auth: clear any accumulated failures for this pair.
+    if let Some(ip) = client_ip {
+        state.login_throttle.clear(username, ip);
+    }
 
     let role_models = user.find_related(role::Entity).all(&state.db).await?;
     let roles: Vec<String> = role_models.iter().map(|r| r.name.clone()).collect();

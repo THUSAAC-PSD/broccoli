@@ -50,4 +50,6 @@ pub struct AppState {
     pub metrics: common::metrics::Metrics,
     pub prometheus_registry: prometheus::Registry,
     pub dispatcher_permits: DispatcherSemaphore,
+    /// In-memory, per-process brute-force throttle for the login endpoint.
+    pub login_throttle: Arc<crate::utils::login_throttle::LoginThrottle>,
 }
