@@ -29,9 +29,29 @@ impl Task {
     }
 }
 
+/// The per-worker private operation queue name.
+///
+/// A worker subscribes to both the shared operation queue and this private
+/// queue so the coordinator can pin a task to a specific worker (target-worker
+/// routing). The worker (which consumes it) and the server (which routes pinned
+/// tasks onto it) MUST derive the name identically, so the `:worker:`
+/// convention lives here as the single source of truth to keep the two sides
+/// from drifting.
+pub fn worker_private_queue_name(shared_queue: &str, worker_id: &str) -> String {
+    format!("{shared_queue}:worker:{worker_id}")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Task;
+    use super::{Task, worker_private_queue_name};
+
+    #[test]
+    fn worker_private_queue_name_matches_the_shared_convention() {
+        assert_eq!(
+            worker_private_queue_name("operation_tasks", "worker-a"),
+            "operation_tasks:worker:worker-a"
+        );
+    }
 
     #[test]
     fn reply_queue_defaults_to_result_queue_for_legacy_envelopes() {

@@ -998,7 +998,7 @@ fn spawn_waiter_forwarder(
 fn target_operation_queue(shared_queue: &str, target_worker_id: Option<&str>) -> String {
     match target_worker_id {
         Some(worker_id) if crate::config::is_valid_server_id(worker_id) => {
-            format!("{}:worker:{}", shared_queue, worker_id)
+            common::worker::worker_private_queue_name(shared_queue, worker_id)
         }
         _ => shared_queue.to_string(),
     }

@@ -191,9 +191,9 @@ impl WorkerRuntime {
         let drain_timeout = Duration::from_secs(30);
 
         let shared_queue = self.config.mq.operation_queue_name.clone();
-        let private_queue = format!(
-            "{}:worker:{}",
-            self.config.mq.operation_queue_name, self.config.worker.id
+        let private_queue = common::worker::worker_private_queue_name(
+            &self.config.mq.operation_queue_name,
+            &self.config.worker.id,
         );
         info!(
             shared_queue = %shared_queue,
