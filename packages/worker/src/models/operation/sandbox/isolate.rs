@@ -447,13 +447,15 @@ impl SandboxManager for IsolateSandboxManager {
             ));
         }
 
-        // Per-box cumulative-CPU offset (see `box_cpu_secs`). isolate's `--cg`
-        // `time` and `--time` limit are the box cgroup's CPU usage cumulative
-        // since `--init`, so a step inherits prior same-box steps' CPU. Add the
-        // prior cumulative to this step's CPU `--time` so isolate enforces the
-        // step's OWN limit, then report only the step's own delta. `time_limit`
-        // is CPU seconds; wall time (`--wall-time`) is measured per `--run` and
-        // is not cumulative, so it is left untouched.
+        // Per-box cumulative-CPU offset (see `box_cpu_secs`). With `--cg`,
+        // isolate's `time` and `--time` limit are the box cgroup's CPU usage
+        // cumulative since `--init`, so a step inherits prior same-box steps'
+        // CPU. Add the prior cumulative to this step's CPU `--time` so isolate
+        // enforces the step's OWN limit, then report only the step's own delta.
+        // WITHOUT cgroups isolate reports per-`--run` CPU already, so there is no
+        // cumulative to reconcile and the offset is zero (see `cpu_time_offset`).
+        // `time_limit` is CPU seconds; wall time (`--wall-time`) is measured per
+        // `--run` and is not cumulative, so it is left untouched.
         let box_key = parse_box_id(Some(box_id))?;
         let prior_cpu = self
             .box_cpu_secs
@@ -461,20 +463,21 @@ impl SandboxManager for IsolateSandboxManager {
             .ok()
             .and_then(|m| m.get(&box_key).copied())
             .unwrap_or(0.0);
-        let adjusted_opts =
-            if prior_cpu > 0.0 && run_options.resource_limits.time_limit.is_some() {
-                let mut ro = run_options.clone();
-                ro.resource_limits.time_limit =
-                    ro.resource_limits.time_limit.map(|t| t + prior_cpu);
-                Some(ro)
-            } else {
-                None
-            };
+        let offset = cpu_time_offset(self.enable_cgroups, prior_cpu);
+        let adjusted_opts = if offset > 0.0 && run_options.resource_limits.time_limit.is_some() {
+            let mut ro = run_options.clone();
+            ro.resource_limits.time_limit = ro.resource_limits.time_limit.map(|t| t + offset);
+            Some(ro)
+        } else {
+            None
+        };
         let effective_opts = adjusted_opts.as_ref().unwrap_or(run_options);
 
         const MAX_TRANSIENT_RETRIES: usize = 3;
         for attempt in 0..=MAX_TRANSIENT_RETRIES {
-            let result = self.execute_once(box_id, argv.clone(), effective_opts).await;
+            let result = self
+                .execute_once(box_id, argv.clone(), effective_opts)
+                .await;
             match result {
                 // Retryable isolate setup error: under concurrent judging a
                 // box's input file can momentarily carry restrictive perms
@@ -482,8 +485,7 @@ impl SandboxManager for IsolateSandboxManager {
                 // isolate's open() of stdin/input fail. Re-running picks up the
                 // now-readable file. Bounded by MAX_TRANSIENT_RETRIES.
                 Err(SandboxError::Unknown(msg))
-                    if attempt < MAX_TRANSIENT_RETRIES
-                        && msg.contains("Permission denied") =>
+                    if attempt < MAX_TRANSIENT_RETRIES && msg.contains("Permission denied") =>
                 {
                     let backoff_ms = 25u64 << attempt;
                     tracing::warn!(
@@ -510,14 +512,19 @@ impl SandboxManager for IsolateSandboxManager {
                         tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
                         continue;
                     }
-                    // `exec.time_used` is the box cgroup's cumulative CPU since
-                    // --init. Persist it as the new prior, then report only this
-                    // step's own CPU (the delta above the prior cumulative).
+                    // With `--cg`, `exec.time_used` is the box cgroup's cumulative
+                    // CPU since --init: persist it as the new prior, then report
+                    // only this step's own delta (`cumulative - offset`). Without
+                    // cgroups the value is already this run's own per-`--run` CPU
+                    // and `offset` is zero, so it is reported unchanged and nothing
+                    // is persisted (the map holds no meaningful cumulative there).
                     let cumulative = exec.time_used;
-                    if let Ok(mut m) = self.box_cpu_secs.lock() {
-                        m.insert(box_key.clone(), cumulative.max(prior_cpu));
+                    if self.enable_cgroups {
+                        if let Ok(mut m) = self.box_cpu_secs.lock() {
+                            m.insert(box_key.clone(), cumulative.max(prior_cpu));
+                        }
                     }
-                    exec.time_used = (cumulative - prior_cpu).max(0.0);
+                    exec.time_used = (cumulative - offset).max(0.0);
                     return Ok(exec);
                 }
             }
@@ -530,6 +537,20 @@ fn is_transient_exec_failure(result: &ExecutionResult) -> bool {
     result.exit_code == Some(127)
         && result.stderr.contains("execve(")
         && result.stderr.contains("Resource temporarily unavailable")
+}
+
+/// CPU-seconds offset used to reconcile isolate's reported `time` (and `--time`
+/// limit) into a single step's own CPU.
+///
+/// With `--cg`, isolate's `time`/`--time` are the box cgroup's CPU cumulative
+/// since `--init`, so `prior_cpu` (earlier same-box steps' CPU) is the offset:
+/// add it to the step's `--time` limit, subtract it from the reported time.
+/// WITHOUT cgroups isolate already reports per-`--run` CPU, so there is no
+/// cumulative to reconcile and the offset is zero — the reported value is used
+/// as-is. Gating on `enable_cgroups` here is what keeps `time_used`/TLE correct
+/// when cgroups is off.
+fn cpu_time_offset(enable_cgroups: bool, prior_cpu: f64) -> f64 {
+    if enable_cgroups { prior_cpu } else { 0.0 }
 }
 
 impl IsolateSandboxManager {
@@ -706,5 +727,49 @@ impl IsolateSandboxManager {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_offset_is_zero_without_cgroups() {
+        // Without cgroups isolate reports per-`--run` CPU, so no prior-step
+        // offset is ever applied, regardless of what a prior step consumed.
+        assert_eq!(cpu_time_offset(false, 0.0), 0.0);
+        assert_eq!(cpu_time_offset(false, 1.5), 0.0);
+    }
+
+    #[test]
+    fn cpu_offset_is_prior_cumulative_with_cgroups() {
+        // With cgroups isolate reports cumulative CPU, so the prior cumulative is
+        // the offset to add to the limit / subtract from the reported time.
+        assert_eq!(cpu_time_offset(true, 0.0), 0.0);
+        assert_eq!(cpu_time_offset(true, 1.5), 1.5);
+    }
+
+    #[test]
+    fn reported_time_is_isolate_per_run_without_cgroups() {
+        // A prior step recorded 2.0s; this run's isolate-reported per-`--run` CPU
+        // is 0.4s. With cgroups off the offset is 0, so the reported time is
+        // isolate's raw value (0.4) — NOT 0.4 - 2.0 clamped to 0 (the old bug).
+        let prior_cpu = 2.0;
+        let isolate_reported = 0.4;
+        let offset = cpu_time_offset(false, prior_cpu);
+        let reported = (isolate_reported - offset).max(0.0);
+        assert_eq!(reported, isolate_reported);
+    }
+
+    #[test]
+    fn reported_time_subtracts_offset_with_cgroups() {
+        // With cgroups, isolate reports cumulative CPU (2.0 prior + 0.4 this step
+        // = 2.4); subtracting the offset (2.0) yields this step's own 0.4s.
+        let prior_cpu = 2.0;
+        let isolate_cumulative = 2.4;
+        let offset = cpu_time_offset(true, prior_cpu);
+        let reported = (isolate_cumulative - offset).max(0.0);
+        assert!((reported - 0.4).abs() < 1e-9);
     }
 }
