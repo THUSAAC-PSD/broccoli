@@ -249,7 +249,7 @@ pub async fn start_operation_batch(
                 result_queue: deps.operation_result_queue_name.clone(),
                 operation_batch_id: None,
                 reply_queue: Some(deps.operation_result_queue_name.clone()),
-                priority: op.priority,
+                priority: normalize_publish_priority(op.priority, &correlation_id),
                 trace_context: common::observability::inject_trace_context(),
                 enqueued_at_unix_ms: Some(chrono::Utc::now().timestamp_millis()),
             };
@@ -1004,6 +1004,28 @@ fn target_operation_queue(shared_queue: &str, target_worker_id: Option<&str>) ->
     }
 }
 
+/// Clamp a plugin-authored operation priority into broccoli_queue's valid
+/// `1..=5` range (1 = highest, 5 = lowest). `PublishConfig::builder().priority`
+/// `assert!`s the value is in range and PANICS otherwise; the priority comes
+/// straight off a plugin's `OperationTask`, so a stray `0` or `>5` would abort
+/// the publish and, on the detached path, kill the whole windowed session
+/// (every pending op then stalls to the 30-minute ceiling). Clamp instead of
+/// panicking, and warn so the plugin bug stays visible.
+fn normalize_publish_priority(priority: Option<u8>, correlation_id: &str) -> Option<u8> {
+    priority.map(|p| {
+        let clamped = p.clamp(1, 5);
+        if clamped != p {
+            tracing::warn!(
+                correlation_id,
+                requested = p,
+                clamped,
+                "operation priority out of broccoli_queue's 1..=5 range; clamped to avoid a publish panic"
+            );
+        }
+        clamped
+    })
+}
+
 async fn externalize_large_inline_files(
     mut op: OperationTask,
     blob_store: Arc<dyn BlobStore>,
@@ -1225,6 +1247,19 @@ mod tests {
             target_operation_queue("ops", Some("worker-1")),
             "ops:worker:worker-1"
         );
+    }
+
+    #[test]
+    fn normalize_publish_priority_clamps_out_of_range() {
+        // None stays None; in-range passes through; 0 and >5 clamp into 1..=5 so
+        // the broccoli_queue `assert!(1..=5)` in `.priority()` cannot panic.
+        assert_eq!(normalize_publish_priority(None, "cid"), None);
+        assert_eq!(normalize_publish_priority(Some(1), "cid"), Some(1));
+        assert_eq!(normalize_publish_priority(Some(5), "cid"), Some(5));
+        assert_eq!(normalize_publish_priority(Some(3), "cid"), Some(3));
+        assert_eq!(normalize_publish_priority(Some(0), "cid"), Some(1));
+        assert_eq!(normalize_publish_priority(Some(6), "cid"), Some(5));
+        assert_eq!(normalize_publish_priority(Some(u8::MAX), "cid"), Some(5));
     }
 
     #[tokio::test]
