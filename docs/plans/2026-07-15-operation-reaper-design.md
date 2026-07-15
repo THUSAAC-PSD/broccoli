@@ -77,8 +77,28 @@ Each tick (`operation_reaper_interval_secs`):
 Per-tick requeue budget (`operation_reaper_max_requeues_per_tick`) caps blast
 radius; the remainder is logged (no silent truncation) and picked up next tick.
 `dry_run` logs intended requeues without mutating. Dangling uuids (payload hash
-already gone) and undeserializable payloads are removed-or-skipped and counted,
-never silently lost.
+already gone) are dropped; **poison uuids (payload present but undeserializable)
+are dead-lettered**; valid-but-unattributable uuids are left for the backstop.
+Nothing is silently lost.
+
+### Poison messages (MQ #6)
+
+`try_consume::<Task>` in the vendored broker pops a message into `_processing`
+and only THEN runs `into_message()`; if the payload does not deserialize into
+`Task` (schema drift / a server/worker version skew) it returns `Err` with no
+handle, so the worker can neither ack nor reject it and it leaks in
+`_processing` until the 30-minute waiter timeout. The vendored `reject` is also
+unusable for this (its retry branch needs `metadata["priority"]`, which
+`HGETALL` never repopulates). The reaper is the only component that scans
+`_processing` with raw Redis, so it is the natural janitor: a strand whose hash
+is present but fails to parse is **dead-lettered** — removed from its source
+(`LREM`/`ZREM`) and `LPUSH`ed onto `<shared>_failed` (the broker's own
+reject-at-max-attempts convention), keeping the payload hash for inspection.
+This is unconditional (no owner attribution, no debounce): a poison message in
+`_processing` was already popped by some worker that failed to deserialize it,
+so no live worker holds it and it can never be delivered. It is NOT confused
+with a valid-but-unattributable task (payload parses but has no dedup owner),
+which is left untouched.
 
 ## Requeue primitive
 
@@ -108,7 +128,8 @@ idempotency holds regardless of the broker generating a fresh internal uuid.
 Unit: private-queue key parsing, family-key derivation, debounce decision.
 Integration (testcontainers Redis): private-queue requeue to shared + strand
 cleanup; shared-processing requeue via dedup attribution; live-owner entry
-survives; fail-closed when zero heartbeats; dangling-uuid cleanup.
+survives; fail-closed when zero heartbeats; poison message dead-lettered to
+`_failed`.
 
 ## Deliberately deferred
 

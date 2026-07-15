@@ -63,7 +63,12 @@ pub struct ReaperConfig {
 struct ReapStats {
     requeued: usize,
     dangling: usize,
+    /// A valid `Task` payload we could not attribute to an owner (no dedup key):
+    /// left in place for the waiter-timeout backstop, never dropped.
     unattributable: usize,
+    /// An undeserializable (poison) payload: moved to the `_failed` dead-letter
+    /// queue so it stops leaking in `_processing`. See [`dead_letter`].
+    dead_lettered: usize,
     failed: usize,
     remaining_over_budget: usize,
 }
@@ -73,6 +78,7 @@ impl ReapStats {
         self.requeued > 0
             || self.dangling > 0
             || self.unattributable > 0
+            || self.dead_lettered > 0
             || self.failed > 0
             || self.remaining_over_budget > 0
     }
@@ -95,6 +101,7 @@ pub async fn run(
                         requeued = stats.requeued,
                         dangling = stats.dangling,
                         unattributable = stats.unattributable,
+                        dead_lettered = stats.dead_lettered,
                         failed = stats.failed,
                         remaining_over_budget = stats.remaining_over_budget,
                         dry_run = config.dry_run,
@@ -310,8 +317,12 @@ async fn reap_shared_processing(
                 remove_from_list(conn, config, &processing, &uuid).await?;
                 stats.dangling += 1;
             } else {
-                // Undeserializable payload: leave it in place and surface it.
-                stats.unattributable += 1;
+                // Poison: a worker popped this into `_processing` and then failed
+                // to deserialize it (MQ #6), so it can never be delivered and no
+                // live worker holds it. Move it to the `_failed` dead-letter queue
+                // instead of leaking here until the waiter times out.
+                dead_letter(conn, config, &processing, StrandSource::List, &uuid).await?;
+                stats.dead_lettered += 1;
             }
             continue;
         };
@@ -437,6 +448,10 @@ async fn requeue_from_list(
             RequeueOutcome::Dangling => {
                 remove_from_list(conn, config, source, uuid).await?;
             }
+            RequeueOutcome::Poison => {
+                dead_letter(conn, config, source, StrandSource::List, uuid).await?;
+                stats.dead_lettered += 1;
+            }
             RequeueOutcome::LeftInPlace | RequeueOutcome::DryRun => drained = false,
         }
     }
@@ -477,6 +492,10 @@ async fn requeue_from_zset(
                     *budget -= 1;
                 }
             }
+            RequeueOutcome::Poison => {
+                dead_letter(conn, config, source, StrandSource::Zset, uuid).await?;
+                stats.dead_lettered += 1;
+            }
             RequeueOutcome::LeftInPlace | RequeueOutcome::DryRun => drained = false,
         }
     }
@@ -487,8 +506,18 @@ async fn requeue_from_zset(
 enum RequeueOutcome {
     Requeued,
     Dangling,
+    /// Undeserializable payload (MQ #6): the caller dead-letters it.
+    Poison,
     LeftInPlace,
     DryRun,
+}
+
+/// How a stranded uuid is anchored in its queue family, so [`dead_letter`] knows
+/// which removal command to issue.
+#[derive(Clone, Copy)]
+enum StrandSource {
+    List,
+    Zset,
 }
 
 /// Read a stranded uuid's payload hash, republish the `Task` to the shared queue,
@@ -509,8 +538,8 @@ async fn requeue_one(
     }
 
     let Some(task) = parse_task(&fields) else {
-        stats.unattributable += 1;
-        return Ok(RequeueOutcome::LeftInPlace);
+        // Poison (MQ #6): undeserializable payload. The caller dead-letters it.
+        return Ok(RequeueOutcome::Poison);
     };
 
     if requeue_task(conn, mq, config, uuid, &task, stats).await? {
@@ -570,6 +599,58 @@ async fn remove_from_list(
         .arg(uuid)
         .query_async(conn)
         .await?;
+    Ok(())
+}
+
+/// Dead-letter a poison (undeserializable) strand: remove it from its source and
+/// push its task_id onto the shared `<queue>_failed` list, matching the broker's
+/// own reject-at-max-attempts convention (LPUSH the task_id, keep the payload
+/// hash for inspection). A poison message can never be delivered and no live
+/// worker holds it, so this is unconditional — no owner attribution or liveness
+/// check needed. It stops the message leaking in `_processing` forever.
+async fn dead_letter(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &ReaperConfig,
+    source: &str,
+    kind: StrandSource,
+    uuid: &str,
+) -> Result<(), redis::RedisError> {
+    if config.dry_run {
+        warn!(
+            uuid,
+            source, "Reaper dry-run: would dead-letter poison (undeserializable) message"
+        );
+        return Ok(());
+    }
+
+    match kind {
+        StrandSource::List => {
+            let _: i64 = redis::cmd("LREM")
+                .arg(source)
+                .arg(1_i64)
+                .arg(uuid)
+                .query_async(conn)
+                .await?;
+        }
+        StrandSource::Zset => {
+            let _: i64 = redis::cmd("ZREM")
+                .arg(source)
+                .arg(uuid)
+                .query_async(conn)
+                .await?;
+        }
+    }
+
+    let failed_queue = format!("{}_failed", config.shared_queue);
+    let _: i64 = redis::cmd("LPUSH")
+        .arg(&failed_queue)
+        .arg(uuid)
+        .query_async(conn)
+        .await?;
+    warn!(
+        uuid,
+        failed_queue, "Reaper dead-lettered a poison (undeserializable) operation message"
+    );
     Ok(())
 }
 
@@ -871,6 +952,65 @@ mod tests {
         assert!(
             !dead_since,
             "debounce clock must not start while liveness is absent"
+        );
+    }
+
+    /// MQ #6: a poison (undeserializable) message stranded in shared
+    /// `_processing` is moved to the `_failed` dead-letter queue instead of
+    /// leaking, without any owner attribution or debounce.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dead_letters_poison_shared_processing_message() {
+        use redis::AsyncCommands;
+        let (client, mq, _c) = redis_and_mq().await;
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        let cfg = cfg();
+
+        conn.set::<_, _, ()>("broccoli:worker:heartbeat:alive", "1")
+            .await
+            .unwrap();
+
+        // Seed a poison strand by hand: a uuid wedged in `_processing` whose
+        // payload hash cannot deserialize into `Task` (schema drift). This is
+        // exactly the state `try_consume::<Task>` leaves behind when it pops a
+        // message then fails `into_message()`.
+        let processing = format!("{}_processing", cfg.shared_queue);
+        let poison = "poison-uuid";
+        conn.rpush::<_, _, ()>(&processing, poison).await.unwrap();
+        conn.hset_multiple::<_, _, _, ()>(
+            poison,
+            &[
+                ("task_id", poison),
+                ("payload", "{\"totally\":\"not a task\"}"),
+                ("attempts", "0"),
+            ],
+        )
+        .await
+        .unwrap();
+
+        // No debounce required: one tick dead-letters it.
+        let stats = reap_once(&client, &mq, &cfg).await.unwrap();
+        assert_eq!(
+            stats.dead_lettered, 1,
+            "the poison message is dead-lettered"
+        );
+        assert_eq!(stats.requeued, 0);
+
+        let proc_len: i64 = conn.llen(&processing).await.unwrap();
+        assert_eq!(proc_len, 0, "poison removed from processing");
+        let failed: Vec<String> = conn
+            .lrange(format!("{}_failed", cfg.shared_queue), 0, -1)
+            .await
+            .unwrap();
+        assert_eq!(
+            failed,
+            vec![poison.to_string()],
+            "poison lands in the dead-letter queue"
+        );
+        // The payload hash is kept for inspection, matching broker reject semantics.
+        let hash_exists: bool = conn.exists(poison).await.unwrap();
+        assert!(
+            hash_exists,
+            "the poison payload hash is retained for inspection"
         );
     }
 }
