@@ -552,6 +552,7 @@ pub(crate) async fn read_workers(state: &AppState) -> Vec<WorkerInfo> {
                 stale: elapsed > STALE_AFTER_SECS,
                 in_flight: p.in_flight,
                 max_concurrency: p.max_concurrency,
+                fairness_mode: p.fairness_mode,
                 sandbox_backend: p.sandbox_backend,
                 version: p.version,
                 hostname: p.hostname,
@@ -616,6 +617,8 @@ struct HeartbeatPayload {
     last_seen: chrono::DateTime<Utc>,
     in_flight: u32,
     max_concurrency: Option<u32>,
+    #[serde(default)]
+    fairness_mode: Option<String>,
     sandbox_backend: String,
     version: String,
     #[serde(default)]
@@ -635,6 +638,18 @@ struct HeartbeatPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heartbeat_payload_reads_fairness_mode_and_tolerates_legacy() {
+        let with = r#"{"id":"w","started_at":"2026-05-01T00:00:00Z","last_seen":"2026-05-01T00:00:00Z","in_flight":0,"max_concurrency":4,"fairness_mode":"pinned","sandbox_backend":"isolate","version":"0.1.0"}"#;
+        let p: HeartbeatPayload = serde_json::from_str(with).unwrap();
+        assert_eq!(p.fairness_mode.as_deref(), Some("pinned"));
+
+        // Legacy worker heartbeats predating the field must still parse.
+        let legacy = r#"{"id":"w","started_at":"2026-05-01T00:00:00Z","last_seen":"2026-05-01T00:00:00Z","in_flight":0,"max_concurrency":null,"sandbox_backend":"isolate","version":"0.1.0"}"#;
+        let p: HeartbeatPayload = serde_json::from_str(legacy).unwrap();
+        assert!(p.fairness_mode.is_none());
+    }
 
     #[test]
     fn queue_depth_delta_tracks_absolute_samples() {

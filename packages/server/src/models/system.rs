@@ -15,6 +15,11 @@ pub struct WorkerInfo {
     #[schema(example = 0)]
     pub in_flight: u32,
     pub max_concurrency: Option<u32>,
+    /// The worker's fairness mode (e.g. `pinned`, `cooperative`, `unknown`),
+    /// reported in its heartbeat. `None` for legacy workers that predate the
+    /// field. See the worker `fairness` module.
+    #[schema(example = "pinned")]
+    pub fairness_mode: Option<String>,
     #[schema(example = "isolate")]
     pub sandbox_backend: String,
     #[schema(example = "0.1.0")]
