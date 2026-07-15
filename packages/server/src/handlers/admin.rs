@@ -522,7 +522,9 @@ pub async fn upload_plugin(
                     let dir_perms = std::fs::Permissions::from_mode(0o755);
                     let mut dir = parent.to_path_buf();
                     while dir.starts_with(&dest_root_clone) {
-                        let _ = std::fs::set_permissions(&dir, dir_perms.clone());
+                        if let Err(e) = std::fs::set_permissions(&dir, dir_perms.clone()) {
+                            tracing::warn!(path = %dir.display(), error = %e, "Failed to set plugin directory permissions during unpack");
+                        }
                         if !dir.pop() {
                             break;
                         }
@@ -538,7 +540,9 @@ pub async fn upload_plugin(
             {
                 use std::os::unix::fs::PermissionsExt;
                 let perms = std::fs::Permissions::from_mode(0o644);
-                let _ = std::fs::set_permissions(&dest, perms);
+                if let Err(e) = std::fs::set_permissions(&dest, perms) {
+                    tracing::warn!(path = %dest.display(), error = %e, "Failed to set plugin file permissions during unpack");
+                }
             }
         }
 
@@ -546,7 +550,9 @@ pub async fn upload_plugin(
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o755);
-            let _ = std::fs::set_permissions(&dest_root_clone, perms);
+            if let Err(e) = std::fs::set_permissions(&dest_root_clone, perms) {
+                tracing::warn!(path = %dest_root_clone.display(), error = %e, "Failed to set plugin root directory permissions during unpack");
+            }
         }
 
         Ok(())
