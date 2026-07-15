@@ -21,13 +21,22 @@ pub async fn prepare_test_case_body(
     body: String,
     blob_store: Arc<dyn BlobStore>,
 ) -> Result<PreparedTestCaseBody, AppError> {
+    // Sanitize ONCE up front so the inline column, the blob, the reported size,
+    // and the preview all describe the SAME bytes. The inline column is Postgres
+    // TEXT, which rejects NUL, so the inline path must sanitize; sanitizing the
+    // blob path identically means a test case containing a NUL is judged against
+    // the same bytes whether it is small (inline) or large (blob), instead of
+    // diverging at the 1 MiB boundary. Deriving `size` from the sanitized form
+    // also keeps `input_size` consistent with what is actually stored (each NUL
+    // expands 1 -> 3 bytes as U+FFFD).
+    let body = sanitize_db_text(body);
     let size = i64::try_from(body.len())
         .map_err(|_| AppError::Validation("Test case body is too large".into()))?;
-    let preview = sanitize_db_text(body.chars().take(STORED_PREVIEW_CHARS).collect::<String>());
+    let preview = body.chars().take(STORED_PREVIEW_CHARS).collect::<String>();
 
     if body.len() < INLINE_TEST_CASE_BODY_THRESHOLD_BYTES {
         return Ok(PreparedTestCaseBody {
-            inline_text: sanitize_db_text(body),
+            inline_text: body,
             blob_hash: None,
             size,
             preview,
@@ -175,5 +184,35 @@ mod tests {
             read_test_case_body("", Some(&hash), &*store).await.unwrap(),
             body
         );
+    }
+
+    #[tokio::test]
+    async fn inline_nul_is_sanitized_and_size_matches_stored_bytes() {
+        let prepared = prepare_test_case_body("a\0b".to_string(), blob_store().await)
+            .await
+            .unwrap();
+
+        assert_eq!(prepared.inline_text, "a\u{FFFD}b");
+        assert!(!prepared.inline_text.contains('\0'));
+        // U+FFFD is 3 bytes, so "a\0b" (3 bytes raw) stores as 5 bytes; the
+        // reported size must match the stored (sanitized) form, not the raw len.
+        assert_eq!(prepared.size, "a\u{FFFD}b".len() as i64);
+    }
+
+    #[tokio::test]
+    async fn blob_path_sanitizes_nul_identically_to_inline() {
+        let store = blob_store().await;
+        // Large enough to take the blob path, and containing a NUL: the blob must
+        // be sanitized just like the inline path so the same content is judged
+        // identically on either side of the 1 MiB boundary.
+        let body = format!("{}\0", "x".repeat(INLINE_TEST_CASE_BODY_THRESHOLD_BYTES));
+
+        let prepared = prepare_test_case_body(body, store.clone()).await.unwrap();
+
+        assert!(prepared.inline_text.is_empty());
+        let hash = prepared.blob_hash.expect("blob hash");
+        let read_back = read_test_case_body("", Some(&hash), &*store).await.unwrap();
+        assert!(!read_back.contains('\0'), "blob body must not retain NUL");
+        assert!(read_back.ends_with('\u{FFFD}'), "NUL sanitized to U+FFFD");
     }
 }
