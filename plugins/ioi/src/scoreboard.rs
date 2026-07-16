@@ -7,7 +7,7 @@ use crate::config::{
     ContestConfig, ScoreboardTiebreaker, ScoreboardVisibility, ScoringMode, SubtaskDef,
     resolve_tc_label,
 };
-use crate::scoring::{score_best_tokened_or_last, score_sum_best_subtask};
+use crate::scoring::score_best_tokened_or_last;
 use crate::subtasks::score_all_subtasks;
 use crate::tokens::TokenState;
 #[cfg(target_arch = "wasm32")]
@@ -396,12 +396,19 @@ fn load_sum_best_subtask_scoreboard_cells(
                 .get(&(user_id, problem_id))
                 .cloned()
                 .unwrap_or_default();
-            let mut all_subtask_scores = Vec::new();
-            let mut best_by_subtask: Vec<(f64, Option<i64>)> = Vec::new();
+            // Single source of truth for the score with score.rs's task-score
+            // recompute (`sum_best_subtask_score`); the loop below only ADDS
+            // score-time tracking (WHEN each subtask's best was reached), which
+            // the task-score path does not compute.
+            let score = crate::score::sum_best_subtask_score(
+                subtask_defs,
+                test_cases,
+                submissions.iter().map(|(_, tc_scores)| tc_scores),
+            );
 
+            let mut best_by_subtask: Vec<(f64, Option<i64>)> = Vec::new();
             for (elapsed_seconds, tc_scores) in submissions {
                 let subtask_scores = score_all_subtasks(subtask_defs, test_cases, &tc_scores);
-                all_subtask_scores.push(subtask_scores.iter().map(|r| r.score).collect::<Vec<_>>());
                 for (idx, subtask) in subtask_scores.iter().enumerate() {
                     if best_by_subtask.len() <= idx {
                         best_by_subtask.resize(idx + 1, (0.0, None));
@@ -420,8 +427,6 @@ fn load_sum_best_subtask_scoreboard_cells(
                     }
                 }
             }
-
-            let score = score_sum_best_subtask(&all_subtask_scores);
             let score_time_seconds = if score > 0.0 {
                 best_by_subtask
                     .iter()

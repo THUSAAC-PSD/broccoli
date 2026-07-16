@@ -204,13 +204,34 @@ fn recompute_sum_best_subtask(
             .insert(label, raw_score);
     }
 
-    let mut all_subtask_scores: Vec<Vec<f64>> = Vec::new();
-    for tc_scores in by_submission.values() {
-        let results = score_all_subtasks(subtask_defs, test_cases, tc_scores);
-        all_subtask_scores.push(results.iter().map(|r| r.score).collect());
-    }
+    Ok(sum_best_subtask_score(
+        subtask_defs,
+        test_cases,
+        by_submission.values(),
+    ))
+}
 
-    Ok(score_sum_best_subtask(&all_subtask_scores))
+/// The SumBestSubtask score: for each of the user's submissions, score every
+/// subtask from its normalized per-test-case scores, then for each subtask take
+/// the best across submissions and sum. Single source of truth for both the
+/// official task score ([`recompute_sum_best_subtask`]) and the scoreboard cell
+/// (`crate::scoreboard`), which differ only in how they fetch + normalize the
+/// rows — so the two cannot diverge on the value.
+pub(crate) fn sum_best_subtask_score<'a>(
+    subtask_defs: &[SubtaskDef],
+    test_cases: &[TestCaseRow],
+    per_submission_scores: impl IntoIterator<Item = &'a HashMap<String, f64>>,
+) -> f64 {
+    let all_subtask_scores: Vec<Vec<f64>> = per_submission_scores
+        .into_iter()
+        .map(|tc_scores| {
+            score_all_subtasks(subtask_defs, test_cases, tc_scores)
+                .iter()
+                .map(|r| r.score)
+                .collect()
+        })
+        .collect();
+    score_sum_best_subtask(&all_subtask_scores)
 }
 
 #[cfg(target_arch = "wasm32")]
