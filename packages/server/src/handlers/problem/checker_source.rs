@@ -5,7 +5,7 @@ use broccoli_server_sdk::permissions as perm;
 use tracing::instrument;
 
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::problem::*;
@@ -34,7 +34,7 @@ use crate::utils::text::sanitize_db_json;
 )]
 #[instrument(skip(state, auth_user, payload), fields(id))]
 pub async fn upload_checker_source(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UploadCheckerSourceRequest>,
@@ -136,7 +136,7 @@ pub async fn get_checker_source(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn delete_checker_source(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<StatusCode, AppError> {

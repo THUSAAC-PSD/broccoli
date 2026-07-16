@@ -25,7 +25,7 @@ use common::warm::{
 };
 
 use crate::error::AppError;
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::handlers::system::read_workers;
 use crate::models::warm::{PrewarmResponse, WarmStatusResponse, WorkerWarmStatus};
@@ -65,7 +65,7 @@ const ENUMERATE_BLOBS_SQL: &str = r#"
 )]
 #[instrument(skip(state, auth_user), fields(contest_id = id))]
 pub async fn prewarm_contest(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<PrewarmResponse>, AppError> {

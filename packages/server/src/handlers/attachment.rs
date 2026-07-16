@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::entity::{problem, problem_attachment};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
@@ -48,7 +48,7 @@ pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
 )]
 #[instrument(skip(state, auth_user, multipart), fields(problem_id))]
 pub async fn upload_attachment(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     mut multipart: Multipart,
@@ -255,7 +255,7 @@ pub async fn download_attachment(
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, ref_id))]
 pub async fn delete_attachment(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {

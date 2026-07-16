@@ -10,7 +10,7 @@ use tracing::instrument;
 
 use crate::entity::{contest, contest_problem, problem, test_case};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::problem::*;
@@ -50,7 +50,7 @@ pub use upload::*;
 )]
 #[instrument(skip(state, auth_user, payload), fields(title = %payload.title))]
 pub async fn create_problem(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppJson(payload): AppJson<CreateProblemRequest>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -256,7 +256,7 @@ pub async fn get_problem(
 )]
 #[instrument(skip(state, auth_user, payload), fields(id))]
 pub async fn update_problem(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UpdateProblemRequest>,
@@ -362,7 +362,7 @@ pub async fn update_problem(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn delete_problem(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {

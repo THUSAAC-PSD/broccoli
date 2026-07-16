@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use crate::entity::test_case;
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::FreshAuthUser;
 use crate::extractors::path::AppPath;
 use crate::models::problem::*;
 use crate::state::AppState;
@@ -48,7 +48,7 @@ use super::test_cases::{next_test_case_position, tc_to_list_item};
 )]
 #[instrument(skip(state, auth_user, data), fields(problem_id))]
 pub async fn upload_test_cases(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     BaseMultipart { data, .. }: BaseMultipart<UploadTestCasesRequest, AppError>,

@@ -10,7 +10,7 @@ use plugin_core::traits::PluginManager;
 
 use crate::entity::plugin_config;
 use crate::error::AppError;
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::host_funcs::config::{extract_plugin_id, strip_namespace_prefix};
@@ -235,7 +235,7 @@ pub async fn get_plugin_global_config(
 )]
 #[instrument(skip(state, auth_user, payload), fields(plugin_id, namespace))]
 pub async fn upsert_plugin_global_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((plugin_id, namespace)): AppPath<(String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
@@ -277,7 +277,7 @@ pub async fn upsert_plugin_global_config(
 )]
 #[instrument(skip(state, auth_user), fields(plugin_id, namespace))]
 pub async fn delete_plugin_global_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((plugin_id, namespace)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -375,7 +375,7 @@ pub async fn get_problem_config(
     fields(problem_id, plugin_id, namespace)
 )]
 pub async fn upsert_problem_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
@@ -421,7 +421,7 @@ pub async fn upsert_problem_config(
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, plugin_id, namespace))]
 pub async fn delete_problem_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -531,7 +531,7 @@ pub async fn get_contest_problem_config(
     fields(contest_id, problem_id, plugin_id, namespace)
 )]
 pub async fn upsert_contest_problem_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
@@ -581,7 +581,7 @@ pub async fn upsert_contest_problem_config(
     fields(contest_id, problem_id, plugin_id, namespace)
 )]
 pub async fn delete_contest_problem_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -683,7 +683,7 @@ pub async fn get_contest_config(
     fields(contest_id, plugin_id, namespace)
 )]
 pub async fn upsert_contest_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
@@ -729,7 +729,7 @@ pub async fn upsert_contest_config(
 )]
 #[instrument(skip(state, auth_user), fields(contest_id, plugin_id, namespace))]
 pub async fn delete_contest_config(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {

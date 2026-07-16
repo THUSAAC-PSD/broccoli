@@ -9,7 +9,7 @@ use tracing::instrument;
 
 use crate::entity::{test_case, test_case_result};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::problem::*;
@@ -45,7 +45,7 @@ use super::find_problem_for_update;
 )]
 #[instrument(skip(state, auth_user, payload), fields(problem_id))]
 pub async fn create_test_case(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<CreateTestCaseRequest>,
@@ -234,7 +234,7 @@ pub async fn get_test_case(
 )]
 #[instrument(skip(state, auth_user, payload), fields(problem_id, tc_id))]
 pub async fn update_test_case(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<UpdateTestCaseRequest>,
@@ -317,7 +317,7 @@ pub async fn update_test_case(
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, tc_id))]
 pub async fn delete_test_case(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -363,7 +363,7 @@ pub async fn delete_test_case(
 )]
 #[instrument(skip(state, auth_user, payload), fields(problem_id))]
 pub async fn reorder_test_cases(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<ReorderTestCasesRequest>,
@@ -431,7 +431,7 @@ pub async fn reorder_test_cases(
 )]
 #[instrument(skip(state, auth_user, payload), fields(problem_id))]
 pub async fn bulk_delete_test_cases(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkDeleteTestCasesRequest>,

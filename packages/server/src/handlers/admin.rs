@@ -15,7 +15,7 @@ use tracing::instrument;
 
 use crate::entity::plugin as plugin_entity;
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::plugin::{
     PluginDetailResponse, PluginFullDetailResponse, ReloadAllResponse, ReloadFailure,
@@ -110,7 +110,7 @@ pub async fn get_plugin_details(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn enable_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -156,7 +156,7 @@ pub async fn enable_plugin(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn disable_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -204,7 +204,7 @@ pub async fn disable_plugin(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn reload_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -246,7 +246,7 @@ pub async fn reload_plugin(
 )]
 #[instrument(skip(state, auth_user))]
 pub async fn reload_all_plugins(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<ReloadAllResponse>, AppError> {
     auth_user.require_permission(perm::PLUGIN_MANAGE)?;
@@ -372,7 +372,7 @@ const MAX_AGGREGATE_SIZE: u64 = 2 * LARGE_UPLOAD_LIMIT_BYTES as u64;
 )]
 #[instrument(skip(state, auth_user, multipart))]
 pub async fn upload_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {

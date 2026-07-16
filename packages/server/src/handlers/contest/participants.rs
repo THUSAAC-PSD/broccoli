@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use crate::entity::{contest_user, role, user, user_role};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::contest::*;
@@ -38,7 +38,7 @@ use super::find_contest_for_update;
 )]
 #[instrument(skip(state, auth_user, payload), fields(contest_id))]
 pub async fn add_participant(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<AddParticipantRequest>,
@@ -150,7 +150,7 @@ pub async fn list_participants(
 )]
 #[instrument(skip(state, auth_user), fields(contest_id, user_id))]
 pub async fn remove_participant(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, user_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -277,7 +277,7 @@ pub async fn unregister_from_contest(
 )]
 #[instrument(skip(state, auth_user, payload), fields(contest_id))]
 pub async fn bulk_add_participants(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkAddParticipantsRequest>,

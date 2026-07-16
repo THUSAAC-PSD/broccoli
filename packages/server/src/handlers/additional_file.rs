@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::entity::{additional_file, problem};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::attachment::{AdditionalFileListResponse, AdditionalFileResponse};
 use crate::state::AppState;
@@ -67,7 +67,7 @@ fn validate_language_code(lang: &str) -> Result<(), AppError> {
 )]
 #[instrument(skip(state, auth_user, multipart), fields(problem_id))]
 pub async fn upload_additional_file(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     mut multipart: Multipart,
@@ -307,7 +307,7 @@ pub async fn download_additional_file(
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, ref_id))]
 pub async fn delete_additional_file(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
