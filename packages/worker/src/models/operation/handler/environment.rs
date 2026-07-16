@@ -144,8 +144,17 @@ impl OperationHandler {
         match target {
             IOTarget::Null | IOTarget::Inherit => Ok(None),
             IOTarget::File { path } => {
-                let p = Path::new(path);
-                Ok(Some(p.to_path_buf()))
+                // Validate the redirect target is a safe box-relative path (no
+                // absolute root, no `..`). Without this, an op-supplied
+                // `io.stdout = File{path:"/etc/passwd"}` (or "../..") reads or
+                // overwrites a host file outside the box -- under the mock
+                // backend `resolve_runtime_path` joins it (an absolute path
+                // replaces the base and escapes), and isolate's `--stdin`/etc.
+                // must stay box-relative too. `safe_join` errors on any unsafe
+                // component; we keep the original relative path so both backends
+                // resolve it inside the box exactly as before.
+                safe_join(working_dir, path)?;
+                Ok(Some(Path::new(path).to_path_buf()))
             }
             IOTarget::Pipe { name } => {
                 validate_pipe_name(name)?;
@@ -209,12 +218,41 @@ impl OperationHandler {
         collect_files: &[String],
     ) -> Result<HashMap<String, String>> {
         let mut collected = HashMap::new();
+        let real_base = tokio::fs::canonicalize(working_dir)
+            .await
+            .unwrap_or_else(|_| working_dir.to_path_buf());
         for file_path in collect_files {
             let src = safe_join(working_dir, file_path)?;
             if tokio::fs::try_exists(&src).await.unwrap_or(false) {
-                let hash = self.file_cacher.upload_from_path(&src).await.map_err(|e| {
-                    anyhow!("Failed to upload output file {}: {}", src.display(), e)
-                })?;
+                // `safe_join` only validates the path STRING. The sandboxed
+                // program can plant a symlink at the collect path (or an
+                // intermediate directory) pointing at a host file, and
+                // `upload_from_path` follows symlinks. Resolve the real target
+                // and confirm it is still inside the box before uploading, so a
+                // contestant cannot exfiltrate a host secret (or substitute the
+                // answer) by symlinking their output file.
+                let real = match tokio::fs::canonicalize(&src).await {
+                    Ok(real) => real,
+                    Err(e) => {
+                        warn!(path = %src.display(), error = %e, "Could not resolve collect target; skipping");
+                        continue;
+                    }
+                };
+                if !real.starts_with(&real_base) {
+                    warn!(
+                        path = %src.display(),
+                        resolved = %real.display(),
+                        "Collect target resolves outside the box (symlink escape); skipping"
+                    );
+                    continue;
+                }
+                let hash = self
+                    .file_cacher
+                    .upload_from_path(&real)
+                    .await
+                    .map_err(|e| {
+                        anyhow!("Failed to upload output file {}: {}", real.display(), e)
+                    })?;
                 info!(
                     file = %file_path,
                     hash = %hash,
