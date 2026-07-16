@@ -17,6 +17,23 @@ mod plugin {
         seconds_since_last: Option<i64>,
     }
 
+    /// How long the atomic claim blocks re-submission on its OWN, independent of
+    /// the real cooldown.
+    ///
+    /// The durable cooldown is enforced against actual committed submissions
+    /// (`MAX(submission.created_at)`); the claim table exists ONLY to close the
+    /// concurrency gap where several POSTs pass that read before any of their
+    /// rows commit. So the claim only needs to block for the brief window until a
+    /// winning submission's row is durably inserted — after which the actual
+    /// submission takes over enforcement. Blocking the claim for the FULL
+    /// cooldown (the old behavior) meant a submission REJECTED by a later hook or
+    /// a failed insert — which advanced `last_claim_at` but produced no row —
+    /// put the user on cooldown for a submission that never happened. Capping the
+    /// claim's own block at this short grace (and at the cooldown, so it never
+    /// over-blocks a short cooldown) means such a failed attempt only costs the
+    /// user this long, not the whole window.
+    const CLAIM_GRACE_SECS: u32 = 15;
+
     /// Plugin-owned claim table backing the atomic cooldown gate.
     ///
     /// Reading `MAX(created_at) FROM submission` and then passing is a classic
@@ -52,18 +69,24 @@ mod plugin {
         Ok("ok".into())
     }
 
-    /// Atomically claim the right to submit. Returns Ok(true) when the claim
-    /// wins (first submission ever, or the cooldown has fully elapsed) and the
-    /// slot's timestamp was advanced to NOW(); Ok(false) when the cooldown is
-    /// still active. Single statement, so concurrent claims cannot interleave:
-    /// `ON CONFLICT DO UPDATE` re-evaluates the `WHERE` against the row version
-    /// committed by a concurrent winner.
+    /// Atomically claim the in-flight submission slot for the concurrency window.
+    /// Returns Ok(true) when the claim wins (no other claim within the last
+    /// `claim_window` seconds) and the slot's timestamp was advanced to NOW();
+    /// Ok(false) when another submission claimed within that window. Single
+    /// statement, so concurrent claims cannot interleave: `ON CONFLICT DO UPDATE`
+    /// re-evaluates the `WHERE` against the row version committed by a concurrent
+    /// winner.
+    ///
+    /// `claim_window` is the SHORT in-flight grace (see [`CLAIM_GRACE_SECS`]), NOT
+    /// the full cooldown — the durable cooldown is enforced separately against
+    /// actual committed submissions, so this only serializes concurrent in-flight
+    /// POSTs and a failed attempt frees the slot after the short grace.
     fn try_claim(
         host: &Host,
         user_id: i32,
         problem_id: i32,
         contest_key: i32,
-        cooldown: u32,
+        claim_window: u32,
     ) -> Result<bool, SdkError> {
         let mut p = Params::new();
         let sql = format!(
@@ -75,7 +98,7 @@ mod plugin {
             p.bind(user_id),
             p.bind(problem_id),
             p.bind(contest_key),
-            p.bind(cooldown)
+            p.bind(claim_window)
         );
         Ok(host.db.execute_with_args(&sql, &p.into_args())? > 0)
     }
@@ -187,18 +210,22 @@ mod plugin {
             }
         }
 
-        // Authoritative gate: atomically claim the (user, problem, contest)
-        // slot. Exactly one of N concurrent submissions can win the claim per
-        // cooldown window; a "first submission" must claim too, or N parallel
-        // first submissions would all pass. Retry once after an idempotent
-        // schema bootstrap so a failed/missed init() cannot wedge submissions.
+        // Concurrency gate: atomically claim the in-flight slot for the SHORT
+        // grace window (capped at the cooldown so a sub-grace cooldown is never
+        // over-blocked). The durable cooldown was already enforced by the
+        // actual-submission pre-check above; this only stops several concurrent
+        // POSTs — whose rows have not yet committed — from all passing. A "first
+        // submission" must claim too, or N parallel first submissions would all
+        // pass. Retry once after an idempotent schema bootstrap so a failed/missed
+        // init() cannot wedge submissions.
         let contest_key = event.contest_id.unwrap_or(0);
+        let claim_window = cooldown.min(CLAIM_GRACE_SECS);
         let claimed = match try_claim(
             &host,
             event.user_id,
             event.problem_id,
             contest_key,
-            cooldown,
+            claim_window,
         ) {
             Ok(claimed) => claimed,
             Err(e) => {
@@ -211,7 +238,7 @@ mod plugin {
                     event.user_id,
                     event.problem_id,
                     contest_key,
-                    cooldown,
+                    claim_window,
                 )?
             }
         };
@@ -253,10 +280,9 @@ mod plugin {
         run_api_handler(&input, handle_cooldown_status)
     }
 
-    /// Seconds since the last cooldown-relevant event: the newer of the last
-    /// actual submission and the last successful claim for this
-    /// (user, problem, contest) slot.
-    fn query_status_elapsed(
+    /// Seconds since the last actual committed submission for this
+    /// (user, problem, contest) slot — the durable cooldown clock.
+    fn query_submission_elapsed(
         host: &Host,
         user_id: i32,
         problem_id: i32,
@@ -268,15 +294,30 @@ mod plugin {
             None => "AND contest_id IS NULL".to_string(),
         };
         let sql = format!(
-            "SELECT EXTRACT(EPOCH FROM (NOW() - GREATEST( \
-                (SELECT MAX(created_at) FROM submission \
-                 WHERE user_id = {} AND problem_id = {} {}), \
-                (SELECT MAX(last_claim_at) FROM cooldown_claim \
-                 WHERE user_id = {} AND problem_id = {} AND contest_id = {}) \
-             )))::int as seconds_since_last",
+            "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int as seconds_since_last \
+             FROM submission WHERE user_id = {} AND problem_id = {} {}",
             p.bind(user_id),
             p.bind(problem_id),
-            contest_filter,
+            contest_filter
+        );
+        Ok(host
+            .db
+            .query_one_with_args::<SecondsSinceLast>(&sql, &p.into_args())?
+            .and_then(|r| r.seconds_since_last))
+    }
+
+    /// Seconds since the last in-flight claim for this slot — governs only the
+    /// short concurrency grace window, NOT the full cooldown.
+    fn query_claim_elapsed(
+        host: &Host,
+        user_id: i32,
+        problem_id: i32,
+        contest_id: Option<i32>,
+    ) -> Result<Option<i64>, SdkError> {
+        let mut p = Params::new();
+        let sql = format!(
+            "SELECT EXTRACT(EPOCH FROM (NOW() - last_claim_at))::int as seconds_since_last \
+             FROM cooldown_claim WHERE user_id = {} AND problem_id = {} AND contest_id = {}",
             p.bind(user_id),
             p.bind(problem_id),
             p.bind(contest_id.unwrap_or(0))
@@ -324,27 +365,32 @@ mod plugin {
         let config: CooldownConfig = eff.parse_config().unwrap_or_default();
         let cooldown = config.cooldown_seconds.unwrap_or(0);
 
-        // Mirror the gate in check_cooldown: the clock runs from the newer of
-        // the last actual submission and the last successful claim (GREATEST
-        // ignores NULLs), so the status shown to the contestant cannot claim
-        // "can submit" while the atomic gate would still reject.
-        let seconds_since_last = match query_status_elapsed(host, user_id, problem_id, contest_id) {
+        // Mirror the two-part gate in check_cooldown so the status shown to the
+        // contestant cannot claim "can submit" while the gate would reject: the
+        // durable cooldown runs from the last actual submission, and the claim
+        // adds only the short in-flight grace window. The reported
+        // `seconds_since_last` is the durable clock (the meaningful "time since
+        // your last submission").
+        let submission_elapsed = query_submission_elapsed(host, user_id, problem_id, contest_id)?;
+        let claim_elapsed = match query_claim_elapsed(host, user_id, problem_id, contest_id) {
             Ok(v) => v,
             Err(_) => {
                 // Likely a missing claim table (failed/missed init); bootstrap
                 // is idempotent, then retry once.
                 ensure_schema(host)?;
-                query_status_elapsed(host, user_id, problem_id, contest_id)?
+                query_claim_elapsed(host, user_id, problem_id, contest_id)?
             }
         };
 
+        let seconds_since_last = submission_elapsed;
         let can_submit = if cooldown == 0 {
             true
         } else {
-            match seconds_since_last {
-                None => true, // first submission
-                Some(s) => s.max(0) as u64 >= cooldown as u64,
-            }
+            let claim_window = cooldown.min(CLAIM_GRACE_SECS);
+            let durable_ok =
+                submission_elapsed.map_or(true, |s| s.max(0) as u64 >= cooldown as u64);
+            let claim_ok = claim_elapsed.map_or(true, |s| s.max(0) as u64 >= claim_window as u64);
+            durable_ok && claim_ok
         };
 
         Ok(PluginHttpResponse {
