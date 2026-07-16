@@ -3,7 +3,7 @@ use broccoli_server_sdk::types::{
     CheckerStage, CheckerVerdict, InterpretCheckerInput, ResolveCheckerInput,
 };
 use extism::{Function, UserData, Val, ValType};
-use plugin_core::traits::PluginManager;
+use plugin_core::traits::PluginInvoker;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -17,13 +17,13 @@ use std::sync::Arc;
 struct CheckerStageContext {
     caller_plugin_id: String,
     checker_stage_registry: CheckerStageRegistry,
-    plugin_manager: Arc<dyn PluginManager>,
+    plugin_manager: Arc<dyn PluginInvoker>,
 }
 
 pub fn create_resolve_checker_function(
     plugin_id: String,
     checker_stage_registry: CheckerStageRegistry,
-    plugin_manager: Arc<dyn PluginManager>,
+    plugin_manager: Arc<dyn PluginInvoker>,
 ) -> Function {
     let user_data: UserData<CheckerStageContext> = UserData::new(CheckerStageContext {
         caller_plugin_id: plugin_id,
@@ -42,7 +42,7 @@ pub fn create_resolve_checker_function(
 pub fn create_interpret_checker_function(
     plugin_id: String,
     checker_stage_registry: CheckerStageRegistry,
-    plugin_manager: Arc<dyn PluginManager>,
+    plugin_manager: Arc<dyn PluginInvoker>,
 ) -> Function {
     let user_data: UserData<CheckerStageContext> = UserData::new(CheckerStageContext {
         caller_plugin_id: plugin_id,

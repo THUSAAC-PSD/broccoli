@@ -4,7 +4,7 @@ use plugin_core::i18n::I18nRegistry;
 use plugin_core::manager::PluginManagerState;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::registry::PluginRegistry;
-use plugin_core::traits::PluginManager;
+use plugin_core::traits::{PluginInvoker, PluginManager};
 use std::sync::{Arc, OnceLock};
 
 use crate::host_funcs;
@@ -43,13 +43,20 @@ impl ServerManager {
     }
 }
 
-impl PluginManager for ServerManager {
+impl PluginInvoker for ServerManager {
     fn get_config(&self) -> &PluginConfig {
         &self.state.config
     }
     fn get_registry(&self) -> &PluginRegistry {
         &self.state.registry
     }
+
+    fn get_metrics(&self) -> Option<&common::metrics::Metrics> {
+        self.metrics.as_ref()
+    }
+}
+
+impl PluginManager for ServerManager {
     fn get_host_functions(&self) -> &HostFunctionRegistry {
         self.host_functions
             .get()
@@ -57,10 +64,6 @@ impl PluginManager for ServerManager {
     }
     fn get_i18n_registry(&self) -> &I18nRegistry {
         &self.i18n
-    }
-
-    fn get_metrics(&self) -> Option<&common::metrics::Metrics> {
-        self.metrics.as_ref()
     }
 
     fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {

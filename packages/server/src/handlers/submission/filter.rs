@@ -2,7 +2,7 @@ use broccoli_server_sdk::types::{FilterSubmissionInput, FilterSubmissionOutput};
 use common::SubmissionStatus;
 use sea_orm::DatabaseConnection;
 
-use plugin_core::traits::PluginManagerExt;
+use plugin_core::traits::PluginInvokerExt;
 
 use crate::entity::{problem, submission, user};
 use crate::error::AppError;

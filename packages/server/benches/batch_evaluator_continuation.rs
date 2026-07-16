@@ -19,7 +19,7 @@ use plugin_core::host::HostFunctionRegistry;
 use plugin_core::i18n::I18nRegistry;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::registry::PluginRegistry;
-use plugin_core::traits::PluginManager;
+use plugin_core::traits::{PluginInvoker, PluginManager};
 use sea_orm::{DatabaseBackend, MockDatabase};
 use server::dispatcher::fanout::FanoutSemaphore;
 use server::entity::{additional_file, plugin_config, problem};
@@ -60,25 +60,13 @@ impl BenchmarkPluginManager {
 }
 
 #[async_trait]
-impl PluginManager for BenchmarkPluginManager {
+impl PluginInvoker for BenchmarkPluginManager {
     fn get_registry(&self) -> &PluginRegistry {
         &self.registry
     }
 
     fn get_config(&self) -> &PluginConfig {
         &self.config
-    }
-
-    fn get_host_functions(&self) -> &HostFunctionRegistry {
-        &self.host_functions
-    }
-
-    fn get_i18n_registry(&self) -> &I18nRegistry {
-        &self.i18n
-    }
-
-    fn resolve(&self, _manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
-        None
     }
 
     async fn call_raw(
@@ -114,6 +102,20 @@ impl PluginManager for BenchmarkPluginManager {
                 func_name: func_name.to_string(),
             }),
         }
+    }
+}
+
+impl PluginManager for BenchmarkPluginManager {
+    fn get_host_functions(&self) -> &HostFunctionRegistry {
+        &self.host_functions
+    }
+
+    fn get_i18n_registry(&self) -> &I18nRegistry {
+        &self.i18n
+    }
+
+    fn resolve(&self, _manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+        None
     }
 }
 
@@ -285,6 +287,7 @@ async fn benchmark_deps(temp_dir: &tempfile::TempDir) -> EvaluateHostDeps {
             metrics: None,
             evaluate_ops_registry: evaluate_ops_registry.clone(),
             operation_batch_publish_concurrency: 128,
+            redis_client: None,
         },
         evaluator_slots: Arc::new(Semaphore::new(1)),
         fanout_slots: FanoutSemaphore::new(1024, None),

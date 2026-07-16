@@ -8,7 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use plugin_core::http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
-use plugin_core::traits::PluginManagerExt;
+use plugin_core::traits::PluginInvokerExt;
 use tracing::{info, instrument, warn};
 
 use crate::error::{AppError, ErrorBody};

@@ -1028,7 +1028,7 @@ mod tests {
     use plugin_core::i18n::I18nRegistry;
     use plugin_core::manifest::PluginManifest;
     use plugin_core::registry::PluginRegistry;
-    use plugin_core::traits::PluginManager;
+    use plugin_core::traits::{PluginInvoker, PluginManager};
     use sea_orm::{DatabaseBackend, MockDatabase};
 
     use crate::config::{
@@ -1050,25 +1050,13 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl PluginManager for NoopPluginManager {
+    impl PluginInvoker for NoopPluginManager {
         fn get_registry(&self) -> &PluginRegistry {
             &self.registry
         }
 
         fn get_config(&self) -> &PluginConfig {
             &self.config
-        }
-
-        fn get_host_functions(&self) -> &HostFunctionRegistry {
-            &self.host_functions
-        }
-
-        fn get_i18n_registry(&self) -> &I18nRegistry {
-            &self.i18n
-        }
-
-        fn resolve(&self, _manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
-            None
         }
 
         async fn call_raw(
@@ -1080,6 +1068,20 @@ mod tests {
             Err(PluginError::Internal(
                 "NoopPluginManager cannot call plugins".into(),
             ))
+        }
+    }
+
+    impl PluginManager for NoopPluginManager {
+        fn get_host_functions(&self) -> &HostFunctionRegistry {
+            &self.host_functions
+        }
+
+        fn get_i18n_registry(&self) -> &I18nRegistry {
+            &self.i18n
+        }
+
+        fn resolve(&self, _manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+            None
         }
     }
 

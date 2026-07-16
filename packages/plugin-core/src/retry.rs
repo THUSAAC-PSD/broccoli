@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use crate::error::PluginError;
-use crate::traits::PluginManager;
+use crate::traits::PluginInvoker;
 
 /// Retry policy for [`call_raw_with_pool_retry`].
 ///
@@ -57,7 +57,7 @@ pub async fn call_raw_with_pool_retry<M>(
     policy: PoolRetryPolicy,
 ) -> Result<Vec<u8>, PluginError>
 where
-    M: PluginManager + Send + Sync + ?Sized,
+    M: PluginInvoker + Send + Sync + ?Sized,
 {
     let mut attempt: u32 = 0;
     let mut backoff = policy.initial_backoff;
@@ -97,6 +97,7 @@ mod tests {
     use crate::i18n::I18nRegistry;
     use crate::manifest::PluginManifest;
     use crate::registry::PluginRegistry;
+    use crate::traits::PluginManager;
 
     /// Test plugin manager that returns pre-configured responses from a queue
     /// and counts total `call_raw` invocations.
@@ -127,21 +128,12 @@ mod tests {
     }
 
     #[async_trait]
-    impl PluginManager for MockPluginManager {
+    impl PluginInvoker for MockPluginManager {
         fn get_registry(&self) -> &PluginRegistry {
             &self.registry
         }
         fn get_config(&self) -> &PluginConfig {
             &self.config
-        }
-        fn get_host_functions(&self) -> &HostFunctionRegistry {
-            &self.host_functions
-        }
-        fn get_i18n_registry(&self) -> &I18nRegistry {
-            &self.i18n
-        }
-        fn resolve(&self, _manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
-            None
         }
 
         async fn call_raw(
@@ -160,6 +152,18 @@ mod tests {
                         "MockPluginManager ran out of pre-configured responses".into(),
                     ))
                 })
+        }
+    }
+
+    impl PluginManager for MockPluginManager {
+        fn get_host_functions(&self) -> &HostFunctionRegistry {
+            &self.host_functions
+        }
+        fn get_i18n_registry(&self) -> &I18nRegistry {
+            &self.i18n
+        }
+        fn resolve(&self, _manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+            None
         }
     }
 

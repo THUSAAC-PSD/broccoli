@@ -10,7 +10,7 @@ use plugin_core::host::HostFunctionRegistry;
 use plugin_core::i18n::I18nRegistry;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::registry::PluginRegistry;
-use plugin_core::traits::PluginManager;
+use plugin_core::traits::{PluginInvoker, PluginManager};
 use reqwest::Client;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
@@ -58,25 +58,13 @@ struct TestPluginManager {
 }
 
 #[async_trait::async_trait]
-impl PluginManager for TestPluginManager {
+impl PluginInvoker for TestPluginManager {
     fn get_registry(&self) -> &PluginRegistry {
         self.inner.get_registry()
     }
 
     fn get_config(&self) -> &PluginConfig {
         self.inner.get_config()
-    }
-
-    fn get_host_functions(&self) -> &HostFunctionRegistry {
-        self.inner.get_host_functions()
-    }
-
-    fn get_i18n_registry(&self) -> &I18nRegistry {
-        self.inner.get_i18n_registry()
-    }
-
-    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
-        self.inner.resolve(manifest)
     }
 
     async fn call_raw(
@@ -90,6 +78,20 @@ impl PluginManager for TestPluginManager {
         }
 
         self.inner.call_raw(plugin_id, func_name, input).await
+    }
+}
+
+impl PluginManager for TestPluginManager {
+    fn get_host_functions(&self) -> &HostFunctionRegistry {
+        self.inner.get_host_functions()
+    }
+
+    fn get_i18n_registry(&self) -> &I18nRegistry {
+        self.inner.get_i18n_registry()
+    }
+
+    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+        self.inner.resolve(manifest)
     }
 }
 

@@ -96,19 +96,247 @@ fn record_pool_acquire_metrics(
     }
 }
 
+/// Invocation surface: the ability to *call into* an already-loaded plugin.
+///
+/// Split out from [`PluginManager`] so host functions -- which run *inside* a
+/// plugin call and only ever need to invoke other plugins (checker / language
+/// delegation) -- can be handed an `Arc<dyn PluginInvoker>`. That narrows their
+/// capability: an invoker cannot discover, load, unload, or reload plugins. The
+/// accessors declared here are exactly the state that
+/// [`call_raw_with_host_context`](PluginInvoker::call_raw_with_host_context)
+/// needs; the wider management surface lives on the [`PluginManager`] subtrait.
 #[async_trait]
-pub trait PluginManager: Send + Sync {
+pub trait PluginInvoker: Send + Sync {
     fn get_registry(&self) -> &PluginRegistry;
 
     fn get_config(&self) -> &PluginConfig;
 
-    fn get_host_functions(&self) -> &HostFunctionRegistry;
-
-    fn get_i18n_registry(&self) -> &I18nRegistry;
-
     fn get_metrics(&self) -> Option<&common::metrics::Metrics> {
         None
     }
+
+    async fn call_raw(
+        &self,
+        plugin_id: &str,
+        func_name: &str,
+        input: Vec<u8>,
+    ) -> Result<Vec<u8>, PluginError> {
+        self.call_raw_with_host_context(plugin_id, func_name, input, None)
+            .await
+    }
+
+    #[instrument(skip(self, input, host_context), fields(plugin_id = %plugin_id, function = %func_name))]
+    async fn call_raw_with_host_context(
+        &self,
+        plugin_id: &str,
+        func_name: &str,
+        input: Vec<u8>,
+        host_context: Option<serde_json::Value>,
+    ) -> Result<Vec<u8>, PluginError> {
+        let start = std::time::Instant::now();
+
+        // How long to wait for a free pooled instance. Distinct from the
+        // guest execution deadline (`call_timeout_secs`), which is enforced by
+        // extism via the manifest timeout set in `load_plugin`.
+        let timeout = self.get_config().pool_acquire_timeout();
+        let pool = {
+            let registry = self.get_registry().read().map_err(|_| {
+                PluginError::Internal("Failed to acquire registry read lock".into())
+            })?;
+
+            let plugin_entry = registry
+                .get(plugin_id)
+                .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+
+            if plugin_entry.status != PluginStatus::Loaded {
+                return Err(PluginError::NotLoaded(plugin_id.to_string()));
+            }
+
+            plugin_entry
+                .runtime
+                .as_ref()
+                .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?
+                .clone()
+        };
+
+        let metrics = self.get_metrics().cloned();
+        let plugin_id_owned = plugin_id.to_string();
+        let func_name_owned = func_name.to_string();
+        let parent_span = tracing::Span::current();
+
+        let result = tokio::task::spawn_blocking({
+            let plugin_id = plugin_id_owned.clone();
+            let func_name = func_name_owned.clone();
+            let metrics = metrics.clone();
+            move || {
+                let _span_guard = parent_span.enter();
+                crate::host_context::with_context(host_context, || {
+                    let acquire_start = std::time::Instant::now();
+                    let plugin = match pool.get(timeout) {
+                        Ok(Some(plugin)) => {
+                            record_pool_acquire_metrics(
+                                metrics.as_ref(),
+                                &plugin_id,
+                                &func_name,
+                                PoolAcquireOutcome::Success,
+                                acquire_start.elapsed(),
+                            );
+                            plugin
+                        }
+                        Ok(None) => {
+                            record_pool_acquire_metrics(
+                                metrics.as_ref(),
+                                &plugin_id,
+                                &func_name,
+                                PoolAcquireOutcome::Timeout,
+                                acquire_start.elapsed(),
+                            );
+                            return Err(PluginError::PoolTimeout(plugin_id.clone()));
+                        }
+                        Err(e) => {
+                            record_pool_acquire_metrics(
+                                metrics.as_ref(),
+                                &plugin_id,
+                                &func_name,
+                                PoolAcquireOutcome::Error,
+                                acquire_start.elapsed(),
+                            );
+                            return Err(PluginError::Internal(format!(
+                                "Failed to acquire runtime instance for plugin '{}': {}",
+                                plugin_id, e
+                            )));
+                        }
+                    };
+
+                    if !plugin.plugin().function_exists(&func_name) {
+                        return Err(PluginError::FunctionNotFound {
+                            plugin_id: plugin_id.clone(),
+                            func_name: func_name.clone(),
+                        });
+                    }
+
+                    let input_len = input.len();
+                    // Reset the per-call streamed-byte counter; host functions
+                    // (e.g. blob_read_range) add to it during the call so the
+                    // pool can weigh how much data this instance churned through.
+                    crate::host_context::reset_stream_bytes();
+                    let call_result: Result<Vec<u8>, PluginError> = plugin
+                        .call(func_name.as_str(), input)
+                        .map_err(|e| PluginError::ExecutionFailed {
+                            plugin_id: plugin_id.clone(),
+                            func_name: func_name.clone(),
+                            message: e.to_string(),
+                        });
+                    // Heap-profile hook (opt-in via BROCCOLI_PROFILE_PLUGIN_IO): record the
+                    // bytes marshalled in/out of WASM per plugin call. Copying input/output
+                    // across the host<->guest boundary grows the pooled instance's WASM
+                    // linear memory, which the pool never reclaims — the suspected driver of
+                    // the per-testcase RSS growth. Generic; no plugin-specific knowledge.
+                    let output_len = call_result.as_ref().map(|o| o.len()).unwrap_or(0);
+                    if std::env::var_os("BROCCOLI_PROFILE_PLUGIN_IO").is_some() {
+                        info!(
+                            target: "plugin_io_profile",
+                            plugin_id = %plugin_id,
+                            func = %func_name,
+                            input_bytes = input_len,
+                            output_bytes = output_len,
+                            "plugin call I/O"
+                        );
+                    }
+
+                    // Account this call's data volume against the instance and
+                    // recycle it if it has churned through enough to have grown
+                    // its (never-shrinking) WASM linear memory. The streamed
+                    // bytes — data pulled in via host functions like
+                    // blob_read_range — are the real driver; call I/O is added
+                    // for completeness.
+                    let processed_bytes =
+                        input_len as u64 + output_len as u64 + crate::host_context::stream_bytes();
+                    if pool.note_call(&plugin, processed_bytes) {
+                        debug!(
+                            plugin_id = %plugin_id,
+                            func = %func_name,
+                            processed_bytes,
+                            "Recycled plugin instance to reclaim WASM linear memory"
+                        );
+                        if let Some(metrics) = metrics.as_ref() {
+                            metrics
+                                .plugin_instance_recycled_total
+                                .add(1, &[KeyValue::new("plugin.id", plugin_id.clone())]);
+                        }
+                    }
+                    call_result
+                })
+            }
+        })
+        .await
+        .map_err(|e| PluginError::Internal(format!("plugin task join failed: {e}")))?;
+
+        let duration = start.elapsed();
+        if let Some(metrics) = self.get_metrics() {
+            let outcome = if result.is_ok() { "success" } else { "error" };
+            let attrs = [
+                KeyValue::new("plugin.id", plugin_id.to_string()),
+                KeyValue::new("plugin.function", func_name.to_string()),
+                KeyValue::new("outcome", outcome),
+            ];
+            metrics
+                .plugin_call_duration
+                .record(duration.as_secs_f64(), &attrs);
+            if result.is_err() {
+                metrics.plugin_call_failures.add(1, &attrs);
+            }
+
+            // UP#13: also expose per-host-fn duration + call totals. After UP#1
+            // the spawn_blocking above is where every plugin entry/exit can be
+            // observed; we tag with the function name so dashboards can break
+            // out latency by host_fn (e.g. "evaluate.start_batch").
+            let host_fn_attrs = [
+                KeyValue::new("host_fn", func_name.to_string()),
+                KeyValue::new("outcome", outcome),
+            ];
+            metrics
+                .host_fn_duration
+                .record(duration.as_secs_f64(), &host_fn_attrs);
+            metrics.host_fn_calls_total.add(1, &host_fn_attrs);
+        }
+        debug!(
+            duration_ms = duration.as_millis() as u64,
+            success = result.is_ok(),
+            "plugin call completed"
+        );
+
+        Ok(result?)
+    }
+}
+
+#[async_trait]
+pub trait PluginInvokerExt: PluginInvoker {
+    async fn call<T, R>(&self, plugin_id: &str, func_name: &str, input: T) -> Result<R, PluginError>
+    where
+        T: Serialize + Send + Sync,
+        R: DeserializeOwned + Send + Sync,
+    {
+        let input_bytes = serde_json::to_vec(&input)?;
+
+        let output_bytes = self.call_raw(plugin_id, func_name, input_bytes).await?;
+
+        let result = serde_json::from_slice(&output_bytes)?;
+        Ok(result)
+    }
+}
+
+impl<T: ?Sized + PluginInvoker> PluginInvokerExt for T {}
+
+/// Full plugin-management surface: discovery, the load / unload lifecycle,
+/// i18n, web-asset resolution, and -- via the [`PluginInvoker`] supertrait --
+/// invocation. Implemented by the process-wide manager. Depend on
+/// [`PluginInvoker`] instead of this trait wherever a caller only needs to
+/// invoke plugins, so it cannot reach the lifecycle methods.
+pub trait PluginManager: PluginInvoker {
+    fn get_host_functions(&self) -> &HostFunctionRegistry;
+
+    fn get_i18n_registry(&self) -> &I18nRegistry;
 
     fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)>;
 
@@ -406,219 +634,7 @@ pub trait PluginManager: Send + Sync {
 
         Ok(new_ids)
     }
-
-    async fn call_raw(
-        &self,
-        plugin_id: &str,
-        func_name: &str,
-        input: Vec<u8>,
-    ) -> Result<Vec<u8>, PluginError> {
-        self.call_raw_with_host_context(plugin_id, func_name, input, None)
-            .await
-    }
-
-    #[instrument(skip(self, input, host_context), fields(plugin_id = %plugin_id, function = %func_name))]
-    async fn call_raw_with_host_context(
-        &self,
-        plugin_id: &str,
-        func_name: &str,
-        input: Vec<u8>,
-        host_context: Option<serde_json::Value>,
-    ) -> Result<Vec<u8>, PluginError> {
-        let start = std::time::Instant::now();
-
-        // How long to wait for a free pooled instance. Distinct from the
-        // guest execution deadline (`call_timeout_secs`), which is enforced by
-        // extism via the manifest timeout set in `load_plugin`.
-        let timeout = self.get_config().pool_acquire_timeout();
-        let pool = {
-            let registry = self.get_registry().read().map_err(|_| {
-                PluginError::Internal("Failed to acquire registry read lock".into())
-            })?;
-
-            let plugin_entry = registry
-                .get(plugin_id)
-                .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
-
-            if plugin_entry.status != PluginStatus::Loaded {
-                return Err(PluginError::NotLoaded(plugin_id.to_string()));
-            }
-
-            plugin_entry
-                .runtime
-                .as_ref()
-                .ok_or_else(|| PluginError::NoRuntime(plugin_id.to_string()))?
-                .clone()
-        };
-
-        let metrics = self.get_metrics().cloned();
-        let plugin_id_owned = plugin_id.to_string();
-        let func_name_owned = func_name.to_string();
-        let parent_span = tracing::Span::current();
-
-        let result = tokio::task::spawn_blocking({
-            let plugin_id = plugin_id_owned.clone();
-            let func_name = func_name_owned.clone();
-            let metrics = metrics.clone();
-            move || {
-                let _span_guard = parent_span.enter();
-                crate::host_context::with_context(host_context, || {
-                    let acquire_start = std::time::Instant::now();
-                    let plugin = match pool.get(timeout) {
-                        Ok(Some(plugin)) => {
-                            record_pool_acquire_metrics(
-                                metrics.as_ref(),
-                                &plugin_id,
-                                &func_name,
-                                PoolAcquireOutcome::Success,
-                                acquire_start.elapsed(),
-                            );
-                            plugin
-                        }
-                        Ok(None) => {
-                            record_pool_acquire_metrics(
-                                metrics.as_ref(),
-                                &plugin_id,
-                                &func_name,
-                                PoolAcquireOutcome::Timeout,
-                                acquire_start.elapsed(),
-                            );
-                            return Err(PluginError::PoolTimeout(plugin_id.clone()));
-                        }
-                        Err(e) => {
-                            record_pool_acquire_metrics(
-                                metrics.as_ref(),
-                                &plugin_id,
-                                &func_name,
-                                PoolAcquireOutcome::Error,
-                                acquire_start.elapsed(),
-                            );
-                            return Err(PluginError::Internal(format!(
-                                "Failed to acquire runtime instance for plugin '{}': {}",
-                                plugin_id, e
-                            )));
-                        }
-                    };
-
-                    if !plugin.plugin().function_exists(&func_name) {
-                        return Err(PluginError::FunctionNotFound {
-                            plugin_id: plugin_id.clone(),
-                            func_name: func_name.clone(),
-                        });
-                    }
-
-                    let input_len = input.len();
-                    // Reset the per-call streamed-byte counter; host functions
-                    // (e.g. blob_read_range) add to it during the call so the
-                    // pool can weigh how much data this instance churned through.
-                    crate::host_context::reset_stream_bytes();
-                    let call_result: Result<Vec<u8>, PluginError> = plugin
-                        .call(func_name.as_str(), input)
-                        .map_err(|e| PluginError::ExecutionFailed {
-                            plugin_id: plugin_id.clone(),
-                            func_name: func_name.clone(),
-                            message: e.to_string(),
-                        });
-                    // Heap-profile hook (opt-in via BROCCOLI_PROFILE_PLUGIN_IO): record the
-                    // bytes marshalled in/out of WASM per plugin call. Copying input/output
-                    // across the host<->guest boundary grows the pooled instance's WASM
-                    // linear memory, which the pool never reclaims — the suspected driver of
-                    // the per-testcase RSS growth. Generic; no plugin-specific knowledge.
-                    let output_len = call_result.as_ref().map(|o| o.len()).unwrap_or(0);
-                    if std::env::var_os("BROCCOLI_PROFILE_PLUGIN_IO").is_some() {
-                        info!(
-                            target: "plugin_io_profile",
-                            plugin_id = %plugin_id,
-                            func = %func_name,
-                            input_bytes = input_len,
-                            output_bytes = output_len,
-                            "plugin call I/O"
-                        );
-                    }
-
-                    // Account this call's data volume against the instance and
-                    // recycle it if it has churned through enough to have grown
-                    // its (never-shrinking) WASM linear memory. The streamed
-                    // bytes — data pulled in via host functions like
-                    // blob_read_range — are the real driver; call I/O is added
-                    // for completeness.
-                    let processed_bytes =
-                        input_len as u64 + output_len as u64 + crate::host_context::stream_bytes();
-                    if pool.note_call(&plugin, processed_bytes) {
-                        debug!(
-                            plugin_id = %plugin_id,
-                            func = %func_name,
-                            processed_bytes,
-                            "Recycled plugin instance to reclaim WASM linear memory"
-                        );
-                        if let Some(metrics) = metrics.as_ref() {
-                            metrics
-                                .plugin_instance_recycled_total
-                                .add(1, &[KeyValue::new("plugin.id", plugin_id.clone())]);
-                        }
-                    }
-                    call_result
-                })
-            }
-        })
-        .await
-        .map_err(|e| PluginError::Internal(format!("plugin task join failed: {e}")))?;
-
-        let duration = start.elapsed();
-        if let Some(metrics) = self.get_metrics() {
-            let outcome = if result.is_ok() { "success" } else { "error" };
-            let attrs = [
-                KeyValue::new("plugin.id", plugin_id.to_string()),
-                KeyValue::new("plugin.function", func_name.to_string()),
-                KeyValue::new("outcome", outcome),
-            ];
-            metrics
-                .plugin_call_duration
-                .record(duration.as_secs_f64(), &attrs);
-            if result.is_err() {
-                metrics.plugin_call_failures.add(1, &attrs);
-            }
-
-            // UP#13: also expose per-host-fn duration + call totals. After UP#1
-            // the spawn_blocking above is where every plugin entry/exit can be
-            // observed; we tag with the function name so dashboards can break
-            // out latency by host_fn (e.g. "evaluate.start_batch").
-            let host_fn_attrs = [
-                KeyValue::new("host_fn", func_name.to_string()),
-                KeyValue::new("outcome", outcome),
-            ];
-            metrics
-                .host_fn_duration
-                .record(duration.as_secs_f64(), &host_fn_attrs);
-            metrics.host_fn_calls_total.add(1, &host_fn_attrs);
-        }
-        debug!(
-            duration_ms = duration.as_millis() as u64,
-            success = result.is_ok(),
-            "plugin call completed"
-        );
-
-        Ok(result?)
-    }
 }
-
-#[async_trait]
-pub trait PluginManagerExt: PluginManager {
-    async fn call<T, R>(&self, plugin_id: &str, func_name: &str, input: T) -> Result<R, PluginError>
-    where
-        T: Serialize + Send + Sync,
-        R: DeserializeOwned + Send + Sync,
-    {
-        let input_bytes = serde_json::to_vec(&input)?;
-
-        let output_bytes = self.call_raw(plugin_id, func_name, input_bytes).await?;
-
-        let result = serde_json::from_slice(&output_bytes)?;
-        Ok(result)
-    }
-}
-
-impl<T: ?Sized + PluginManager> PluginManagerExt for T {}
 
 #[cfg(test)]
 mod tests {
