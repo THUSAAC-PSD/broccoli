@@ -17,7 +17,7 @@ impl MigrationName for Migration {
     }
 }
 
-/// DDL that MUST succeed — a failure is a real schema error and should fail boot
+/// DDL that MUST succeed - a failure is a real schema error and should fail boot
 /// loudly rather than be swallowed.
 const REQUIRED_DDL: &[&str] = &[
     // Legacy unique constraints dropped after their columns became non-unique.

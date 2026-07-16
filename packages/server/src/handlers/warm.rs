@@ -336,7 +336,7 @@ async fn read_progress(
 ) -> Result<Vec<WarmProgress>, AppError> {
     let pattern = warm_progress_pattern(job_id);
 
-    // Collect matching keys, then MGET — same SCAN-then-MGET shape as the worker
+    // Collect matching keys, then MGET - same SCAN-then-MGET shape as the worker
     // heartbeat reader (the SCAN iterator borrows conn, so drain it first).
     let keys: Vec<String> = {
         let mut iter = conn

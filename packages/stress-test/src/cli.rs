@@ -35,7 +35,7 @@ pub enum FaultScenario {
     /// followers poll first, then take over after the abandoned lease expires.
     RollingWorkerRestart(RollingWorkerRestartArgs),
     /// Post a burst of N submissions across a configurable contest-type mix and
-    /// assert that ≥95% reach a terminal verdict within the deadline.
+    /// assert that >=95% reach a terminal verdict within the deadline.
     Burst(BurstArgs),
 }
 

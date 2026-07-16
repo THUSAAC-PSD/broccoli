@@ -58,14 +58,14 @@ pub struct SubmissionRow {
 }
 
 /// The outcome of comparing a submission's row before vs. after the kill.
-/// Pure decision function — testable without a live stack.
+/// Pure decision function - testable without a live stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryStatus {
-    /// Submission reached a terminal Judged state — full recovery.
+    /// Submission reached a terminal Judged state - full recovery.
     Judged,
-    /// Owner moved to a different server — lease/steal recovered the row.
+    /// Owner moved to a different server - lease/steal recovered the row.
     OwnerChanged,
-    /// Status reset to Pending — stuck-detector re-dispatched.
+    /// Status reset to Pending - stuck-detector re-dispatched.
     StatusReset,
     /// No recovery signal yet; submission still owned by the dead replica.
     Stuck,

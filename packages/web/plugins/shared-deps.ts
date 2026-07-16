@@ -11,7 +11,7 @@ import type { Plugin, ResolvedConfig } from 'vite';
  *
  * It does two things:
  *   1. Exposes a virtual module (`virtual:shared-deps-map`) that returns
- *      a mapping of bare specifiers → browser-resolvable URLs.
+ *      a mapping of bare specifiers -> browser-resolvable URLs.
  *   2. Emits thin re-export "shim" modules for each shared dep. In dev via
  *      middleware (re-exporting from Vite's pre-bundled deps), in production via
  *      emitted chunks.
@@ -107,7 +107,7 @@ function getNamedExports(dep: string): string[] {
   }
 }
 
-/** Mirrors Vite's dep pre-bundling filename convention: `/` → `_` */
+/** Mirrors Vite's dep pre-bundling filename convention: `/` -> `_` */
 function flattenId(dep: string): string {
   return dep.replace(/\//g, '_');
 }

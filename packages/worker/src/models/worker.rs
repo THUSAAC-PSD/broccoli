@@ -128,19 +128,19 @@ impl Worker {
     }
 }
 
-/// Classify an operation execution error as permanent (deterministic — retrying
+/// Classify an operation execution error as permanent (deterministic - retrying
 /// cannot help) vs transient (an infra/IO hiccup worth retrying).
 ///
 /// Conservative by design: only clearly-genuine failures are permanent;
 /// everything else is treated as transient so that a cold-blob-fetch thrash under
 /// load, an interrupted stream, or a sandbox hiccup retries (bounded by the
 /// RetryTracker) instead of surfacing as a spurious SystemError. A
-/// genuinely-permanent error that isn't matched here still terminates — it just
+/// genuinely-permanent error that isn't matched here still terminates - it just
 /// burns the (bounded) retry budget first.
 fn is_permanent_execution_failure(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
     // StorageError::NotFound / InvalidHash / SizeLimitExceeded, and the
-    // unavailable-blob-store config error — none recover on retry.
+    // unavailable-blob-store config error - none recover on retry.
     m.contains("blob not found")
         || m.contains("invalid content hash")
         || m.contains("exceeds size limit")

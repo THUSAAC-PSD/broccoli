@@ -1,4 +1,4 @@
-// manager.cpp — interactive "guess the number" manager (interactor).
+// manager.cpp - interactive "guess the number" manager (interactor).
 //
 // Broccoli communication protocol (communication_mode = "redirect", the
 // default; num_processes = 1):

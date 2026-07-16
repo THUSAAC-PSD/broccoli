@@ -1,6 +1,10 @@
 import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  SUBMISSION_REJUDGE,
+  SYSTEM_ADMIN,
+} from '@broccoli/web-sdk/permissions';
 import type { SubmissionJudgement } from '@broccoli/web-sdk/submission';
 import { Badge, Button } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
@@ -32,12 +36,12 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
   const { user } = useAuth();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
-  const canRejudge = !!user?.permissions.includes('submission:rejudge');
+  const canRejudge = !!user?.permissions.includes(SUBMISSION_REJUDGE);
   // Judgement version history (including pending regrade candidates) is a
   // judging-operations view. Contestants must only ever see the current
   // verdict, so the whole panel is gated behind the rejudge permission.
   const canViewHistory = canRejudge;
-  const canPinWorker = !!user?.permissions.includes('system:admin');
+  const canPinWorker = !!user?.permissions.includes(SYSTEM_ADMIN);
   const [targetWorkerId, setTargetWorkerId] = useState(PRESERVE_TARGET_WORKER);
   const [expandedJudgementIds, setExpandedJudgementIds] = useState<Set<number>>(
     () => new Set(),
@@ -113,9 +117,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
       await invalidate();
     },
     onError: (error) => {
-      toast.error(
-        getErrorMessage(error, t('submissionDetail.rejudgeError')),
-      );
+      toast.error(getErrorMessage(error, t('submissionDetail.rejudgeError')));
     },
   });
 
@@ -154,9 +156,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
       await invalidate();
     },
     onError: (error) => {
-      toast.error(
-        getErrorMessage(error, t('submissionDetail.discardError')),
-      );
+      toast.error(getErrorMessage(error, t('submissionDetail.discardError')));
     },
   });
 

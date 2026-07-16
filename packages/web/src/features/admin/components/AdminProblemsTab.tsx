@@ -54,7 +54,7 @@ import {
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
 import { useTableSearchParams } from '@/hooks/use-table-search-params';
 
-// ── Helpers ──
+// -- Helpers --
 
 // A-Z, then AA-AZ, BA-BZ, ..., ZZ (max 702)
 function nextProblemLabel(usedLabels: Set<string>): string {
@@ -71,7 +71,7 @@ function nextProblemLabel(usedLabels: Set<string>): string {
   return '';
 }
 
-// ── Problem Form Dialog ──
+// -- Problem Form Dialog --
 
 export function ProblemFormDialog({
   problem,
@@ -313,7 +313,7 @@ export function ProblemFormDialog({
   );
 }
 
-// ── Row actions menu (shared between global and contest column sets) ──
+// -- Row actions menu (shared between global and contest column sets) --
 
 function ProblemActionsMenu({
   onManageTestCases,
@@ -380,7 +380,7 @@ function ProblemActionsMenu({
   );
 }
 
-// ── Column hook ──
+// -- Column hook --
 
 function useProblemColumns({
   onEdit,
@@ -484,7 +484,7 @@ function useProblemColumns({
   ];
 }
 
-// ── Contest-scoped column hook ──
+// -- Contest-scoped column hook --
 //
 // Contest rows are ContestProblem relationship records (label, position,
 // problem_id, problem_title), not full ProblemSummary objects, so they get
@@ -553,7 +553,7 @@ function useContestProblemColumns({
   ];
 }
 
-// ── Problems Tab ──
+// -- Problems Tab --
 
 export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();

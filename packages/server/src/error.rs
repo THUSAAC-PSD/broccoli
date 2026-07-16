@@ -172,7 +172,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         // Both 429 (RateLimited) and 503 (Overloaded) carry a Retry-After
         // hint. The header semantics are identical (RFC 7231 §7.1.3); only
-        // the status code differs in what's "tired" — the client (429) vs
+        // the status code differs in what's "tired" - the client (429) vs
         // the service as a whole (503).
         let retry_after = match &self {
             AppError::RateLimited { retry_after } | AppError::Overloaded { retry_after } => {
@@ -230,7 +230,7 @@ impl From<PluginError> for AppError {
             // evaluate batch, hook firing) retry transparently via
             // `plugin_core::retry::call_raw_with_pool_retry`, so by the time a
             // PoolTimeout reaches HTTP error mapping the server is genuinely
-            // overloaded — a 429 would misleadingly tell the *client* to back
+            // overloaded - a 429 would misleadingly tell the *client* to back
             // off when the right signal is server-internal failure (UP#4).
             _ => AppError::Internal(err.to_string()),
         }
@@ -299,7 +299,7 @@ mod tests {
     }
 
     /// Sanity check that 429 RateLimited and 503 Overloaded both
-    /// flow Retry-After through `IntoResponse` — the implementation
+    /// flow Retry-After through `IntoResponse` - the implementation
     /// shares the branch, so a regression in either path would also
     /// drop the header for the other.
     #[tokio::test]

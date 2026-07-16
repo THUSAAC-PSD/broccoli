@@ -540,7 +540,7 @@ function UnifiedSearch({
     });
   }, [q, testCases, isPositionMode]);
 
-  // Build dropdown items — only show addable (non-added, non-duplicate) items
+  // Build dropdown items - only show addable (non-added, non-duplicate) items
   const items = useMemo(() => {
     const result: Array<{
       type: 'batch' | 'item';
@@ -900,7 +900,7 @@ export function SubtaskEditor({
     return map;
   }, [testCases]);
 
-  // Assignment map: label → all subtask indices that contain it
+  // Assignment map: label -> all subtask indices that contain it
   const assignmentMap = useMemo(() => {
     const map = new Map<string, number[]>();
     subtasks.forEach((s, i) => {

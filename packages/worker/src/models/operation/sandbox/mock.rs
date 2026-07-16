@@ -88,7 +88,7 @@ impl MockSandboxManager {
             // every write end closes, so if the consumer held a write end of its
             // own stdin (O_RDWR) it would never see EOF and an EOF-draining
             // checker would hang forever. We can't use a plain blocking O_RDONLY
-            // open here — opening a FIFO read-only blocks until a writer appears,
+            // open here - opening a FIFO read-only blocks until a writer appears,
             // which would stall this async task before the producer step runs.
             // Instead open O_RDONLY | O_NONBLOCK (returns immediately even with no
             // writer yet) and then clear O_NONBLOCK so the child's reads block

@@ -13,7 +13,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Cpu, Globe, Server } from 'lucide-react';
 
-// ── Section wrapper ──
+// -- Section wrapper --
 
 function Section({
   title,
@@ -35,7 +35,7 @@ function Section({
   );
 }
 
-// ── Mini table ──
+// -- Mini table --
 
 function MiniTable({
   headers,
@@ -89,7 +89,7 @@ function MiniTable({
   );
 }
 
-// ── Detail content ──
+// -- Detail content --
 
 function PluginDetailContent({ plugin }: { plugin: PluginFullDetail }) {
   const { t } = useTranslation();
@@ -250,7 +250,7 @@ function PluginDetailContent({ plugin }: { plugin: PluginFullDetail }) {
   );
 }
 
-// ── Main dialog ──
+// -- Main dialog --
 
 export function PluginDetailDialog({
   pluginId,

@@ -1,4 +1,4 @@
-// wrong.cpp — an INCORRECT contestant solution (WrongAnswer).
+// wrong.cpp - an INCORRECT contestant solution (WrongAnswer).
 //
 // It always guesses the low bound, so it never converges and blows the
 // manager's 40-guess budget. The manager then reports score 0.0 => WrongAnswer.

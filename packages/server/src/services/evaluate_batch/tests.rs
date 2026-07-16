@@ -280,7 +280,7 @@ fn dispatch_guard_drains_remaining_on_drop() {
             pending_count: pending.clone(),
             metrics: None,
         };
-        // Worker spawned for tc_id=10 → guard no longer owns it.
+        // Worker spawned for tc_id=10 -> guard no longer owns it.
         guard.claim(10);
         // Simulate dispatcher unwind: drop guard with [20, 30] still pending.
     }
@@ -450,7 +450,7 @@ fn case(problem_id: i32, language: &str) -> StartEvaluateCaseInput {
 
 #[test]
 fn cheap_bodies_are_retained_for_retry() {
-    // Blob/Missing carry only a hash — always cheap to keep for the whole
+    // Blob/Missing carry only a hash - always cheap to keep for the whole
     // submission so the op can be re-dispatched on timeout.
     assert!(body_cheap_to_retain(&TestCaseBodyRef::Missing));
     assert!(body_cheap_to_retain(&TestCaseBodyRef::blob("deadbeef")));
@@ -467,7 +467,7 @@ fn cheap_bodies_are_retained_for_retry() {
 #[test]
 fn large_inline_bodies_are_not_retained_for_retry() {
     // A large inline body (database-backend path) must NOT be held for the
-    // submission's lifetime — that would re-introduce the result-set memory
+    // submission's lifetime - that would re-introduce the result-set memory
     // blow-up. Such a case falls through to the existing timeout behavior.
     let huge = TestCaseBodyRef::inline("x".repeat(INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES + 1));
     assert!(!body_cheap_to_retain(&huge));
@@ -480,10 +480,10 @@ fn large_inline_bodies_are_not_retained_for_retry() {
 #[test]
 fn test_case_retainable_only_when_both_bodies_cheap() {
     let mut tc = case(1, "cpp");
-    // Both Missing by default — retainable.
+    // Both Missing by default - retainable.
     assert!(test_case_cheap_to_retain(&tc));
 
-    // Cheap input + cheap expected output — retainable.
+    // Cheap input + cheap expected output - retainable.
     tc.input = TestCaseBodyRef::blob("in");
     tc.expected_output = TestCaseBodyRef::blob("out");
     assert!(test_case_cheap_to_retain(&tc));

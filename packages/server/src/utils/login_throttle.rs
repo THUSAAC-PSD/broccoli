@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 /// Upper bound on tracked (username, ip) keys. A distributed attacker spraying
 /// unique usernames/IPs could otherwise grow the map without bound. When the cap
 /// is hit we GC aged-out keys, and if that is not enough we drop all tracking
-/// (fail open) rather than risk memory exhaustion — losing throttle state is
+/// (fail open) rather than risk memory exhaustion - losing throttle state is
 /// always safer than losing the process during a live contest.
 const MAX_KEYS: usize = 50_000;
 
@@ -15,18 +15,18 @@ const MAX_KEYS: usize = 50_000;
 /// Keyed on (username, client IP) and counts ONLY failed attempts, which makes
 /// it safe to run during a real onsite contest where hundreds of contestants
 /// share one venue NAT IP:
-/// - a legitimate contestant who signs in is never throttled — success
+/// - a legitimate contestant who signs in is never throttled - success
 ///   [`clear`](Self::clear)s the key, and other contestants are distinct
 ///   usernames, so one person's failures never touch another's;
 /// - an attacker guessing a victim's password from the attacker's own IP only
 ///   fills the (victim, attacker-ip) key, so the victim signing in from their
-///   own IP is unaffected — there is no lockout-DoS on the victim;
+///   own IP is unaffected - there is no lockout-DoS on the victim;
 /// - repeated failures for a single (username, ip) back off with a bounded
 ///   retry-after that always expires within `window`; the endpoint is never
 ///   permanently denied.
 ///
 /// State is per-process and in-memory (it resets on restart). An attacker spread
-/// across replicas gets N times the budget — an accepted trade for zero DB load
+/// across replicas gets N times the budget - an accepted trade for zero DB load
 /// and never risking a persistent lockout mid-contest.
 pub struct LoginThrottle {
     limit: u32,

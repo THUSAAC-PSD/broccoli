@@ -1,7 +1,7 @@
 use broccoli_server_sdk::types::{
     BuildEvalOpsInput, Channel, CheckerStage, Environment, EvaluationTimeoutBudget, IOConfig,
-    IOTarget, OperationTask, OutputMode, OutputSpec, ResolveLanguageOutput,
-    ResourceLimits, RunOptions, SessionFile, Step, StepCacheConfig, StepKind, seconds_from_ms,
+    IOTarget, OperationTask, OutputMode, OutputSpec, ResolveLanguageOutput, ResourceLimits,
+    RunOptions, SessionFile, Step, StepCacheConfig, StepKind, seconds_from_ms,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -155,10 +155,7 @@ pub fn build_operation(
         }
     }
 
-    files_in.push((
-        "input.txt".to_string(),
-        req.test_input.to_session_file(),
-    ));
+    files_in.push(("input.txt".to_string(), req.test_input.to_session_file()));
 
     let env = Environment {
         id: "sandbox".to_string(),
@@ -278,7 +275,7 @@ pub fn build_operation(
 }
 
 /// Extra result-wait budget (ms) a spliced checker stage adds: the sum of each
-/// checker step's worst-case wall time. Conservative — added regardless of mode.
+/// checker step's worst-case wall time. Conservative - added regardless of mode.
 /// A Stream checker overlaps `exec`, so for it this only ever OVER-budgets (which
 /// merely delays hung-op detection, never a spurious timeout); a File checker
 /// runs sequentially after `exec`, where the budget is genuinely needed (e.g. a
@@ -300,12 +297,12 @@ pub fn checker_stage_timeout_ms(stage: &CheckerStage) -> u64 {
 }
 
 /// Merge a resolved `CheckerStage` into the run op. Generic over checker
-/// identity — wires solution-output handoff purely from the declared
+/// identity - wires solution-output handoff purely from the declared
 /// `output_mode`:
-/// - Stream: exec stdout → FIFO; the check step (which already reads that pipe
+/// - Stream: exec stdout -> FIFO; the check step (which already reads that pipe
 ///   on stdin) runs CONCURRENTLY with exec, so it depends on what exec depends
 ///   on (the compile step), not on exec itself.
-/// - File: exec stdout → a worker-local file the check step mounts; the check
+/// - File: exec stdout -> a worker-local file the check step mounts; the check
 ///   step depends on `exec` (needs the completed file; also satisfies the
 ///   StepOutput mount's from_step ∈ depends_on requirement).
 ///
@@ -345,7 +342,7 @@ fn splice_checker_stage(
         let mut spliced = step.clone();
         if spliced.id == stage.result_step_id {
             match &stage.output_mode {
-                // Concurrent with exec → share exec's upstream deps (compile).
+                // Concurrent with exec -> share exec's upstream deps (compile).
                 OutputMode::Stream { .. } => {
                     for dep in &exec_depends {
                         if !spliced.depends_on.contains(dep) {
@@ -353,7 +350,7 @@ fn splice_checker_stage(
                         }
                     }
                 }
-                // Sequential after exec → needs the completed output file.
+                // Sequential after exec -> needs the completed output file.
                 OutputMode::File { .. } => {
                     let exec_id = "exec".to_string();
                     if !spliced.depends_on.contains(&exec_id) {
@@ -365,7 +362,6 @@ fn splice_checker_stage(
         steps.push(spliced);
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -447,7 +443,8 @@ mod tests {
 
     #[test]
     fn interpreted_language_produces_only_exec_step() {
-        let ops = build_operation(&make_req(), &interpreted_lang(), &default_config(), None).unwrap();
+        let ops =
+            build_operation(&make_req(), &interpreted_lang(), &default_config(), None).unwrap();
 
         assert_eq!(ops.len(), 1);
         let tasks = &ops[0].tasks;
@@ -782,8 +779,13 @@ mod tests {
     #[test]
     fn fused_stream_pipes_exec_output_and_adds_channel() {
         let stage = stream_stage();
-        let ops =
-            build_operation(&make_req(), &compiled_lang(), &default_config(), Some(&stage)).unwrap();
+        let ops = build_operation(
+            &make_req(),
+            &compiled_lang(),
+            &default_config(),
+            Some(&stage),
+        )
+        .unwrap();
 
         // exec stdout becomes a FIFO; the full output is NOT collected.
         let exec = find_step(&ops, "exec");
@@ -804,7 +806,7 @@ mod tests {
             IOTarget::Pipe { name } => assert_eq!(name, "sol_out"),
             other => panic!("expected check stdin Pipe, got {other:?}"),
         }
-        // Concurrent with exec → depends on compile (NOT exec).
+        // Concurrent with exec -> depends on compile (NOT exec).
         assert!(check.depends_on.contains(&"compile".to_string()));
         assert!(!check.depends_on.contains(&"exec".to_string()));
     }
@@ -812,15 +814,20 @@ mod tests {
     #[test]
     fn fused_file_writes_output_file_and_check_depends_on_exec() {
         let stage = file_stage();
-        let ops =
-            build_operation(&make_req(), &compiled_lang(), &default_config(), Some(&stage)).unwrap();
+        let ops = build_operation(
+            &make_req(),
+            &compiled_lang(),
+            &default_config(),
+            Some(&stage),
+        )
+        .unwrap();
 
         let exec = find_step(&ops, "exec");
         match &exec.io.stdout {
             IOTarget::File { path } => assert_eq!(path, "output.txt"),
             other => panic!("expected exec stdout File, got {other:?}"),
         }
-        // Output stays worker-local for the mount → not collected.
+        // Output stays worker-local for the mount -> not collected.
         assert!(!exec.collect.contains(&"output.txt".to_string()));
         // No channels for File mode.
         assert!(ops[0].channels.is_empty());
@@ -870,7 +877,7 @@ mod tests {
     #[test]
     fn checker_stage_timeout_sums_step_wall_budgets() {
         // compile_checker (10s cpu, no wall) + check (5s cpu, no wall):
-        // each cpu limit is scaled by the 3x wall multiplier → (30 + 15)s.
+        // each cpu limit is scaled by the 3x wall multiplier -> (30 + 15)s.
         let stage = stage_with_steps(vec![
             step_with_limits("compile_checker", Some(10.0), None),
             step_with_limits("check", Some(5.0), None),
@@ -893,9 +900,13 @@ mod tests {
 
     #[test]
     fn fused_op_never_puts_answer_in_solution_env() {
-        let ops =
-            build_operation(&make_req(), &compiled_lang(), &default_config(), Some(&stream_stage()))
-                .unwrap();
+        let ops = build_operation(
+            &make_req(),
+            &compiled_lang(),
+            &default_config(),
+            Some(&stream_stage()),
+        )
+        .unwrap();
         let solution_env = ops[0]
             .environments
             .iter()
@@ -909,7 +920,7 @@ mod tests {
 
     #[test]
     fn no_stage_keeps_legacy_collected_output() {
-        // None checker stage (e.g. the `none` format) → unchanged behavior.
+        // None checker stage (e.g. the `none` format) -> unchanged behavior.
         let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
         let exec = find_step(&ops, "exec");
         match &exec.io.stdout {

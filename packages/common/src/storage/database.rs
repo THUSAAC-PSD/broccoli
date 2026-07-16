@@ -18,7 +18,7 @@ use super::traits::{BlobStore, BoxReader};
 /// running `CREATE TABLE IF NOT EXISTS` against the same fresh database.
 /// Postgres' DDL path through `pg_type` is not internally serialized,
 /// so the loser surfaces a unique-violation on `pg_type_typname_nsp_index`
-/// or a "type … already exists" / "relation … already exists" error even
+/// or a "type ... already exists" / "relation ... already exists" error even
 /// though `IF NOT EXISTS` was specified.
 pub fn is_concurrent_create_race(err: &DbErr) -> bool {
     let msg = err.to_string();

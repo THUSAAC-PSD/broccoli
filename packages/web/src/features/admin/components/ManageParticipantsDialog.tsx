@@ -1,4 +1,8 @@
-import { type ApiClient, getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
+import {
+  type ApiClient,
+  getErrorMessage,
+  useApiClient,
+} from '@broccoli/web-sdk/api';
 import type { ContestSummary } from '@broccoli/web-sdk/contest';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
@@ -25,8 +29,7 @@ import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-
-// ── Types ──
+// -- Types --
 
 type ParsedBulkUser = {
   username: string;
@@ -47,7 +50,7 @@ type ParticipantItem = {
   registered_at: string;
 };
 
-// ── Helpers ──
+// -- Helpers --
 
 function normalizeBulkUsers(input: unknown): ParsedBulkUser[] {
   if (!Array.isArray(input)) {
@@ -117,7 +120,7 @@ async function fetchAllUsers(apiClient: ApiClient) {
   return data;
 }
 
-// ── Enrolled Participants Tab ──
+// -- Enrolled Participants Tab --
 
 function EnrolledTab({
   contest,
@@ -155,9 +158,7 @@ function EnrolledTab({
     );
     setRemovingId(null);
     if (error) {
-      toast.error(
-        getErrorMessage(error, t('toast.participant.removeError')),
-      );
+      toast.error(getErrorMessage(error, t('toast.participant.removeError')));
     } else {
       toast.success(t('toast.participant.removed'));
       queryClient.invalidateQueries({
@@ -258,7 +259,7 @@ function EnrolledTab({
   );
 }
 
-// ── Add Participants Tab ──
+// -- Add Participants Tab --
 
 function AddParticipantsTab({
   contest,
@@ -400,7 +401,7 @@ function AddParticipantsTab({
   );
 }
 
-// ── Bulk Import Tab ──
+// -- Bulk Import Tab --
 
 function PreviewUserTable({
   title,
@@ -866,7 +867,7 @@ function BulkImportTab({
   );
 }
 
-// ── Main Dialog ──
+// -- Main Dialog --
 
 export function ManageParticipantsDialog({
   contest,

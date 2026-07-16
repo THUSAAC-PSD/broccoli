@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// -- helpers ------------------------------------------------------------------
 
 function getTimeLeft(target: Date) {
   const ms = Math.max(0, target.getTime() - Date.now());
@@ -18,10 +18,10 @@ function getTimeLeft(target: Date) {
   };
 }
 
-// CSS-variable-based color tokens — respond to any theme automatically
+// CSS-variable-based color tokens - respond to any theme automatically
 const ACCENT = 'hsl(var(--sidebar-ring))';
 
-// ── shared data hook ──────────────────────────────────────────────────────────
+// -- shared data hook ----------------------------------------------------------
 
 function useCountdownData(contestId: number) {
   const apiClient = useApiClient();
@@ -65,13 +65,13 @@ function useCountdownData(contestId: number) {
   const progress =
     phase === 'running' ? Math.min(100, (elapsed / totalDuration) * 100) : 0;
 
-  // suppress unused tick warning — it drives re-renders
+  // suppress unused tick warning - it drives re-renders
   void tick;
 
   return { contest, phase, tl, progress };
 }
 
-// ── full card ─────────────────────────────────────────────────────────────────
+// -- full card -----------------------------------------------------------------
 
 export function ContestCountdown() {
   const { contestId } = useParams();
@@ -201,7 +201,7 @@ export function ContestCountdown() {
   );
 }
 
-// ── mini (problem-detail top-right) ──────────────────────────────────────────
+// -- mini (problem-detail top-right) ------------------------------------------
 
 export function ContestCountdownMini() {
   const { contestId } = useParams();

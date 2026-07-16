@@ -8,8 +8,9 @@
 //! cannot drift between the server, the SDK, and the plugins.
 //!
 //! The web frontend consumes the same catalog through the generated file
-//! `packages/web/src/lib/permissions.gen.ts`. The `permissions_ts_is_in_sync`
-//! test below fails CI if that file drifts from [`ALL`]; regenerate it with
+//! `packages/web-sdk/src/permissions/index.ts` (exported as
+//! `@broccoli/web-sdk/permissions`). The `permissions_ts_is_in_sync` test below
+//! fails CI if that file drifts from [`ALL`]; regenerate it with
 //! `REGEN_PERMISSIONS_TS=1 cargo test -p broccoli-types permissions`.
 
 /// Declares each permission constant and the [`ALL`] table from one list, so a
@@ -70,7 +71,7 @@ mod tests {
     /// Path to the generated TS mirror, relative to this crate's manifest dir.
     const TS_PATH: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../web/src/lib/permissions.gen.ts"
+        "/../web-sdk/src/permissions/index.ts"
     );
 
     /// Canonical TS content generated from [`ALL`]. Kept in sync with the repo

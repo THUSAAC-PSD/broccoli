@@ -66,7 +66,7 @@ impl WorkerConsumer {
     /// manual consume loop in [`crate::runtime`] stops CONSUMING the instant
     /// shutdown is signaled, so a task that has already been taken off the queue
     /// is always run to completion during the drain window instead of being
-    /// rejected — the old shutdown-reject path burned the retry budget and pushed
+    /// rejected - the old shutdown-reject path burned the retry budget and pushed
     /// still-valid tasks into the failed queue on every graceful shutdown.
     pub async fn run_task(&self, message: BrokerMessage<Task>) -> Result<(), BroccoliError> {
         let _worker_permit_guard = WorkerPermitMetricGuard::new(&self.metrics, &self.worker_id);

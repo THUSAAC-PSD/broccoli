@@ -32,7 +32,7 @@ fi
 # Find PID of the actual binary (skip tini wrapper inside container).
 PID=\$(pgrep -x "${PROC}" 2>/dev/null | head -1)
 if [[ -z "\${PID}" ]]; then
-  # Fallback: docker inspect → first child (skip tini)
+  # Fallback: docker inspect -> first child (skip tini)
   TINI=\$(docker inspect --format '{{.State.Pid}}' \$(docker ps --filter "name=${PROC}|server|worker" --format '{{.Names}}' | head -1) 2>/dev/null)
   PID=\$(pgrep -P "\${TINI}" 2>/dev/null | head -1)
 fi
@@ -45,7 +45,7 @@ sysctl -w kernel.kptr_restrict=0 >/dev/null 2>&1 || true
 
 cd /tmp
 # --call-graph=dwarf needs full DWARF DIEs which our line-tables-only build lacks
-# → fall back to frame-pointer unwinding. Rust may omit FPs in release; in that
+# -> fall back to frame-pointer unwinding. Rust may omit FPs in release; in that
 # case we still get useful flat top-N data per sample.
 perf record -F 99 -p "\${PID}" -g --call-graph=fp -o /tmp/perf-${TS}.data -- sleep ${WIN}
 perf script -i /tmp/perf-${TS}.data > /tmp/perf-${TS}.script

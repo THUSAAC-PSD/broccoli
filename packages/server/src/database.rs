@@ -21,25 +21,25 @@ pub const PLUGIN_DB_ROLE: &str = "broccoli_plugin";
 ///
 /// Two properties, both essential:
 ///
-/// 1. **Isolation** — like every plugin pool, it is SEPARATE from the main
+/// 1. **Isolation** - like every plugin pool, it is SEPARATE from the main
 ///    server pool used by HTTP handlers, the dispatcher, and the
 ///    windowed-evaluate driver. Under load the shared pool produces spurious
 ///    server-side "invalid byte sequence ... 0x00" errors on byte-clean plugin
-///    INSERTs — connection-protocol desync inherited from OTHER operations on
+///    INSERTs - connection-protocol desync inherited from OTHER operations on
 ///    the same pool (see docs/plans/2026-06-25-nul-byte-root-cause.md). Plugin
 ///    host functions always run their DB call to completion (sync `block_on` on
 ///    a blocking thread, never cancelled), so a pool used ONLY by them stays
-///    clean. No schema-sync/seeding here — the main pool already ran it.
+///    clean. No schema-sync/seeding here - the main pool already ran it.
 ///
-/// 2. **Least privilege (phase 2 of the SQL-capability redesign)** — every
+/// 2. **Least privilege (phase 2 of the SQL-capability redesign)** - every
 ///    connection runs `SET ROLE broccoli_plugin` before the plugin can use it,
 ///    via sqlx's per-connection `after_connect` hook. `broccoli_plugin` is a
 ///    NOLOGIN role (created + granted in [`init_db_with_max_connections`]) that
 ///    the app role is a MEMBER of. It has only `SELECT` on core tables and does
 ///    not OWN them, so raw plugin SQL can READ core state but can neither
 ///    write it (no INSERT/UPDATE/DELETE granted) nor DROP/ALTER it
-///    (ownership-gated by Postgres). A plugin's OWN tables — created via raw
-///    `CREATE TABLE` under this role — are owned by `broccoli_plugin`, so the
+///    (ownership-gated by Postgres). A plugin's OWN tables - created via raw
+///    `CREATE TABLE` under this role - are owned by `broccoli_plugin`, so the
 ///    plugin keeps full read/write/DDL on them. Legitimate core WRITES keep
 ///    working because the gated `host.submission.*` (phase 1), `host.storage.*`,
 ///    and `config:write` host fns run on the PRIVILEGED pool
@@ -100,8 +100,8 @@ pub async fn init_plugin_db(
 /// `host.submission.*` (phase 1), `host.storage.*`, and `config:write`. Each
 /// builds server-owned, structured, plugin-scoped SQL that legitimately writes
 /// a core table (`submission`/`submission_judgement`/`test_case_result`,
-/// `plugin_storage`, `plugin_config`), so — by the same rule that sends
-/// `host.submission.*` here — they must not be constrained to the read-only
+/// `plugin_storage`, `plugin_config`), so - by the same rule that sends
+/// `host.submission.*` here - they must not be constrained to the read-only
 /// plugin role. Only the raw `sql` capability, which executes arbitrary
 /// plugin-authored SQL, is restricted (on [`init_plugin_db`]). Both pools point
 /// at the same database URL; only the effective role differs.
@@ -167,7 +167,7 @@ mod tests {
     use super::*;
     use sea_orm::ConnectionTrait;
 
-    /// SECURITY — phase 2 of the SQL-capability redesign.
+    /// SECURITY - phase 2 of the SQL-capability redesign.
     ///
     /// The restricted plugin pool ([`init_plugin_db`]) runs as `broccoli_plugin`
     /// and MUST be able to READ core tables and fully own/read/write/DDL its OWN
@@ -254,7 +254,7 @@ mod tests {
             "expected permission-denied DELETE, got: {delete_err}"
         );
 
-        // NEGATIVE: DDL (DROP) is denied — non-owner.
+        // NEGATIVE: DDL (DROP) is denied - non-owner.
         let drop_err = restricted
             .execute_unprepared("DROP TABLE submission")
             .await
@@ -267,7 +267,7 @@ mod tests {
             "expected must-be-owner DROP, got: {drop_err}"
         );
 
-        // NEGATIVE: DDL (ALTER) is denied — non-owner.
+        // NEGATIVE: DDL (ALTER) is denied - non-owner.
         let alter_err = restricted
             .execute_unprepared("ALTER TABLE submission ADD COLUMN pwn text")
             .await
@@ -281,7 +281,7 @@ mod tests {
         );
 
         // POSITIVE: the plugin's OWN table (created under this role) is fully
-        // read/write/DDL-able — `broccoli_plugin` owns it.
+        // read/write/DDL-able - `broccoli_plugin` owns it.
         restricted
             .execute_unprepared("CREATE TABLE plugin_owned_kv (k text primary key, v text)")
             .await
@@ -299,7 +299,7 @@ mod tests {
             .await
             .expect("restricted role must be able to drop its own table");
 
-        // POSITIVE: the PRIVILEGED pool CAN write core — this is the pool that
+        // POSITIVE: the PRIVILEGED pool CAN write core - this is the pool that
         // backs host.submission.* / host.storage.* / config:write, so judging's
         // structured writes keep working.
         privileged
@@ -308,7 +308,7 @@ mod tests {
             .expect("privileged pool must be able to write core tables");
     }
 
-    /// SECURITY — SQL-capability read narrowing.
+    /// SECURITY - SQL-capability read narrowing.
     ///
     /// Even with SELECT-only access, the blanket `GRANT SELECT ON ALL TABLES`
     /// let raw plugin SQL read credentials, auth tokens, authz config, and other

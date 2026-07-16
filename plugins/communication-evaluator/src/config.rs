@@ -183,7 +183,7 @@ impl SandboxConfig {
 
     pub fn manager_limits(&self, time_limit_s: f64, memory_limit_kb: u32) -> ResourceLimits {
         // Manager gets generous wall-time (many FIFO I/O waits) and single-process.
-        // Uses exec open_files_limit (not compile) — the manager is a runtime process
+        // Uses exec open_files_limit (not compile) - the manager is a runtime process
         // that opens 2*N FIFOs plus stdin/stdout/stderr.
         ResourceLimits {
             time_limit: Some(time_limit_s),

@@ -12,7 +12,7 @@
 //!
 //! This module owns every mechanic and asks the contest type for only the two
 //! policy decisions, via [`ContestJudge`]. The design goal is that a plugin
-//! author never has to reason about the host callback protocol — in particular
+//! author never has to reason about the host callback protocol - in particular
 //! never touches the `refill` hint, whose wrong value silently strands pending
 //! cases as `SystemError`. The driver computes it.
 //!
@@ -24,7 +24,7 @@
 //! - **Bounded round-tripped state.** The whole judging state is re-serialized
 //!   across the WASM host boundary on *every* result callback. Per-case
 //!   `stdout`/`stderr` are persisted to the DB when the row is written and then
-//!   *stripped* from the retained state — keeping them would make the
+//!   *stripped* from the retained state - keeping them would make the
 //!   round-tripped payload grow with each recorded case (an O(n^2) blow-up in
 //!   output bytes). The final verdict only needs the per-case verdict and score.
 //! - **Idempotent recording.** A result for an already-recorded case (a late
@@ -300,7 +300,7 @@ impl<J: ContestJudge> DetachedEval<J> {
     /// the worker's submission-level retry re-drives judging later.
     pub fn recover(host: &Host, state_value: &serde_json::Value) {
         let Ok(mut state) = serde_json::from_value::<DetachedEval<J>>(state_value.clone()) else {
-            // Unparseable state — nothing actionable; the worker retry is the
+            // Unparseable state - nothing actionable; the worker retry is the
             // remaining safety net.
             return;
         };

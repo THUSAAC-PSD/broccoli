@@ -8,7 +8,7 @@ port = 3000
 # server behind a load balancer receives its own dispatch results. Defaults
 # to the OS hostname; set explicitly in container deployments where two
 # replicas may share the same hostname (e.g., two pods scheduled to nodes
-# with identical names) — silent ID collisions cause results to be routed
+# with identical names) - silent ID collisions cause results to be routed
 # to the wrong replica.
 id = ""
 

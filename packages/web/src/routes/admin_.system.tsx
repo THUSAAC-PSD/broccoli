@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { SYSTEM_VIEW } from '@broccoli/web-sdk/permissions';
 import {
   Card,
   CardContent,
@@ -22,7 +23,7 @@ export default function AdminSystemPage() {
   const { user } = useAuth();
   const { data, isLoading, error } = useSystemOverview();
 
-  if (!user || !user.permissions.includes('system:view')) {
+  if (!user || !user.permissions.includes(SYSTEM_VIEW)) {
     return <Unauthorized />;
   }
 

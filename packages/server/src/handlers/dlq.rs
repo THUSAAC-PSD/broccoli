@@ -205,7 +205,7 @@ pub async fn retry_dlq_message(
         id: Set(submission_id),
         // UP#37: DLQ retry resets the submission into the durable-accept
         // state. The claim fiber (UP#38) will promote `Queued` to
-        // `Pending` and re-dispatch via the plugin path — no need to
+        // `Pending` and re-dispatch via the plugin path - no need to
         // spawn here, which also avoids losing the retry if the api
         // crashes between txn commit and the spawned task running.
         status: Set(SubmissionStatus::Queued),
@@ -315,7 +315,7 @@ pub async fn bulk_retry_dlq(
     // that arrives just below the cap can take the depth meaningfully
     // past it for the rest of that call's duration; the next caller
     // (or the next bulk-retry) will be rejected, restoring
-    // equilibrium. The alternative — per-chunk recheck — would
+    // equilibrium. The alternative - per-chunk recheck - would
     // serialize the bulk path into hundreds of COUNT round-trips and
     // defeat the bulk endpoint, so we accept bounded overshoot under
     // a retry storm in exchange for keeping bulk retry a single
@@ -429,7 +429,7 @@ pub async fn bulk_retry_dlq(
 
             let submission_update = submission::ActiveModel {
                 id: Set(submission_id),
-                // UP#37: durable-accept reset — see single-message
+                // UP#37: durable-accept reset - see single-message
                 // `retry_dlq_message` for the gap being closed.
                 status: Set(SubmissionStatus::Queued),
                 error_code: Set(None),
@@ -471,7 +471,7 @@ pub async fn bulk_retry_dlq(
 
     // UP#37: each reset submission is now in `Queued`; the claim fiber
     // (UP#38, `dispatcher/claim.rs`) takes it from there. We no longer
-    // reload + spawn per row — that path was the very silent-loss
+    // reload + spawn per row - that path was the very silent-loss
     // vector this PR closes.
 
     info!(

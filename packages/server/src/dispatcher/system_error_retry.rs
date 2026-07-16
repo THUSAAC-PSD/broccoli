@@ -1,21 +1,21 @@
 //! SystemError-retry reaper.
 //!
-//! A `SystemError` verdict reflects a SYSTEM-side condition — the interactive
+//! A `SystemError` verdict reflects a SYSTEM-side condition - the interactive
 //! manager failed to compile under contention, a contestant compile step hit a
-//! sandbox error, an operation result was lost — never the contestant's own
+//! sandbox error, an operation result was lost - never the contestant's own
 //! code. The contest invariant forbids such a condition from standing as the
 //! contestant's verdict.
 //!
 //! This fiber reconciles from the durable terminal state rather than any
 //! in-flight control-flow site, which is what makes it path-agnostic: it does
 //! not matter whether the submission was judged synchronously (batch) or via the
-//! detached operation path (interactive) — both finalize the same
+//! detached operation path (interactive) - both finalize the same
 //! `submission_judgement` row, and the reaper sees it. It periodically scans for
 //! current, finalized judgements whose terminal outcome is a `SystemError` in any
-//! of its shapes — plugin-finalized (`status == Judged` + `verdict ==
+//! of its shapes - plugin-finalized (`status == Judged` + `verdict ==
 //! SystemError`) or stuck-handler-terminal / dispatch-exhaustion (`status ==
-//! SystemError`) — with retry budget remaining, requeues them to a fresh epoch
-//! (in lockstep with the parent submission, results wiped — see
+//! SystemError`) - with retry budget remaining, requeues them to a fresh epoch
+//! (in lockstep with the parent submission, results wiped - see
 //! [`crate::services::submission_dispatch::requeue_judgement_for_system_error_retry`])
 //! and re-dispatches them. Bounded by `max_system_error_retries`; only when the
 //! budget is exhausted does the `SystemError` stand (a genuinely broken problem).
@@ -41,7 +41,7 @@ const SCAN_INTERVAL_SECS: u64 = 5;
 /// Maximum judgements requeued per scan. Deliberately small: re-judges hold a
 /// dispatcher permit for their whole duration, so a large batch would starve
 /// live contest submissions. A backlog instead drains a few per tick as spare
-/// capacity allows — slow is fine, the invariant is only that no SystemError is
+/// capacity allows - slow is fine, the invariant is only that no SystemError is
 /// ever abandoned.
 const SCAN_BATCH_SIZE: u64 = 8;
 
@@ -87,7 +87,7 @@ async fn scan_once(
     for judgement in candidates {
         // Respect dispatcher admission control: reserve a permit BEFORE
         // re-dispatching, exactly as the steal does. Re-judges then share the
-        // fleet's bounded judging capacity instead of fanning out unbounded — a
+        // fleet's bounded judging capacity instead of fanning out unbounded - a
         // backlog of SystemErrors drains gradually rather than overwhelming the
         // workers (which can wedge interactive judging). When the queue is full,
         // stop this scan; the remaining candidates are retried next tick (no
@@ -168,8 +168,8 @@ async fn scan_once(
 /// genuinely broken problem terminalizing after a finite number of attempts.
 ///
 /// Two shapes are selected, and only these:
-/// * `status == Judged AND verdict == SystemError` — plugin-finalized;
-/// * `status == SystemError` — stuck-handler terminal / dispatch-exhaustion
+/// * `status == Judged AND verdict == SystemError` - plugin-finalized;
+/// * `status == SystemError` - stuck-handler terminal / dispatch-exhaustion
 ///   (verdict typically NULL).
 /// A contestant `CompileError` lands as `status == CompilationError` (never
 /// `SystemError`), so it is never selected; nor are own-code verdicts
@@ -295,7 +295,7 @@ mod tests {
     }
 
     /// The reaper selects ONLY current, finalized, `Judged`+`SystemError`
-    /// judgements with retry budget — and nothing else. This is the safety
+    /// judgements with retry budget - and nothing else. This is the safety
     /// boundary that keeps contestant verdicts (CompileError, WrongAnswer) and
     /// exhausted/superseded rows untouched.
     #[tokio::test]
@@ -315,7 +315,7 @@ mod tests {
         )
         .await;
 
-        // NOT selected — exhausted (retry_count == max).
+        // NOT selected - exhausted (retry_count == max).
         let s_exhausted = seed_submission(&db).await;
         seed_judgement(
             &db,
@@ -328,7 +328,7 @@ mod tests {
         )
         .await;
 
-        // NOT selected — contestant CompileError (status=CompilationError).
+        // NOT selected - contestant CompileError (status=CompilationError).
         let s_ce = seed_submission(&db).await;
         seed_judgement(
             &db,
@@ -341,7 +341,7 @@ mod tests {
         )
         .await;
 
-        // NOT selected — contestant WrongAnswer.
+        // NOT selected - contestant WrongAnswer.
         let s_wa = seed_submission(&db).await;
         seed_judgement(
             &db,
@@ -354,7 +354,7 @@ mod tests {
         )
         .await;
 
-        // NOT selected — a superseded (non-current) SystemError.
+        // NOT selected - a superseded (non-current) SystemError.
         let s_old = seed_submission(&db).await;
         seed_judgement(
             &db,
@@ -367,7 +367,7 @@ mod tests {
         )
         .await;
 
-        // NOT selected — still judging (not finalized).
+        // NOT selected - still judging (not finalized).
         let s_running = seed_submission(&db).await;
         seed_judgement(
             &db,
@@ -380,7 +380,7 @@ mod tests {
         )
         .await;
 
-        // SHOULD be selected — stuck-handler terminal / dispatch-exhaustion shape:
+        // SHOULD be selected - stuck-handler terminal / dispatch-exhaustion shape:
         // status=SystemError with a NULL verdict, current, finalized, budget. The
         // reaper previously matched only Judged+SystemError, abandoning this.
         let s_stuck = seed_submission(&db).await;

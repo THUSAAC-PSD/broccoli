@@ -3,7 +3,7 @@
 //! When N workers compute the same `cache_key`, this module ensures that at
 //! most one of them actually runs the expensive step (e.g. compile). The
 //! follower returns and is expected to poll the durable `task_cache` until
-//! the leader stores its output — or until a max-wait elapses and the
+//! the leader stores its output - or until a max-wait elapses and the
 //! follower falls back to executing on its own.
 //!
 //! Design notes (see UP#33):
@@ -138,7 +138,7 @@ impl Drop for LeaderLease {
         } = inner;
 
         // Stop the heartbeat first; ignore send/abort errors. The release
-        // script below is CAS — it only DELs when the token still matches —
+        // script below is CAS - it only DELs when the token still matches -
         // so even an in-flight EXTEND racing the release cannot corrupt
         // another leader's lock; worst case it logs `lock lost`.
         let _ = cancel.send(());
@@ -146,7 +146,7 @@ impl Drop for LeaderLease {
 
         // Fire-and-forget the CAS-release. If we're being dropped outside a
         // tokio runtime (e.g., synchronous shutdown after the runtime has
-        // started teardown), `tokio::spawn` would panic — guard with
+        // started teardown), `tokio::spawn` would panic - guard with
         // `Handle::try_current` and fall back to the TTL safety net so the
         // worker shutdown path stays panic-free. The Redis key will then
         // expire naturally after at most `opts.ttl_secs`.
@@ -290,7 +290,7 @@ fn spawn_heartbeat(
     let join = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(heartbeat_interval_secs));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // First tick fires immediately; skip it — the SET already set TTL.
+        // First tick fires immediately; skip it - the SET already set TTL.
         interval.tick().await;
 
         let mut conn: Option<MultiplexedConnection> = None;

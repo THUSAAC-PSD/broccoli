@@ -230,7 +230,7 @@ pub trait PluginInvoker: Send + Sync {
                     // Heap-profile hook (opt-in via BROCCOLI_PROFILE_PLUGIN_IO): record the
                     // bytes marshalled in/out of WASM per plugin call. Copying input/output
                     // across the host<->guest boundary grows the pooled instance's WASM
-                    // linear memory, which the pool never reclaims — the suspected driver of
+                    // linear memory, which the pool never reclaims - the suspected driver of
                     // the per-testcase RSS growth. Generic; no plugin-specific knowledge.
                     let output_len = call_result.as_ref().map(|o| o.len()).unwrap_or(0);
                     if std::env::var_os("BROCCOLI_PROFILE_PLUGIN_IO").is_some() {
@@ -247,8 +247,8 @@ pub trait PluginInvoker: Send + Sync {
                     // Account this call's data volume against the instance and
                     // recycle it if it has churned through enough to have grown
                     // its (never-shrinking) WASM linear memory. The streamed
-                    // bytes — data pulled in via host functions like
-                    // blob_read_range — are the real driver; call I/O is added
+                    // bytes - data pulled in via host functions like
+                    // blob_read_range - are the real driver; call I/O is added
                     // for completeness.
                     let processed_bytes =
                         input_len as u64 + output_len as u64 + crate::host_context::stream_bytes();

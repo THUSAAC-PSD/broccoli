@@ -30,7 +30,7 @@ pub struct IsolateSandboxManager {
     /// isolate runs every step of an environment in ONE box (one `--init`), and
     /// with `--cg` the reported `time` and the `--time` limit are the box
     /// cgroup's CPU usage cumulative *since `--init`*. So a later step (e.g.
-    /// `exec`) inherits an earlier step's CPU (e.g. `compile`) — charging compile
+    /// `exec`) inherits an earlier step's CPU (e.g. `compile`) - charging compile
     /// time against the run-time limit and false-TLEing legitimate solutions.
     /// We offset each step's `--time` by this prior cumulative and report only
     /// the step's own delta. Reset on `create_sandbox`, dropped on
@@ -77,7 +77,7 @@ impl IsolateSandboxManager {
 impl Default for IsolateSandboxManager {
     /// Config-free defaults (`isolate` binary, cgroups off) for tests. Production
     /// injects real settings via `sandbox_manager_from_config`. This deliberately
-    /// does NOT read `WorkerAppConfig::load()` — the sandbox layer must not reach
+    /// does NOT read `WorkerAppConfig::load()` - the sandbox layer must not reach
     /// up to global app config, and the old code only did so to fall back to
     /// exactly these values when config was absent.
     fn default() -> Self {
@@ -541,7 +541,7 @@ fn is_transient_exec_failure(result: &ExecutionResult) -> bool {
 /// since `--init`, so `prior_cpu` (earlier same-box steps' CPU) is the offset:
 /// add it to the step's `--time` limit, subtract it from the reported time.
 /// WITHOUT cgroups isolate already reports per-`--run` CPU, so there is no
-/// cumulative to reconcile and the offset is zero — the reported value is used
+/// cumulative to reconcile and the offset is zero - the reported value is used
 /// as-is. Gating on `enable_cgroups` here is what keeps `time_used`/TLE correct
 /// when cgroups is off.
 fn cpu_time_offset(enable_cgroups: bool, prior_cpu: f64) -> f64 {
@@ -749,7 +749,7 @@ mod tests {
     fn reported_time_is_isolate_per_run_without_cgroups() {
         // A prior step recorded 2.0s; this run's isolate-reported per-`--run` CPU
         // is 0.4s. With cgroups off the offset is 0, so the reported time is
-        // isolate's raw value (0.4) — NOT 0.4 - 2.0 clamped to 0 (the old bug).
+        // isolate's raw value (0.4) - NOT 0.4 - 2.0 clamped to 0 (the old bug).
         let prior_cpu = 2.0;
         let isolate_reported = 0.4;
         let offset = cpu_time_offset(false, prior_cpu);

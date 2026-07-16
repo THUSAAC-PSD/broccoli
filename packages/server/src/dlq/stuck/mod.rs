@@ -26,9 +26,9 @@ const PENDING_ORPHAN_TIMEOUT_SECS: i64 = 5 * 60;
 /// A finalized current judgement should propagate onto its submission row
 /// within milliseconds (the normal finalize writes both rows back to back).
 /// If it has not after this grace window, the submission is genuinely stuck
-/// (a lost submission-row write) and is reconciled. Kept short — unlike the
+/// (a lost submission-row write) and is reconciled. Kept short - unlike the
 /// 6-hour lease-stale timeout there is no "slow but alive" job to protect, only
-/// denormalization lag — so recovery is fast enough for a live contest.
+/// denormalization lag - so recovery is fast enough for a live contest.
 const RECONCILE_FINALIZED_GRACE_SECS: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

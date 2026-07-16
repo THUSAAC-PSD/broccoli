@@ -23,7 +23,7 @@ async fn link_or_copy(src: &Path, dest: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        // Fast path: world-readable source → hard-link (no data copy).
+        // Fast path: world-readable source -> hard-link (no data copy).
         if let Ok(meta) = std::fs::metadata(src)
             && meta.permissions().mode() & 0o044 == 0o044
         {
@@ -83,7 +83,7 @@ async fn hash_file(src: &Path) -> std::io::Result<ContentHash> {
 /// 2. `fchmod` via an open file descriptor (bypasses some MAC policies)
 /// 3. `sudo chmod` (last resort, requires passwordless sudo)
 ///
-/// Silently ignores all failures — the file is still usable by the owner
+/// Silently ignores all failures - the file is still usable by the owner
 /// and the sandbox failure will surface as a clearer isolate error.
 #[cfg(unix)]
 fn ensure_world_readable(path: &Path) {
@@ -406,7 +406,7 @@ impl BlobStoreFileCacher {
         // DEFENSE-IN-DEPTH integrity check. The blob store is content-addressed,
         // so a silently truncated/corrupt download would otherwise be renamed
         // permanently under the CORRECT hash key, then hard-linked and executed
-        // into every sandbox needing it — systematic wrong/RE verdicts with no
+        // into every sandbox needing it - systematic wrong/RE verdicts with no
         // error surfaced. Re-hash what we actually wrote; on mismatch, drop it
         // and return a transient error so the task layer retries the fetch
         // rather than poisoning the cache. Re-hashing is cheap next to the
@@ -462,7 +462,7 @@ impl FileCacher for BlobStoreFileCacher {
             Ok(()) => Ok(()),
             // Under heavy cache pressure, LRU eviction can unlink this exact file
             // in the window between ensure_cached returning and link_or_copy
-            // opening it — a benign race, not corruption. Re-fetch once (which
+            // opening it - a benign race, not corruption. Re-fetch once (which
             // re-materializes the blob and re-records the LRU entry) and retry.
             // A second ENOENT is a real fault and propagates.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

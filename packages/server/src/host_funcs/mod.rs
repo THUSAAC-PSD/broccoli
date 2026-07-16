@@ -34,7 +34,7 @@ pub(crate) fn lock_or_poison<T>(
 // regression guard, see UP#14g
 //
 // Available for any future host_fn that re-introduces a `block_in_place`
-// wrapper. Not called anywhere in shipping code — a non-zero count of
+// wrapper. Not called anywhere in shipping code - a non-zero count of
 // `broccoli.host_fn.block_in_place` indicates someone reverted UP#13's
 // collapse and CI should fail the build via UP#14g.
 #[track_caller]
@@ -68,7 +68,7 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     // capability and read-only `config:read`. Cannot write/DDL core tables.
     let db = deps.system.db.clone();
     // PRIVILEGED pool (runs as the app role): backs the gated core-WRITE host
-    // fns — `host.storage.*`, `host.submission.*` (phase 1), and `config:write`.
+    // fns - `host.storage.*`, `host.submission.*` (phase 1), and `config:write`.
     // Each builds server-owned, plugin-scoped SQL that legitimately writes a
     // core table, so they must not be constrained to the read-only plugin role.
     let privileged_db = deps.system.privileged_db.clone();
@@ -367,8 +367,8 @@ pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
         )
     });
 
-    // `config:write` mutates the core `plugin_config` table, so — like
-    // `host.submission.*` and `host.storage.*` — it runs on the PRIVILEGED pool.
+    // `config:write` mutates the core `plugin_config` table, so - like
+    // `host.submission.*` and `host.storage.*` - it runs on the PRIVILEGED pool.
     let priv_clone = privileged_db;
     hr.register("config:write", move |plugin_id| {
         config::create_config_set_function(plugin_id.to_string(), priv_clone.clone())
@@ -392,7 +392,7 @@ mod tests {
 
     /// With a real `Metrics` instance, the recorder must run cleanly
     /// (we can't easily assert the counter incremented without an
-    /// OTLP harness — non-panic is the contract under test here).
+    /// OTLP harness - non-panic is the contract under test here).
     #[test]
     fn record_block_in_place_regression_with_metrics_runs() {
         let _guard = crate::metrics_test_lock();

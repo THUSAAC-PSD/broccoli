@@ -63,8 +63,8 @@ impl ObjectStorageBlobStore {
         .map_err(|e| StorageError::Backend(format!("invalid credentials: {e}")))?;
 
         // Disable rust-s3's built-in retry! (default 1 retry): it covers only
-        // connection/header establishment with blocking, no-jitter sleeps and —
-        // with fail-on-err off — never sees 5xx. We own all retry/backoff below
+        // connection/header establishment with blocking, no-jitter sleeps and -
+        // with fail-on-err off - never sees 5xx. We own all retry/backoff below
         // with status-aware, jittered logic.
         s3::set_retries(0);
 
@@ -79,7 +79,7 @@ impl ObjectStorageBlobStore {
         // timeout (the default 60s field is honoured only by the blocking/hyper
         // backends). Without this, a half-open or stalled SeaweedFS connection
         // hangs the op's future forever, pinning a worker task and leaking a
-        // pooled connection — they accumulate and stall the judge under load.
+        // pooled connection - they accumulate and stall the judge under load.
         // with_request_timeout rebuilds the reqwest client WITH a per-request
         // timeout and preserves path_style (so we set path_style first).
         let bucket = bucket
@@ -151,7 +151,7 @@ async fn retry_backoff(attempt: u32) {
 /// Ranged GET with bounded transient retry. Retries on transport errors
 /// (`Err(S3Error)`, incl. timeouts) and on `Ok` responses with a retryable
 /// status (5xx/429). Terminal statuses (404/416/2xx/other-4xx) are returned for
-/// the caller to classify. The whole call — connection AND body buffering — is
+/// the caller to classify. The whole call - connection AND body buffering - is
 /// inside the retry, unlike rust-s3's built-in retry! which only wraps connect.
 async fn get_range_with_retry(
     bucket: &Bucket,
@@ -225,7 +225,7 @@ impl BlobStore for ObjectStorageBlobStore {
             // Retry on transient failures, RE-OPENING the temp file every
             // attempt. put_object_stream CONSUMES the reader (and for >=8 MiB
             // bodies drains it via multipart); reusing a spent handle on retry
-            // would upload 0 bytes under the correct content hash — silent,
+            // would upload 0 bytes under the correct content hash - silent,
             // permanent content-addressed corruption. A fresh handle each
             // attempt always streams from byte 0.
             let mut attempt = 0u32;
@@ -285,7 +285,7 @@ impl BlobStore for ObjectStorageBlobStore {
 
         // NOTE: rust-s3 0.37's streaming `get_object_stream` returns an
         // `AsyncRead` adapter that TRUNCATES chunked-transfer responses from
-        // SeaweedFS — it signals EOF after the first chunk, so a 17 KB object
+        // SeaweedFS - it signals EOF after the first chunk, so a 17 KB object
         // is read back as ~12 KB of garbage-hashing bytes. Instead we stream
         // the object ourselves via explicit byte ranges: each ranged GET has a
         // definite Content-Length and reassembles losslessly, while memory
@@ -372,8 +372,8 @@ impl BlobStore for ObjectStorageBlobStore {
 
                 let chunk = resp.bytes().clone();
                 // The authoritative `total` says exactly `expected` bytes remain
-                // in this window. Anything else — empty body, short read, or an
-                // over-read — is truncation/corruption from a misbehaving
+                // in this window. Anything else - empty body, short read, or an
+                // over-read - is truncation/corruption from a misbehaving
                 // backend, NOT EOF. Fail loud so io::copy errors and the fetch
                 // is retried, never silently cached under the correct hash.
                 if chunk.len() as u64 != expected {
@@ -485,7 +485,7 @@ impl BlobStore for ObjectStorageBlobStore {
 
         // Distinguish the three terminal outcomes instead of collapsing
         // everything-but-204 to `Ok(false)`. SeaweedFS returns 204 (or 200) for a
-        // successful delete and 404 when the key was already gone — both are a
+        // successful delete and 404 when the key was already gone - both are a
         // definite "no longer present", reported as Ok(true)/Ok(false). A 5xx
         // that survives the retry loop is a genuine backend failure: surfacing it
         // as Err prevents a caller from recording a still-live blob as deleted.

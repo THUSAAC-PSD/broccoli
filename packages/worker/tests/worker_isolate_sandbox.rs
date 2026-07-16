@@ -555,7 +555,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
     assert_eq!(consumer.sandbox_result.exit_code, Some(0));
 }
 
-// Phase 3 Task 3.1 — a `MountSource::PlatformTool` resolves to a read-only mount
+// Phase 3 Task 3.1 - a `MountSource::PlatformTool` resolves to a read-only mount
 // of a worker-configured tool, executed under real isolate. This is the on-CI
 // proof of exec-from-mount (the open decision: if isolate refuses to `--dir`-bind
 // a single file, `platform_tool_directory_rule` must mount the tools dir instead;
@@ -638,7 +638,7 @@ async fn platform_tool_mount_executes_under_isolate() {
     let _ = std::fs::remove_dir_all(&tools_dir);
 }
 
-// Phase 3 Task 3.2 — StepOutput intra-op handoff under real isolate: a dependent
+// Phase 3 Task 3.2 - StepOutput intra-op handoff under real isolate: a dependent
 // step reads a prior step's captured output file directly (no blob), seeing ONLY
 // that file, read-only. On-CI counterpart to the mock-sandbox test.
 #[tokio::test]
@@ -733,7 +733,7 @@ async fn step_output_mount_handoff_under_isolate() {
     );
 }
 
-// Phase 7 — Checker fusion under real isolate: the on-CI twin of the mock-sandbox
+// Phase 7 - Checker fusion under real isolate: the on-CI twin of the mock-sandbox
 // `fused_builtin_stream_*` tests. A `solution` step streams its stdout over a FIFO
 // to a `check` step running the REAL broccoli-compare (mounted via PlatformTool),
 // which compares against an answer present ONLY in the checker env. Proves the

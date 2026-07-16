@@ -82,7 +82,7 @@ impl OperationHandler {
                         // 0o755 (world r-x), not 0o700: isolate runs the step as a
                         // per-box sandbox uid (first_uid + box_id), which does NOT
                         // own this worker-written file. A loaded source/input at
-                        // 0o700 is unreadable to that uid → the compiler (run as the
+                        // 0o700 is unreadable to that uid -> the compiler (run as the
                         // sandbox uid) fails to open it. The execute bit is harmless
                         // for data files and required for any loaded executable.
                         // Matches restore_cached_outputs and file_cacher, all 0o755.

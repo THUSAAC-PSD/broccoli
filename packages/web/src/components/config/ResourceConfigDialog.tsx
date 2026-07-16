@@ -663,7 +663,7 @@ function SinglePluginContent({
     [apiClient, scope, pluginId, schemas],
   );
 
-  // The enabled toggle is form-local state — persisted via the form's Save
+  // The enabled toggle is form-local state - persisted via the form's Save
   // button, not auto-saved. This avoids a race condition where the toggle's
   // read-modify-write overlaps with a concurrent form save on slow networks.
   const handleEnabledChange = useCallback((newEnabled: 'unset' | boolean) => {

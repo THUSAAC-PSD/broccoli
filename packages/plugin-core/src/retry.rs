@@ -26,7 +26,7 @@ pub struct PoolRetryPolicy {
 }
 
 impl Default for PoolRetryPolicy {
-    /// 60 retries with 100ms → 5s exponential backoff. Matches the inline
+    /// 60 retries with 100ms -> 5s exponential backoff. Matches the inline
     /// loops that previously lived in `submission_dispatch` and
     /// `evaluate_batch`.
     fn default() -> Self {
@@ -44,7 +44,7 @@ impl Default for PoolRetryPolicy {
 /// * `Ok(_)` is returned immediately.
 /// * `Err(PoolTimeout(_))` with remaining attempts triggers a `tracing::warn!`
 ///   identical in format to the original inline loops (`plugin_id`, `attempt`,
-///   `"Plugin pool acquisition timed out — backing off and retrying"`),
+///   `"Plugin pool acquisition timed out - backing off and retrying"`),
 ///   then sleeps for the current backoff before retrying.
 /// * Any other `Err(_)` is returned immediately (no retry).
 /// * After exhausting `policy.max_attempts` retries, the last `PoolTimeout`

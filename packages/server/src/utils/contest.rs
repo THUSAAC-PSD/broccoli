@@ -302,7 +302,7 @@ mod problem_read_access_tests {
             .expect("editor must read hidden problems");
     }
 
-    /// A missing (or soft-deleted) problem is 404 even for editors — the gate
+    /// A missing (or soft-deleted) problem is 404 even for editors - the gate
     /// fetches the row before any permission short-circuit.
     #[tokio::test]
     async fn missing_problem_is_not_found_even_for_editor() {

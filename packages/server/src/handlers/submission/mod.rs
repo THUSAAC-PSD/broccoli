@@ -551,7 +551,7 @@ pub async fn create_contest_submission(
         files: Set(files_to_json(&payload.files)),
         language: Set(language.clone()),
         // UP#37: see the contest-free `create_submission` handler for the
-        // full rationale — `Queued` is the durable-accept state the claim
+        // full rationale - `Queued` is the durable-accept state the claim
         // fiber transitions to `Pending`.
         status: Set(SubmissionStatus::Queued),
         user_id: Set(auth_user.user_id),

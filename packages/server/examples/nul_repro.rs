@@ -3,7 +3,7 @@
 //!
 //! Hammers a clean 64 KiB text INSERT concurrently against Postgres in one of
 //! several driving modes, to bisect WHICH access pattern desyncs the pooled
-//! connection. The inserted value is pure ASCII digits — provably 0x00-free —
+//! connection. The inserted value is pure ASCII digits - provably 0x00-free -
 //! so any 0x00 error is wire-protocol corruption, not data.
 //!
 //! Usage (on a host with Postgres at the configured URL):
@@ -63,7 +63,7 @@ async fn main() {
     // dropped-mid-flush query leaves the pooled connection desynced; if the
     // clean inserts then inherit such a connection they get the 0x00 error.
     // This mimics HTTP-handler / dispatcher DB futures cancelled on client
-    // disconnect / timeout under load — the suspected real trigger.
+    // disconnect / timeout under load - the suspected real trigger.
     let cancellers = if mode == "cancel" { concurrency } else { 0 };
     let mut tasks = Vec::new();
     for _ in 0..cancellers {

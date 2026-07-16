@@ -116,7 +116,7 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
     async fn on_event(&self, _ctx: (), event: &GenericEvent) -> Result<GenericHookAction> {
         // Serialize the payload once outside the retry loop. A serialization
         // failure here is a genuine error (not transient backpressure), so we
-        // fail-closed with Reject — matching the prior `call::<_, _>` path
+        // fail-closed with Reject - matching the prior `call::<_, _>` path
         // which would have surfaced this as `PluginError::Serialization`.
         let input_bytes = match serde_json::to_vec(&event.payload) {
             Ok(bytes) => bytes,

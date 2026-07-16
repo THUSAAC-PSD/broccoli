@@ -109,8 +109,8 @@ pub struct ServerConfig {
     pub dispatcher_concurrency: u32,
     /// Per-server cap on in-process dispatch tasks waiting on the
     /// dispatcher semaphore. Post-UP#37 the durable accept path
-    /// (POST → INSERT `Queued` → claim fiber → dispatch) no longer
-    /// passes through the dispatcher semaphore at ingress — only the
+    /// (POST -> INSERT `Queued` -> claim fiber -> dispatch) no longer
+    /// passes through the dispatcher semaphore at ingress - only the
     /// steal-scanner (`dispatcher/steal.rs`) still calls
     /// `dispatcher_permits.reserve()` before spawning a re-dispatch
     /// task. Tune this to bound spawn bursts on a single server when
@@ -129,15 +129,15 @@ pub struct ServerConfig {
     /// more work (UP#39 backpressure-on-post).
     ///
     /// Multi-replica deployments share the DB, so this cap is observed
-    /// fleet-wide via `SELECT COUNT(*) WHERE status='Queued'` — not
+    /// fleet-wide via `SELECT COUNT(*) WHERE status='Queued'` - not
     /// per-replica. Each replica makes the same decision independently
     /// without coordination.
     ///
     /// Default 5000. `0` disables the cap entirely (used by integration
     /// tests that do not exercise backpressure). Tune by observing the
-    /// `Queued` p95 depth during a load test — when claim fibers can
+    /// `Queued` p95 depth during a load test - when claim fibers can
     /// drain `Queued` rows at a steady rate `R` rows/sec, a cap of
-    /// `R * acceptable_latency_seconds` keeps p95 POST→dispatch latency
+    /// `R * acceptable_latency_seconds` keeps p95 POST->dispatch latency
     /// bounded.
     #[serde(default = "default_max_queued_submissions")]
     pub max_queued_submissions: u32,
@@ -248,7 +248,7 @@ pub struct ServerConfig {
     ///
     /// Setting this is **opt-in**: it lets liveness probes and metrics
     /// scrapes survive even when the api runtime is saturated by submission
-    /// bursts or scheduler thrash — but operators must repoint their
+    /// bursts or scheduler thrash - but operators must repoint their
     /// probe/scrape targets at this port to actually realize that
     /// isolation. The endpoints stay mounted on the main router unchanged
     /// for backward compatibility.
@@ -265,15 +265,15 @@ pub struct ServerConfig {
     /// per-server claim fiber polls the `submission` and `code_run` tables
     /// for `status='Queued'` rows, transitions them to `Pending`, and
     /// dispatches them via the existing plugin path. When `false`, the
-    /// fiber never starts — UP#37's POST handlers still write `Queued`, but
+    /// fiber never starts - UP#37's POST handlers still write `Queued`, but
     /// no one will claim the rows, so they will accumulate until a
     /// configuration roll-forward. Only flip this off if you need to pin a
     /// deployment to the pre-UP#37 dispatch behavior while debugging.
     #[serde(default = "default_claim_fiber_enabled")]
     pub claim_fiber_enabled: bool,
     /// Poll interval (ms) for the UP#38 claim fiber. Default 1000ms. Lower
-    /// values reduce POST→Pending latency but increase background SQL load
-    /// (a no-op poll is a single `SELECT … LIMIT $batch FOR UPDATE SKIP
+    /// values reduce POST->Pending latency but increase background SQL load
+    /// (a no-op poll is a single `SELECT ... LIMIT $batch FOR UPDATE SKIP
     /// LOCKED` per table).
     #[serde(default = "default_claim_poll_interval_ms")]
     pub claim_poll_interval_ms: u64,
@@ -355,7 +355,7 @@ fn default_dispatcher_admission_queue_max() -> u32 {
 }
 
 fn default_max_queued_submissions() -> u32 {
-    // 5000 — the durable `Queued` row depth at which UP#39
+    // 5000 - the durable `Queued` row depth at which UP#39
     // backpressure kicks in. Set to `0` to disable.
     5000
 }
@@ -518,7 +518,7 @@ pub struct AuthConfig {
     /// `login_failure_window_secs` before the pair is briefly throttled. Counts
     /// only failures and clears on success, so it never throttles a legitimate
     /// sign-in even when hundreds of contestants share one venue NAT IP. `0`
-    /// disables it. Deliberately generous — a false throttle during a live
+    /// disables it. Deliberately generous - a false throttle during a live
     /// contest is worse than a slightly looser brute-force bound.
     #[serde(default = "default_login_failure_limit")]
     pub login_failure_limit: u32,
@@ -603,7 +603,7 @@ fn default_batch_max_age_secs() -> u64 {
 }
 
 /// Returns true if `id` is a safe queue-suffix (alphanumeric + `-_.`,
-/// non-empty, ≤128 chars). Mirrors the worker-id rules so the same
+/// non-empty, <=128 chars). Mirrors the worker-id rules so the same
 /// validation applies to both sides of the MQ envelope.
 pub fn is_valid_server_id(id: &str) -> bool {
     !id.is_empty()
@@ -627,7 +627,7 @@ pub enum ServerIdResolveError {
 /// Resolves the effective server ID from a configured value:
 /// 1. If `configured` is non-empty and valid, use it.
 /// 2. If multi-replica mode is expected, reject missing/invalid configured IDs.
-/// 3. Else fall back to the OS hostname (sanitized — Windows hostnames may
+/// 3. Else fall back to the OS hostname (sanitized - Windows hostnames may
 ///    contain characters Redis dislikes in queue names).
 /// 4. Else generate an 8-char random ID and warn.
 pub fn resolve_server_id(
@@ -740,7 +740,7 @@ impl AppConfig {
 
     pub fn load() -> Result<Self, ConfigError> {
         // Defaults live on the struct fields as `#[serde(default = ...)]`
-        // attributes — the single source of truth. Builder-level
+        // attributes - the single source of truth. Builder-level
         // `set_default` values are deliberately avoided: the config crate
         // fills them in before serde runs, so serde field defaults would be
         // silently shadowed and the two sources could drift apart.

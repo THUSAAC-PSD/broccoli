@@ -1,6 +1,7 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Skeleton } from '@broccoli/web-sdk/ui';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
@@ -14,7 +15,7 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
   const apiClient = useApiClient();
   const { contest } = useContestInfo(contestId);
 
-  const canManageContest = !!user?.permissions.includes('contest:manage');
+  const canManageContest = !!user?.permissions.includes(CONTEST_MANAGE);
   const contestNotStarted =
     !!contest && Date.now() < new Date(contest.start_time).getTime();
   const shouldBlockByStartTime = contestNotStarted && !canManageContest;

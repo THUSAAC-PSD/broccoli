@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Seeds an ICPC contest with the Signpost problem (qa-evidence/Signpost data).
-# Runs from local mac, uploading via build droplet → gateway:80 (VPC).
+# Runs from local mac, uploading via build droplet -> gateway:80 (VPC).
 #
 # Output: writes /opt/broccoli/stress-test/run-state.env on loadgen with
-#   ADMIN_TOKEN, CONTEST_ID, PROBLEM_ID — to be source'd by run-stress-test.sh.
+#   ADMIN_TOKEN, CONTEST_ID, PROBLEM_ID - to be source'd by run-stress-test.sh.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

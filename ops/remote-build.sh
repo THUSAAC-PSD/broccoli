@@ -41,7 +41,7 @@ log "saving image tars..."
 docker save "broccoli-server:${TAG}"     | gzip -3 > "${DIST}/images/server.tar.gz"
 docker save "broccoli-worker:${TAG}-icpc" | gzip -3 > "${DIST}/images/worker-icpc.tar.gz"
 
-# --- 2. Support images (postgres, redis, seaweed, caddy) — pull + save ---
+# --- 2. Support images (postgres, redis, seaweed, caddy) - pull + save ---
 for pair in "postgres:18-alpine|postgres" \
             "redis:7-alpine|redis" \
             "chrislusf/seaweedfs:4.15|seaweedfs" \

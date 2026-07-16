@@ -17,8 +17,8 @@ pub(super) fn text_preview_from_bytes(mut bytes: Vec<u8>, truncated: bool) -> St
     }
 
     let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    // `from_utf8_lossy` preserves NUL (0x00) bytes — they are valid UTF-8
-    // (U+0000) — but PostgreSQL TEXT columns reject 0x00. Sandbox stdout/stderr
+    // `from_utf8_lossy` preserves NUL (0x00) bytes - they are valid UTF-8
+    // (U+0000) - but PostgreSQL TEXT columns reject 0x00. Sandbox stdout/stderr
     // and isolate `meta` can carry stray NUL (truncated multibyte sequences,
     // partially-flushed buffers, control bytes), so strip them at the capture
     // origin rather than relying on every downstream persistence layer. Replace

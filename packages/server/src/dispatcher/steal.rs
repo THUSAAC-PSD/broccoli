@@ -182,7 +182,7 @@ async fn scan_once(
 ///
 /// A restarted coordinator keeps the **same** `server_id`, so every submission,
 /// code-run, and unfinalized in-flight judgement (current OR not) it owned
-/// before the restart is still tagged `owner_server_id = <self>` in the DB — but
+/// before the restart is still tagged `owner_server_id = <self>` in the DB - but
 /// the in-memory
 /// evaluate/operation driver that was actually judging it died with the old
 /// process. The lease-refresh fiber ([`crate::dispatcher::lease`]) filters on
@@ -194,7 +194,7 @@ async fn scan_once(
 /// an `#orphaned` owner sentinel and NULL its heartbeat. That makes the rows look
 /// exactly like a **dead foreign server's** expired lease
 /// (`owner_server_id IS NOT NULL AND lease_heartbeat_at IS NULL`), which the steal
-/// sweeper reclaims on its very first scan — no `created_at` aging required — and
+/// sweeper reclaims on its very first scan - no `created_at` aging required - and
 /// re-dispatches onto a fresh driver. The lease fiber no longer matches them
 /// (`owner != <self>`), so there is no refresh race regardless of task ordering.
 ///
@@ -259,7 +259,7 @@ pub async fn recover_orphaned_leases(
             sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
         )
         // Scoped strictly to `owner_server_id = <self>`: a sibling replica's rows
-        // are never touched. We intentionally do NOT filter on `is_current` — a
+        // are never touched. We intentionally do NOT filter on `is_current` - a
         // NON-current in-flight deferred rejudge (e.g. an admin-triggered
         // re-judge that was superseded) owned by this restarting server would
         // otherwise never be released and would hang until the 6-hour ceiling.
@@ -1332,7 +1332,7 @@ mod deferred_steal_db_tests {
     }
 
     /// Insert a current, unfinalized, Running judgement whose lease is an hour
-    /// stale — exactly the shape the steal sweeper reclaims.
+    /// stale - exactly the shape the steal sweeper reclaims.
     async fn seed_stale_deferred_judgement(
         db: &DatabaseConnection,
         submission_id: i32,
@@ -1359,7 +1359,7 @@ mod deferred_steal_db_tests {
     }
 
     /// Insert a current, unfinalized, Running judgement whose lease is FRESH
-    /// (heartbeat = now) and owned by `owner` — the shape a restart leaves
+    /// (heartbeat = now) and owned by `owner` - the shape a restart leaves
     /// behind: still owned by the (now-dead) coordinator with a lease the
     /// lease fiber would keep refreshing.
     async fn seed_owned_fresh_judgement(
@@ -1428,7 +1428,7 @@ mod deferred_steal_db_tests {
     }
 
     /// The core regression: when a stale deferred judgement is re-dispatched,
-    /// its epoch is bumped — and the parent `submission.judge_epoch` MUST be
+    /// its epoch is bumped - and the parent `submission.judge_epoch` MUST be
     /// bumped in lockstep, or the epoch-gated finalize later writes 0 rows and
     /// the submission hangs in `Running` forever.
     #[tokio::test]
@@ -1511,7 +1511,7 @@ mod deferred_steal_db_tests {
         seed_owned_fresh_judgement(&db, sub_id, 0, 0, "server-1").await;
         set_submission_owner(&db, sub_id, "server-1").await;
 
-        // Before recovery: the steal cannot reclaim it (own, fresh lease) —
+        // Before recovery: the steal cannot reclaim it (own, fresh lease) -
         // this is the restart-orphan hang.
         let pre = claim_deferred_judgements(&db, "server-1", 60, 10, 5)
             .await
@@ -1597,7 +1597,7 @@ mod deferred_steal_db_tests {
 
     /// Fix regression: the replacement `is_current = TRUE` judgement inserted
     /// when a submission lease is stolen must be stamped with the stealing
-    /// server's ownership AND a live lease heartbeat — mirroring the
+    /// server's ownership AND a live lease heartbeat - mirroring the
     /// deferred-steal (`claim_deferred_judgements`) and
     /// `requeue_judgement_for_system_error_retry` inserts. A NULL-owner /
     /// NULL-heartbeat row is never refreshed by the lease fiber (owner = self)

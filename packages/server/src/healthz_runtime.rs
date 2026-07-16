@@ -3,7 +3,7 @@
 //! Under deliberate api-runtime saturation (large submission bursts, scheduler
 //! thrash, blocking work pinned to the main runtime's worker threads), the
 //! liveness probe served on the main router can stall well past any sensible
-//! probe timeout — defeating its entire purpose as an out-of-band signal. To
+//! probe timeout - defeating its entire purpose as an out-of-band signal. To
 //! sidestep that, this module hosts a tiny axum app with only `/healthz` and
 //! `/metrics` on its **own** `tokio::runtime::Runtime` running on its **own**
 //! `std::thread`, bound to its **own** TCP listener (and therefore its own
@@ -12,7 +12,7 @@
 //! The main runtime's saturation can no longer block the probe path because
 //! the two runtimes share nothing but the [`AppState`] handles (Arc'd
 //! database pool, Arc'd Redis client). Those handles are safe to share across
-//! runtimes — they're already designed for arbitrary task counts and do not
+//! runtimes - they're already designed for arbitrary task counts and do not
 //! pin themselves to a specific runtime.
 //!
 //! Activation is opt-in via `server.healthz_listen`. When `None`, this module

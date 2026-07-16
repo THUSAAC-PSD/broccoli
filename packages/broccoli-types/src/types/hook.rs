@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Plugin → host response from a hook function (e.g. a `before_submission`
+/// Plugin -> host response from a hook function (e.g. a `before_submission`
 /// handler). The guest serializes this as its return value; the host
 /// (plugin-core) deserializes it and maps it onto its internal hook action.
 ///

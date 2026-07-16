@@ -231,7 +231,7 @@ pub async fn rejudge_submission(
             .map_err(|e| AppError::Validation(format!("Invalid rejudge request body: {e}")))?
     };
     // UP#39 backpressure-on-post: covers both branches of this
-    // handler — `apply_immediately=true` inserts a `Queued` row into
+    // handler - `apply_immediately=true` inserts a `Queued` row into
     // `submission`, `apply_immediately=false` inserts one into
     // `submission_judgement`. Both are counted in
     // `count_queued_rows()` so the cap applies uniformly.
@@ -290,7 +290,7 @@ pub async fn rejudge_submission(
     let updated = if payload.apply_immediately {
         let mut active: submission::ActiveModel = sub.clone().into();
         // UP#37: rejudge that takes effect immediately enters the same
-        // durable-accept lifecycle as a fresh POST — flip to `Queued`
+        // durable-accept lifecycle as a fresh POST - flip to `Queued`
         // and let the claim fiber (UP#38) promote to `Pending` and
         // dispatch. The new judgement row was just created above by
         // `open_rejudge_judgement` and is `is_current=true`, so the
@@ -327,7 +327,7 @@ pub async fn rejudge_submission(
     //   and dispatches via `dispatch_to_plugin_with_judgement` with
     //   `fire_after_judging=false`.
     //
-    // No handler-side `tokio::spawn` is needed in either branch — a
+    // No handler-side `tokio::spawn` is needed in either branch - a
     // crash between txn.commit() and the response no longer loses the
     // rejudge.
 
@@ -417,7 +417,7 @@ pub async fn bulk_rejudge_submissions(
 
     const BATCH_SIZE: usize = 500;
     // Per-batch counter: rows the user successfully re-queued (immediate
-    // path → submission row in `Queued`; deferred path → judgement row
+    // path -> submission row in `Queued`; deferred path -> judgement row
     // in `Queued`). After UP#37 + the residual fix, both branches are
     // claim-fiber-driven and the handler never spawns.
     let mut queued: usize = 0;
@@ -450,7 +450,7 @@ pub async fn bulk_rejudge_submissions(
 
             if payload.apply_immediately {
                 let mut active: submission::ActiveModel = sub.clone().into();
-                // UP#37: durable accept — flip to `Queued`, claim fiber
+                // UP#37: durable accept - flip to `Queued`, claim fiber
                 // (UP#38) will promote to `Pending` and dispatch. See
                 // single-submission rejudge handler above for the full
                 // narrative.

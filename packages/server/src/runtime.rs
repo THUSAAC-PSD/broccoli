@@ -33,7 +33,7 @@ pub struct ServerRuntime {
     /// [`crate::healthz_runtime`] (UP#14e). `None` when `server.healthz_listen`
     /// is unset. The thread runs for the process lifetime and is reaped by
     /// the OS on exit, so we hold the handle for ownership but never `join()`
-    /// it — hence the underscore prefix to silence dead-code warnings.
+    /// it - hence the underscore prefix to silence dead-code warnings.
     _healthz_handle: Option<std::thread::JoinHandle<()>>,
     _telemetry_guard: common::observability::TelemetryGuard,
 }
@@ -356,7 +356,7 @@ impl ServerRuntime {
         // reclaim them and the work would hang in `Running` forever. Release them
         // BEFORE spawning the dispatcher so the steal sweeper's first scan picks
         // them up. Best-effort: a failure here must not block startup. Gated on
-        // lease/steal being enabled — without the sweeper nothing would reclaim
+        // lease/steal being enabled - without the sweeper nothing would reclaim
         // the released rows.
         if app_config.server.dispatcher_lease_steal_enabled {
             match crate::dispatcher::steal::recover_orphaned_leases(&db, &server_id).await {

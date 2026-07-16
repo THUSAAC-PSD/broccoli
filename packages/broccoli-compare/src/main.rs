@@ -1,4 +1,4 @@
-//! `broccoli-compare` — native output comparator.
+//! `broccoli-compare` - native output comparator.
 //!
 //! Reads a solution's output on **stdin** and an expected answer from a
 //! **file** (`--answer <path>`), compares them according to `--mode`, prints a
@@ -23,11 +23,11 @@
 //!
 //! Output channels (so the fused checker step returns both inline, no blob):
 //!   * **stdout** receives the **first 64 KiB** of stdin (the display preview),
-//!     tee'd as bytes flow through — captured regardless of the verdict (even an
+//!     tee'd as bytes flow through - captured regardless of the verdict (even an
 //!     early-decided WA), never by buffering the whole stream. The worker reads a
 //!     File-redirected stdout back into the step result, so the coordinator gets
 //!     the preview without a blob round-trip.
-//!   * **stderr** receives the short verdict message — the same channel testlib
+//!   * **stderr** receives the short verdict message - the same channel testlib
 //!     uses, so the evaluator sources the checker message uniformly.
 //!   * stdin is always drained to EOF before exit, so a still-running solution
 //!     piping into us never receives SIGPIPE/EPIPE when the verdict is decided
@@ -95,7 +95,7 @@ fn run() -> Result<Verdict> {
 
     // `main` owns the stdin reader, wrapped in a tee. The `compare_*` call below
     // only *borrows* it (&mut), so after the verdict is decided we still own the
-    // reader and can drain it to EOF — never SIGPIPE-killing a live producer.
+    // reader and can drain it to EOF - never SIGPIPE-killing a live producer.
     let stdin = io::stdin();
     let mut output = TeeReader::new(stdin.lock(), preview);
 
@@ -168,7 +168,7 @@ fn compare<O: Read, A: Read>(args: &Args, output: &mut O, answer: A) -> std::io:
 /// A `Read` adapter that copies the **first `INLINE_OUTPUT_PREVIEW_BYTES`** bytes
 /// flowing through it into an optional preview sink, while passing every byte to
 /// the caller unchanged. Only the preview cap's worth of bytes is ever written
-/// to disk — the stream itself is never accumulated in memory. The tee happens
+/// to disk - the stream itself is never accumulated in memory. The tee happens
 /// on the read path so the preview is the true first 64 KiB even when the
 /// comparison stops reading early.
 ///
@@ -191,7 +191,7 @@ impl<R: Read, W: Write> TeeReader<R, W> {
     }
 
     /// Tee the freshly-read `chunk` into the preview sink, up to the cap. On any
-    /// write error the preview is dropped and teeing stops — the comparison is
+    /// write error the preview is dropped and teeing stops - the comparison is
     /// unaffected.
     fn tee(&mut self, chunk: &[u8]) {
         if let Some(sink) = self.preview.as_mut()
@@ -304,7 +304,7 @@ mod tests {
         let mut buf = [0u8; 8];
 
         // The first read tees into a preview writer that errors. The read must
-        // still succeed and return the real bytes — a broken preview must never
+        // still succeed and return the real bytes - a broken preview must never
         // turn a valid comparison into an error.
         let n = tee
             .read(&mut buf)

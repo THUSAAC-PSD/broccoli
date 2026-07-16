@@ -15,7 +15,7 @@ interface IcpcScoreboardProps {
 
 const MEDAL_COLORS = ['#D4AF37', '#A8A8A8', '#CD7F32'] as const;
 
-// Inline lucide "lock" glyph — a real vector icon (no emoji), no extra dep so the
+// Inline lucide "lock" glyph - a real vector icon (no emoji), no extra dep so the
 // plugin bundle stays self-contained.
 function LockIcon({ className }: { className?: string }) {
   return (
@@ -135,7 +135,7 @@ function ProblemCellView({ cell }: { cell: ProblemCell | undefined }) {
   }
 
   // Pending: submissions during the freeze, verdict hidden. Two lines like the
-  // solved cell — "?" on top, then the pre-freeze wrong attempts and the frozen
+  // solved cell - "?" on top, then the pre-freeze wrong attempts and the frozen
   // count below: "-3 (4)" (3 wrong before, 4 pending during), or "(4)" if none.
   if (cell.pending && cell.pending > 0) {
     return (
@@ -194,7 +194,7 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
 
   const handleReveal = async () => {
     if (!contestId) return;
-    // Reveal is final and cannot be undone from the UI — confirm first.
+    // Reveal is final and cannot be undone from the UI - confirm first.
     if (!window.confirm(t('icpc.scoreboard.revealConfirm'))) return;
     setRevealing(true);
     setRevealError(null);
@@ -202,7 +202,7 @@ export function IcpcScoreboard({ contestId, children }: IcpcScoreboardProps) {
       await api.reveal(contestId);
       await refetch();
     } catch (e) {
-      // Surface the failure — do NOT let the organizer believe it succeeded.
+      // Surface the failure - do NOT let the organizer believe it succeeded.
       setRevealError(e instanceof Error ? e.message : String(e));
     } finally {
       setRevealing(false);

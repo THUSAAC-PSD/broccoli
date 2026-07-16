@@ -6,7 +6,7 @@ use crate::types::*;
 /// step in the same op, so its small result (exit code + message + sandbox
 /// status) is read from `task_results` and turned into a verdict via the
 /// checker plugin's `interpret`. Outcome precedence (TLE/MLE/RE/compile) is
-/// identical to the legacy path — a failed run wins and the checker is ignored.
+/// identical to the legacy path - a failed run wins and the checker is ignored.
 ///
 /// The checker message is sourced generically: prefer the check step's stderr
 /// (testlib convention), falling back to its stdout (broccoli-compare writes its
@@ -37,9 +37,9 @@ pub fn interpret_fused_result(
     let exec_stderr = opt_nonempty(&exec_result.sandbox_result.stderr);
 
     // `none`: no output comparison is performed, so the evaluator splices NO
-    // check step (no worker-side comparator process — this is the hot path for
+    // check step (no worker-side comparator process - this is the hot path for
     // custom "run code", which has no expected output). precheck above already
-    // cleared TLE/MLE/RE/CompileError, so a surviving result is a clean run →
+    // cleared TLE/MLE/RE/CompileError, so a surviving result is a clean run ->
     // Accepted, with the solution's own stdout retained for display. There is no
     // check-step result to look up.
     if checker_format == "none" {
@@ -118,7 +118,7 @@ pub fn interpret_fused_result(
 
 /// Determine the verdict that applies BEFORE consulting the checker: host
 /// cancellation, system errors, compile errors, and execution failures
-/// (skipped / OOM→MLE / TO→TLE / SG,RE→RE). Returns `None` only when a clean
+/// (skipped / OOM->MLE / TO->TLE / SG,RE->RE). Returns `None` only when a clean
 /// `exec` result is present, meaning the caller should consult the checker.
 ///
 /// Used by `interpret_fused_result` (worker-side check step) to apply outcome
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn fused_clean_run_consults_the_checker() {
-        // Clean exec + a check step present → interpret is consulted. The mock
+        // Clean exec + a check step present -> interpret is consulted. The mock
         // checker returns Err, surfaced as SystemError "Checker interpret failed"
         // (the real verdict mapping is unit-tested in standard-checkers).
         let host = Host::mock();
@@ -555,7 +555,7 @@ mod tests {
     fn fused_none_accepts_clean_run_without_a_check_step() {
         // `none` schedules NO checker step (no worker process); a clean exec is
         // Accepted and the solution's own stdout is retained for display. The
-        // mock checker would Err if consulted — proving none never consults it.
+        // mock checker would Err if consulted - proving none never consults it.
         let host = Host::mock();
         let exec = task(
             true,
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn fused_none_does_not_mask_a_run_failure() {
-        // `none` must not turn a TLE/RE into Accepted — precheck still wins.
+        // `none` must not turn a TLE/RE into Accepted - precheck still wins.
         let host = Host::mock();
         let exec = task(
             false,

@@ -335,9 +335,9 @@ pub struct BuildEvalOpsInput {
     pub contest_id: Option<i32>,
 
     /// Server-assigned evaluate-batch id, stamped by the host in `resolve_inputs`.
-    /// Self-dispatching evaluators (e.g. communication) copy this — together with
-    /// `test_case_id` — onto each `OperationTask` they build so the host's
-    /// `record_ops` registers the op→batch mapping; without it the result wait
+    /// Self-dispatching evaluators (e.g. communication) copy this - together with
+    /// `test_case_id` - onto each `OperationTask` they build so the host's
+    /// `record_ops` registers the op->batch mapping; without it the result wait
     /// can't extend past the decoupled outer timeout and judging reports
     /// EVALUATION_TIMEOUT. Absent for the batch-evaluator callback path (the host
     /// tags those ops itself), so it stays optional.

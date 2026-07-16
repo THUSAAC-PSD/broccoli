@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { SUBMISSION_VIEW_ALL } from '@broccoli/web-sdk/permissions';
 import { Activity } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
@@ -10,7 +11,7 @@ export default function AdminSubmissionsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
 
-  if (!user || !user.permissions.includes('submission:view_all')) {
+  if (!user || !user.permissions.includes(SUBMISSION_VIEW_ALL)) {
     return <Unauthorized />;
   }
 

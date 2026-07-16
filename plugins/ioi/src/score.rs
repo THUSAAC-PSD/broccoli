@@ -216,7 +216,7 @@ fn recompute_sum_best_subtask(
 /// the best across submissions and sum. Single source of truth for both the
 /// official task score ([`recompute_sum_best_subtask`]) and the scoreboard cell
 /// (`crate::scoreboard`), which differ only in how they fetch + normalize the
-/// rows — so the two cannot diverge on the value.
+/// rows - so the two cannot diverge on the value.
 pub(crate) fn sum_best_subtask_score<'a>(
     subtask_defs: &[SubtaskDef],
     test_cases: &[TestCaseRow],

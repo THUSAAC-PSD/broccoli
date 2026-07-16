@@ -110,7 +110,7 @@ impl OperationTaskExecutor {
     ///
     /// Without this guard the requesting step fails mid-plan with
     /// `success = false`, which evaluator plugins interpret as a judging
-    /// outcome — a pure worker deployment mistake then surfaces as a wrong
+    /// outcome - a pure worker deployment mistake then surfaces as a wrong
     /// contestant-visible verdict. Failing the whole job with an `Err` before
     /// any environment or sibling task is launched means the consumer's
     /// RetryTracker treats it as a transient/system error (bounded retries,

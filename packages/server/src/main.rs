@@ -98,7 +98,7 @@ async fn run_healthcheck(app_config: &AppConfig) -> i32 {
 }
 
 /// Extracts the port from a `host:port` listen string. Requires a full,
-/// well-formed `SocketAddr` — `0.0.0.0:9091`, `[::]:9091`, `[::1]:8080`. An
+/// well-formed `SocketAddr` - `0.0.0.0:9091`, `[::]:9091`, `[::1]:8080`. An
 /// unbracketed IPv6 like `"::1"` is rejected (returns `None`) so the caller
 /// falls back to the main listener port rather than silently probing port 1.
 fn parse_port_from_listen_addr(addr: &str) -> Option<u16> {
@@ -125,7 +125,7 @@ mod tests {
     fn rejects_invalid_input() {
         assert_eq!(parse_port_from_listen_addr("not-an-addr"), None);
         assert_eq!(parse_port_from_listen_addr("host:not-a-port"), None);
-        // Unbracketed IPv6 — would previously yield Some(1), now correctly None.
+        // Unbracketed IPv6 - would previously yield Some(1), now correctly None.
         assert_eq!(parse_port_from_listen_addr("::1"), None);
         // Bare host with no port.
         assert_eq!(parse_port_from_listen_addr("127.0.0.1"), None);

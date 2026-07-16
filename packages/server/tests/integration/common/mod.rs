@@ -532,7 +532,7 @@ pub struct SpawnOptions {
     /// fixture default (disabled).
     pub max_queued_submissions: Option<u32>,
     /// Disable the UP#38 claim fiber. Required for backpressure
-    /// tests that pre-stage `Queued` rows directly — otherwise the
+    /// tests that pre-stage `Queued` rows directly - otherwise the
     /// fiber drains them before the test can observe the cap.
     pub disable_claim_fiber: bool,
     /// Start the UP#38 claim fiber in this integration fixture. Most

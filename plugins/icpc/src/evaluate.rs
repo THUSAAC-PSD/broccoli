@@ -9,7 +9,7 @@ use broccoli_server_sdk::types::*;
 use serde::{Deserialize, Serialize};
 
 /// Auto-flush threshold for buffered `TestCaseResultRow`s. With typical
-/// ICPC contests in the 15–25 testcase range this yields 2–3 bulk
+/// ICPC contests in the 15-25 testcase range this yields 2-3 bulk
 /// INSERTs per submission instead of one INSERT per testcase (UP#34).
 #[cfg(test)]
 const RESULT_BATCH_FLUSH_THRESHOLD: usize = 8;
@@ -38,9 +38,9 @@ pub struct EvalResult {
 /// ICPC judging policy for the shared detached-evaluate driver.
 ///
 /// ICPC is all-or-nothing: every case must be Accepted, and the batch
-/// short-circuits on the first non-AC verdict. The policy is stateless — the
+/// short-circuits on the first non-AC verdict. The policy is stateless - the
 /// driver owns persistence, the epoch guards, the compile-error short-circuit,
-/// and the refill hint — so this carries no fields.
+/// and the refill hint - so this carries no fields.
 #[derive(Serialize, Deserialize)]
 struct IcpcJudge;
 
@@ -172,7 +172,7 @@ fn build_batch_input(
 /// terminal verdict. The driver funnels it to a terminal `SystemError` instead:
 /// fill any unrecorded test cases and write the terminal submission update.
 ///
-/// All steps are best-effort — if the DB is genuinely unreachable these also
+/// All steps are best-effort - if the DB is genuinely unreachable these also
 /// fail, and the worker's submission-level retry re-drives judging later. A
 /// `StaleEpoch` here is benign: a newer judgement already owns the rows, so the
 /// epoch guards turn these writes into no-ops.
@@ -381,7 +381,7 @@ pub fn evaluate_short_circuit(
                     stderr: None,
                 };
                 // `record_outcome` may flush mid-fill if buf crosses the
-                // threshold; that's fine — fill rows are independent.
+                // threshold; that's fine - fill rows are independent.
                 record_outcome(
                     host,
                     &mut row_buf,
@@ -470,7 +470,7 @@ fn build_tc_row(
     } else {
         (Some(outcome.test_case_id), None)
     };
-    // ICPC: binary scoring — 1.0 for AC, 0.0 otherwise
+    // ICPC: binary scoring - 1.0 for AC, 0.0 otherwise
     let score = if outcome.verdict == Verdict::Accepted {
         1.0
     } else {
@@ -628,7 +628,7 @@ mod tests {
         let req = test_submission(tcs.clone());
         host.eval.queue_result(TestCaseVerdict::accepted(1));
         host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
-        // TC 3 never evaluated — batch cancelled after WA
+        // TC 3 never evaluated - batch cancelled after WA
 
         let result = evaluate_short_circuit(&host, &req, &tcs, 1).unwrap();
 

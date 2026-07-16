@@ -2,6 +2,11 @@ import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
+  CONTEST_MANAGE,
+  SUBMISSION_REJUDGE,
+  SUBMISSION_VIEW_ALL,
+} from '@broccoli/web-sdk/permissions';
+import {
   getStatusLabel,
   SUBMISSION_STATUS_FILTER_OPTIONS,
   type SubmissionStatusFilterValue,
@@ -60,10 +65,10 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
   >(() => new Set<number>());
   const [bulkApplyImmediately, setBulkApplyImmediately] = useState(true);
 
-  const canBulkRejudge = !!user?.permissions.includes('submission:rejudge');
+  const canBulkRejudge = !!user?.permissions.includes(SUBMISSION_REJUDGE);
   const scopedUserId =
-    user?.permissions.includes('submission:view_all') ||
-    user?.permissions.includes('contest:manage')
+    user?.permissions.includes(SUBMISSION_VIEW_ALL) ||
+    user?.permissions.includes(CONTEST_MANAGE)
       ? undefined
       : user?.id;
 
@@ -252,9 +257,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
       });
     },
     onError: (error) => {
-      toast.error(
-        getErrorMessage(error, t('submissions.bulkRejudge.error')),
-      );
+      toast.error(getErrorMessage(error, t('submissions.bulkRejudge.error')));
     },
   });
 

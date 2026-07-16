@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Trophy } from 'lucide-react';
 import { useParams } from 'react-router';
 
@@ -17,7 +18,7 @@ export default function ContestOverviewPage() {
   const { contestId } = useParams();
   const id = Number(contestId);
   const { contest } = useContestInfo(id);
-  const canManageContest = !!user?.permissions.includes('contest:manage');
+  const canManageContest = !!user?.permissions.includes(CONTEST_MANAGE);
   const enrollState = useContestEnroll({
     contestId: id,
     contest,

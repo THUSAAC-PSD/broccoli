@@ -13,8 +13,8 @@
 //! durable-accept lifecycle**: `submission`, `code_run`, and
 //! `submission_judgement`. When that depth exceeds
 //! `server.max_queued_submissions`, accepting more work would only
-//! grow the buffer between ingress and dispatch — degrading p95
-//! POST→Pending latency without changing throughput. Better to shed
+//! grow the buffer between ingress and dispatch - degrading p95
+//! POST->Pending latency without changing throughput. Better to shed
 //! load at the door with `503 Service Unavailable` + `Retry-After`.
 //!
 //! The check is best-effort: there is no transactional coupling
@@ -38,7 +38,7 @@ use crate::state::AppState;
 /// one claim tick plus a small jitter buffer so retried requests are
 /// likely to land after at least one drain pass has run. Hard-coded
 /// rather than configurable to match the existing
-/// `permits::RETRY_AFTER_SECS = 1` convention — the latency horizon
+/// `permits::RETRY_AFTER_SECS = 1` convention - the latency horizon
 /// of a single claim tick is the right unit, and adding a knob to
 /// turn what's effectively "wait one tick" into "wait N ticks" would
 /// just invite operators to set it too high.
@@ -46,23 +46,23 @@ pub const RETRY_AFTER_SECS: u64 = 2;
 
 /// Counts rows in the durable-accept lifecycle that are currently in
 /// `status='Queued'`. The three tables are queried sequentially with
-/// short SELECTs — three round-trips dominate the cost.
+/// short SELECTs - three round-trips dominate the cost.
 ///
 /// **Index status (honesty disclaimer):** the `status` column on
 /// `submission`, `code_run`, and `submission_judgement` does **not**
-/// carry a btree index today — see the entity definitions at
+/// carry a btree index today - see the entity definitions at
 /// `packages/server/src/entity/submission.rs`,
 /// `packages/server/src/entity/code_run.rs`, and
 /// `packages/server/src/entity/submission_judgement.rs` (no
 /// `#[sea_orm(indexed)]` on `Status`). Each COUNT is therefore a
 /// sequential scan. At the UP#39 default cap of ~5000 live `Queued`
 /// rows across the three tables, a seq scan on Postgres is
-/// sub-millisecond and the three round-trips dominate wall time —
+/// sub-millisecond and the three round-trips dominate wall time -
 /// not a real cost in practice.
 ///
 /// **Escape hatch if load testing later shows it matters:** a
-/// *partial* index — `CREATE INDEX … ON submission (status) WHERE
-/// status = 'Queued'` (and likewise on the other two tables) — is the
+/// *partial* index - `CREATE INDEX ... ON submission (status) WHERE
+/// status = 'Queued'` (and likewise on the other two tables) - is the
 /// right tool. Low-cardinality status enums benefit more from a
 /// partial index keyed on the hot value than from a full btree, and
 /// the partial form keeps the index tiny because only `Queued` rows
@@ -96,7 +96,7 @@ where
 /// at or above the configured cap; returns `Ok(())` otherwise.
 ///
 /// A cap of `0` disables the check entirely (used by integration
-/// tests that do not exercise backpressure) — the function returns
+/// tests that do not exercise backpressure) - the function returns
 /// `Ok(())` without touching the DB.
 ///
 /// This is the single ingress check called by every POST site that
@@ -108,7 +108,7 @@ where
 /// Status-code choice: the UP#39 spec text reads "503 + Retry-After".
 /// We match that literally. Per RFC 7231 §6.6.4, 503 means "the
 /// server is currently unable to handle the request due to a
-/// temporary overload" — the exact semantics of durable-queue
+/// temporary overload" - the exact semantics of durable-queue
 /// backpressure (the service as a whole is past capacity, not "this
 /// client is too chatty"). 429 (RFC 6585 §4) would put the blame on
 /// the client, which is wrong here: a single well-behaved client can
@@ -134,7 +134,7 @@ pub async fn enforce_queue_depth_admission(state: &AppState) -> Result<(), AppEr
     Ok(())
 }
 
-/// `RETRY_AFTER_SECS` is part of the API contract — clients
+/// `RETRY_AFTER_SECS` is part of the API contract - clients
 /// implementing exponential backoff over Retry-After expect a
 /// positive integer. A 0 would tell them to retry immediately,
 /// which defeats the purpose of the back-off. Compile-time check so

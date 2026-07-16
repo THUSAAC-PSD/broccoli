@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { PROBLEM_CREATE, PROBLEM_EDIT } from '@broccoli/web-sdk/permissions';
 import { Code2 } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
@@ -14,8 +15,8 @@ export function AdminProblemListView({ contestId }: { contestId?: number }) {
 
   if (
     !user ||
-    (!user.permissions.includes('problem:create') &&
-      !user.permissions.includes('problem:edit'))
+    (!user.permissions.includes(PROBLEM_CREATE) &&
+      !user.permissions.includes(PROBLEM_EDIT))
   ) {
     return <Unauthorized />;
   }

@@ -135,9 +135,9 @@ fn default_cache_dir() -> String {
     "./data/cache".into()
 }
 fn default_max_cache_size() -> u64 {
-    // 32 GiB. A single problem's test data can be large (e.g. 30 testcases ×
-    // ~40 MB input+answer ≈ 1.2 GB), so the old 4 GiB default held only ~3
-    // problems and thrashed during a contest — evicting blobs the pre-warm had
+    // 32 GiB. A single problem's test data can be large (e.g. 30 testcases x
+    // ~40 MB input+answer ~ 1.2 GB), so the old 4 GiB default held only ~3
+    // problems and thrashed during a contest - evicting blobs the pre-warm had
     // just fetched. 32 GiB comfortably holds a full contest's working set on a
     // typical judge box; operators with a smaller disk should lower this.
     32 * 1024 * 1024 * 1024
@@ -213,7 +213,7 @@ impl WorkerAppConfig {
             .set_default("storage.cache_dir", "./data/cache")?
             // Single source of truth with the serde field default. This builder
             // default takes precedence over the `#[serde(default)]`, so both must
-            // agree — reference the function to avoid drift.
+            // agree - reference the function to avoid drift.
             .set_default("storage.max_cache_size", default_max_cache_size() as i64)?
             .add_source(File::with_name(&config_path).required(false))
             .add_source(

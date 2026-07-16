@@ -442,7 +442,7 @@ fn run_event_loop(
             app.flash = Some(msg);
             app.flash_at = None; // restamp the freshly-set flash
         }
-        // Clear the "Refreshing…" toast once fresh data lands.
+        // Clear the "Refreshing..." toast once fresh data lands.
         if got_poll && app.flash.as_deref() == Some("Refreshing…") {
             app.flash = None;
             app.flash_at = None;

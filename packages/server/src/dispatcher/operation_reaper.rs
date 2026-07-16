@@ -387,7 +387,7 @@ async fn reapable_now(
         None => {
             // A plain SET (not SETNX): across replicas two reapers may both
             // observe the clock absent and both start it a few ms apart, then
-            // both requeue once the grace elapses. That is deliberately fine —
+            // both requeue once the grace elapses. That is deliberately fine -
             // a duplicate requeue is absorbed by the worker's heartbeat-aware
             // dedup at execution time (one runs, the rest get HeldByOther), so
             // this needs no distributed lock.
@@ -522,7 +522,7 @@ enum StrandSource {
 
 /// Read a stranded uuid's payload hash, republish the `Task` to the shared queue,
 /// and delete the orphaned hash. Does NOT remove the uuid from its source list /
-/// zset — the caller does that only on a removable outcome.
+/// zset - the caller does that only on a removable outcome.
 async fn requeue_one(
     conn: &mut redis::aio::MultiplexedConnection,
     mq: &Arc<Mq>,
@@ -606,7 +606,7 @@ async fn remove_from_list(
 /// push its task_id onto the shared `<queue>_failed` list, matching the broker's
 /// own reject-at-max-attempts convention (LPUSH the task_id, keep the payload
 /// hash for inspection). A poison message can never be delivered and no live
-/// worker holds it, so this is unconditional — no owner attribution or liveness
+/// worker holds it, so this is unconditional - no owner attribution or liveness
 /// check needed. It stops the message leaking in `_processing` forever.
 async fn dead_letter(
     conn: &mut redis::aio::MultiplexedConnection,

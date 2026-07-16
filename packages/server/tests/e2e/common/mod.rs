@@ -50,8 +50,8 @@ static REDIS_CONTAINER_ID: OnceLock<String> = OnceLock::new();
 /// `#[tokio::test]` spins up a fresh current-thread runtime per test and tears
 /// it down at exit; a sqlx pool stored in a `OnceCell` would be tied to the
 /// first test's runtime and become invalid for the rest. Housing the pool
-/// inside a long-lived dedicated runtime — and dispatching `CREATE DATABASE`
-/// onto it — keeps a single admin connection alive across every test, instead
+/// inside a long-lived dedicated runtime - and dispatching `CREATE DATABASE`
+/// onto it - keeps a single admin connection alive across every test, instead
 /// of churning a new pool per test (which exhausts PostgreSQL backend slots).
 static ADMIN_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static SHARED_ADMIN_CONN: OnceLock<DatabaseConnection> = OnceLock::new();
@@ -357,7 +357,7 @@ impl E2eTestApp {
     /// handler holds its transaction open across the `before_submission` hook,
     /// so every in-flight submission needs TWO pooled connections at once (its
     /// own txn plus the plugin's claim query). Tests that fire many submissions
-    /// concurrently must size the pool for `2 × concurrency` or the pool
+    /// concurrently must size the pool for `2 x concurrency` or the pool
     /// deadlocks and requests fail with a spurious "connection pool timed out"
     /// 500 that has nothing to do with the code under test.
     pub async fn spawn_with_db_pool(db_max_connections: u32) -> Self {

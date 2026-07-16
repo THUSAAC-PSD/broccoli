@@ -38,7 +38,7 @@ const ANSWER_FILE: &str = "answer.txt";
 /// broccoli-compare writes the display preview (first 64 KiB of the solution
 /// output) to **stdout** and its short verdict message to **stderr**. Both are
 /// File-redirected so the worker reads them back into the check step's sandbox
-/// result inline — no collected blob, nothing uploaded to the coordinator.
+/// result inline - no collected blob, nothing uploaded to the coordinator.
 const PREVIEW_FILE: &str = "output_preview.txt";
 const MESSAGE_FILE: &str = "check_msg.txt";
 
@@ -126,7 +126,7 @@ pub fn resolve_builtin(format: &str, input: &ResolveCheckerInput) -> Result<Chec
             },
         },
         // Nothing is collected: the message + preview return inline in the check
-        // step's sandbox result (≤64 KiB each); the full output is consumed
+        // step's sandbox result (<=64 KiB each); the full output is consumed
         // worker-side and never leaves the worker.
         collect: vec![],
         // The evaluator adds the dependency on the solution's run step when it
@@ -182,7 +182,7 @@ pub fn build_testlib_checker_stage(
     };
 
     // Checker env: checker sources + input.txt + answer.txt. The solution output
-    // (output.txt) is NOT a static env file — it is mounted from the run step.
+    // (output.txt) is NOT a static env file - it is mounted from the run step.
     // The answer never appears in the solution env.
     let mut files_in: Vec<(String, SessionFile)> = checker_source
         .iter()
@@ -195,7 +195,10 @@ pub fn build_testlib_checker_stage(
             )
         })
         .collect();
-    files_in.push(("input.txt".to_string(), judge_file_to_session_file(test_input)));
+    files_in.push((
+        "input.txt".to_string(),
+        judge_file_to_session_file(test_input),
+    ));
     files_in.push(("answer.txt".to_string(), judge_file_to_session_file(answer)));
 
     let mut steps = Vec::new();
@@ -280,7 +283,7 @@ pub fn interpret_checker(format: &str, result: &CheckerSmallResult) -> CheckerVe
     } else if format == "none" {
         // `none` performs no output comparison. The evaluator interprets it
         // inline (no check step is scheduled), so this is reached only by a
-        // direct caller; keep it coherent — a reached interpretation is Accepted.
+        // direct caller; keep it coherent - a reached interpretation is Accepted.
         CheckerVerdict {
             verdict: Verdict::Accepted,
             score: 1.0,
@@ -294,7 +297,7 @@ pub fn interpret_checker(format: &str, result: &CheckerSmallResult) -> CheckerVe
 }
 
 /// broccoli-compare exit codes: 0 = AC, 1 = WA, 2 = presentation error
-/// (defensive — the native comparator does not emit it), anything else (incl.
+/// (defensive - the native comparator does not emit it), anything else (incl.
 /// 64 usage/IO error) = SystemError. No exit code = the checker step itself
 /// failed in the sandbox.
 fn interpret_builtin(result: &CheckerSmallResult) -> CheckerVerdict {
@@ -452,11 +455,13 @@ fn resolve_stage(host: &Host, req: &ResolveCheckerInput) -> Result<CheckerStage,
         )
     } else if req.format == "none" {
         // `none` performs no comparison; the evaluator schedules no checker step
-        // and interprets it inline. Resolving it as a stage is a contract bug —
+        // and interprets it inline. Resolving it as a stage is a contract bug -
         // fail loudly rather than splice an empty/meaningless stage.
-        Err("checker format 'none' performs no comparison and must be interpreted \
+        Err(
+            "checker format 'none' performs no comparison and must be interpreted \
              inline, not resolved as a checker stage"
-            .to_string())
+                .to_string(),
+        )
     } else {
         Err(format!(
             "No checker resolver for format '{}' in standard-checkers",
@@ -552,7 +557,7 @@ mod tests {
             other => panic!("expected PlatformTool mount, got {other:?}"),
         }
 
-        // Nothing collected — message + preview return inline in the result.
+        // Nothing collected - message + preview return inline in the result.
         assert!(check.collect.is_empty());
 
         // The answer is ONLY in the checker env (never the solution env, which
@@ -580,7 +585,10 @@ mod tests {
         let argv = &stage.steps[0].argv;
 
         // --epsilon <abs_tol> and --rel-epsilon <rel_tol> must BOTH be present.
-        let eps = argv.iter().position(|a| a == "--epsilon").expect("--epsilon");
+        let eps = argv
+            .iter()
+            .position(|a| a == "--epsilon")
+            .expect("--epsilon");
         assert_eq!(argv[eps + 1], "0.0001");
         let rel = argv
             .iter()
@@ -668,7 +676,7 @@ mod tests {
 
     #[test]
     fn interpret_testlib_routes_to_testlib_mapping() {
-        // 3 → judge failure (SystemError), 7 → partial — testlib-specific codes
+        // 3 -> judge failure (SystemError), 7 -> partial - testlib-specific codes
         // a built-in comparator never emits.
         let se = interpret_checker("testlib", &small(Some(3), "FAIL bug", None));
         assert_eq!(se.verdict, Verdict::SystemError);
@@ -739,7 +747,10 @@ mod tests {
         assert_eq!(stage.steps.len(), 2);
         assert_eq!(stage.steps[0].id, "compile_checker");
         assert_eq!(stage.steps[0].kind, StepKind::CheckerCompile);
-        assert!(stage.steps[0].cache.is_some(), "compile step must be cached");
+        assert!(
+            stage.steps[0].cache.is_some(),
+            "compile step must be cached"
+        );
         assert_eq!(stage.steps[1].id, CHECK_STEP_ID);
         assert_eq!(stage.steps[1].kind, StepKind::Checker);
         assert_eq!(stage.result_step_id, CHECK_STEP_ID);
@@ -796,7 +807,10 @@ mod tests {
             .collect();
         assert!(names.contains(&"answer.txt"), "answer in checker env");
         assert!(names.contains(&"input.txt"), "input in checker env");
-        assert!(names.contains(&"checker.cpp"), "checker source in checker env");
+        assert!(
+            names.contains(&"checker.cpp"),
+            "checker source in checker env"
+        );
         // The solution output is mounted, NOT a static env file.
         assert!(
             !names.contains(&"output.txt"),

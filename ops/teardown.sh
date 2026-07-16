@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Destroys all 10 profiling droplets. Idempotent — re-runnable even after partial deletes.
+# Destroys all 10 profiling droplets. Idempotent - re-runnable even after partial deletes.
 # Requires DO MCP tool access; this script uses doctl if available, otherwise prints
 # the droplet IDs for manual deletion / MCP invocation by the caller.
 set -uo pipefail

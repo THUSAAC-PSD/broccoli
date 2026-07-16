@@ -119,7 +119,7 @@ impl Scenario for CancelStorm {
         );
 
         // Phase 3: clear every primed key and re-probe. All probes must miss.
-        // This validates the toggle behavior — workers must observe the
+        // This validates the toggle behavior - workers must observe the
         // cancellation lift, not just the initial assertion.
         let del_start = Instant::now();
         {

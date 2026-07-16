@@ -29,7 +29,7 @@
 //! to recycle again. Recreation is therefore bounded to at most one per
 //! `min_calls_before_recycle` calls no matter how aggressively `reclaim_bytes`
 //! is set. The byte budget further means data-light plugins (which never
-//! approach it) are never recycled at all — only data-heavy instances are.
+//! approach it) are never recycled at all - only data-heavy instances are.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -40,7 +40,7 @@ use tracing::warn;
 
 /// A `'static` factory that builds a fresh plugin instance. Not `Send`/`Sync`
 /// (extism `Plugin`s are not), but only ever invoked while a single caller
-/// holds the relevant instance on one blocking thread — see the `unsafe impl`s.
+/// holds the relevant instance on one blocking thread - see the `unsafe impl`s.
 pub type PluginSource = Arc<dyn Fn() -> Result<Plugin, Error>>;
 
 #[derive(Default, Clone, Copy)]

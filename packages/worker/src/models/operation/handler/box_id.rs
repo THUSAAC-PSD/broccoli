@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{info, warn};
 
 /// Number of disjoint slots the host's 0..1000 isolate box-id space is split
-/// into — i.e. the maximum number of worker processes that can share a host
+/// into - i.e. the maximum number of worker processes that can share a host
 /// without box-id collisions. Each worker claims exactly one slot for life.
 const BOX_ID_SLOTS: u32 = 16;
 /// Box ids available to a single worker (slot width).
@@ -17,8 +17,8 @@ pub(super) static NEXT_BOX_ID: AtomicU32 = AtomicU32::new(0);
 /// isolate box ids are a host-wide 0..1000 namespace, and `isolate --init` on
 /// an idle, already-initialized box silently *re-initializes* it (verified:
 /// exit 0). So two worker processes that pick the same box id clobber each
-/// other's sandbox during setup — the corruption only surfaces later as
-/// "box currently in use by another process" → a spurious SystemError. Pure
+/// other's sandbox during setup - the corruption only surfaces later as
+/// "box currently in use by another process" -> a spurious SystemError. Pure
 /// retry can't fix the clobber-during-setup window (there is no error to retry
 /// on). Instead each worker claims a disjoint slot via an advisory file lock
 /// (released automatically by the kernel when the process dies) and only ever
@@ -54,7 +54,7 @@ fn claim_box_id_slot() -> u32 {
             );
             return slot;
         }
-        // Slot owned by another process — close and try the next one.
+        // Slot owned by another process - close and try the next one.
         // SAFETY: `fd` is owned here and not used after this close.
         unsafe { libc::close(fd) };
     }

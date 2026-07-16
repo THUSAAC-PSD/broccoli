@@ -1874,7 +1874,7 @@ mod contest_submission_visibility {
     }
 }
 
-/// UP#38 — claim-fiber coverage.
+/// UP#38 - claim-fiber coverage.
 ///
 /// These tests exercise the durable-accept path end-to-end: rows that
 /// land in `Queued` (either via a POST or a direct DB write that
@@ -2076,7 +2076,7 @@ mod claim_fiber {
         .await
         .expect("direct judgement insert at Queued");
 
-        // Poll the judgement row directly — the claim fiber's
+        // Poll the judgement row directly - the claim fiber's
         // judgement scan should flip its status off Queued. We assert
         // owner_server_id was populated on the judgement (not the
         // submission, which stays at Judged because the deferred
@@ -2110,7 +2110,7 @@ mod claim_fiber {
             final_judgement.lease_heartbeat_at.is_some(),
             "claim fiber should set lease_heartbeat_at on promoted judgement"
         );
-        // The submission's own status must NOT have been touched —
+        // The submission's own status must NOT have been touched -
         // the deferred path doesn't override the displayed verdict.
         let parent = submission::Entity::find_by_id(sub.id)
             .one(&app.db)
@@ -2121,7 +2121,7 @@ mod claim_fiber {
     }
 }
 
-/// UP#39 backpressure-on-post — `server.max_queued_submissions` caps
+/// UP#39 backpressure-on-post - `server.max_queued_submissions` caps
 /// the durable `Queued` row depth across `submission`, `code_run`,
 /// and `submission_judgement`. POST endpoints that would insert a
 /// new `Queued` row return 503 + `Retry-After` when the cap is hit
@@ -2293,7 +2293,7 @@ mod backpressure {
         assert_eq!(res.body["code"], "QUEUE_OVERLOADED");
     }
 
-    /// **Test 4**: covers `rejudge_submission` — confirms that
+    /// **Test 4**: covers `rejudge_submission` - confirms that
     /// non-ingress write paths that also insert a `Queued` row are
     /// gated by the same cap. Picks the deferred-rejudge branch
     /// (`apply_immediately=false`) because that one writes the
@@ -2319,7 +2319,7 @@ mod backpressure {
         // canonical "ready to rejudge" state), and one to pin
         // the durable-Queued depth at the cap. We have to write the
         // target submission with `Judged` so it isn't itself counted
-        // toward the cap — otherwise we couldn't distinguish "cap
+        // toward the cap - otherwise we couldn't distinguish "cap
         // tripped by setup" from "cap tripped by the handler".
         let target = submission::ActiveModel {
             files: Set(serde_json::json!([

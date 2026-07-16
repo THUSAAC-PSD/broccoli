@@ -79,7 +79,7 @@ pub async fn read_test_case_body(
 /// API *response*. Test data can be tens of megabytes; inlining it whole turns a
 /// submission-status poll into a multi-gigabyte JSON serialization. A
 /// 30 MB-per-testcase problem with ~30 test cases, polled by N clients while
-/// judging, would otherwise serialize ~N × 1.8 GB and OOM-kill the server (the
+/// judging, would otherwise serialize ~N x 1.8 GB and OOM-kill the server (the
 /// `serde_json` output buffer grows by doubling toward 2 GB per response). The
 /// response shows a bounded preview instead; the full body remains available via
 /// the dedicated blob/attachment download endpoints, which stream.
@@ -91,7 +91,7 @@ pub const RESPONSE_BODY_PREVIEW_BYTES: usize = 64 * 1024;
 /// blob-backed bodies it issues a single bounded range read of at most
 /// `RESPONSE_BODY_PREVIEW_BYTES` (+1 byte to detect truncation), so peak memory
 /// is bounded regardless of test-case size or request concurrency. A
-/// `"\n… (truncated)"` marker is appended when the body exceeds the cap. UTF-8
+/// `"\n... (truncated)"` marker is appended when the body exceeds the cap. UTF-8
 /// boundaries are handled via lossy decoding, so a multi-byte character split at
 /// the cap never produces an error.
 pub async fn read_test_case_body_preview(

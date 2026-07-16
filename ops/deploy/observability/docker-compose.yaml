@@ -19,7 +19,7 @@ services:
   jaeger:
     image: jaegertracing/jaeger:2.17.0
     restart: unless-stopped
-    # Use bridge networking with explicit private-IP bindings — jaeger 2.x doesn't
+    # Use bridge networking with explicit private-IP bindings - jaeger 2.x doesn't
     # accept CLI host-port overrides for its built-in services; binding via Docker
     # is the simplest way to keep it off the public interface.
     ports:

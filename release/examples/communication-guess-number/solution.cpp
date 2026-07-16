@@ -1,4 +1,4 @@
-// solution.cpp — a CORRECT contestant solution (Accepted).
+// solution.cpp - a CORRECT contestant solution (Accepted).
 //
 // Contestant I/O contract (communication_mode = "redirect"):
 //   stdin  : connected to the manager (read the manager's messages here).

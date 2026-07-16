@@ -1,6 +1,6 @@
 //! Integration tests for the Redis-backed cache leader-election layer (UP#33).
 //!
-//! Tests 1–4 spin up a real Redis container via `testcontainers` so we can
+//! Tests 1-4 spin up a real Redis container via `testcontainers` so we can
 //! verify the SETNX/heartbeat/CAS-release dance against a live server. Test 5
 //! also spins up a Postgres container and exercises the end-to-end concurrent
 //! compile claim: when 3 OperationHandlers race on the same cache_key, exactly
@@ -94,7 +94,7 @@ async fn exactly_one_leader_among_concurrent_acquirers() {
     drop(leases);
 }
 
-/// Test 2: a long-lived leader holds the lock through heartbeats — a concurrent
+/// Test 2: a long-lived leader holds the lock through heartbeats - a concurrent
 /// acquire well past the original TTL still sees Follower because heartbeat
 /// has extended the lock.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -224,7 +224,7 @@ async fn ttl_safety_net_releases_after_expiry() {
     }
 }
 
-/// Counting sandbox decorator — delegates every `SandboxManager` method to an
+/// Counting sandbox decorator - delegates every `SandboxManager` method to an
 /// inner `MockSandboxManager`, but bumps a shared atomic on `execute`. Used by
 /// test 5 to assert exactly one of the three handlers actually ran the step.
 struct CountingSandboxManager {
@@ -267,12 +267,12 @@ async fn pg_url() -> (String, testcontainers::ContainerAsync<Postgres>) {
     (url, container)
 }
 
-/// Build one `OperationHandler` for test 5 — three of these get the same
+/// Build one `OperationHandler` for test 5 - three of these get the same
 /// `task_cache`, the same `BlobStore` Arc (shared across each handler's
 /// own `BlobStoreFileCacher`), the same shared `exec_count` (via
 /// `CountingSandboxManager`), and the same `toolchain_fingerprint` (so the
 /// computed cache_key is identical across handlers). Each handler gets its
-/// own `RedisCacheLeaderElector` instance — that's what the real fleet
+/// own `RedisCacheLeaderElector` instance - that's what the real fleet
 /// looks like.
 async fn build_test_handler(
     redis_url: &str,
@@ -307,7 +307,7 @@ async fn build_test_handler(
         elector,
         Duration::from_millis(100),
         Duration::from_secs(20),
-        // Identical fingerprint across all 3 handlers → identical cache_key.
+        // Identical fingerprint across all 3 handlers -> identical cache_key.
         "deterministic-test-fingerprint".to_string(),
         metrics,
     )
@@ -331,7 +331,7 @@ async fn end_to_end_concurrent_compile_runs_once() {
     let ((redis_url, _redis_container), (pg_url_str, _pg_container)) =
         tokio::join!(redis_url(), pg_url());
 
-    // Shared DB → `DatabaseTaskCacheStore::ensure_table` creates the schema.
+    // Shared DB -> `DatabaseTaskCacheStore::ensure_table` creates the schema.
     let db = Database::connect(&pg_url_str)
         .await
         .expect("connect Postgres");
@@ -352,7 +352,7 @@ async fn end_to_end_concurrent_compile_runs_once() {
     let exec_count = Arc::new(AtomicUsize::new(0));
 
     // Each handler gets its own sandbox base_dir and its own file_cacher
-    // local cache_dir — the *shared* state is `blob_store`, `task_cache`,
+    // local cache_dir - the *shared* state is `blob_store`, `task_cache`,
     // and `exec_count`. This mirrors a real fleet: separate worker processes
     // with separate local scratch, coordinating via Redis + the DB cache.
     let cacher_dirs: Vec<tempfile::TempDir> = (0..3)
@@ -377,7 +377,7 @@ async fn end_to_end_concurrent_compile_runs_once() {
         );
     }
 
-    // Build the cached operation — one step that "compiles" by sleeping
+    // Build the cached operation - one step that "compiles" by sleeping
     // 500ms and producing build.out. The sleep ensures handler B / C's
     // SETNX losses arrive while A is still inside `execute_step`, so the
     // follower path is actually exercised (rather than the trivial path
@@ -448,7 +448,7 @@ async fn end_to_end_concurrent_compile_runs_once() {
     }
     assert_eq!(successes, 3, "all 3 handlers should succeed");
 
-    // 2. Exactly one sandbox.execute() was called across all 3 handlers —
+    // 2. Exactly one sandbox.execute() was called across all 3 handlers -
     //    this is the load-bearing UP#33 acceptance criterion.
     assert_eq!(
         exec_count.load(Ordering::SeqCst),

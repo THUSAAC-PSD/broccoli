@@ -24,10 +24,10 @@ mod plugin {
     /// (`MAX(submission.created_at)`); the claim table exists ONLY to close the
     /// concurrency gap where several POSTs pass that read before any of their
     /// rows commit. So the claim only needs to block for the brief window until a
-    /// winning submission's row is durably inserted — after which the actual
+    /// winning submission's row is durably inserted - after which the actual
     /// submission takes over enforcement. Blocking the claim for the FULL
     /// cooldown (the old behavior) meant a submission REJECTED by a later hook or
-    /// a failed insert — which advanced `last_claim_at` but produced no row —
+    /// a failed insert - which advanced `last_claim_at` but produced no row -
     /// put the user on cooldown for a submission that never happened. Capping the
     /// claim's own block at this short grace (and at the cooldown, so it never
     /// over-blocks a short cooldown) means such a failed attempt only costs the
@@ -78,7 +78,7 @@ mod plugin {
     /// winner.
     ///
     /// `claim_window` is the SHORT in-flight grace (see [`CLAIM_GRACE_SECS`]), NOT
-    /// the full cooldown — the durable cooldown is enforced separately against
+    /// the full cooldown - the durable cooldown is enforced separately against
     /// actual committed submissions, so this only serializes concurrent in-flight
     /// POSTs and a failed attempt frees the slot after the short grace.
     fn try_claim(
@@ -104,7 +104,7 @@ mod plugin {
     }
 
     /// How long until the claimed slot frees up, for the rejection message.
-    /// Advisory only — the atomic claim is the authority.
+    /// Advisory only - the atomic claim is the authority.
     fn remaining_from_claim(
         host: &Host,
         user_id: i32,
@@ -201,7 +201,7 @@ mod plugin {
             .map(|s| s.max(0) as u64);
 
         // Fast pre-reject against actual submissions: keeps accurate messages
-        // and honors history that predates the claim table. Advisory only —
+        // and honors history that predates the claim table. Advisory only -
         // passing here is NOT sufficient, since concurrent requests all pass
         // this read before any of their inserts commit.
         if let Some(elapsed) = seconds_since_last {
@@ -214,7 +214,7 @@ mod plugin {
         // grace window (capped at the cooldown so a sub-grace cooldown is never
         // over-blocked). The durable cooldown was already enforced by the
         // actual-submission pre-check above; this only stops several concurrent
-        // POSTs — whose rows have not yet committed — from all passing. A "first
+        // POSTs - whose rows have not yet committed - from all passing. A "first
         // submission" must claim too, or N parallel first submissions would all
         // pass. Retry once after an idempotent schema bootstrap so a failed/missed
         // init() cannot wedge submissions.
@@ -281,7 +281,7 @@ mod plugin {
     }
 
     /// Seconds since the last actual committed submission for this
-    /// (user, problem, contest) slot — the durable cooldown clock.
+    /// (user, problem, contest) slot - the durable cooldown clock.
     fn query_submission_elapsed(
         host: &Host,
         user_id: i32,
@@ -306,7 +306,7 @@ mod plugin {
             .and_then(|r| r.seconds_since_last))
     }
 
-    /// Seconds since the last in-flight claim for this slot — governs only the
+    /// Seconds since the last in-flight claim for this slot - governs only the
     /// short concurrency grace window, NOT the full cooldown.
     fn query_claim_elapsed(
         host: &Host,

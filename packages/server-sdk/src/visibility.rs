@@ -1,11 +1,11 @@
 //! Shared submission-detail visibility helpers for contest plugins.
 //!
-//! The per-contest-type plugins (icpc, ioi, …) each echo a submission's
+//! The per-contest-type plugins (icpc, ioi, ...) each echo a submission's
 //! free-text fields back in their submission-detail responses. Capping those
 //! fields is scoreboard/payload-integrity logic that MUST be identical across
 //! plugins, so it lives here rather than being copy-pasted into each. (The
-//! plugin-specific parts — icpc's freeze-hiding, ioi's feedback-level redaction
-//! — stay in their own crates.)
+//! plugin-specific parts - icpc's freeze-hiding, ioi's feedback-level redaction
+//! - stay in their own crates.)
 
 /// Byte cap for a free-text field echoed back in a submission-detail response,
 /// so a pathological compiler dump / checker output / test-case blob cannot

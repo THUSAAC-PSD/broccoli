@@ -167,7 +167,7 @@ mod standalone_problem_visibility {
     use super::*;
 
     /// IDOR guard: a non-public problem in zero contests must stay 404 for an
-    /// unprivileged user — both reading it and submitting to it — while an
+    /// unprivileged user - both reading it and submitting to it - while an
     /// explicitly published problem is reachable. Submitting against hidden
     /// problems would be a stronger oracle than viewing since it runs secret
     /// tests.
@@ -189,7 +189,7 @@ mod standalone_problem_visibility {
             "language": "cpp",
         });
 
-        // Hidden draft: not readable, not submittable — indistinguishable
+        // Hidden draft: not readable, not submittable - indistinguishable
         // from a nonexistent problem.
         let get_hidden = app
             .get_with_token(&format!("/api/v1/problems/{hidden_pid}"), &user)
@@ -215,7 +215,7 @@ mod standalone_problem_visibility {
         );
         assert_eq!(submit_hidden.body["code"], "NOT_FOUND");
 
-        // Published problem: same user, same payload — readable and
+        // Published problem: same user, same payload - readable and
         // submittable.
         let get_public = app
             .get_with_token(&format!("/api/v1/problems/{public_pid}"), &user)

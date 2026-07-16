@@ -1,4 +1,8 @@
-import { type ApiClient, getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
+import {
+  type ApiClient,
+  getErrorMessage,
+  useApiClient,
+} from '@broccoli/web-sdk/api';
 import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
 import {
   type ServerTableParams,
@@ -55,7 +59,7 @@ import { SwitchField } from '@/features/admin/components/SwitchField';
 import { getContestStatus } from '@/features/contest/utils/status';
 import { useTableSearchParams } from '@/hooks/use-table-search-params';
 
-// ── Data fetcher ──
+// -- Data fetcher --
 
 async function fetchContests(apiClient: ApiClient, params: ServerTableParams) {
   const { data, error } = await apiClient.GET('/contests', {
@@ -73,7 +77,7 @@ async function fetchContests(apiClient: ApiClient, params: ServerTableParams) {
   return { data: data.data, pagination: data.pagination };
 }
 
-// ── Problem Preview Dialog ──
+// -- Problem Preview Dialog --
 
 function ProblemPreviewDialog({
   problemId,
@@ -124,7 +128,7 @@ function ProblemPreviewDialog({
   );
 }
 
-// ── Contest Form Dialog ──
+// -- Contest Form Dialog --
 
 export function ContestFormDialog({
   contest,
@@ -413,7 +417,7 @@ export function ContestFormDialog({
   );
 }
 
-// ── Contest Problems Dialog ──
+// -- Contest Problems Dialog --
 
 function nextLabel(usedLabels: Set<string>): string {
   // A-Z, then AA-AZ, BA-BZ, ..., ZZ (max 702)
@@ -540,9 +544,7 @@ export function ContestProblemsDialog({
       },
     );
     if (apiError) {
-      toast.error(
-        getErrorMessage(apiError, t('toast.problem.removeError')),
-      );
+      toast.error(getErrorMessage(apiError, t('toast.problem.removeError')));
     } else {
       toast.success(t('toast.problem.removed'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
@@ -735,7 +737,7 @@ export function ContestProblemsDialog({
   );
 }
 
-// ── Column hook ──
+// -- Column hook --
 
 function useContestColumns({
   onEdit,
@@ -865,7 +867,7 @@ function useContestColumns({
   ];
 }
 
-// ── Contests Tab ──
+// -- Contests Tab --
 
 export function AdminContestsTab() {
   const { t } = useTranslation();

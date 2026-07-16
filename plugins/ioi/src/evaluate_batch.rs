@@ -15,8 +15,8 @@ use crate::subtasks::score_all_subtasks;
 use crate::subtasks::test_case_reference_keys;
 
 /// Auto-flush threshold for buffered `TestCaseResultRow`s. IOI problems
-/// commonly have 20–50 testcases across many subtasks; an 8-row chunk
-/// keeps the per-submission INSERT count in the 2–6 range instead of
+/// commonly have 20-50 testcases across many subtasks; an 8-row chunk
+/// keeps the per-submission INSERT count in the 2-6 range instead of
 /// one INSERT per testcase (UP#34).
 #[cfg(test)]
 const RESULT_BATCH_FLUSH_THRESHOLD: usize = 8;

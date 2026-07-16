@@ -113,8 +113,8 @@ pub(super) async fn open_rejudge_judgement(
     // `Pending` so the dispatch can write its first state transition.
     //
     // For `apply_immediately=false` (deferred rejudge) the parent
-    // submission's status is **not** changed — it stays at its previous
-    // terminal state — so the claim fiber's submission scan can't reach
+    // submission's status is **not** changed - it stays at its previous
+    // terminal state - so the claim fiber's submission scan can't reach
     // this row. We instead start the *judgement* at `Queued` so the
     // claim fiber's judgement scan (added in the UP#37-residual fix)
     // promotes it to Pending and dispatches it. Without this, an api

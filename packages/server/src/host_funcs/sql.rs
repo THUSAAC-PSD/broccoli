@@ -47,7 +47,7 @@ const MAX_OPEN_TXNS_PER_PLUGIN: usize = 8;
 /// Watchdog for one plugin transaction: once the transaction has been idle for
 /// [`TXN_IDLE_TTL`] it is removed from the map and rolled back, returning its
 /// pooled connection. This is the only cleanup path when a guest traps between
-/// `db_begin` and `db_commit`/`db_rollback` — the host_fn-side commit/rollback
+/// `db_begin` and `db_commit`/`db_rollback` - the host_fn-side commit/rollback
 /// removals never run for a dead guest, and a leaked `DatabaseTransaction`
 /// pins a plugin-pool connection forever. The task exits as soon as the
 /// transaction is committed/rolled back (entry gone) or reaped.
@@ -106,7 +106,7 @@ fn spawn_txn_reaper_with(
 /// last-resort fallback when pool retries are all exhausted by poisoned-
 /// connection 0x00 errors. Set once at startup (see runtime.rs). A brand-new
 /// connection has no prior in-flight query, so its write buffer / protocol
-/// state are clean by construction — it CANNOT be poisoned — making the insert
+/// state are clean by construction - it CANNOT be poisoned - making the insert
 /// succeed deterministically (modulo a genuine DB failure).
 static PLUGIN_DB_FALLBACK_URL: OnceLock<String> = OnceLock::new();
 
@@ -152,7 +152,7 @@ async fn apply_fallback_role(
 
 /// Open a fresh single connection and execute `stmt` on it, then drop it. The
 /// connection is brand-new, so it is guaranteed free of stale wire-protocol
-/// framing from any prior operation — the guaranteed cure for a poisoned-
+/// framing from any prior operation - the guaranteed cure for a poisoned-
 /// connection 0x00 when the pool retries are exhausted. `role` decides whether
 /// the fresh connection first downshifts to the restricted plugin role, so the
 /// fallback carries the SAME privilege as the pool the call came from.
@@ -193,7 +193,7 @@ fn execute_on_fresh_connection_url(
 /// connection and run `stmt` (a json_agg-wrapped query) on it, then drop it.
 /// `db_query` previously had only the probabilistic pool-retry layer; under
 /// sustained poisoning the pool can keep handing back the same desynced
-/// connection, so a query could still surface a `0x00` error to the plugin — and
+/// connection, so a query could still surface a `0x00` error to the plugin - and
 /// a plugin DB error becomes a `SystemError`. A brand-new connection is clean by
 /// construction, turning that into a deterministic recovery, matching the
 /// guarantee the write path already has. `role` mirrors the calling pool's
@@ -391,7 +391,7 @@ const POISONED_CONNECTION_RETRIES: u32 = 6;
 
 /// True when a DB error is the server-side SQLSTATE 22021 "invalid byte sequence
 /// for encoding UTF8: 0x00". Because every value we bind is sanitized + swept
-/// NUL-free at the choke point, this error does NOT mean our data is dirty — it
+/// NUL-free at the choke point, this error does NOT mean our data is dirty - it
 /// means the pooled sqlx connection is DESYNCED: sqlx 0.8.6 has no `Drop` reset
 /// for `PgConnection`, so a query future dropped mid-flush (our cross-thread
 /// `block_on(execute_raw)` bridge can produce this under load) leaves a partial
@@ -457,7 +457,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     // Clone the connection handle out of the UserData lock and release the lock
     // BEFORE the blocking DB call. `DatabaseConnection` is a cheap pool handle;
     // holding the std `Mutex` across `block_on(execute_raw)` serializes every
-    // plugin DB call on one mutex AND pins the lock across an await point — an
+    // plugin DB call on one mutex AND pins the lock across an await point - an
     // anti-pattern. `db_begin` already clones-then-releases; match it here.
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
@@ -562,7 +562,7 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     // exhausted by a poisoned-connection 0x00, run the query once on a brand-new
     // connection, which cannot carry stale wire framing. Without this a poisoned
     // db_query surfaces an error to the plugin, which a plugin turns into a
-    // SystemError — a system condition standing as the contestant's verdict.
+    // SystemError - a system condition standing as the contestant's verdict.
     if matches!(&query_result, Err(e) if is_poisoned_connection_nul_error(e)) {
         tracing::warn!(
             plugin_id = %plugin_id,
@@ -1015,7 +1015,7 @@ mod tests {
         // The helper uses `Handle::current().block_on`, exactly as the `db_query`
         // host function does in production, where it runs on a `spawn_blocking`
         // thread (not a runtime worker). Replicate that here so `block_on` is
-        // legal — calling it directly on the test's runtime thread would panic.
+        // legal - calling it directly on the test's runtime thread would panic.
         let row = tokio::task::spawn_blocking(move || {
             query_on_fresh_connection_url(&url, stmt, FallbackRole::Privileged)
         })
@@ -1032,7 +1032,7 @@ mod tests {
     /// Security regression: the raw `sql` path opens its 0x00 fallback with
     /// [`FallbackRole::Restricted`], so a write the `broccoli_plugin` role is not
     /// granted MUST be denied on the fresh connection just as it is on the pooled
-    /// one — the fallback must not become a privilege-escalation hatch back to the
+    /// one - the fallback must not become a privilege-escalation hatch back to the
     /// app role. The structured path's [`FallbackRole::Privileged`] keeps the app
     /// role so its server-owned core writes still land.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

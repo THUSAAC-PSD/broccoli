@@ -773,9 +773,9 @@ impl Burst {
         );
 
         // ---- Assertion. -----------------------------------------------------
-        // PASS criterion: ≥95% of attempted (POST-succeeded) submissions
+        // PASS criterion: >=95% of attempted (POST-succeeded) submissions
         // reached terminal within the deadline. Send-failures count against
-        // the submission_count budget too — they're indistinguishable from
+        // the submission_count budget too - they're indistinguishable from
         // a stuck-pending submission for the user.
         let attempted = self.submission_count as u64;
         let terminal_rate = if attempted > 0 {

@@ -209,8 +209,8 @@ impl OperationHandler {
         let mut global_success = true;
 
         // Run the execution layers under a panic guard so the sandbox + channels
-        // cleanup below ALWAYS runs. A panicking step future — or the `?` on a
-        // dependency-graph inconsistency — would otherwise unwind straight past
+        // cleanup below ALWAYS runs. A panicking step future - or the `?` on a
+        // dependency-graph inconsistency - would otherwise unwind straight past
         // the cleanup and orphan the isolate boxes and the shared channels dir.
         let layer_outcome: std::thread::Result<Result<()>> = AssertUnwindSafe(async {
             for layer in execution_layers {
@@ -569,7 +569,7 @@ impl OperationHandler {
             match &mount.source {
                 // StepOutput is a single-file handoff: copy it into this box's
                 // working dir (isolate cannot bind-mount a file, and the
-                // producer dir holds the contestant's source — never mount it).
+                // producer dir holds the contestant's source - never mount it).
                 MountSource::StepOutput { from_step, file } => {
                     let src = resolve_step_output_src(
                         from_step,
@@ -580,7 +580,7 @@ impl OperationHandler {
                     stage_step_output_file(&src, &mount.inside_path, &env.working_dir).await?;
                 }
                 // PlatformTool is a read-only directory mount (the tools dir at
-                // the parent of inside_path) — see platform_tool_directory_rule.
+                // the parent of inside_path) - see platform_tool_directory_rule.
                 MountSource::PlatformTool { name } => {
                     let tools_dir = self.tools_dir.as_deref().ok_or_else(|| {
                         anyhow!(

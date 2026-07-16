@@ -47,7 +47,7 @@ impl WarmSubscriberHandle {
 }
 
 /// Spawn the pre-warm subscriber. Failures (e.g. cache/blob build error) disable
-/// warming but never crash the worker — judging continues regardless.
+/// warming but never crash the worker - judging continues regardless.
 pub fn spawn(config: WorkerAppConfig, metrics: Option<Metrics>) -> WarmSubscriberHandle {
     let join = tokio::spawn(async move {
         if let Err(e) = run(config, metrics).await {
@@ -105,7 +105,7 @@ async fn subscribe_and_serve(
 ) -> anyhow::Result<()> {
     let mut pubsub = client.get_async_pubsub().await?;
     pubsub.subscribe(WARM_CHANNEL).await?;
-    // A separate connection for GET/SET — the pub/sub connection can't run cmds.
+    // A separate connection for GET/SET - the pub/sub connection can't run cmds.
     let mut cmd = client.get_multiplexed_async_connection().await?;
 
     let mut stream = pubsub.on_message();
@@ -157,7 +157,7 @@ async fn handle_job(
                 fetched_bytes += bytes;
             }
             Err(e) => {
-                // Continue warming the rest — a single bad blob shouldn't abort
+                // Continue warming the rest - a single bad blob shouldn't abort
                 // the whole contest's warm. Surface the last error + Error state.
                 error!(worker_id = %worker_id, job_id = %job_id, hash = %hash, error = %e, "Warm blob failed");
                 last_error = Some(e);

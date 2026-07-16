@@ -722,7 +722,7 @@ mod checker_format_tests {
 
     #[tokio::test]
     async fn validate_checker_format_accepts_stage_registered_formats() {
-        // The fused stage registry is the source of truth — incl. `none`.
+        // The fused stage registry is the source of truth - incl. `none`.
         let reg = stage_reg(&["exact", "tokens", "testlib", "none"]);
         for fmt in ["exact", "tokens", "testlib", "none"] {
             assert!(

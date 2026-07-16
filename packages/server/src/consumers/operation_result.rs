@@ -25,7 +25,7 @@ pub async fn consume_operation_results(
     // consumption serializes the waker fan-out and adds head-of-line blocking
     // on whichever evaluator is currently slow. 8 concurrent handlers give
     // enough parallelism that the result queue never becomes the bottleneck,
-    // without flooding the runtime — each handler holds no locks across .await.
+    // without flooding the runtime - each handler holds no locks across .await.
     if let Err(e) = mq
         .process_messages(
             &queue_name,

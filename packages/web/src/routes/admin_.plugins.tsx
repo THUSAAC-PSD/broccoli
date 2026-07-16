@@ -1,6 +1,7 @@
 import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { PLUGIN_MANAGE } from '@broccoli/web-sdk/permissions';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
 import {
@@ -140,7 +141,7 @@ export default function PluginsPage() {
     }
   }, [apiClient, queryClient, reloadAllPlugins]);
 
-  if (!user || !user.permissions.includes('plugin:manage')) {
+  if (!user || !user.permissions.includes(PLUGIN_MANAGE)) {
     return <Unauthorized />;
   }
 

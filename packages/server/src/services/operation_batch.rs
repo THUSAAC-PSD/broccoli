@@ -184,7 +184,7 @@ pub async fn start_operation_batch(
     }
 
     // UP#14c: parallelize per-op blob-externalize + mq.publish via
-    // buffer_unordered. Each per-op future preserves the waiter-insert →
+    // buffer_unordered. Each per-op future preserves the waiter-insert ->
     // publish ordering invariant (UP#14d) by sequential await inside one
     // closure; cross-op ordering is intentionally unordered. First error
     // short-circuits via try_collect; in-flight peers are dropped.
@@ -612,7 +612,7 @@ const OPERATION_RESULT_WAIT_TICK: Duration = Duration::from_millis(50);
 
 /// Minimum time an in-flight operation is allowed before the result-wait gives
 /// up, independent of the (small) solution-derived `timeout`. Large in
-/// production so a slow / backed-up worker yields SLOW results, not failures —
+/// production so a slow / backed-up worker yields SLOW results, not failures -
 /// the operation's real time limit is enforced inside isolate, and a genuinely
 /// dead worker is reclaimed by the dispatcher lease/steal. Without this, a deep
 /// queue or cold-blob IO under load hard-times-out every operation at the small
@@ -756,7 +756,7 @@ pub fn next_operation_result(
 
 /// Async sibling of [`next_operation_result`]. Awaits the result via flume's
 /// `recv_async`, so a waiting detached-driver slot is a cheap future instead of
-/// a `spawn_blocking` OS thread — this is what lets the server hold thousands of
+/// a `spawn_blocking` OS thread - this is what lets the server hold thousands of
 /// in-flight waits without the thread blow-up. On a dropped sender (the batch was
 /// removed because the submission was cancelled/superseded) the await returns
 /// `Disconnected` immediately, so a superseded wait never lingers to the infra

@@ -244,7 +244,7 @@ impl Submissions {
 
     /// Number of `insert_results` calls that actually issued an INSERT.
     /// Empty-slice calls early-return and are not counted. Plugins are
-    /// expected to batch per-testcase rows (UP#34) — assert
+    /// expected to batch per-testcase rows (UP#34) - assert
     /// `insert_call_count() <= ceil(rows / threshold) + small_constant` in
     /// regression tests.
     pub fn insert_call_count(&self) -> usize {

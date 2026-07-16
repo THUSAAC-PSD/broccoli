@@ -297,7 +297,7 @@ export function MarkdownEditorWithAttachments({
       const files = Array.from(e.dataTransfer.files);
       if (files.length === 0) return;
 
-      // Intentionally parallel — each file gets its own placeholder and uploads concurrently
+      // Intentionally parallel - each file gets its own placeholder and uploads concurrently
       for (const file of files) {
         uploadAndInsert(file);
       }
@@ -446,7 +446,7 @@ export function MarkdownEditorWithAttachments({
               const att = attachmentsRef.current.find((a) => a.id === refId);
               if (!att) return null;
 
-              // Text-only hover — image preview would require auth headers which Monaco can't provide
+              // Text-only hover - image preview would require auth headers which Monaco can't provide
               const contents: { value: string }[] = [
                 {
                   value: `**${att.path}** (${formatBytes(att.size)}, ${att.content_type ?? 'unknown'})`,

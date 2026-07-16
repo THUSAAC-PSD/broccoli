@@ -19,7 +19,7 @@ mod plugin {
     /// Seconds a PENDING claim counts toward the cap before it is reclaimed.
     ///
     /// A claim is made PENDING by `check_limit` in the `before_submission` hook
-    /// and CONFIRMED by `on_submission_created` in the `after_submission` hook —
+    /// and CONFIRMED by `on_submission_created` in the `after_submission` hook -
     /// which fires ONLY after the submission row durably commits. A submission
     /// rejected by a later hook (e.g. the cooldown gate) or a failed insert never
     /// confirms, so its pending claim must be reclaimed rather than permanently
@@ -28,8 +28,8 @@ mod plugin {
     /// counted regardless of confirm timing (see [`confirm_claim`], which bumps
     /// `confirmed` even if the pending was already reclaimed). The only tradeoff
     /// is a temporary false-lockout: after a failed claim the slot is held for up
-    /// to this long. The dominant failure — a cooldown rejection after this gate
-    /// already claimed — masks it: the user is serving that cooldown meanwhile.
+    /// to this long. The dominant failure - a cooldown rejection after this gate
+    /// already claimed - masks it: the user is serving that cooldown meanwhile.
     const PENDING_GRACE_SECS: i64 = 30;
 
     /// Plugin-owned single-row counter backing the atomic submission-limit gate.
@@ -43,7 +43,7 @@ mod plugin {
     /// statement, exactly like the original design: `ON CONFLICT` takes the row
     /// lock so concurrent claims serialize on that one row and cannot both take
     /// the last slot. Crucially this uses NO explicit transaction and NO advisory
-    /// lock — the plugin host runs each `host.db.*` call via a blocking
+    /// lock - the plugin host runs each `host.db.*` call via a blocking
     /// `block_on`, so holding a transaction open across several such calls (or
     /// blocking one on `pg_advisory_xact_lock`) starves the runtime's worker
     /// threads under concurrency and deadlocks. A single self-contained statement
@@ -243,7 +243,7 @@ mod plugin {
         // Only confirm when the gate is actually active for this resource,
         // mirroring `check_limit`. If the limit is disabled or unlimited (max=0),
         // `check_limit` short-circuited and took NO claim, so there is nothing to
-        // confirm — confirming anyway would create a phantom count for a
+        // confirm - confirming anyway would create a phantom count for a
         // submission that was never limited.
         let eff = match host
             .config

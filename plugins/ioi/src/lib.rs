@@ -131,7 +131,7 @@ pub fn on_ioi_eval_result(input: String) -> FnResult<String> {
     let output = match handle_detached_eval_callback(&host, input) {
         Ok(out) => out,
         Err(SdkError::StaleEpoch) => {
-            // A newer judgement superseded this session — stop cleanly. The
+            // A newer judgement superseded this session - stop cleanly. The
             // newer epoch already owns the submission; nothing to finalize.
             let _ = host
                 .log

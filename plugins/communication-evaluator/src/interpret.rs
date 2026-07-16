@@ -1,7 +1,7 @@
 use broccoli_server_sdk::types::{OperationResult, TestCaseVerdict, Verdict};
 
 /// POSIX signal number for SIGPIPE. A contestant terminated by SIGPIPE wrote to
-/// a pipe whose reader (the interactor/manager) had already closed it — i.e. the
+/// a pipe whose reader (the interactor/manager) had already closed it - i.e. the
 /// interactor finished the interaction first. That is not a contestant fault, so
 /// the verdict defers to the interactor instead of reporting RuntimeError.
 const SIGPIPE: i32 = 13;
@@ -145,11 +145,11 @@ pub fn interpret_result(
                     }
                     "SG" => {
                         // SIGPIPE (13) means the contestant wrote after the interactor had
-                        // already closed its end of the pipe — i.e. the interactor finished the
+                        // already closed its end of the pipe - i.e. the interactor finished the
                         // interaction (it decided the verdict, then exited and closed the FIFO)
                         // and is the authority. Do NOT penalize the solution for that incidental
                         // signal; fall through to the manager's verdict below. Any other signal
-                        // (SIGSEGV, SIGABRT, …) is a genuine crash → RuntimeError.
+                        // (SIGSEGV, SIGABRT, ...) is a genuine crash -> RuntimeError.
                         if sandbox.signal != Some(SIGPIPE) {
                             return TestCaseVerdict {
                                 test_case_id,
@@ -478,7 +478,7 @@ mod tests {
     fn contestant_sigpipe_defers_to_manager_accepted() {
         // A correct solution that writes once more after the interactor has
         // decided + closed the pipe gets SIGPIPE. The manager's clean AC must
-        // win — reporting RuntimeError here is the classic interactive bug.
+        // win - reporting RuntimeError here is the classic interactive bug.
         let result = OperationResult {
             success: false,
             task_results: HashMap::from([
@@ -496,7 +496,7 @@ mod tests {
     #[test]
     fn contestant_sigpipe_defers_to_manager_wrong_answer() {
         // Interactor decided WA and closed the pipe first; the solution's next
-        // write → SIGPIPE. Verdict must be the manager's WA, not RuntimeError.
+        // write -> SIGPIPE. Verdict must be the manager's WA, not RuntimeError.
         let result = OperationResult {
             success: false,
             task_results: HashMap::from([

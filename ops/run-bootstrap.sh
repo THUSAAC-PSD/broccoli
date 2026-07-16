@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="${SCRIPT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
-# host:role:public_ip — run-2 (2026-05-12)
+# host:role:public_ip - run-2 (2026-05-12)
 HOSTS=(
   "broccoli-build:build:209.97.162.248"
   "broccoli-gateway:gateway:206.189.84.60"

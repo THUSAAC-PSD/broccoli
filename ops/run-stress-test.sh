@@ -19,7 +19,7 @@ GATEWAY_PRIV="10.104.0.14"
 
 # Stress-test target sizing (signpost / 5000 contestants / mixed):
 #   - 5000 contestant accounts (bulk-registered up front)
-#   - rate=150 actions/s ≈ 5000 × 1 action / 33s — typical contest steady state
+#   - rate=150 actions/s ~ 5000 x 1 action / 33s - typical contest steady state
 #   - concurrency 200: in-flight cap, ~1.3s avg per action
 #   - duration 9000s (2.5 hr) steady + 1800s (30 min) burst at 3x
 #   - per-job timeout 60s; p95 budget 15s
@@ -39,7 +39,7 @@ cd /opt/broccoli/stress-test
 source ./run-state.env
 : "\${ADMIN_TOKEN:?run-state.env is missing ADMIN_TOKEN; re-run seed-signpost.sh}"
 
-# total = rate × duration (sanity bound)
+# total = rate x duration (sanity bound)
 TOTAL=\$((${RATE} * ${DURATION}))
 exec ./broccoli-stress-test \\
   --url "http://${GATEWAY_PRIV}" \\

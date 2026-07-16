@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Destroys all 11 profiling-run-2 droplets. Idempotent — re-runnable.
+# Destroys all 11 profiling-run-2 droplets. Idempotent - re-runnable.
 set -uo pipefail
 
 IDS=(

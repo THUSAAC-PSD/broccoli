@@ -38,7 +38,7 @@ fn hide_submission_result(submission: &mut serde_json::Value) {
     use serde_json::Value;
 
     // List items omit `result`; detail responses include it (possibly null).
-    // Same heuristic as the IOI plugin — replace with an explicit flag if the
+    // Same heuristic as the IOI plugin - replace with an explicit flag if the
     // list DTO ever grows a `result` field.
     let in_list = submission.get("result").is_none();
 
@@ -258,7 +258,7 @@ use crate::standings::{
     counts_as_live,
 };
 
-// ── Plugin entry points ─────────────────────────────────────────────────
+// -- Plugin entry points -------------------------------------------------
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
@@ -274,7 +274,7 @@ pub fn init() -> FnResult<String> {
     Ok("ok".into())
 }
 
-// ── Submission visibility filter ────────────────────────────────────────
+// -- Submission visibility filter ----------------------------------------
 //
 // Invoked by the host for every submission the generic REST endpoints return
 // (list items, detail, judgement history). Without it, a contestant in a
@@ -366,7 +366,7 @@ fn apply_scoreboard_filter(
     };
 
     // Same fail-frozen reveal handling as handle_standings: a storage read
-    // error is swallowed to `revealed = false` — never accidentally unfreeze.
+    // error is swallowed to `revealed = false` - never accidentally unfreeze.
     let revealed = host
         .storage
         .get_one(&format!("reveal:{contest_id}"))
@@ -443,7 +443,7 @@ pub fn on_icpc_eval_result(input: String) -> FnResult<String> {
     let output = match handle_detached_eval_callback(&host, input) {
         Ok(out) => out,
         Err(SdkError::StaleEpoch) => {
-            // A newer judgement superseded this session — stop cleanly. The
+            // A newer judgement superseded this session - stop cleanly. The
             // newer epoch already owns the submission; nothing to finalize.
             let _ = host
                 .log
@@ -463,7 +463,7 @@ pub fn on_icpc_eval_result(input: String) -> FnResult<String> {
     Ok(serde_json::to_string(&output)?)
 }
 
-// ── Core judging logic ──────────────────────────────────────────────────
+// -- Core judging logic --------------------------------------------------
 
 #[cfg(target_arch = "wasm32")]
 fn run_judge(host: &Host, req: &OnSubmissionInput) -> Result<OnSubmissionOutput, SdkError> {
@@ -576,7 +576,7 @@ fn persist_empty_standalone(
     })
 }
 
-// ── API: GET /contests/{contest_id}/info ────────────────────────────────
+// -- API: GET /contests/{contest_id}/info --------------------------------
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
@@ -605,7 +605,7 @@ fn handle_contest_info(
     })
 }
 
-// ── API: GET /contests/{contest_id}/standings ───────────────────────────
+// -- API: GET /contests/{contest_id}/standings ---------------------------
 
 #[cfg(target_arch = "wasm32")]
 #[plugin_fn]
@@ -761,7 +761,7 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
     // submissions during the window show as pending "?". Organizers always see the
     // real board. Manual reveal: once an organizer reveals, the board unfreezes for
     // everyone; until then the freeze holds through the contest end ('after'). A
-    // storage read error is swallowed to `revealed = false` — fail frozen, never
+    // storage read error is swallowed to `revealed = false` - fail frozen, never
     // accidentally unfreeze.
     let reveal_flag = host
         .storage
@@ -769,7 +769,7 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         .ok()
         .flatten();
     let revealed = reveal_flag.as_deref() == Some("1");
-    // Query contest times whenever a freeze could be relevant — a contestant's
+    // Query contest times whenever a freeze could be relevant - a contestant's
     // frozen split OR an organizer's reveal gating both need the window.
     let freeze_possible =
         config.freeze_minutes > 0 && !revealed && (phase == "during" || phase == "after");
@@ -849,7 +849,7 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
     let pending_map = compute_pending(&during_freeze, &all_states);
     // First-to-solve balloon owner per problem. Global by nature, so it is
     // suppressed (empty) in the restricted private-standings view, which only
-    // loaded the viewer's own submissions — see `compute_first_solvers`.
+    // loaded the viewer's own submissions - see `compute_first_solvers`.
     let first_solvers = compute_first_solvers(&all_states, restricted_user_id.is_some());
 
     // Build entries
@@ -980,7 +980,7 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
             "phase": phase,
             "frozen": frozen,
             "revealed": revealed,
-            // Organizer-only Reveal button — shown only while the board is actually
+            // Organizer-only Reveal button - shown only while the board is actually
             // frozen (window open, not yet revealed), so it can't disable the freeze early.
             "can_reveal": fview.can_reveal,
             "penalty_minutes": config.penalty_minutes,

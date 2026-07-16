@@ -12,7 +12,7 @@ pub mod util;
 /// comparison formats run via the native broccoli-compare binary; `testlib` runs
 /// the compiled checker. `none` is registered for discoverability/validation but
 /// performs NO comparison: the evaluator schedules no checker step and interprets
-/// it inline (a clean run → Accepted, output retained for display), so its
+/// it inline (a clean run -> Accepted, output retained for display), so its
 /// resolve/interpret handlers are never reached on the hot path.
 #[cfg(target_arch = "wasm32")]
 const RESOLVABLE_CHECKER_FORMATS: &[&str] = &[
@@ -33,7 +33,7 @@ pub fn init() -> FnResult<String> {
     // batch-evaluator can splice a checker stage into the run op instead of
     // streaming the full output through the coordinator. `none` is registered
     // here too (discoverable/selectable) but is interpreted inline by the
-    // evaluator — it schedules no checker step.
+    // evaluator - it schedules no checker step.
     for format in RESOLVABLE_CHECKER_FORMATS {
         host.registry.register_checker_resolver(
             format,

@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { DLQ_MANAGE } from '@broccoli/web-sdk/permissions';
 import {
   Card,
   CardContent,
@@ -35,7 +36,7 @@ export default function AdminDlqPage() {
   const stats = useDlqStats();
   const list = useDlqList({ page, perPage: PER_PAGE, resolvedFilter });
 
-  if (!user || !user.permissions.includes('dlq:manage')) {
+  if (!user || !user.permissions.includes(DLQ_MANAGE)) {
     return <Unauthorized />;
   }
 

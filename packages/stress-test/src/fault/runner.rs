@@ -2,7 +2,7 @@
 //!
 //! Mirrors the original fault-harness binary: build a `ScenarioContext` from
 //! flags, optionally spin up an ephemeral Redis testcontainer (cancel-storm
-//! only — kill-server-recovery presumes operator-managed infra), run the
+//! only - kill-server-recovery presumes operator-managed infra), run the
 //! chosen scenario, write the transcript JSON, and exit non-zero on failure.
 
 use testcontainers::runners::AsyncRunner;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 // Checker fusion: resolve + interpret host functions. These dispatch to a
 // plugin's resolve/interpret fns via CheckerStageRegistry, mirroring
-// `language::resolve_language_fn`. The host stays generic — no checker logic.
+// `language::resolve_language_fn`. The host stays generic - no checker logic.
 // Unknown format / plugin error surface as a host-fn error (the SDK wrapper
 // returns Err; the evaluator maps that to SystemError).
 // ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ pub fn create_interpret_checker_function(
 
 /// Look up the format's handler, call the selected plugin fn, and return its raw
 /// output bytes. The caller validates + writes them. Unknown format / plugin
-/// error → `Err` (surfaced to the SDK as an error, mapped to SystemError).
+/// error -> `Err` (surfaced to the SDK as an error, mapped to SystemError).
 fn checker_stage_call(
     user_data: &UserData<CheckerStageContext>,
     host_fn_name: &'static str,

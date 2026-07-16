@@ -499,7 +499,7 @@ int main() {
     }
 }
 
-// ── Real-isolate judging through the shared detached-eval driver ────────────
+// -- Real-isolate judging through the shared detached-eval driver ------------
 // Unlike the seeded tests above, these judge for real end to end: submission
 // POST -> dispatch routes to the icpc contest type -> on_submission ->
 // DetachedEval::start -> windowed evaluate in a real isolate sandbox ->

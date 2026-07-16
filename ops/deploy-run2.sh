@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run-2 deploy: ships images from broccoli-build (VPC) → deploy hosts,
+# Run-2 deploy: ships images from broccoli-build (VPC) -> deploy hosts,
 # pushes compose dirs + secrets from local mac, and brings up services in order.
 # Usage: ./ops/deploy-run2.sh [all|images|configs|infra|obs|servers|workers|gateway|promtail|loadgen|verify]
 set -euo pipefail
@@ -40,7 +40,7 @@ wait_all() {
 
 GATEWAY_PUB="206.189.84.60"   # new run-2 gateway public IP
 
-# Private IP last-octet by host name — never actually consulted at run time
+# Private IP last-octet by host name - never actually consulted at run time
 # (deploy ships images via hard-coded VPC IPs below). Kept as documentation.
 # Avoiding `declare -A` here because hyphenated keys + `set -u` cause unbound-var
 # crashes in bash 5.

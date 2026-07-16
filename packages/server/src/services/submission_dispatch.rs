@@ -205,7 +205,7 @@ pub(crate) async fn ensure_active_judgement_id(
         // lease-refresh fiber (`dispatcher::lease`) keeps this judgement alive
         // while it evaluates. Without an owner, the deferred-judgement steal's
         // `owner_server_id IS NULL AND created_at < threshold` branch reclaims it
-        // ~lease_ttl after the submission was created — churning long evaluates
+        // ~lease_ttl after the submission was created - churning long evaluates
         // (and, before the lockstep-epoch fix, hanging the submission).
         owner_server_id: Set(sub.owner_server_id.clone()),
         lease_heartbeat_at: Set(Some(Utc::now())),
@@ -255,7 +255,7 @@ async fn mark_submission_dispatch_system_error(
 
 /// When a plugin finalizes a judgement with a `SystemError` verdict, that
 /// reflects a SYSTEM-side condition (e.g. the interactive manager failed to
-/// compile under contention, or an operation result was lost) — never the
+/// compile under contention, or an operation result was lost) - never the
 /// contestant's own code. The contest invariant forbids such a condition from
 /// standing as the contestant's verdict. The host owns judging lifecycle, so it
 /// treats a finalized `SystemError` as RETRYABLE: reset the judgement + its
@@ -266,10 +266,10 @@ async fn mark_submission_dispatch_system_error(
 ///
 /// The gate covers every shape a SYSTEM condition terminalizes into, and only
 /// those:
-/// * plugin-finalized — `status == Judged AND verdict == SystemError` (manager
+/// * plugin-finalized - `status == Judged AND verdict == SystemError` (manager
 ///   compile failure, lost operation result, or a transient per-testcase
 ///   SystemError that aggregates to SystemError since severity 5 dominates);
-/// * stuck-handler terminal / dispatch-exhaustion — `status == SystemError`
+/// * stuck-handler terminal / dispatch-exhaustion - `status == SystemError`
 ///   (`record_dispatch_failure`, `mark_submission_dispatch_system_error`, and
 ///   the stuck detector all land here with a NULL verdict). Reusing only the
 ///   first shape abandoned these, leaving a system fault as the verdict.
@@ -282,7 +282,7 @@ async fn mark_submission_dispatch_system_error(
 ///
 /// Returns `Some(submission)` (reset to `Pending` at the bumped epoch, owned by
 /// this server) when the judgement was requeued and the caller should
-/// re-dispatch it; `None` when it must NOT be retried — not a finalized
+/// re-dispatch it; `None` when it must NOT be retried - not a finalized
 /// SystemError, superseded (epoch advanced / no longer current), or the retry
 /// budget is exhausted.
 pub(crate) async fn requeue_judgement_for_system_error_retry(
@@ -310,11 +310,11 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
     // Gate (see the doc comment): a CURRENT, FINALIZED judgement at the epoch we
     // dispatched, whose terminal outcome is a SYSTEM condition in ANY of its
     // shapes, is retryable:
-    //   * plugin-finalized — `status == Judged` with `verdict == SystemError`;
-    //   * stuck-handler terminal / dispatch-exhaustion — `status == SystemError`
+    //   * plugin-finalized - `status == Judged` with `verdict == SystemError`;
+    //   * stuck-handler terminal / dispatch-exhaustion - `status == SystemError`
     //     (verdict typically NULL, `error_code` STUCK_JOB or a dispatch code).
     // A contestant `CompileError` (`status == CompilationError`) or any own-code
-    // verdict (`status == Judged` with WA/TLE/MLE/RE) is left strictly alone — the
+    // verdict (`status == Judged` with WA/TLE/MLE/RE) is left strictly alone - the
     // contestant's verdict stands.
     let is_finalized_system_error = judgement.is_current
         && judgement.is_finalized
@@ -800,8 +800,8 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                                 // persist a SystemError verdict (a system-side
                                 // condition, never the contestant's code). The
                                 // bounded re-judge of such verdicts is handled
-                                // uniformly — across BOTH synchronous (batch) and
-                                // detached (interactive) finalization — by the
+                                // uniformly - across BOTH synchronous (batch) and
+                                // detached (interactive) finalization - by the
                                 // SystemError-retry reaper fiber
                                 // (`dispatcher::system_error_retry`), which keys
                                 // off the persisted terminal state rather than
@@ -1086,8 +1086,8 @@ mod tests {
     }
 
     /// Shape 2/3: a SystemError that lands as `status == SystemError` with a
-    /// NULL verdict — produced by the stuck-handler's terminal give-up
-    /// (`error_code == STUCK_JOB`) and by the dispatch-exhaustion path — is just
+    /// NULL verdict - produced by the stuck-handler's terminal give-up
+    /// (`error_code == STUCK_JOB`) and by the dispatch-exhaustion path - is just
     /// as much a system condition as a plugin-finalized `verdict == SystemError`,
     /// and must ALSO be requeued. Critically it is seeded at `retry_count == 5`
     /// (the shape on the box: those paths spend the dispatch/stuck budget of 5

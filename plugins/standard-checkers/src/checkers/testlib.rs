@@ -63,7 +63,7 @@ impl Default for TestlibConfig {
     }
 }
 
-/// True for a C/C++ compile unit — the only files that belong on the compiler
+/// True for a C/C++ compile unit - the only files that belong on the compiler
 /// command line. Everything else in a checker bundle (headers like testlib.h,
 /// and any auxiliary data files) is mounted for `#include`/runtime use but never
 /// compiled.
@@ -78,9 +78,13 @@ pub fn is_checker_source(filename: &str) -> bool {
 /// compile units are compiled and linked; non-sources are excluded from the
 /// command line but stay mounted in the checker env (e.g. so `#include
 /// "testlib.h"` resolves). Errors if there is no compilable source.
-pub fn partition_checker_sources(filenames: &[String]) -> Result<(Vec<String>, Vec<String>), String> {
-    let (sources, others): (Vec<String>, Vec<String>) =
-        filenames.iter().cloned().partition(|f| is_checker_source(f));
+pub fn partition_checker_sources(
+    filenames: &[String],
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let (sources, others): (Vec<String>, Vec<String>) = filenames
+        .iter()
+        .cloned()
+        .partition(|f| is_checker_source(f));
     if sources.is_empty() {
         return Err(format!(
             "checker_source has no compilable .c/.cpp file (got: {}). \
@@ -111,7 +115,7 @@ pub fn checker_language_id(primary_filename: &str) -> Result<&str, String> {
 /// Fold every file of the checker bundle into the compile cache inputs. The
 /// language resolver only sees the compile units, so headers (testlib.h, custom
 /// helper .h) and auxiliary files consumed at compile time never reach
-/// `cache_inputs` on their own — and the worker's compile cache key hashes only
+/// `cache_inputs` on their own - and the worker's compile cache key hashes only
 /// argv + cache-input file contents. Without this, an author who fixes a bug in
 /// a bundled header without touching checker.cpp gets an unchanged cache key
 /// and every worker silently keeps judging with the STALE compiled checker.
@@ -454,7 +458,10 @@ mod tests {
         ];
         let (sources, others) = partition_checker_sources(&files).unwrap();
         assert_eq!(sources, vec!["a.cpp".to_string(), "b.cpp".to_string()]);
-        assert_eq!(others, vec!["testlib.h".to_string(), "table.txt".to_string()]);
+        assert_eq!(
+            others,
+            vec!["testlib.h".to_string(), "table.txt".to_string()]
+        );
     }
 
     #[test]

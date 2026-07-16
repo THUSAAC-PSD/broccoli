@@ -58,7 +58,7 @@ pub fn compute_problem_states(
 /// Count PENDING submissions per (user, problem) made during the freeze window,
 /// for the frozen contestant view. Only problems NOT already solved before the
 /// freeze get pending markers (a solved problem stays solved; a frozen submission
-/// on it is irrelevant). SystemError submissions are ignored — they are a judge
+/// on it is irrelevant). SystemError submissions are ignored - they are a judge
 /// fault, not the team's attempt, and will be re-judged.
 pub fn compute_pending(
     freeze_submissions: &[StandingsSubmission],
@@ -81,7 +81,7 @@ pub fn compute_pending(
     pending
 }
 
-/// Whether a submission counts toward the LIVE (pre-freeze) standings — i.e. is
+/// Whether a submission counts toward the LIVE (pre-freeze) standings - i.e. is
 /// NOT frozen. True if it was made before the freeze window, OR it belongs to the
 /// viewer themselves. A contestant always sees their own submissions un-frozen
 /// (their own row shows real verdicts); only other teams' during-freeze
@@ -104,7 +104,7 @@ pub fn counts_as_live(
 /// loaded the requesting contestant's OWN submissions. First-solve is a GLOBAL
 /// property that cannot be derived from a single team's data, and the
 /// private-standings invariant keeps other teams' progress hidden until the
-/// contest ends — announcing "you were first" would itself leak that no one else
+/// contest ends - announcing "you were first" would itself leak that no one else
 /// solved the problem earlier. So the flag is suppressed entirely (empty map)
 /// rather than falsely crowning the viewer on every problem they solved.
 pub fn compute_first_solvers(
@@ -297,9 +297,9 @@ mod tests {
             status: "Judged".into(),
             elapsed_ms: 250 * 60_000, // inside the freeze window
         };
-        // Viewer = user 7: their own during-freeze submission stays live…
+        // Viewer = user 7: their own during-freeze submission stays live...
         assert!(counts_as_live(&during(7), freeze_start, Some(7)));
-        // …but another team's during-freeze submission is frozen.
+        // ...but another team's during-freeze submission is frozen.
         assert!(!counts_as_live(&during(8), freeze_start, Some(7)));
         // A pre-freeze submission is live for everyone.
         let pre = StandingsSubmission {
@@ -358,7 +358,7 @@ mod tests {
     fn restricted_view_never_flags_a_first_solve() {
         // The private-standings restricted view loaded only the viewer's (user 7)
         // own submissions. Even though user 7 solved problem 100, first-solve is a
-        // global property that someone else may already own — so the restricted
+        // global property that someone else may already own - so the restricted
         // path must NOT crown the viewer. Suppressed entirely -> empty map.
         let states = compute_problem_states(
             &[StandingsSubmission {

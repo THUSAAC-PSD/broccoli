@@ -15,7 +15,7 @@ pub struct PluginConfig {
     /// it, the call fails, and the pooled instance is released instead of
     /// being leaked forever. Must be positive; there is deliberately no way to
     /// disable the deadline. This does NOT govern how long a caller waits for
-    /// a free pooled instance — that is `pool_acquire_timeout_secs`.
+    /// a free pooled instance - that is `pool_acquire_timeout_secs`.
     #[serde(default = "default_call_timeout")]
     pub call_timeout_secs: u64,
     /// How long a caller may wait to acquire an instance from a plugin's pool
@@ -28,13 +28,13 @@ pub struct PluginConfig {
     pub pool_max_instances: usize,
     /// Maximum concurrent evaluator plugin calls per server. When `None`, falls back
     /// to `std::thread::available_parallelism()`. Override via env var if the host
-    /// has spare memory and contention is the bottleneck (recommended ≥ 64 for
+    /// has spare memory and contention is the bottleneck (recommended >= 64 for
     /// contest workloads with high per-submission test-case fan-out).
     #[serde(default)]
     pub evaluator_parallelism: Option<usize>,
     /// Last-resort runaway trap on a single WASM plugin instance's linear memory,
     /// in 64 KiB pages, applied via the extism manifest. `None` = no cap. This is
-    /// *not* the primary memory bound — `instance_reclaim_bytes` recycling is.
+    /// *not* the primary memory bound - `instance_reclaim_bytes` recycling is.
     /// The default (24576 pages = 1.5 GiB) sits far above any legitimate
     /// per-instance working set (a checker comparing two 30 MB files peaks a few
     /// hundred MB) *and* above the steady state recycling holds instances at, so
@@ -45,13 +45,13 @@ pub struct PluginConfig {
     pub max_instance_memory_pages: Option<u32>,
     /// Cumulative bytes (marshalled call I/O + data streamed into the guest via
     /// host functions such as `blob_read_range`) an instance may process before
-    /// it becomes eligible to be recycled — dropped and rebuilt to reclaim WASM
+    /// it becomes eligible to be recycled - dropped and rebuilt to reclaim WASM
     /// linear memory that wasmtime never returns on its own. `None` disables
     /// recycling. The default (128 MiB) is small enough that a *data-heavy*
     /// instance (a checker streaming tens of MB per call) is recycled every few
     /// calls, keeping its resident memory bounded, while *data-light* plugins
     /// never reach it and are never recycled. This is the primary RAM bound;
-    /// budget `pool_max_instances` × steady-state-per-instance against host RAM
+    /// budget `pool_max_instances` x steady-state-per-instance against host RAM
     /// (and remember multiple server instances may share a box).
     #[serde(default = "default_instance_reclaim_bytes")]
     pub instance_reclaim_bytes: Option<u64>,
@@ -154,7 +154,7 @@ impl PluginConfig {
     /// permit while waiting for a pool slot. For plugins that recurse into
     /// themselves (a self-checking contest plugin where the contest call
     /// re-enters its own pool to invoke a checker handler), this is a real
-    /// deadlock — every slot is held by a caller waiting for another slot.
+    /// deadlock - every slot is held by a caller waiting for another slot.
     /// Without recursion it's "merely" hidden queueing, but the evaluator
     /// semaphore is then sized larger than actual capacity, which inflates
     /// admission and produces unbounded latency tails.

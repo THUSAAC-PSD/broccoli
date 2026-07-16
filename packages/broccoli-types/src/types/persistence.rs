@@ -19,9 +19,9 @@ where
     Deserialize::deserialize(de).map(Some)
 }
 
-/// Serialize an `f64`, coercing non-finite values (NaN / ±Inf) to `0.0`. JSON
-/// has no representation for non-finite floats — serde_json emits `null`, which
-/// then fails to read back as an `f64` — and the judge already coerces a
+/// Serialize an `f64`, coercing non-finite values (NaN / +/-Inf) to `0.0`. JSON
+/// has no representation for non-finite floats - serde_json emits `null`, which
+/// then fails to read back as an `f64` - and the judge already coerces a
 /// non-finite score to `0.0` before persisting it. Doing the coercion at the
 /// wire boundary preserves that behavior while guaranteeing a valid number
 /// crosses the boundary.
@@ -222,7 +222,7 @@ mod tests {
         let out = sanitize_text_field(s);
         assert!(matches!(out, Cow::Owned(_)));
         assert_eq!(out, "abc\u{FFFD}def\u{FFFD}\u{FFFD}xyz");
-        // 1 NUL byte → 1 replacement char (not stripped), so char count is preserved.
+        // 1 NUL byte -> 1 replacement char (not stripped), so char count is preserved.
         assert_eq!(out.chars().count(), s.chars().count());
     }
 

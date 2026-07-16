@@ -1,6 +1,6 @@
 //! Static-source regression guards for the server crate.
 //!
-//! UP#14g — `tokio::task::block_in_place` was removed from every host
+//! UP#14g - `tokio::task::block_in_place` was removed from every host
 //! function in UP#13 (see roadmap entry at
 //! `docs/profiling/run-2/roadmap.md`). Re-parking a tokio worker thread
 //! from a `spawn_blocking` task is harmful and was found to starve the
@@ -380,7 +380,7 @@ mod helper_tests {
 
     #[test]
     fn identifier_context_is_recognized() {
-        // Hypothetical user-defined wrapper `my_block_in_place(` — the char
+        // Hypothetical user-defined wrapper `my_block_in_place(` - the char
         // immediately before `block_in_place(` is `_`, so the guard must
         // treat the match as an identifier tail and skip it.
         let line = "    my_block_in_place(|| {});";

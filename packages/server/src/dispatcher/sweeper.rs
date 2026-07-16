@@ -52,7 +52,7 @@ pub async fn sweep_once(
     // Fail-safe: this sweeper decides a server is dead purely from the absence
     // of its `broccoli:server:heartbeat:<id>` key. If NO heartbeat key exists
     // for ANY server, the liveness signal itself is absent (the heartbeat
-    // publisher is not wired up, it broke fleet-wide, or Redis was flushed) —
+    // publisher is not wired up, it broke fleet-wide, or Redis was flushed) -
     // it does not mean every server died at once. Acting on an unproduced
     // signal would delete the reply queues of RUNNING servers, losing
     // in-flight operation results. A garbage collector keyed on liveness must

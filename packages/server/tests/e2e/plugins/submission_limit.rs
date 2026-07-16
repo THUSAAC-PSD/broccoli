@@ -455,8 +455,8 @@ async fn limit_rejects_concurrent_submissions_race() {
     // The submission handler holds its DB transaction open across the
     // `before_submission` hook, and the e2e harness routes the plugin's claim
     // query through the same pool, so each in-flight submission needs two
-    // connections at once. Size the pool for 2 × N (plus slack) so the pool
-    // itself never becomes the bottleneck — otherwise concurrent requests fail
+    // connections at once. Size the pool for 2 x N (plus slack) so the pool
+    // itself never becomes the bottleneck - otherwise concurrent requests fail
     // with a "connection pool timed out" 500 unrelated to the gate.
     let app = E2eTestApp::spawn_with_db_pool(2 * N as u32 + 8).await;
 
@@ -662,7 +662,7 @@ async fn dangling_reservation_past_grace_is_reclaimed_not_burned() {
 
 /// A CONFIRMED reservation (a real prior success) durably consumes a slot: with
 /// max=1 and one confirmed reservation already present, a new submission is
-/// rejected — the reclaim only frees UNCONFIRMED (failed) reservations.
+/// rejected - the reclaim only frees UNCONFIRMED (failed) reservations.
 #[tokio::test(flavor = "multi_thread")]
 async fn confirmed_reservation_durably_consumes_a_slot() {
     let app = E2eTestApp::spawn().await;

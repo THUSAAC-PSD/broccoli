@@ -84,13 +84,13 @@ impl OperationHandler {
             {
                 use std::os::unix::fs::PermissionsExt;
                 // Restore the cached compile output as 0o755 (owner rwx + world
-                // r-x) — never a mode that lacks the execute bit. fetch_to_path
+                // r-x) - never a mode that lacks the execute bit. fetch_to_path
                 // hard-links `dest` to the content-addressed on-disk blob, so in
                 // an nproc>=2 op (or under concurrent judging) the SAME binary is
                 // shared by one inode across boxes. chmod acts on the inode, not
                 // the path: if any op drives that shared inode through a no-exec
                 // state (e.g. 0o644) while another box is exec'ing it, the run
-                // fails with `execve(...): Permission denied` (exit 127) → a
+                // fails with `execve(...): Permission denied` (exit 127) -> a
                 // spurious RuntimeError. Keeping every cache/restore perm
                 // execute-inclusive (see file_cacher::ensure_world_readable, also
                 // 0o755) keeps the shared inode owner-x at all times, closing the

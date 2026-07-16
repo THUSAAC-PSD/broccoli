@@ -82,7 +82,7 @@ export function RecentSubmissionOverview({
 
   // Bucket fan-out entries by groupKey so they render together as a single
   // comparison strip rather than N independent overview rows. Single-target
-  // pins still create a 1-row group, which is fine — it shows the worker
+  // pins still create a 1-row group, which is fine - it shows the worker
   // label and avoids special-casing.
   const groups = new Map<string, SubmissionEntry[]>();
   const ungrouped: SubmissionEntry[] = [];

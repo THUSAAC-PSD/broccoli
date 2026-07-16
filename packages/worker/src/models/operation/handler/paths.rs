@@ -23,12 +23,12 @@ pub(super) fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
 
 /// Translate a `MountSpec::PlatformTool { name }` into a read-only directory
 /// rule that makes `<tools_dir>/<name>` reachable inside the box at `inside_path`.
-/// The tool name must be a single safe path component — no separators, NUL, or
-/// `..` — so a malicious op cannot escape the configured tools directory.
+/// The tool name must be a single safe path component - no separators, NUL, or
+/// `..` - so a malicious op cannot escape the configured tools directory.
 ///
 /// isolate's `--dir` bind-mounts **directories**, not single files (a file source
-/// fails with `ENOTDIR`: "Cannot mount … Not a directory"). So we mount the whole
-/// `tools_dir` read-only at the *parent* of `inside_path` — e.g. mount
+/// fails with `ENOTDIR`: "Cannot mount ... Not a directory"). So we mount the whole
+/// `tools_dir` read-only at the *parent* of `inside_path` - e.g. mount
 /// `<tools_dir>` at `/tools` so the tool is reachable at `/tools/<name>`, exactly
 /// where the resolver's argv invokes it. `inside_path` must therefore name a
 /// directory parent, and its basename must equal `name` (so the in-box path lands
@@ -75,7 +75,7 @@ pub(super) fn platform_tool_directory_rule(
 /// Resolve a `MountSource::StepOutput { from_step, file }` to the absolute path
 /// of the producer step's captured `file`. This is the intra-op handoff: a
 /// dependent step consumes a prior step's output file directly from that step's
-/// working dir — no blob round-trip.
+/// working dir - no blob round-trip.
 ///
 /// Safety: `from_step` must be in the consuming step's `depends_on` (so it has
 /// already run and the file exists) and `file` must resolve safely within the
@@ -83,8 +83,8 @@ pub(super) fn platform_tool_directory_rule(
 ///
 /// The resolved file is COPIED into the consumer's box by
 /// [`stage_step_output_file`], NOT bind-mounted. isolate's `--dir` bind-mounts
-/// **directories**, not single files — a file source fails with `ENOTDIR`
-/// ("Cannot mount … Not a directory"). Mounting the producer's *directory*
+/// **directories**, not single files - a file source fails with `ENOTDIR`
+/// ("Cannot mount ... Not a directory"). Mounting the producer's *directory*
 /// instead is unacceptable here: the producer (a solution exec/compile step)
 /// holds the contestant's source and binary, which must never be exposed to the
 /// author-controlled checker. A copy hands over exactly the one named file.
@@ -244,7 +244,7 @@ mod mount_tests {
 
     #[test]
     fn stage_step_output_file_copies_only_the_named_file() {
-        // The handoff copies exactly the one named file into the consumer box —
+        // The handoff copies exactly the one named file into the consumer box -
         // never the producer's other files (which hold the contestant's source).
         // This is what makes testlib (File-output) checkers work at all: isolate
         // cannot bind-mount a single file (ENOTDIR), so we copy instead.

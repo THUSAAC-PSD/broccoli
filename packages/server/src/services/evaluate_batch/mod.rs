@@ -82,7 +82,7 @@ fn record_evaluator_semaphore_wait(
 /// Whether a test-case body is cheap enough to keep a clone of for the whole
 /// submission (so a timed-out op can be re-dispatched). Blob/Missing carry only
 /// a hash; small inline bodies are fine. A large inline body (the
-/// database-backend path) is NOT retained — holding ~tens of MB per test case
+/// database-backend path) is NOT retained - holding ~tens of MB per test case
 /// for the submission's lifetime would re-introduce the result-set memory
 /// blow-up the windowed driver otherwise avoids by freeing each case after
 /// dispatch. Such cases simply fall through to the existing timeout behavior.

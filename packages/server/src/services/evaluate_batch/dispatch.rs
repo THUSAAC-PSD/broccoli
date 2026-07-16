@@ -204,7 +204,7 @@ pub async fn start_evaluate_batch(
 
                     // Retry on plugin pool contention. Plugin pool exhaustion is a transient
                     // backpressure signal, not a permanent failure of the contestant's submission
-                    // — looping until we get a permit preserves the verdict semantics. Other
+                    // - looping until we get a permit preserves the verdict semantics. Other
                     // plugin errors (load failures, execution faults, deserialization) are
                     // genuine SystemErrors and fall through to the final send_system_error.
                     match call_raw_with_pool_retry(
@@ -463,7 +463,7 @@ async fn wait_for_operation_results(
     let waiters = operation_deps.operation_waiters.clone();
     let metrics = operation_deps.metrics.clone();
     let ceiling = timeout.max(batch_evaluator_result_infra_floor());
-    // Collect the operation results by awaiting each as a future — no blocking
+    // Collect the operation results by awaiting each as a future - no blocking
     // thread is held for the batch's lifetime, and a cancelled/superseded batch
     // (dropped sender) ends the wait immediately instead of leaking a thread to
     // the infra ceiling.

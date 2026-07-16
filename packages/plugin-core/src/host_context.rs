@@ -4,12 +4,12 @@ thread_local! {
     static HOST_CONTEXT: RefCell<Option<serde_json::Value>> = const { RefCell::new(None) };
     /// Bytes a host function streamed *into* the guest during the in-flight
     /// plugin call (e.g. `blob_read_range` slices). A plugin call's `input`
-    /// length only counts the call's marshalled argument — for the checker that
+    /// length only counts the call's marshalled argument - for the checker that
     /// is a few bytes of refs, while the real 30 MB of test data is pulled in
     /// later via host-function slices. Counting those here lets the pool weigh
     /// how much data each instance has churned through, which is what grows its
     /// WASM linear memory. Reset at call start, summed during the call, read at
-    /// call end — all on the same blocking thread, so a `Cell` is sufficient.
+    /// call end - all on the same blocking thread, so a `Cell` is sufficient.
     static CALL_STREAM_BYTES: Cell<u64> = const { Cell::new(0) };
 }
 

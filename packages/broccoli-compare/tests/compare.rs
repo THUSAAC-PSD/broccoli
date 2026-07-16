@@ -203,7 +203,7 @@ fn float_rel_epsilon_and_epsilon_combine_via_max() {
 /// Run over a binary stdin/answer; returns `(exit_code, stdout_preview)`. The
 /// preview is read from the child's **stdout** concurrently with writing stdin
 /// (a writer thread) so a large input never deadlocks on a full stdout pipe; the
-/// writer also asserts the write completes (no BrokenPipe — stdin is drained).
+/// writer also asserts the write completes (no BrokenPipe - stdin is drained).
 fn run_with_preview(mode: &str, stdin: &[u8], answer: &[u8]) -> (i32, Vec<u8>) {
     let dir = tempfile::tempdir().unwrap();
     let ans = dir.path().join("ans");

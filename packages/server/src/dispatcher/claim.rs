@@ -1,12 +1,12 @@
 //! Per-server background fiber that pulls submissions out of `Queued`
 //! and into `Pending` (UP#38). Pairs with UP#37: the api's POST handler
 //! persists `status='Queued'` and returns 201; this fiber claims rows
-//! through `SELECT … FOR UPDATE SKIP LOCKED`, transitions them to
+//! through `SELECT ... FOR UPDATE SKIP LOCKED`, transitions them to
 //! `Pending`, sets `owner_server_id`, bumps `retry_count`, and finally
 //! dispatches via the existing `dispatch_to_plugin` path.
 //!
 //! The fiber lives for the lifetime of the api process. When
-//! `server.claim_fiber_enabled` is `false`, it never starts — meaning
+//! `server.claim_fiber_enabled` is `false`, it never starts - meaning
 //! UP#37's `Queued` rows have no one to claim them and will accumulate
 //! until the flag is flipped back on. That escape hatch exists only to
 //! pin a deployment to the pre-UP#37 behavior during incident response;
@@ -101,7 +101,7 @@ pub async fn run(
 
 /// One claim cycle: scan submissions, then code-runs. Errors are
 /// returned to the caller so the fiber loop can log; partial progress
-/// (e.g., submissions claimed but code-runs failed) is fine — the next
+/// (e.g., submissions claimed but code-runs failed) is fine - the next
 /// tick will pick up whatever's still in `Queued`.
 ///
 /// **Crash-recovery contract:** the post-commit `tokio::spawn` below is
@@ -113,7 +113,7 @@ pub async fn run(
 /// dispatcher/steal scanner (UP#17): once `lease_heartbeat_at` is older
 /// than `lease_ttl_secs`, a peer server's steal scanner reclaims the row
 /// and re-dispatches it. So the worst-case end-to-end recovery latency
-/// is `lease_ttl_secs`, not "instant" — this is the cost of decoupling
+/// is `lease_ttl_secs`, not "instant" - this is the cost of decoupling
 /// claim from dispatch. Don't introduce a bounded join-set or `await`
 /// here without re-thinking that contract: an inline `await` would make
 /// the claim fiber the bottleneck for dispatch throughput.
@@ -141,7 +141,7 @@ async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyho
     // `status=Queued` so the post-commit silent-loss window is closed
     // symmetrically with the submission path. The parent submission's
     // own status is unchanged for these rows, so the submission scan
-    // above doesn't reach them — the judgement scan does.
+    // above doesn't reach them - the judgement scan does.
     let judgement_pairs = claim_queued_judgements(state, server_id, batch_size).await?;
     for (sub_model, judgement_model) in judgement_pairs {
         let state_clone = state.clone();
@@ -154,7 +154,7 @@ async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyho
                 Some(judgement_id),
                 // `fire_after_judging` mirrors `is_current`: the
                 // deferred path was originally spawned with
-                // `false`, and that's still correct here — the
+                // `false`, and that's still correct here - the
                 // judgement isn't the displayed verdict, so hooks
                 // shouldn't fire for it. A judgement reached this
                 // path with `is_current=true` only if a future
@@ -186,7 +186,7 @@ async fn claim_queued_submissions(
     let ids: Vec<i32> = rows.iter().map(|r| r.id).collect();
 
     // FOR UPDATE SKIP LOCKED already serialized us against peer claim
-    // fibers — the only way to land here with `status != 'Queued'` would
+    // fibers - the only way to land here with `status != 'Queued'` would
     // be a same-process bug. We still scope the UPDATE with a status
     // filter so a hypothetical bug becomes a no-op rather than a state
     // corruption.
@@ -295,11 +295,11 @@ async fn claim_queued_code_runs(
 
 /// Claims deferred-rejudge judgement rows (`status='Queued'` on the
 /// `submission_judgement` table) and returns them paired with their
-/// parent submission model — the dispatch path needs both.
+/// parent submission model - the dispatch path needs both.
 ///
 /// Mirrors `claim_queued_submissions` shape: SELECT FOR UPDATE SKIP
 /// LOCKED, in-txn UPDATE to Pending, refetch, commit. The parent
-/// submission's denormalized columns are left untouched — by design,
+/// submission's denormalized columns are left untouched - by design,
 /// a deferred rejudge's outcome doesn't override the current verdict
 /// until an admin explicitly applies it.
 async fn claim_queued_judgements(
@@ -348,7 +348,7 @@ async fn claim_queued_judgements(
 
     // Re-fetch each parent submission in the same txn so dispatch
     // sees a consistent snapshot. Submissions for deferred rejudge
-    // are not locked here — we don't mutate them and a concurrent
+    // are not locked here - we don't mutate them and a concurrent
     // current-judgement claim acts on a different row.
     let sub_ids: Vec<i32> = judgements.iter().map(|j| j.submission_id).collect();
     let submissions = submission::Entity::find()
@@ -364,7 +364,7 @@ async fn claim_queued_judgements(
         if let Some(s) = sub_by_id.get(&j.submission_id).cloned() {
             pairs.push((s, j));
         } else {
-            // Parent submission vanished between SELECT and JOIN —
+            // Parent submission vanished between SELECT and JOIN -
             // exceedingly unlikely (deletes are guarded) but log and
             // skip rather than panic.
             tracing::warn!(

@@ -74,7 +74,7 @@ pub fn freeze_window_open(
 /// Decide the freeze view. Freeze holds for a CONTESTANT (`!can_view_all`) once
 /// the window opens and until an organizer reveals, spanning the 'during' and
 /// 'after' phases. Organizers are never frozen but may reveal ONLY while the
-/// board is actually frozen (window open) — an early click cannot silently
+/// board is actually frozen (window open) - an early click cannot silently
 /// disable the freeze. No freeze before the contest, when `freeze_minutes == 0`,
 /// or once revealed.
 pub fn freeze_view(
@@ -150,7 +150,11 @@ mod tests {
         // before the window opens: not frozen, and no split (freeze_start = MAX).
         let before = freeze_view(60, "during", false, false, DUR, 200 * 60_000);
         assert!(!before.frozen, "before the window: live");
-        assert_eq!(before.freeze_start_ms, i64::MAX, "no split before the window");
+        assert_eq!(
+            before.freeze_start_ms,
+            i64::MAX,
+            "no split before the window"
+        );
         // inside the window: frozen, split at the window start.
         let inside = freeze_view(60, "during", false, false, DUR, 250 * 60_000);
         assert!(inside.frozen, "inside the window: frozen");
@@ -172,8 +176,15 @@ mod tests {
         // Footgun guard: an organizer CANNOT reveal before the freeze window opens.
         let before_window = freeze_view(60, "during", true, false, DUR, 100 * 60_000);
         assert!(!before_window.frozen, "organizer never frozen");
-        assert!(!before_window.can_reveal, "no reveal before the window opens");
-        assert_eq!(before_window.freeze_start_ms, i64::MAX, "organizer never split");
+        assert!(
+            !before_window.can_reveal,
+            "no reveal before the window opens"
+        );
+        assert_eq!(
+            before_window.freeze_start_ms,
+            i64::MAX,
+            "organizer never split"
+        );
         // once the window is open (and after end), reveal is offered until revealed.
         assert!(freeze_view(60, "during", true, false, DUR, 250 * 60_000).can_reveal);
         assert!(freeze_view(60, "after", true, false, DUR, 400 * 60_000).can_reveal);

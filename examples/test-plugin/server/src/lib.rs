@@ -41,7 +41,7 @@ mod plugin {
         })
     }
 
-    /// `POST /{name}/greet` — greets the caller and counts visits per name
+    /// `POST /{name}/greet` - greets the caller and counts visits per name
     /// using the plugin key-value store (`storage` permission).
     #[plugin_fn]
     pub fn greet(input: String) -> FnResult<String> {
@@ -59,7 +59,8 @@ mod plugin {
                 Some(raw) => raw.parse().unwrap_or(0),
                 None => 0,
             } + 1;
-            host.storage.set(&[(key.as_str(), count.to_string().as_str())])?;
+            host.storage
+                .set(&[(key.as_str(), count.to_string().as_str())])?;
 
             json_response(DemoOutput {
                 greeting: format!("Hello, {name}! This is from Rust Wasm."),
@@ -68,7 +69,7 @@ mod plugin {
         })
     }
 
-    /// `POST /post-message` — stores a message in a plugin-owned table and
+    /// `POST /post-message` - stores a message in a plugin-owned table and
     /// returns how many messages that name has posted (`sql` permission).
     #[plugin_fn]
     pub fn post_message(input: String) -> FnResult<String> {

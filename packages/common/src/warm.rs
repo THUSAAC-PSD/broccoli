@@ -90,7 +90,7 @@ pub struct WarmProgress {
 }
 
 impl WarmProgress {
-    /// Completion fraction in [0.0, 1.0]. Empty job → fully complete.
+    /// Completion fraction in [0.0, 1.0]. Empty job -> fully complete.
     pub fn fraction(&self) -> f64 {
         if self.total == 0 {
             return 1.0;

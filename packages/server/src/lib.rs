@@ -307,7 +307,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .fallback_service(frontend_assets_service(&frontend_dist));
 
     // `/metrics` and `/healthz` are also served on a dedicated tokio runtime
-    // + listener when `server.healthz_listen` is configured — see UP#14e in
+    // + listener when `server.healthz_listen` is configured - see UP#14e in
     // `healthz_runtime`. Operators are encouraged to point load-balancer
     // probes and Prometheus scrapes at the dedicated listener so main-runtime
     // saturation (submission bursts, scheduler thrash) does not stall

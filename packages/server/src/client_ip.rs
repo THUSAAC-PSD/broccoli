@@ -19,7 +19,7 @@ const X_FORWARDED_FOR: &str = "x-forwarded-for";
 /// The rejection is [`Infallible`] and the value is an `Option`: when the IP
 /// cannot be determined the extractor yields `None` so callers FAIL OPEN rather
 /// than break the request. This is deliberately NOT `axum_client_ip::ClientIp`,
-/// whose extraction failure rejects the request — a login endpoint must never
+/// whose extraction failure rejects the request - a login endpoint must never
 /// 4xx merely because a proxy header was missing.
 pub struct ClientIp(pub Option<IpAddr>);
 

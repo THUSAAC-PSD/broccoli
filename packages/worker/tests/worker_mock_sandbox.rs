@@ -193,7 +193,7 @@ async fn blob_input_fails_when_blob_storage_is_unavailable() {
 }
 
 // ===========================================================================
-// Phase 3 Task 3.1 — MountSource::PlatformTool resolves to a read-only mount of
+// Phase 3 Task 3.1 - MountSource::PlatformTool resolves to a read-only mount of
 // a worker-configured tool, which the step can then execute. The mock sandbox
 // materializes a directory rule as a symlink, so this exercises the full
 // MountSpec -> DirectoryRule translation end-to-end without isolate.
@@ -1035,7 +1035,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
 }
 
 // ===========================================================================
-// Phase 3 Task 3.2 — MountSource::StepOutput is the intra-op handoff: a
+// Phase 3 Task 3.2 - MountSource::StepOutput is the intra-op handoff: a
 // dependent step reads a prior step's captured output file directly from that
 // step's working dir, with NO blob round-trip. The dependent env must see ONLY
 // that file (read-only), never the producer's whole environment.
@@ -1148,7 +1148,7 @@ async fn step_output_mount_exposes_only_that_file_to_dependent_step() {
         "consumer did not see the mounted output; stdout: {:?}",
         consumer.sandbox_result.stdout
     );
-    // ...but sees ONLY that file — not the producer's other files.
+    // ...but sees ONLY that file - not the producer's other files.
     assert!(
         !consumer.sandbox_result.stdout.contains("LEAK"),
         "consumer leaked producer files: {:?}",
@@ -1175,7 +1175,7 @@ async fn step_output_mount_without_declared_dependency_fails_the_step() {
 }
 
 // ===========================================================================
-// Phase 7 — Checker fusion: a REAL fused operation runs the REAL broccoli-compare
+// Phase 7 - Checker fusion: a REAL fused operation runs the REAL broccoli-compare
 // comparator on the mock sandbox, proving the execution wiring end-to-end without
 // Linux isolate. Exercises the three Phase-3 primitives fusion depends on:
 // a FIFO streaming the solution output -> comparator (Stream mode), broccoli-compare
@@ -1188,7 +1188,7 @@ async fn step_output_mount_without_declared_dependency_fails_the_step() {
 
 // A streamed checker (broccoli-compare, testlib) reads the solution output on
 // stdin and drains it to EOF. EOF on a FIFO requires every write end to close,
-// so the consumer's OWN stdin fd must be read-only — a read+write stdin keeps a
+// so the consumer's OWN stdin fd must be read-only - a read+write stdin keeps a
 // writer open and the consumer hangs forever. The real sandbox gives the child a
 // read-only stdin; this test pins that the mock does too. (`head -n1` consumers
 // elsewhere exit early and never exercise EOF, so they don't catch this.)
@@ -1284,7 +1284,7 @@ async fn stdin_fifo_consumer_observes_eof_when_writer_closes() {
 
 /// Copy the built `broccoli-compare` binary into a fresh tools dir for a
 /// PlatformTool mount. Returns `None` (skip the test) if the comparator isn't
-/// built — build it with `cargo build -p broccoli-compare` first.
+/// built - build it with `cargo build -p broccoli-compare` first.
 fn broccoli_compare_tools_dir() -> Option<PathBuf> {
     let manifest = env!("CARGO_MANIFEST_DIR"); // .../packages/worker
     let src = ["debug", "release"]
@@ -1514,7 +1514,7 @@ async fn fused_solution_env_cannot_read_answer() {
 
     // A "cheating" solution probes for the answer in its own env. The answer is
     // ONLY in the checker env, so every probe must miss. Its real output (to the
-    // FIFO) still matches, so the verdict is AC — proving isolation does not
+    // FIFO) still matches, so the verdict is AC - proving isolation does not
     // depend on the solution failing.
     let cheat = "for f in answer.txt expected expected_output.txt ../answer.txt /answer.txt; do \
                  [ -e \"$f\" ] && echo LEAK >&2; done; printf '3 1 4\\n'";

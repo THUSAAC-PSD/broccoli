@@ -858,7 +858,7 @@ impl BroccoliQueue {
                     })?;
 
                 // BROCCOLI VENDOR PATCH (see VENDOR-PATCHES.md): mirror the
-                // concurrent branch — a message that fails to deserialize was
+                // concurrent branch - a message that fails to deserialize was
                 // already popped into the processing queue, so acknowledge it to
                 // avoid a leak instead of `?`-propagating the error out of
                 // `process_messages` (which would kill the consumer loop).

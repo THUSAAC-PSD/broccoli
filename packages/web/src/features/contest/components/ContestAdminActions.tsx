@@ -1,6 +1,7 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Button } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Flame, List, Pencil, Trash2, Users } from 'lucide-react';
@@ -42,7 +43,7 @@ export function ContestAdminActions() {
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [warmOpen, setWarmOpen] = useState(false);
 
-  if (!user?.permissions?.includes('contest:manage') || !contest) return null;
+  if (!user?.permissions?.includes(CONTEST_MANAGE) || !contest) return null;
 
   async function handleDelete() {
     if (!window.confirm(t('admin.deleteConfirm'))) return;

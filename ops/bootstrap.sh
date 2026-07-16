@@ -3,7 +3,7 @@
 # Idempotent: safe to re-run.
 #
 # Args: $1 = host role label (gateway|loadgen|observability|api|postgres|redis|storage|worker)
-#       $2 = admin SSH source IP (e.g. 43.239.95.25) — allowed to reach :22
+#       $2 = admin SSH source IP (e.g. 43.239.95.25) - allowed to reach :22
 #
 # Effects:
 #   - hostname set by DO already (kept)
@@ -21,7 +21,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Wait for any process actually holding the apt/dpkg lock to release it.
 # Don't match by command name (Ubuntu always has unattended-upgrade-shutdown
-# running waiting for shutdown signal — it doesn't hold any lock).
+# running waiting for shutdown signal - it doesn't hold any lock).
 for _ in $(seq 1 60); do
   if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/lib/dpkg/lock >/dev/null 2>&1; then
     break
@@ -51,7 +51,7 @@ systemctl enable --now docker
 systemctl enable --now chrony
 timedatectl set-timezone UTC
 
-# --- sshd: add port 2222 listener (campus blocks SSH→DO on port 22). ---
+# --- sshd: add port 2222 listener (campus blocks SSH->DO on port 22). ---
 # Ubuntu 24.04 uses socket activation; ports come from ssh.socket, not sshd_config.
 mkdir -p /etc/systemd/system/ssh.socket.d
 cat >/etc/systemd/system/ssh.socket.d/listen-extra.conf <<'EOF'

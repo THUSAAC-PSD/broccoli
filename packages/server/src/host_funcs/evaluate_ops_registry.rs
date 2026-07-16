@@ -162,7 +162,7 @@ impl EvaluateBatchOpsRegistry {
 
     /// Marks the given test cases as cancelled within an existing batch and
     /// returns how many were newly marked. If the batch has never recorded any
-    /// operations (or has been removed), this is a no-op — we do not phantom-
+    /// operations (or has been removed), this is a no-op - we do not phantom-
     /// create a batch entry just to hold cancellation state, since the batch
     /// is gone and the entry would leak indefinitely.
     pub fn mark_cancelled(&self, evaluate_batch_id: &str, test_case_ids: &[i32]) -> usize {

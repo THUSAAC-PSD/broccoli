@@ -111,7 +111,7 @@ fn redact_submission_for_level(submission: &mut serde_json::Value, level: Feedba
 
     // List items omit `result`; detail responses include it (possibly null).
     // Adding `result` to the list DTO would silently flip list rows to the
-    // detail-shape redaction path — replace this heuristic with an explicit
+    // detail-shape redaction path - replace this heuristic with an explicit
     // flag if that ever happens.
     let in_list = submission.get("result").is_none();
 

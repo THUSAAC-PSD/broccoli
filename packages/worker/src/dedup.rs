@@ -17,7 +17,7 @@ const OPERATION_DEDUP_SLACK_SECS: u64 = 300;
 ///
 /// Returns:
 ///   1 = claimed (fresh) or refreshed (we already held it)
-///   2 = stolen (previous holder has no live heartbeat — assumed dead)
+///   2 = stolen (previous holder has no live heartbeat - assumed dead)
 ///   0 = held by a live worker; caller should skip
 const CLAIM_SCRIPT: &str = r#"
 local current = redis.call('GET', KEYS[1])
@@ -42,7 +42,7 @@ return 0
 pub enum ClaimOutcome {
     /// We acquired the claim (first time, or refreshed our own).
     Claimed,
-    /// Previous holder had no live heartbeat — we took over.
+    /// Previous holder had no live heartbeat - we took over.
     Stolen,
     /// Another worker holds the claim and is alive.
     HeldByOther,
@@ -198,7 +198,7 @@ mod tests {
 
         assert_eq!(dedup.try_claim(&task_id).await, ClaimOutcome::Claimed);
 
-        // Same worker re-claims → refreshed (Claimed).
+        // Same worker re-claims -> refreshed (Claimed).
         assert_eq!(dedup.try_claim(&task_id).await, ClaimOutcome::Claimed);
 
         dedup.release(&task_id).await;

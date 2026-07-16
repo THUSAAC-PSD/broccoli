@@ -5,7 +5,7 @@
 //!
 //! The `output` side is borrowed as `&mut impl Read` (rather than taken by
 //! value) so that `main` retains ownership of the underlying stdin reader and
-//! can keep draining it to EOF after the verdict is decided (Task 1.6 — avoids
+//! can keep draining it to EOF after the verdict is decided (Task 1.6 - avoids
 //! SIGPIPE-killing a still-running solution). The `answer` side is a file and
 //! is taken by value; it does not need draining.
 
@@ -187,7 +187,7 @@ impl<R: Read> CharStream<R> {
                     ));
                 }
                 // Trailing bytes are a valid *prefix* of a multi-byte code
-                // point — keep them pending until more bytes arrive.
+                // point - keep them pending until more bytes arrive.
                 let valid_up_to = e.valid_up_to();
                 if valid_up_to == 0 {
                     return Ok(());
@@ -224,7 +224,7 @@ pub enum TokenMode {
 
 /// Splits a [`CharStream`] into whitespace-delimited tokens. A "token" is a
 /// maximal run of non-whitespace `char`s; whitespace is anything Rust's
-/// `char::is_whitespace` (Unicode) reports — matching `str::split_whitespace`,
+/// `char::is_whitespace` (Unicode) reports - matching `str::split_whitespace`,
 /// which is what the WASM comparer uses (`util::tokenize`). Leading, trailing,
 /// and repeated whitespace produce no empty tokens.
 struct TokenStream<R: Read> {
@@ -275,7 +275,7 @@ fn tokens_match(expected: &str, actual: &str, mode: &TokenMode) -> bool {
                         diff <= tolerance
                     }
                 }
-                // At least one token is not numeric — compare as strings.
+                // At least one token is not numeric - compare as strings.
                 _ => expected == actual,
             }
         }
@@ -300,7 +300,7 @@ pub fn compare_tokens<O: Read, A: Read>(
 
     loop {
         // Invalid UTF-8 in the SOLUTION output cannot match a (valid UTF-8)
-        // answer, so it is a WrongAnswer — NOT a comparator IO error. A
+        // answer, so it is a WrongAnswer - NOT a comparator IO error. A
         // comparator error exits 64, which the interpreter maps to a checker
         // SystemError and would wrongly reject a legal submission (invariant
         // violation). The ANSWER side keeps `?`: a non-UTF-8 jury answer is a
@@ -514,7 +514,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // tokens — ports of plugins/standard-checkers/src/checkers/tokens.rs tests
+    // tokens - ports of plugins/standard-checkers/src/checkers/tokens.rs tests
     // (and streaming.rs::compare_tokens). Verdict identity is pinned here.
     // -----------------------------------------------------------------------
 
@@ -568,7 +568,7 @@ mod tests {
 
     #[test]
     fn tokens_accepts_large_chunked_output() {
-        // streaming.rs::token_checker_accepts_large_chunked_output — token
+        // streaming.rs::token_checker_accepts_large_chunked_output - token
         // sequences are equal regardless of which whitespace separates them.
         let expected = format!("{} tail", "123 ".repeat(100_000));
         let actual = format!("{} tail", "123\n".repeat(100_000));
@@ -580,7 +580,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // tokens-case-insensitive — ports of checkers/tokens_case.rs tests
+    // tokens-case-insensitive - ports of checkers/tokens_case.rs tests
     // -----------------------------------------------------------------------
 
     fn tokens_ci(output: &[u8], answer: &[u8]) -> Verdict {
@@ -619,7 +619,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // lines — ports of checkers/lines.rs and streaming.rs line tests
+    // lines - ports of checkers/lines.rs and streaming.rs line tests
     // -----------------------------------------------------------------------
 
     fn lines(output: &[u8], answer: &[u8]) -> Verdict {
@@ -682,7 +682,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // tokens-float — ports of checkers/tokens_float.rs tests
+    // tokens-float - ports of checkers/tokens_float.rs tests
     // -----------------------------------------------------------------------
 
     const ABS: f64 = 1e-9;
@@ -754,7 +754,7 @@ mod tests {
 
     #[test]
     fn float_custom_abs_tol_overrides() {
-        // checkers/tokens_float.rs::custom_config_overrides_defaults — with
+        // checkers/tokens_float.rs::custom_config_overrides_defaults - with
         // abs_tol = 1.0 a diff of 0.5 is accepted. (The CLI's --epsilon maps to
         // abs_tol; rel_tol stays at its default.)
         let mut output = b"1.5".as_slice();
@@ -776,7 +776,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // exact — asymmetric chunk carry-over. compare_exact's whole reason for the
+    // exact - asymmetric chunk carry-over. compare_exact's whole reason for the
     // out_lo/out_hi vs ans_lo/ans_hi index bookkeeping is to compare two readers
     // that yield DIFFERENT amounts per read; feed it exactly that.
     // -----------------------------------------------------------------------
@@ -849,7 +849,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Multi-byte UTF-8 split across a read boundary. OneByteAtATime forces
     // CharStream to assemble each multi-byte code point from its partial-prefix
-    // branch (fill() Err/valid_up_to path) — the path real piped stdin hits for
+    // branch (fill() Err/valid_up_to path) - the path real piped stdin hits for
     // any non-ASCII output, previously untested.
     // -----------------------------------------------------------------------
 
@@ -903,7 +903,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // float accept/reject boundary — pins the `<=` at the tolerance edge and the
+    // float accept/reject boundary - pins the `<=` at the tolerance edge and the
     // max(abs_tol, rel_tol*max(|a|,|b|)) formula in both the abs- and rel-driven
     // regimes (all values exactly representable in f64).
     // -----------------------------------------------------------------------
@@ -944,7 +944,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // float — signed and overflow-to-infinity tokens (sign/.abs() handling and
+    // float - signed and overflow-to-infinity tokens (sign/.abs() handling and
     // the non-finite branch for parse-overflow inputs).
     // -----------------------------------------------------------------------
 
@@ -968,7 +968,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // lines — lone CR (not a separator, matching str::lines) and trailing
+    // lines - lone CR (not a separator, matching str::lines) and trailing
     // Unicode whitespace trimming.
     // -----------------------------------------------------------------------
 
@@ -991,7 +991,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // exact — multi-byte content (byte-level identity over non-ASCII).
+    // exact - multi-byte content (byte-level identity over non-ASCII).
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1008,7 +1008,7 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // Invalid UTF-8 on the OUTPUT side is the contestant's fault: their output
-    // cannot match a (valid UTF-8) answer, so it is a WrongAnswer — NOT a
+    // cannot match a (valid UTF-8) answer, so it is a WrongAnswer - NOT a
     // comparator IO error. The interpreter maps a comparator IO error (exit 64)
     // to a checker SystemError, which would wrongly reject a legal submission
     // (invariant violation). The ANSWER side staying a hard error preserves
