@@ -75,18 +75,13 @@ impl IsolateSandboxManager {
 }
 
 impl Default for IsolateSandboxManager {
+    /// Config-free defaults (`isolate` binary, cgroups off) for tests. Production
+    /// injects real settings via `sandbox_manager_from_config`. This deliberately
+    /// does NOT read `WorkerAppConfig::load()` — the sandbox layer must not reach
+    /// up to global app config, and the old code only did so to fall back to
+    /// exactly these values when config was absent.
     fn default() -> Self {
-        let cfg = WorkerAppConfig::load().ok();
-        Self {
-            isolate_bin: cfg
-                .as_ref()
-                .map(|c| c.worker.isolate_bin.clone())
-                .unwrap_or_else(|| "isolate".to_string()),
-            enable_cgroups: cfg.map(|c| c.worker.enable_cgroups).unwrap_or(false),
-            sandboxes: Arc::new(RwLock::new(HashMap::new())),
-            metrics: None,
-            box_cpu_secs: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self::new("isolate".to_string(), false)
     }
 }
 
