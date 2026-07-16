@@ -6,66 +6,6 @@ use crate::load_token_state;
 #[cfg(target_arch = "wasm32")]
 use crate::scoreboard::full_scoreboard_visible_for_phase;
 
-const DETAIL_TEXT_RESPONSE_LIMIT_BYTES: usize = 65_536;
-
-fn cap_detail_text(mut value: String) -> String {
-    if value.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES {
-        return value;
-    }
-
-    let mut end = DETAIL_TEXT_RESPONSE_LIMIT_BYTES;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.truncate(end);
-    value
-}
-
-fn cap_json_string_field(map: &mut serde_json::Map<String, serde_json::Value>, field: &str) {
-    let Some(value) = map.get_mut(field) else {
-        return;
-    };
-    let Some(text) = value.as_str() else {
-        return;
-    };
-    if text.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES {
-        return;
-    }
-    *value = serde_json::Value::String(cap_detail_text(text.to_string()));
-}
-
-fn cap_submission_detail_texts(submission: &mut serde_json::Value) {
-    let Some(result) = submission.get_mut("result").and_then(|v| v.as_object_mut()) else {
-        return;
-    };
-
-    for field in ["compile_output", "error_message"] {
-        cap_json_string_field(result, field);
-    }
-
-    let Some(test_case_results) = result
-        .get_mut("test_case_results")
-        .and_then(|v| v.as_array_mut())
-    else {
-        return;
-    };
-
-    for test_case_result in test_case_results {
-        let Some(test_case_result) = test_case_result.as_object_mut() else {
-            continue;
-        };
-        for field in [
-            "input",
-            "expected_output",
-            "stdout",
-            "stderr",
-            "checker_output",
-        ] {
-            cap_json_string_field(test_case_result, field);
-        }
-    }
-}
-
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn can_view_privileged_submission_feedback(req: &PluginHttpRequest) -> bool {
     req.has_permission("contest:manage") || req.has_permission("submission:view_all")

@@ -3,70 +3,6 @@ pub mod evaluate;
 pub mod persist;
 pub mod standings;
 
-#[cfg(any(target_arch = "wasm32", test))]
-const DETAIL_TEXT_RESPONSE_LIMIT_BYTES: usize = 65_536;
-
-#[cfg(any(target_arch = "wasm32", test))]
-fn cap_detail_text(mut value: String) -> String {
-    if value.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES {
-        return value;
-    }
-
-    let mut end = DETAIL_TEXT_RESPONSE_LIMIT_BYTES;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.truncate(end);
-    value
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-fn cap_json_string_field(map: &mut serde_json::Map<String, serde_json::Value>, field: &str) {
-    let Some(value) = map.get_mut(field) else {
-        return;
-    };
-    let Some(text) = value.as_str() else {
-        return;
-    };
-    if text.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES {
-        return;
-    }
-    *value = serde_json::Value::String(cap_detail_text(text.to_string()));
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-fn cap_submission_detail_texts(submission: &mut serde_json::Value) {
-    let Some(result) = submission.get_mut("result").and_then(|v| v.as_object_mut()) else {
-        return;
-    };
-
-    for field in ["compile_output", "error_message"] {
-        cap_json_string_field(result, field);
-    }
-
-    let Some(test_case_results) = result
-        .get_mut("test_case_results")
-        .and_then(|v| v.as_array_mut())
-    else {
-        return;
-    };
-
-    for test_case_result in test_case_results {
-        let Some(test_case_result) = test_case_result.as_object_mut() else {
-            continue;
-        };
-        for field in [
-            "input",
-            "expected_output",
-            "stdout",
-            "stderr",
-            "checker_output",
-        ] {
-            cap_json_string_field(test_case_result, field);
-        }
-    }
-}
-
 /// Whether a viewer looking at someone ELSE's submission must have its judged
 /// outcome hidden. Enforces on the generic GET /submissions endpoints the same
 /// two scoreboard-integrity rules `handle_standings` enforces on its own view:
@@ -276,35 +212,6 @@ mod filter_tests {
         assert!(result["score"].is_null());
         assert!(result["compile_output"].is_null());
         assert_eq!(result["test_case_results"], serde_json::json!([]));
-    }
-
-    #[test]
-    fn caps_oversized_detail_texts() {
-        let big = "x".repeat(DETAIL_TEXT_RESPONSE_LIMIT_BYTES + 10);
-        let mut sub = serde_json::json!({
-            "result": {
-                "compile_output": big,
-                "test_case_results": [{"checker_output": "y".repeat(DETAIL_TEXT_RESPONSE_LIMIT_BYTES * 2)}]
-            }
-        });
-        cap_submission_detail_texts(&mut sub);
-        let capped = sub["result"]["compile_output"].as_str().unwrap();
-        assert_eq!(capped.len(), DETAIL_TEXT_RESPONSE_LIMIT_BYTES);
-        let tc = sub["result"]["test_case_results"][0]["checker_output"]
-            .as_str()
-            .unwrap();
-        assert_eq!(tc.len(), DETAIL_TEXT_RESPONSE_LIMIT_BYTES);
-    }
-
-    #[test]
-    fn cap_respects_char_boundaries() {
-        // Multi-byte char straddling the limit must not split.
-        let mut s = "a".repeat(DETAIL_TEXT_RESPONSE_LIMIT_BYTES - 1);
-        s.push('é'); // 2 bytes, crosses the boundary
-        s.push_str("tail");
-        let capped = cap_detail_text(s);
-        assert!(capped.len() <= DETAIL_TEXT_RESPONSE_LIMIT_BYTES);
-        assert!(capped.is_char_boundary(capped.len()));
     }
 }
 

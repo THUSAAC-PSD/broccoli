@@ -1,5 +1,6 @@
 pub mod api;
 pub mod contest;
+pub mod visibility;
 
 // The wire/domain types and SdkError live in the dependency-light `broccoli-types`
 // crate at the bottom of the graph. Re-export them here so the published guest SDK
@@ -23,6 +24,7 @@ pub mod prelude {
     pub use crate::api::ApiError;
     pub use crate::error::SdkError;
     pub use crate::types::*;
+    pub use crate::visibility::{DETAIL_TEXT_RESPONSE_LIMIT_BYTES, cap_submission_detail_texts};
 
     #[cfg(target_arch = "wasm32")]
     pub use crate::api::run_api_handler;
