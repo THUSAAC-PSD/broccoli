@@ -120,7 +120,11 @@ export function AuthProvider({
     };
 
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === sessionStatusKey && event.newValue == null) {
+      // Another tab signalled logout: `clearSession` writes the string 'false'
+      // (and a removal yields null), so treat anything that is not 'true' as
+      // logged-out. Checking only for null missed the 'false' write, leaving
+      // sibling tabs authenticated after a logout on a shared machine.
+      if (event.key === sessionStatusKey && event.newValue !== 'true') {
         clearSession();
       }
     };
