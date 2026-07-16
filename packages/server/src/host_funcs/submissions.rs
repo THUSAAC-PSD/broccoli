@@ -134,7 +134,7 @@ fn ok_affected(n: u64) -> Result<String, extism::Error> {
 host_fn!(pub submission_update(user_data: (String, DatabaseConnection); input: String) -> String {
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone())
     };
     let span = super::host_fn_span("submission_update", &plugin_id);
@@ -248,7 +248,7 @@ host_fn!(pub submission_update(user_data: (String, DatabaseConnection); input: S
 host_fn!(pub submission_insert_results(user_data: (String, DatabaseConnection); input: String) -> String {
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone())
     };
     let span = super::host_fn_span("submission_insert_results", &plugin_id);
@@ -312,7 +312,7 @@ host_fn!(pub submission_insert_results(user_data: (String, DatabaseConnection); 
 host_fn!(pub submission_delete_results(user_data: (String, DatabaseConnection); input: String) -> String {
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone())
     };
     let span = super::host_fn_span("submission_delete_results", &plugin_id);
@@ -336,7 +336,7 @@ host_fn!(pub submission_delete_results(user_data: (String, DatabaseConnection); 
 host_fn!(pub submission_query_test_cases(user_data: (String, DatabaseConnection); input: String) -> String {
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone())
     };
     let span = super::host_fn_span("submission_query_test_cases", &plugin_id);

@@ -29,7 +29,7 @@ struct StoreGetInput {
 
 host_fn!(pub store_get(user_data: (String, DatabaseConnection); input: String) -> String {
     let user_data_guard = user_data.get()?;
-    let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+    let user_data = super::lock_or_poison(&user_data_guard)?;
     let (plugin_id, db) = &*user_data;
     let span = super::host_fn_span("store_get", plugin_id);
     let _enter = span.enter();
@@ -77,7 +77,7 @@ struct StoreSetInput {
 
 host_fn!(pub store_set(user_data: (String, DatabaseConnection); input: String) -> () {
     let user_data_guard = user_data.get()?;
-    let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+    let user_data = super::lock_or_poison(&user_data_guard)?;
     let (plugin_id, db) = &*user_data;
     let span = super::host_fn_span("store_set", plugin_id);
     let _enter = span.enter();
@@ -138,7 +138,7 @@ struct StoreDeleteInput {
 
 host_fn!(pub store_delete(user_data: (String, DatabaseConnection); input: String) -> () {
     let user_data_guard = user_data.get()?;
-    let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+    let user_data = super::lock_or_poison(&user_data_guard)?;
     let (plugin_id, db) = &*user_data;
     let span = super::host_fn_span("store_delete", plugin_id);
     let _enter = span.enter();
@@ -177,7 +177,7 @@ struct StoreCasInput {
 
 host_fn!(pub store_compare_and_set(user_data: (String, DatabaseConnection); input: String) -> String {
     let user_data_guard = user_data.get()?;
-    let user_data = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+    let user_data = super::lock_or_poison(&user_data_guard)?;
     let (plugin_id, db) = &*user_data;
     let span = super::host_fn_span("store_compare_and_set", plugin_id);
     let _enter = span.enter();

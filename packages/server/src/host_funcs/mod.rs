@@ -21,6 +21,16 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Semaphore;
 use tracing::Span;
 
+/// Acquire a `std::sync::Mutex` guard, mapping a poison error to an Extism host
+/// error. Deduplicates the
+/// `.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?` idiom repeated
+/// across the raw host functions.
+pub(crate) fn lock_or_poison<T>(
+    m: &StdMutex<T>,
+) -> Result<std::sync::MutexGuard<'_, T>, extism::Error> {
+    m.lock().map_err(|_| extism::Error::msg("Lock poisoned"))
+}
+
 // regression guard, see UP#14g
 //
 // Available for any future host_fn that re-introduces a `block_in_place`

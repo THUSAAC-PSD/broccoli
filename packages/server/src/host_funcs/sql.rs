@@ -461,7 +461,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     // anti-pattern. `db_begin` already clones-then-releases; match it here.
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone())
     };
     let span = super::host_fn_span("db_execute", &plugin_id);
@@ -525,7 +525,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
 host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args: String) -> String {
     let (plugin_id, db) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone())
     };
     let span = super::host_fn_span("db_query", &plugin_id);
@@ -588,7 +588,7 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
 host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _input: String) -> String {
     let (plugin_id, db, txn_map) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.1.clone(), ctx.2.clone())
     };
     let span = super::host_fn_span("db_begin", &plugin_id);
@@ -639,7 +639,7 @@ host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _
 host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
     let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.2.clone())
     };
     let span = super::host_fn_span("db_query_in", &plugin_id);
@@ -679,7 +679,7 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
 host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String, sql: String, args: String) -> String {
     let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.2.clone())
     };
     let span = super::host_fn_span("db_execute_in", &plugin_id);
@@ -719,7 +719,7 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
 host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
     let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.2.clone())
     };
     let span = super::host_fn_span("db_commit", &plugin_id);
@@ -748,7 +748,7 @@ host_fn!(pub db_commit(user_data: (String, DatabaseConnection, TransactionMap); 
 host_fn!(pub db_rollback(user_data: (String, DatabaseConnection, TransactionMap); txn_id: String) -> String {
     let (plugin_id, txn_map) = {
         let user_data_guard = user_data.get()?;
-        let ctx = user_data_guard.lock().map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        let ctx = super::lock_or_poison(&user_data_guard)?;
         (ctx.0.clone(), ctx.2.clone())
     };
     let span = super::host_fn_span("db_rollback", &plugin_id);
