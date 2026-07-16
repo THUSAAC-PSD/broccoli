@@ -13,6 +13,7 @@ pub mod hooks;
 pub mod host_funcs;
 pub mod manager;
 pub mod middleware;
+pub mod migration;
 pub mod models;
 pub mod registry;
 pub mod routes;

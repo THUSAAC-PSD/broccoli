@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbErr};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr};
+use sea_orm_migration::MigratorTrait;
+
+use crate::migration::Migrator;
 
 pub async fn init_db(db_url: &str) -> Result<DatabaseConnection, DbErr> {
     init_db_with_max_connections(db_url, 100).await
@@ -143,139 +146,18 @@ pub async fn init_db_with_max_connections(
 
     let db = Database::connect(opt).await?;
 
-    let _ = db
-        .execute_unprepared(r#"CREATE EXTENSION IF NOT EXISTS pg_stat_statements"#)
-        .await;
-
-    let _ = db
-        .execute_unprepared(
-            r#"ALTER TABLE IF EXISTS "user" DROP CONSTRAINT IF EXISTS user_username_key"#,
-        )
-        .await;
-    let _ = db
-        .execute_unprepared(
-            r#"ALTER TABLE IF EXISTS "problem" DROP CONSTRAINT IF EXISTS problem_title_key"#,
-        )
-        .await;
-    let _ = db
-        .execute_unprepared(
-            r#"ALTER TABLE IF EXISTS "contest" DROP CONSTRAINT IF EXISTS contest_title_key"#,
-        )
-        .await;
-
+    // Create/update the core tables from the entity definitions.
     db.get_schema_registry("server::entity::*")
         .sync(&db)
         .await?;
 
-    for stmt in [
-        r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "input_blob_hash" TEXT"#,
-        r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "expected_output_blob_hash" TEXT"#,
-        r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "input_size" BIGINT"#,
-        r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "expected_output_size" BIGINT"#,
-        r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "input_preview" TEXT"#,
-        r#"ALTER TABLE IF EXISTS "test_case" ADD COLUMN IF NOT EXISTS "expected_output_preview" TEXT"#,
-        // DEFAULT false is a security requirement: every pre-existing problem
-        // must backfill to non-public so no draft is silently exposed.
-        r#"ALTER TABLE IF EXISTS "problem" ADD COLUMN IF NOT EXISTS "is_public" BOOLEAN NOT NULL DEFAULT false"#,
-        // The checker source moved to problem-scoped plugin config
-        // (`standard-checkers:checker_source`); drop the legacy problem column.
-        r#"ALTER TABLE IF EXISTS "problem" DROP COLUMN IF EXISTS "checker_source""#,
-        // Refresh-token reuse detection: a rotated token is retained with this
-        // set rather than deleted, so a replay can be detected as theft.
-        r#"ALTER TABLE IF EXISTS "refresh_tokens" ADD COLUMN IF NOT EXISTS "revoked_at" TIMESTAMPTZ"#,
-    ] {
-        db.execute_unprepared(stmt).await?;
-    }
-
-    let _ = db
-        .execute_unprepared(
-            r#"INSERT INTO "clarification_reply" ("clarification_id", "author_id", "content", "is_public", "created_at")
-               SELECT "id", "reply_author_id", "reply_content", "reply_is_public", "replied_at"
-               FROM "clarification"
-               WHERE "reply_content" IS NOT NULL
-                 AND "reply_author_id" IS NOT NULL
-                 AND NOT EXISTS (
-                   SELECT 1 FROM "clarification_reply" cr
-                   WHERE cr."clarification_id" = "clarification"."id"
-                 )"#,
-        )
-        .await;
-
-    // --- Phase 2 SQL-capability lockdown: the `broccoli_plugin` role ---------
-    //
-    // The raw `sql` plugin capability (`host.db.*`) runs on a pool that
-    // `SET ROLE broccoli_plugin` per connection (see `init_plugin_db`).
-    // `broccoli_plugin` is a NOLOGIN role the app role is a MEMBER of: it may
-    // READ every core table but has NO write DML on them and, as a non-owner,
-    // cannot DROP/ALTER them. A plugin's OWN tables (created via raw
-    // `CREATE TABLE` under this role) are owned by `broccoli_plugin`, so the
-    // plugin retains full read/write/DDL on them; legitimate core WRITES keep
-    // working via the gated host fns on the privileged pool. These statements
-    // run on the privileged MAIN pool AFTER the schema sync above, so
-    // `ALL TABLES` covers every core table, and they are idempotent — safe to
-    // re-run on every boot. NOTE: no INSERT/UPDATE/DELETE is granted on any core
-    // table, which is exactly what the negative security test relies on.
-    for stmt in [
-        "DO $$ BEGIN CREATE ROLE broccoli_plugin NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;",
-        "GRANT broccoli_plugin TO CURRENT_USER",
-        "GRANT USAGE, CREATE ON SCHEMA public TO broccoli_plugin",
-        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO broccoli_plugin",
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO broccoli_plugin",
-        // Existing-DB upgrade: bundled plugin tables created before this change
-        // are owned by the app role, which would leave them read-only under
-        // `broccoli_plugin`. Reassign just those tables (never core) to the role
-        // so the plugins keep write access; on a fresh DB the plugin's own
-        // `CREATE TABLE` already creates them owned by the role, so these are
-        // idempotent no-ops. `REASSIGN OWNED` is deliberately NOT used — it would
-        // also hand core tables to the role and re-open DROP/ALTER.
-        "ALTER TABLE IF EXISTS submission_limit_claim OWNER TO broccoli_plugin",
-        "ALTER TABLE IF EXISTS cooldown_claim OWNER TO broccoli_plugin",
-        "ALTER TABLE IF EXISTS print_job OWNER TO broccoli_plugin",
-        "ALTER TABLE IF EXISTS print_station OWNER TO broccoli_plugin",
-    ] {
-        db.execute_unprepared(stmt).await?;
-    }
-
-    // --- SQL-capability read narrowing: curated view + sensitive-table revokes -
-    //
-    // `GRANT SELECT ON ALL TABLES` above lets raw plugin SQL read EVERY core
-    // table, including credentials (`user.password`), auth tokens
-    // (`refresh_tokens`), authz config (`role`/`role_permission`/`user_role`),
-    // and OTHER plugins' private rows (`plugin_config`/`plugin_storage`, whose
-    // structured host fns are per-plugin scoped — raw SQL bypassed that
-    // isolation). No contest plugin legitimately reads any of these. Revoke
-    // SELECT on them (a deny-list layered on the blanket grant) and expose only a
-    // curated, PII-free view of `user` for plugins that must resolve a display
-    // name. `config:read`/`storage` reads already moved to the privileged pool,
-    // so they keep serving each plugin its OWN rows.
-    //
-    // The revoke runs per table inside an exception-guarded loop so a table that
-    // does not exist yet (schema evolution) is skipped rather than failing boot.
-    //
-    // Residual (documented): `ALTER DEFAULT PRIVILEGES ... GRANT SELECT` above
-    // still auto-grants SELECT on FUTURE tables, so a newly added sensitive core
-    // table must be added to this revoke list. Flipping to a pure allow-list is a
-    // larger, plugin-ecosystem-breaking change left for a future phase.
-    for stmt in [
-        r#"CREATE OR REPLACE VIEW plugin_user_public AS SELECT id, username FROM "user" WHERE deleted_at IS NULL"#,
-        "GRANT SELECT ON plugin_user_public TO broccoli_plugin",
-        r#"DO $$
-           DECLARE t text;
-           BEGIN
-             FOREACH t IN ARRAY ARRAY[
-               'user', 'refresh_tokens', 'role', 'role_permission', 'user_role',
-               'plugin', 'plugin_config', 'plugin_storage', 'idempotency_key',
-               'dead_letter_message'
-             ] LOOP
-               BEGIN
-                 EXECUTE format('REVOKE SELECT ON %I FROM broccoli_plugin', t);
-               EXCEPTION WHEN undefined_table THEN NULL;
-               END;
-             END LOOP;
-           END $$;"#,
-    ] {
-        db.execute_unprepared(stmt).await?;
-    }
+    // Apply the versioned, tracked supplementary DDL (column evolutions, the
+    // one-time data backfill, and the `broccoli_plugin` least-privilege role +
+    // read-narrowing grants/view) that the entity `sync()` above does not cover.
+    // Recorded in `seaql_migrations` so each runs once and its failures surface
+    // instead of being swallowed; idempotent, so an existing deployment records
+    // them as no-ops on first run. See `crate::migration`.
+    Migrator::up(&db, None).await?;
 
     Ok(db)
 }
@@ -283,6 +165,7 @@ pub async fn init_db_with_max_connections(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm::ConnectionTrait;
 
     /// SECURITY — phase 2 of the SQL-capability redesign.
     ///

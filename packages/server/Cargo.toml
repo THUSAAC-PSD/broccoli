@@ -37,6 +37,7 @@ sea-orm = { workspace = true, features = [
   "entity-registry",
   "with-uuid",
 ] }
+sea-orm-migration.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
