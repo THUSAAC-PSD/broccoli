@@ -308,6 +308,82 @@ fn sanitize_nul_bytes(s: String, plugin_id: &str, sql: &str) -> String {
     }
 }
 
+/// Strip `--` line comments and `/* */` block comments so a role-manipulation
+/// keyword cannot hide behind a comment. Not string-literal-aware, but the role
+/// guard fails CLOSED, so at worst this rejects a benign statement whose SQL
+/// text contains a comment marker (plugin-authored SQL structure only -- user
+/// data arrives as bound params, never in the statement text).
+fn strip_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek() == Some(&'-') => {
+                for n in chars.by_ref() {
+                    if n == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = '\0';
+                for n in chars.by_ref() {
+                    if prev == '*' && n == '/' {
+                        break;
+                    }
+                    prev = n;
+                }
+                out.push(' ');
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Reject a raw plugin-`sql`-capability statement that changes the session role
+/// or authorization, or runs an anonymous code block. The restricted pool
+/// confines plugins with a session-level `SET ROLE broccoli_plugin`
+/// (`database.rs`), but that is REVERSIBLE: without this guard a plugin could
+/// `RESET ROLE` / `SET ROLE <app-role>` / `SELECT set_config('role', ...)` /
+/// `DISCARD ALL` -- directly, inside a `DO` block, or in a function body it then
+/// calls -- to escape back to the privileged login role and gain full write/DDL
+/// on core tables and SELECT on PII. We fail closed on any occurrence of these
+/// constructs anywhere in the comment-stripped statement. (The fully robust fix
+/// is a dedicated unprivileged LOGIN role for the restricted pool, so there is
+/// no privileged `session_user` to fall back to; this guard closes the escape
+/// on the default single-credential deployment.) Applied ONLY to the raw
+/// plugin-authored entry points, never to the server-owned privileged writes.
+fn reject_role_escalation(plugin_id: &str, sql: &str) -> Result<(), extism::Error> {
+    let scrubbed = strip_sql_comments(sql).to_ascii_lowercase();
+    let first_keyword: String = scrubbed
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
+    let blocked = matches!(first_keyword.as_str(), "set" | "reset" | "discard" | "do")
+        || scrubbed.contains("set role")
+        || scrubbed.contains("reset role")
+        || scrubbed.contains("reset all")
+        || scrubbed.contains("reset session")
+        || scrubbed.contains("set session authorization")
+        || scrubbed.contains("set session_authorization")
+        || scrubbed.contains("set_config(");
+    if blocked {
+        tracing::warn!(
+            plugin_id,
+            sql = %sql.chars().take(120).collect::<String>(),
+            "Rejected a role/session-authorization change on the restricted plugin SQL path",
+        );
+        return Err(extism::Error::msg(
+            "not permitted on the plugin SQL capability: SET/RESET ROLE, SET SESSION AUTHORIZATION, set_config, DISCARD, and anonymous code blocks are forbidden",
+        ));
+    }
+    Ok(())
+}
+
 fn sanitize_sql_text(label: &str, plugin_id: &str, sql: String) -> String {
     if sql.contains('\0') {
         let nul_count = sql.matches('\0').count();
@@ -468,6 +544,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
+    reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
     let mut values = parse_args(&args, &plugin_id, &sql)?;
     let stripped = strip_nul_from_sea_values(&mut values, &plugin_id, &sql);
@@ -532,6 +609,7 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
+    reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
     let values = parse_args(&args, &plugin_id, &sql)?;
     let wrapped_sql = format!(
@@ -646,6 +724,7 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
     let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
+    reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
     let values = parse_args(&args, &plugin_id, &sql)?;
     let wrapped_sql = format!(
@@ -686,6 +765,7 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
     let _enter = span.enter();
 
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
+    reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
     let mut values = parse_args(&args, &plugin_id, &sql)?;
     let stripped = strip_nul_from_sea_values(&mut values, &plugin_id, &sql);
@@ -914,6 +994,47 @@ pub(super) fn query_on_pool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn role_escalation_guard_blocks_every_escape_vector() {
+        for sql in [
+            "RESET ROLE",
+            "reset role",
+            "SET ROLE app_role",
+            "set role \"app\"",
+            "RESET ALL",
+            "DISCARD ALL",
+            "SET SESSION AUTHORIZATION app_role",
+            "SELECT set_config('role', 'app_role', false)",
+            "/* sneaky */ RESET ROLE",
+            "-- c\nRESET ROLE",
+            "DO $$ BEGIN EXECUTE 'reset role'; END $$",
+            "CREATE FUNCTION f() RETURNS void AS $$ RESET ROLE $$ LANGUAGE sql",
+        ] {
+            assert!(
+                reject_role_escalation("p", sql).is_err(),
+                "should have blocked: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn role_escalation_guard_allows_normal_plugin_sql() {
+        for sql in [
+            "SELECT * FROM submission WHERE id = $1",
+            "INSERT INTO my_plugin_table (k, v) VALUES ($1, $2)",
+            "UPDATE my_plugin_table SET v = $1 WHERE k = $2",
+            "CREATE TABLE my_plugin_table (k TEXT PRIMARY KEY, v INT)",
+            "ALTER TABLE my_plugin_table SET (fillfactor = 90)",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "DELETE FROM my_plugin_table WHERE k = $1",
+        ] {
+            assert!(
+                reject_role_escalation("p", sql).is_ok(),
+                "should have allowed: {sql}"
+            );
+        }
+    }
 
     #[test]
     fn detects_poisoned_connection_nul_error() {
