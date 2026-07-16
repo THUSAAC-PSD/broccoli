@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import { useSubmitGating } from '@broccoli/web-sdk/submission';
@@ -271,7 +272,7 @@ function CodeEditorContent({
   latestRun,
   isFullscreen,
   onToggleFullscreen,
-  storageKey,
+  storageKey: storageKeyProp,
   contestType,
   onContestTypeChange,
   contestTypes,
@@ -279,6 +280,15 @@ function CodeEditorContent({
   supportedLanguages,
 }: CodeEditorProps & { supportedLanguages: Language[] }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // Scope the localStorage draft keys by the signed-in user, so a shared
+  // contest machine never surfaces one contestant's in-progress solution to the
+  // next. Falls back to the raw key when unauthenticated (no cross-user
+  // identity to protect, and such a draft cannot be submitted anyway).
+  const storageKey =
+    storageKeyProp && user?.id != null
+      ? `u${user.id}:${storageKeyProp}`
+      : storageKeyProp;
   const gating = useSubmitGating();
   const isGated = gating?.isBlocked ?? false;
 
