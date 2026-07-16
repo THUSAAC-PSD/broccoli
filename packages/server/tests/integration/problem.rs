@@ -716,7 +716,14 @@ mod test_case_creation {
         assert_eq!(res.body["label"], "large_input");
         assert_eq!(res.body["input"], large_input);
         assert_eq!(res.body["input_size"], large_input.len());
-        assert_eq!(res.body["input_preview"].as_str().unwrap().len(), 100);
+        // A truncated body's preview is the first 100 chars plus a "..." marker
+        // (see `truncate_preview`); the 100-char core is a genuine prefix.
+        let input_preview = res.body["input_preview"].as_str().unwrap();
+        let core = input_preview
+            .strip_suffix("...")
+            .expect("truncated preview is marked");
+        assert_eq!(core.chars().count(), 100);
+        assert!(large_input.starts_with(core));
 
         let tc_id = res.id();
         let get_res = app
@@ -728,10 +735,12 @@ mod test_case_creation {
 
         let list_res = app.get_with_token(&routes::test_cases(pid), &token).await;
         assert_eq!(list_res.status, 200, "list body: {}", list_res.body);
-        assert_eq!(
-            list_res.body[0]["input_preview"].as_str().unwrap().len(),
-            100
-        );
+        let list_preview = list_res.body[0]["input_preview"].as_str().unwrap();
+        let list_core = list_preview
+            .strip_suffix("...")
+            .expect("truncated preview is marked");
+        assert_eq!(list_core.chars().count(), 100);
+        assert!(large_input.starts_with(list_core));
     }
 
     #[tokio::test]
@@ -999,8 +1008,11 @@ mod test_case_listing {
 
         assert_eq!(res.status, 200);
         let preview = res.body[0]["input_preview"].as_str().unwrap();
-        assert_eq!(preview.len(), 100);
-        assert!(long_input.starts_with(preview));
+        let core = preview
+            .strip_suffix("...")
+            .expect("truncated preview is marked");
+        assert_eq!(core.chars().count(), 100);
+        assert!(long_input.starts_with(core));
     }
 
     #[tokio::test]
@@ -1030,8 +1042,13 @@ mod test_case_listing {
         assert_eq!(res.status, 200);
 
         let preview = res.body[0]["input_preview"].as_str().unwrap();
-        assert_eq!(preview.chars().count(), 100);
-        assert!(unicode_input.starts_with(preview));
+        // Char-boundary-safe: the multibyte body truncates cleanly to 100 chars
+        // before the "..." marker, and that core is a genuine prefix.
+        let core = preview
+            .strip_suffix("...")
+            .expect("truncated preview is marked");
+        assert_eq!(core.chars().count(), 100);
+        assert!(unicode_input.starts_with(core));
     }
 }
 
@@ -1209,7 +1226,12 @@ mod test_case_update {
         assert_eq!(res.status, 200, "patch body: {}", res.body);
         assert_eq!(res.body["expected_output"], large_output);
         assert_eq!(res.body["output_size"], large_output.len());
-        assert_eq!(res.body["output_preview"].as_str().unwrap().len(), 100);
+        let output_preview = res.body["output_preview"].as_str().unwrap();
+        let core = output_preview
+            .strip_suffix("...")
+            .expect("truncated preview is marked");
+        assert_eq!(core.chars().count(), 100);
+        assert!(large_output.starts_with(core));
 
         let get_res = app
             .get_with_token(&routes::test_case(pid, tc_id), &token)
@@ -2343,7 +2365,7 @@ mod problem_contest_access {
             .create_authenticated_user("contestant_pca2", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Future Problem").await;
+        let pid = app.create_hidden_problem(&admin, "Future Problem").await;
 
         let body = json!({
             "title": "Future Contest",
@@ -2373,7 +2395,7 @@ mod problem_contest_access {
             .create_authenticated_user("outsider_pca3", "password123")
             .await;
 
-        let pid = app.create_problem(&admin, "Private Problem").await;
+        let pid = app.create_hidden_problem(&admin, "Private Problem").await;
         let cid = app
             .create_contest(&admin, "Private Contest", false, true)
             .await;

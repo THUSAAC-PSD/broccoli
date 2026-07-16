@@ -1014,11 +1014,42 @@ impl TestApp {
                     "memory_limit": 262144,
                     "problem_type": "standard",
                     "checker_format": "exact",
+                    // Public so a contestant can read/submit to the standalone
+                    // problem; `require_problem_read_access` (correctly) hides
+                    // non-public problems. Tests that specifically exercise the
+                    // hiding behavior use `create_hidden_problem` instead.
+                    "is_public": true,
                 }),
                 token,
             )
             .await;
         assert_eq!(res.status, 201, "create_problem failed: {}", res.text);
+        res.id()
+    }
+
+    /// Like [`Self::create_problem`] but non-public, for tests that assert a
+    /// contestant cannot reach a hidden/unreleased problem.
+    pub async fn create_hidden_problem(&self, token: &str, title: &str) -> i32 {
+        let res = self
+            .post_with_token(
+                routes::PROBLEMS,
+                &serde_json::json!({
+                    "title": title,
+                    "content": "## Description\nSolve this.",
+                    "time_limit": 1000,
+                    "memory_limit": 262144,
+                    "problem_type": "standard",
+                    "checker_format": "exact",
+                    "is_public": false,
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(
+            res.status, 201,
+            "create_hidden_problem failed: {}",
+            res.text
+        );
         res.id()
     }
 

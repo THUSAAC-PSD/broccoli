@@ -557,6 +557,9 @@ mod submission_listing {
                     "submission_format": {
                         "cpp": ["main.cpp", "grader.cpp"]
                     },
+                    // Public so the contestant reaches format validation rather
+                    // than the read-access gate (which 404s hidden problems).
+                    "is_public": true,
                 }),
                 &admin_token,
             )
