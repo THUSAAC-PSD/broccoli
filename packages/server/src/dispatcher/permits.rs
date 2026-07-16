@@ -89,7 +89,7 @@ impl DispatcherSemaphore {
 
     fn reserve_queued_slot(&self) -> Result<(), DispatcherOverloaded> {
         self.queued
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 (current < self.max_queued).then_some(current + 1)
             })
             .map(|_| ())
