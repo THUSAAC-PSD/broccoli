@@ -88,6 +88,7 @@ export function DeviceAuthPage() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [step, setStep] = useState<'enter' | 'confirm'>('enter');
   const [focusedIndex, setFocusedIndex] = useState(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -184,8 +185,18 @@ export function DeviceAuthPage() {
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  // Step 1 -> 2: the code entry never authorizes on its own. It moves to an
+  // explicit consent screen so a user tricked into typing an attacker's code
+  // must still knowingly approve granting a device access to their account.
+  const handleContinue = (e: FormEvent) => {
     e.preventDefault();
+    if (!isCodeComplete) return;
+    setError('');
+    setStep('confirm');
+  };
+
+  // Step 2: the user has seen what they are granting and explicitly approves.
+  const handleAuthorize = async () => {
     setError('');
     setIsSubmitting(true);
 
@@ -206,11 +217,14 @@ export function DeviceAuthPage() {
         } else {
           setError(errorBody?.message || t('auth.device.error'));
         }
+        // Send the user back to re-check the code they entered.
+        setStep('enter');
       } else {
         setIsAuthorized(true);
       }
     } catch {
       setError(t('auth.device.error'));
+      setStep('enter');
     } finally {
       setIsSubmitting(false);
     }
@@ -275,6 +289,127 @@ export function DeviceAuthPage() {
               className="inline-block h-3.5 w-1.5 rounded-sm bg-primary"
               style={{ animation: 'success-pulse 1.2s ease-in-out infinite' }}
             />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'confirm') {
+    const permissions = user.permissions ?? [];
+    return (
+      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(600px circle at 50% 30%, hsl(var(--primary) / 0.05), transparent 70%)',
+          }}
+        />
+
+        <div className="relative z-10 w-full max-w-md">
+          <div className="rounded-xl border border-border/60 bg-card px-5 py-6 shadow-xs sm:px-7">
+            <div className="mb-5 flex flex-col items-center gap-3 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-border/60 bg-card">
+                <TerminalIcon className="h-5 w-5 text-primary" />
+              </div>
+              <h1 className="text-lg font-semibold tracking-tight text-foreground">
+                {t('auth.device.confirmTitle')}
+              </h1>
+            </div>
+
+            <div className="mb-4 rounded-lg border border-border/50 bg-background/50 px-4 py-3 text-center">
+              <p className="text-xs text-muted-foreground">
+                {t('auth.device.confirmIdentity')}
+              </p>
+              <p className="mt-1 font-mono text-base font-semibold text-foreground">
+                {user.username}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {permissions.length > 0
+                  ? t('auth.device.confirmPermissionsLabel')
+                  : t('auth.device.confirmNoPermissions')}
+              </p>
+              {permissions.length > 0 && (
+                <div className="mt-2 flex flex-wrap justify-center gap-1">
+                  {permissions.map((p) => (
+                    <span
+                      key={p}
+                      className="rounded-full border border-border/60 bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
+                    >
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mb-5 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2.5">
+              <svg
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.75 4a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0V5zm.75 6.25a.75.75 0 100-1.5.75.75 0 000 1.5z" />
+              </svg>
+              <p className="text-xs leading-relaxed text-destructive">
+                {t('auth.device.confirmWarning')}
+              </p>
+            </div>
+
+            {error && (
+              <div className="mb-4 text-center text-xs text-destructive">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setError('');
+                  setStep('enter');
+                }}
+              >
+                {t('auth.device.confirmBack')}
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={isSubmitting}
+                onClick={handleAuthorize}
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <svg
+                      className="h-4 w-4 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    {t('auth.device.authorizing')}
+                  </span>
+                ) : (
+                  t('auth.device.confirmAuthorize')
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -376,7 +511,7 @@ export function DeviceAuthPage() {
               : 'fade-up 0.6s ease-out 0.1s both',
           }}
         >
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleContinue}>
             <label className="mb-3 block text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t('auth.device.codeLabel')}
             </label>
@@ -441,37 +576,8 @@ export function DeviceAuthPage() {
               </div>
             )}
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isSubmitting || !isCodeComplete}
-            >
-              {isSubmitting ? (
-                <span className="flex items-center gap-2">
-                  <svg
-                    className="h-4 w-4 animate-spin"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  {t('auth.device.authorizing')}
-                </span>
-              ) : (
-                t('auth.device.authorize')
-              )}
+            <Button type="submit" className="w-full" disabled={!isCodeComplete}>
+              {t('auth.device.continue')}
             </Button>
           </form>
         </div>

@@ -336,7 +336,16 @@ export const en: Record<string, string> = {
     'Enter the code displayed in your terminal to authorize the CLI.',
   'auth.device.codeLabel': 'Code',
   'auth.device.authorize': 'Authorize',
+  'auth.device.continue': 'Continue',
   'auth.device.authorizing': 'Authorizing…',
+  'auth.device.confirmTitle': 'Authorize this device?',
+  'auth.device.confirmIdentity': 'A device will be able to sign in as',
+  'auth.device.confirmPermissionsLabel': 'with your account permissions',
+  'auth.device.confirmNoPermissions': 'with your account access',
+  'auth.device.confirmWarning':
+    'Only continue if you just started a CLI login (broccoli login) on a device you control. If you did not start this, do not authorize — someone may be trying to take over your account.',
+  'auth.device.confirmAuthorize': 'Authorize device',
+  'auth.device.confirmBack': 'Back',
   'auth.device.successTitle': 'CLI Authorized',
   'auth.device.successMessage':
     'Your CLI has been authorized. You can close this page.',
