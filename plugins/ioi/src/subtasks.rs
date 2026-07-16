@@ -33,6 +33,27 @@ fn test_case_weights(test_cases: &[TestCaseRow]) -> HashMap<String, f64> {
     weights
 }
 
+/// Make every scored test case reachable by BOTH its label and its numeric id.
+/// The incoming `tc_scores` map is keyed by label only, but a `SubtaskDef` may
+/// reference a member by numeric id (e.g. `"42"`); without this the id-keyed
+/// lookup misses and the member silently scores 0 (dragging `Sum`, zeroing
+/// `GroupMin`/`GroupMul`). Mirrors [`test_case_weights`], which already keys by
+/// both via [`test_case_reference_keys`].
+fn scores_by_all_keys(
+    test_cases: &[TestCaseRow],
+    tc_scores: &HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    let mut out = tc_scores.clone();
+    for tc in test_cases {
+        if let Some(&score) = tc_scores.get(&resolve_tc_label(tc)) {
+            for key in test_case_reference_keys(tc) {
+                out.entry(key).or_insert(score);
+            }
+        }
+    }
+    out
+}
+
 /// Score a single subtask using the configured method.
 pub fn score_subtask(
     def: &SubtaskDef,
@@ -40,7 +61,8 @@ pub fn score_subtask(
     tc_scores: &HashMap<String, f64>,
 ) -> SubtaskResult {
     let weights = test_case_weights(test_cases);
-    score_subtask_with_weights(def, &weights, tc_scores)
+    let tc_scores = scores_by_all_keys(test_cases, tc_scores);
+    score_subtask_with_weights(def, &weights, &tc_scores)
 }
 
 fn score_subtask_with_weights(
@@ -101,8 +123,9 @@ pub fn score_all_subtasks(
     tc_scores: &HashMap<String, f64>,
 ) -> Vec<SubtaskResult> {
     let weights = test_case_weights(test_cases);
+    let tc_scores = scores_by_all_keys(test_cases, tc_scores);
     defs.iter()
-        .map(|def| score_subtask_with_weights(def, &weights, tc_scores))
+        .map(|def| score_subtask_with_weights(def, &weights, &tc_scores))
         .collect()
 }
 
@@ -225,6 +248,21 @@ mod tests {
         let s = scores(&[("1", 0.5), ("2", 0.5)]);
         let result = score_subtask(&def, &[], &s);
         assert_eq!(result.score, 50.0);
+    }
+
+    #[test]
+    fn subtask_member_referenced_by_numeric_id_scores_via_label_keyed_map() {
+        // tc id=42 has an explicit label "big_01"; the score map is keyed by
+        // label. A subtask that references the member by its numeric id must
+        // still resolve it (regression for the id-vs-label lookup bug).
+        let tc = test_case(42, 30.0, false, Some("big_01"));
+        let s = scores(&[("big_01", 1.0)]);
+
+        let group_min = make_def(SubtaskScoringMethod::GroupMin, 30.0, vec!["42"]);
+        assert_eq!(score_subtask(&group_min, &[tc.clone()], &s).score, 30.0);
+
+        let sum = make_def(SubtaskScoringMethod::Sum, 100.0, vec!["42"]);
+        assert_eq!(score_subtask(&sum, &[tc], &s).score, 100.0);
     }
 
     #[test]
