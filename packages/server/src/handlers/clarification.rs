@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 use std::collections::{HashMap, HashSet};
 use tracing::instrument;
@@ -63,7 +64,7 @@ pub async fn list_clarifications(
     let contest = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest).await?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
 
     let mut select =
         clarification::Entity::find().filter(clarification::Column::ContestId.eq(contest_id));
@@ -236,7 +237,7 @@ pub async fn create_clarification(
     let contest = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest).await?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
 
     if !is_admin && payload.clarification_type != "question" {
         return Err(AppError::PermissionDenied);
@@ -342,7 +343,7 @@ pub async fn reply_clarification(
         .await?
         .ok_or_else(|| AppError::NotFound("Clarification not found".into()))?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
     let is_author = existing.author_id == auth_user.user_id;
     let is_recipient = existing.recipient_id == Some(auth_user.user_id);
 
@@ -478,7 +479,7 @@ pub async fn toggle_reply_public(
     AppPath((contest_id, clarification_id, reply_id)): AppPath<(i32, i32, i32)>,
     Query(query): Query<ToggleReplyPublicQuery>,
 ) -> Result<Json<ClarificationReplyResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
 
     let txn = state.db.begin().await?;
 
@@ -565,7 +566,7 @@ pub async fn resolve_clarification(
         .await?
         .ok_or_else(|| AppError::NotFound("Clarification not found".into()))?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
     let is_author = existing.author_id == auth_user.user_id;
 
     if !is_admin && !is_author {

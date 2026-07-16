@@ -1,4 +1,5 @@
 use crate::common::{TestApp, routes};
+use broccoli_server_sdk::permissions as perm;
 use serde_json::json;
 
 fn valid_submission_body(language: &str) -> serde_json::Value {
@@ -757,7 +758,7 @@ mod rejudge {
         let app = TestApp::spawn().await;
         role_permission::ActiveModel {
             role: Set("problem_setter".to_string()),
-            permission: Set("submission:rejudge".to_string()),
+            permission: Set(perm::SUBMISSION_REJUDGE.to_string()),
         }
         .insert(&app.db)
         .await
@@ -1684,7 +1685,7 @@ mod bulk_rejudge {
         let app = TestApp::spawn().await;
         role_permission::ActiveModel {
             role: Set("problem_setter".to_string()),
-            permission: Set("submission:rejudge".to_string()),
+            permission: Set(perm::SUBMISSION_REJUDGE.to_string()),
         }
         .insert(&app.db)
         .await

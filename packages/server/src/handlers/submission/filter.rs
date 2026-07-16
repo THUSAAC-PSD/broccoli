@@ -1,3 +1,4 @@
+use broccoli_server_sdk::permissions as perm;
 use broccoli_server_sdk::types::{FilterSubmissionInput, FilterSubmissionOutput};
 use common::SubmissionStatus;
 use sea_orm::DatabaseConnection;
@@ -19,7 +20,7 @@ pub(super) async fn require_submission_visible(
     auth_user: &AuthUser,
     sub: &submission::Model,
 ) -> Result<VisibilityContext, AppError> {
-    let can_view_all = auth_user.has_permission("submission:view_all");
+    let can_view_all = auth_user.has_permission(perm::SUBMISSION_VIEW_ALL);
     if !can_view_all && sub.user_id != auth_user.user_id {
         if let Some(contest_id) = sub.contest_id {
             let contest_model = find_contest(db, contest_id).await?;
@@ -71,7 +72,7 @@ async fn filter_submission_via_plugin(
         .map(|ctx| {
             let mut perms = Vec::new();
             if ctx.has_view_all {
-                perms.push("submission:view_all".to_string());
+                perms.push(perm::SUBMISSION_VIEW_ALL.to_string());
             }
             perms
         })

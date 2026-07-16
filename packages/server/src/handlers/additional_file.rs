@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::storage::ContentHash;
 use sea_orm::sea_query::OnConflict;
@@ -71,7 +72,7 @@ pub async fn upload_additional_file(
     AppPath(problem_id): AppPath<i32>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     problem::Entity::find_active_by_id(problem_id)
         .one(&state.db)
@@ -221,7 +222,7 @@ pub async fn list_additional_files(
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<AdditionalFileListResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     problem::Entity::find_active_by_id(problem_id)
         .one(&state.db)
@@ -268,7 +269,7 @@ pub async fn download_additional_file(
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid additional file ID".into()))?;
@@ -310,7 +311,7 @@ pub async fn delete_additional_file(
     State(state): State<AppState>,
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid additional file ID".into()))?;

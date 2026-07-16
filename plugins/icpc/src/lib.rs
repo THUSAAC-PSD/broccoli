@@ -238,6 +238,8 @@ mod sql_tests {
 use std::collections::HashMap;
 
 #[cfg(target_arch = "wasm32")]
+use broccoli_server_sdk::permissions as perm;
+#[cfg(target_arch = "wasm32")]
 use broccoli_server_sdk::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use extism_pdk::{FnResult, plugin_fn};
@@ -308,7 +310,7 @@ fn apply_scoreboard_filter(
     if req
         .viewer_permissions
         .iter()
-        .any(|p| p == "submission:view_all")
+        .any(|p| p == perm::SUBMISSION_VIEW_ALL)
     {
         return Ok(submission);
     }
@@ -650,7 +652,7 @@ fn handle_reveal(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRespo
     let contest_id: i32 = req.param("contest_id")?;
     let info = contest::check_access(host, req, contest_id)?;
     info.require_type("icpc")?;
-    if !req.has_permission("contest:manage") {
+    if !req.has_permission(perm::CONTEST_MANAGE) {
         return Err(PluginHttpResponse::error(
             403,
             "Revealing the scoreboard requires contest:manage",
@@ -730,7 +732,7 @@ fn handle_standings(host: &Host, req: &PluginHttpRequest) -> Result<PluginHttpRe
         username: String,
     }
     let phase = &info.phase;
-    let can_view_all = req.has_permission("contest:manage");
+    let can_view_all = req.has_permission(perm::CONTEST_MANAGE);
     // Restrict a contestant to their own row during the contest UNLESS the
     // organizer opted into a public live scoreboard. Organizers always see all.
     let is_restricted =

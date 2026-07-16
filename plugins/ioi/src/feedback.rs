@@ -1,3 +1,5 @@
+#[cfg(target_arch = "wasm32")]
+use broccoli_server_sdk::permissions as perm;
 use broccoli_server_sdk::prelude::*;
 
 use crate::config::{ContestConfig, FeedbackLevel};
@@ -8,7 +10,7 @@ use crate::scoreboard::full_scoreboard_visible_for_phase;
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn can_view_privileged_submission_feedback(req: &PluginHttpRequest) -> bool {
-    req.has_permission("contest:manage") || req.has_permission("submission:view_all")
+    req.has_permission(perm::CONTEST_MANAGE) || req.has_permission(perm::SUBMISSION_VIEW_ALL)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -38,7 +40,7 @@ pub(crate) fn apply_feedback_filter(
     if req
         .viewer_permissions
         .iter()
-        .any(|p| p == "submission:view_all")
+        .any(|p| p == perm::SUBMISSION_VIEW_ALL)
     {
         return Ok(submission);
     }

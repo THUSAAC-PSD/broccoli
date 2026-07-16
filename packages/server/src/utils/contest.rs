@@ -1,3 +1,4 @@
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 
 use crate::entity::{contest, contest_problem, contest_user, problem};
@@ -22,7 +23,7 @@ pub async fn check_contest_access<C: sea_orm::ConnectionTrait>(
     auth_user: &AuthUser,
     contest: &contest::Model,
 ) -> Result<(), AppError> {
-    if auth_user.has_permission("contest:manage") {
+    if auth_user.has_permission(perm::CONTEST_MANAGE) {
         return Ok(());
     }
     let now = chrono::Utc::now();
@@ -69,7 +70,7 @@ pub fn require_contest_started(
     auth_user: &AuthUser,
     contest: &contest::Model,
 ) -> Result<(), AppError> {
-    if auth_user.has_permission("contest:manage") {
+    if auth_user.has_permission(perm::CONTEST_MANAGE) {
         return Ok(());
     }
     let now = chrono::Utc::now();
@@ -89,7 +90,7 @@ pub fn require_contest_running(
     contest: &contest::Model,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), AppError> {
-    if auth_user.has_permission("contest:manage") {
+    if auth_user.has_permission(perm::CONTEST_MANAGE) {
         return Ok(());
     }
     if contest.activate_time.is_none_or(|at| at > now)
@@ -125,7 +126,7 @@ pub async fn require_contest_participant<C: sea_orm::ConnectionTrait>(
     auth_user: &AuthUser,
     contest: &contest::Model,
 ) -> Result<(), AppError> {
-    if auth_user.has_permission("contest:manage") {
+    if auth_user.has_permission(perm::CONTEST_MANAGE) {
         return Ok(());
     }
     let is_participant = is_contest_participant(db, contest.id, auth_user.user_id).await?;
@@ -155,7 +156,7 @@ pub async fn can_access_problem_via_contest<C: sea_orm::ConnectionTrait>(
         return Err(AppError::NotFound("Problem not found".into()));
     }
 
-    if auth_user.has_permission("contest:manage") {
+    if auth_user.has_permission(perm::CONTEST_MANAGE) {
         return Ok(());
     }
 
@@ -205,7 +206,9 @@ pub async fn require_problem_read_access<C: sea_orm::ConnectionTrait>(
         .one(db)
         .await?
         .ok_or_else(|| AppError::NotFound("Problem not found".into()))?;
-    if auth_user.has_permission("problem:create") || auth_user.has_permission("problem:edit") {
+    if auth_user.has_permission(perm::PROBLEM_CREATE)
+        || auth_user.has_permission(perm::PROBLEM_EDIT)
+    {
         return Ok(());
     }
     if problem.is_public {
@@ -294,7 +297,7 @@ mod problem_read_access_tests {
             .append_query_results([vec![problem_row(false)]])
             .into_connection();
 
-        require_problem_read_access(&db, &user(&["problem:edit"]), 1)
+        require_problem_read_access(&db, &user(&[perm::PROBLEM_EDIT]), 1)
             .await
             .expect("editor must read hidden problems");
     }
@@ -307,7 +310,7 @@ mod problem_read_access_tests {
             .append_query_results([Vec::<problem::Model>::new()])
             .into_connection();
 
-        let err = require_problem_read_access(&db, &user(&["problem:edit"]), 1)
+        let err = require_problem_read_access(&db, &user(&[perm::PROBLEM_EDIT]), 1)
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::{Query, State};
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
@@ -68,7 +69,7 @@ pub async fn prewarm_contest(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<PrewarmResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     find_contest(&state.db, id).await?;
 
     let client = state.redis_client.as_ref().ok_or_else(|| {
@@ -131,7 +132,7 @@ pub async fn prewarm_status(
     AppPath(id): AppPath<i32>,
     Query(query): Query<WarmStatusQuery>,
 ) -> Result<Json<WarmStatusResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     find_contest(&state.db, id).await?;
 
     let client = state.redis_client.as_ref().ok_or_else(|| {

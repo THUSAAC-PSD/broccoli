@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use broccoli_server_sdk::permissions as perm;
 use plugin_core::registry::PluginEntry;
 use sea_orm::*;
 use tracing::instrument;
@@ -42,7 +43,7 @@ pub async fn list_all_plugins(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PluginDetailResponse>>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let plugins = state
         .plugins
@@ -77,7 +78,7 @@ pub async fn get_plugin_details(
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<PluginFullDetailResponse>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let plugin = state
         .plugins
@@ -113,7 +114,7 @@ pub async fn enable_plugin(
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     if state.plugins.is_plugin_loaded(&id)? {
         return Err(AppError::Conflict(format!(
@@ -159,7 +160,7 @@ pub async fn disable_plugin(
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     if !state.plugins.is_plugin_loaded(&id)? {
         return Err(AppError::Conflict(format!(
@@ -207,7 +208,7 @@ pub async fn reload_plugin(
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     if !state.plugins.has_plugin(&id)? {
         return Err(AppError::NotFound(format!("Plugin '{}' not found", id)));
@@ -248,7 +249,7 @@ pub async fn reload_all_plugins(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<ReloadAllResponse>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let loaded_ids: Vec<String> = state
         .plugins
@@ -375,7 +376,7 @@ pub async fn upload_plugin(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let mut archive_bytes: Option<Vec<u8>> = None;
     while let Some(field) = multipart

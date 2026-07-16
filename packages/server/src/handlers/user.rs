@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
@@ -35,7 +36,7 @@ pub async fn list_users(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<UserResponse>>, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let users = user::Entity::load()
         .filter(user::Column::DeletedAt.is_null())
@@ -71,7 +72,7 @@ pub async fn get_user(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<UserResponse>, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let user_model = user::Entity::load()
         .filter(user::Column::Id.eq(id))
@@ -107,7 +108,7 @@ pub async fn update_user(
     AppPath(id): AppPath<i32>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let user_model = user::Entity::find_active_by_id(id)
         .one(&state.db)
@@ -163,7 +164,7 @@ pub async fn delete_user(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let txn = state.db.begin().await?;
 
@@ -247,7 +248,7 @@ pub async fn assign_role(
     AppPath(id): AppPath<i32>,
     Json(payload): Json<RoleAssignmentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let role_model = role::Entity::find()
         .filter(role::Column::Name.eq(payload.role))
@@ -292,7 +293,7 @@ pub async fn revoke_role(
     State(state): State<AppState>,
     AppPath((id, role_name)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let active = user_role::Entity::find_by_id((id, role_name))
         .one(&state.db)

@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 use tracing::instrument;
 
@@ -42,7 +43,7 @@ pub async fn add_participant(
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<AddParticipantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
 
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
@@ -104,7 +105,7 @@ pub async fn list_participants(
     let contest_model = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest_model).await?;
 
-    if !contest_model.show_participants_list && !auth_user.has_permission("contest:manage") {
+    if !contest_model.show_participants_list && !auth_user.has_permission(perm::CONTEST_MANAGE) {
         return Err(AppError::PermissionDenied);
     }
 
@@ -153,7 +154,7 @@ pub async fn remove_participant(
     State(state): State<AppState>,
     AppPath((contest_id, user_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
 
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
@@ -281,7 +282,7 @@ pub async fn bulk_add_participants(
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkAddParticipantsRequest>,
 ) -> Result<Json<BulkAddParticipantsResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_bulk_add_participants(&payload)?;
 
     let mut hashed_entries: Vec<(String, String, String)> = Vec::new();

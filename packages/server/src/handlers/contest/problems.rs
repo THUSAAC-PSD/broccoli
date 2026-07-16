@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::prelude::Expr;
 use sea_orm::*;
 use tracing::instrument;
@@ -47,7 +48,7 @@ pub async fn add_contest_problem(
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<AddContestProblemRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_add_contest_problem(&payload)?;
 
     let txn = state.db.begin().await?;
@@ -170,7 +171,7 @@ pub async fn update_contest_problem(
     AppPath((contest_id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<UpdateContestProblemRequest>,
 ) -> Result<Json<ContestProblemResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_update_contest_problem(&payload)?;
 
     if payload == UpdateContestProblemRequest::default() {
@@ -247,7 +248,7 @@ pub async fn remove_contest_problem(
     State(state): State<AppState>,
     AppPath((contest_id, problem_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
 
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
@@ -286,7 +287,7 @@ pub async fn reorder_contest_problems(
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<ReorderContestProblemsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_reorder_contest_problems(&payload)?;
 
     let txn = state.db.begin().await?;
@@ -351,7 +352,7 @@ pub async fn bulk_delete_contest_problems(
     AppPath(contest_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkDeleteContestProblemsRequest>,
 ) -> Result<Json<BulkDeleteContestProblemsResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_bulk_delete_contest_problems(&payload)?;
 
     let txn = state.db.begin().await?;

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use axum::{Json, extract::State};
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::SubmissionStatus;
 use opentelemetry::KeyValue;
@@ -43,7 +44,7 @@ pub async fn list_workers(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<WorkersResponse>, AppError> {
-    auth_user.require_permission("system:view")?;
+    auth_user.require_permission(perm::SYSTEM_VIEW)?;
 
     let workers = read_workers(&state).await;
     Ok(Json(WorkersResponse { workers }))
@@ -68,7 +69,7 @@ pub async fn list_queues(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<QueuesResponse>, AppError> {
-    auth_user.require_permission("system:view")?;
+    auth_user.require_permission(perm::SYSTEM_VIEW)?;
 
     let queues = read_queues(&state).await;
     Ok(Json(QueuesResponse { queues }))
@@ -93,7 +94,7 @@ pub async fn system_overview(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<SystemOverviewResponse>, AppError> {
-    auth_user.require_permission("system:view")?;
+    auth_user.require_permission(perm::SYSTEM_VIEW)?;
 
     let workers = read_workers(&state).await;
     let queues = read_queues(&state).await;

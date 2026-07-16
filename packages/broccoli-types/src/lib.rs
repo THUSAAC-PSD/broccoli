@@ -7,4 +7,5 @@
 //! can both depend on it downward instead of the base crates depending upward on
 //! the guest SDK.
 pub mod error;
+pub mod permissions;
 pub mod types;

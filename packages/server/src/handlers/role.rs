@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 
 use crate::entity::{role, role_permission};
@@ -30,7 +31,7 @@ pub async fn list_roles(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let roles: Vec<String> = role::Entity::find()
         .all(&state.db)
@@ -62,7 +63,7 @@ pub async fn list_role_permissions(
     State(state): State<AppState>,
     AppPath(role_name): AppPath<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let permissions: Vec<String> = role_permission::Entity::find()
         .filter(role_permission::Column::Role.eq(role_name))
@@ -98,7 +99,7 @@ pub async fn grant_permission_to_role(
     AppPath(role_name): AppPath<String>,
     AppJson(req): AppJson<PermissionGrantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let existing = role_permission::Entity::find_by_id((role_name.clone(), req.permission.clone()))
         .one(&state.db)
@@ -142,7 +143,7 @@ pub async fn revoke_permission_from_role(
     State(state): State<AppState>,
     AppPath((role_name, permission_name)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let existing =
         role_permission::Entity::find_by_id((role_name.clone(), permission_name.clone()))

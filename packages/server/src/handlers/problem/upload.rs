@@ -6,6 +6,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum_typed_multipart::BaseMultipart;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 use tracing::instrument;
 
@@ -52,7 +53,7 @@ pub async fn upload_test_cases(
     AppPath(problem_id): AppPath<i32>,
     BaseMultipart { data, .. }: BaseMultipart<UploadTestCasesRequest, AppError>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     if data.input_format.matches('*').count() != 1 || data.output_format.matches('*').count() != 1 {
         return Err(AppError::Validation(

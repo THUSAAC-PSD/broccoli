@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
+use broccoli_server_sdk::permissions as perm;
 use tracing::instrument;
 
 use crate::error::{AppError, ErrorBody};
@@ -38,7 +39,7 @@ pub async fn upload_checker_source(
     AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UploadCheckerSourceRequest>,
 ) -> Result<Json<CheckerSourceResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_checker_source(&payload)?;
 
     // Existence check: 404 for a missing problem, as before.
@@ -98,7 +99,7 @@ pub async fn get_checker_source(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<CheckerSourceResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     find_problem(&state.db, id).await?;
     let files: Option<Vec<CheckerSourceFile>> = match crate::services::plugin_config::get_config(
@@ -139,7 +140,7 @@ pub async fn delete_checker_source(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<StatusCode, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     find_problem(&state.db, id).await?;
     // Idempotent: absent config is a no-op (404 from the service is fine here).

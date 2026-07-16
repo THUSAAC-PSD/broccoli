@@ -6,7 +6,7 @@ pub mod visibility;
 // crate at the bottom of the graph. Re-export them here so the published guest SDK
 // surface (`broccoli_server_sdk::types::*`, `::error`, and the prelude) is unchanged
 // for every plugin and downstream crate.
-pub use broccoli_types::{error, types};
+pub use broccoli_types::{error, permissions, types};
 
 #[cfg(feature = "guest")]
 pub mod db;

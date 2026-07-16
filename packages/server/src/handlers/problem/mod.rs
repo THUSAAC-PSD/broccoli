@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::{Func, LikeExpr};
 use sea_orm::*;
@@ -53,7 +54,7 @@ pub async fn create_problem(
     State(state): State<AppState>,
     AppJson(payload): AppJson<CreateProblemRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:create")?;
+    auth_user.require_permission(perm::PROBLEM_CREATE)?;
     validate_create_problem(&payload)?;
 
     let problem_type = if payload.problem_type.is_empty() {
@@ -134,7 +135,7 @@ pub async fn list_problems(
     State(state): State<AppState>,
     Query(query): Query<ProblemListQuery>,
 ) -> Result<Json<ProblemListResponse>, AppError> {
-    auth_user.require_any_permission(&["problem:create", "problem:edit"])?;
+    auth_user.require_any_permission(&[perm::PROBLEM_CREATE, perm::PROBLEM_EDIT])?;
 
     let page = Ord::max(query.page.unwrap_or(1), 1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
@@ -260,7 +261,7 @@ pub async fn update_problem(
     AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UpdateProblemRequest>,
 ) -> Result<Json<ProblemResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_update_problem(&payload)?;
     if let Some(ref pt) = payload.problem_type {
         validate_problem_type(pt, &state.registries.evaluator_registry).await?;
@@ -365,7 +366,7 @@ pub async fn delete_problem(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:delete")?;
+    auth_user.require_permission(perm::PROBLEM_DELETE)?;
 
     let txn = state.db.begin().await?;
 

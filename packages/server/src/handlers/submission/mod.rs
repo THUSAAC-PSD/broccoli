@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use broccoli_server_sdk::types::BeforeSubmissionEvent;
 use chrono::Utc;
 use common::SubmissionStatus;
@@ -75,7 +76,7 @@ pub async fn create_submission(
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
+    auth_user.require_permission(perm::SUBMISSION_SUBMIT)?;
     validate_code_payload(
         &payload.files,
         &payload.language,
@@ -176,7 +177,7 @@ pub async fn create_submission(
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
-        has_view_all: auth_user.has_permission("submission:view_all"),
+        has_view_all: auth_user.has_permission(perm::SUBMISSION_VIEW_ALL),
     });
     let response =
         build_submission_response(&state.db, &*state.blob_store, model, visibility).await?;
@@ -211,7 +212,7 @@ pub async fn list_submissions(
         &["created_at", "status"],
     )?;
 
-    let can_view_all = auth_user.has_permission("submission:view_all");
+    let can_view_all = auth_user.has_permission(perm::SUBMISSION_VIEW_ALL);
 
     let page = cmp::max(query.page.unwrap_or(1), 1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
@@ -419,7 +420,8 @@ pub async fn list_submission_judgements(
     // may see the history; everyone else, including the submission owner, sees
     // only the current published judgement. Gating this only in the web client
     // would still leak the history to a direct API call.
-    let can_see_history = visibility.has_view_all || auth_user.has_permission("submission:rejudge");
+    let can_see_history =
+        visibility.has_view_all || auth_user.has_permission(perm::SUBMISSION_REJUDGE);
     let judgements: Vec<_> = if can_see_history {
         judgements
     } else {
@@ -481,7 +483,7 @@ pub async fn create_contest_submission(
     AppPath((id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<CreateSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
+    auth_user.require_permission(perm::SUBMISSION_SUBMIT)?;
     validate_code_payload(
         &payload.files,
         &payload.language,
@@ -575,7 +577,7 @@ pub async fn create_contest_submission(
 
     let visibility = Some(VisibilityContext {
         viewer_id: auth_user.user_id,
-        has_view_all: auth_user.has_permission("submission:view_all"),
+        has_view_all: auth_user.has_permission(perm::SUBMISSION_VIEW_ALL),
     });
     let response =
         build_submission_response(&state.db, &*state.blob_store, model, visibility).await?;
@@ -617,7 +619,7 @@ pub async fn list_contest_submissions(
 
     let contest_model = find_contest(&state.db, contest_id).await?;
 
-    let can_view_all = auth_user.has_permission("submission:view_all");
+    let can_view_all = auth_user.has_permission(perm::SUBMISSION_VIEW_ALL);
     let is_participant = is_contest_participant(&state.db, contest_id, auth_user.user_id).await?;
 
     if !can_view_all && !is_participant && !contest_model.is_public {

@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::{Func, LikeExpr, Query as SeaQuery};
 use sea_orm::*;
@@ -52,7 +53,7 @@ pub async fn create_contest(
     State(state): State<AppState>,
     AppJson(payload): AppJson<CreateContestRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:create")?;
+    auth_user.require_permission(perm::CONTEST_CREATE)?;
     validate_create_contest(&payload)?;
 
     let now = chrono::Utc::now();
@@ -102,7 +103,7 @@ pub async fn list_contests(
 
     let mut select = contest::Entity::find_active();
 
-    if !auth_user.has_permission("contest:manage") {
+    if !auth_user.has_permission(perm::CONTEST_MANAGE) {
         let now = chrono::Utc::now();
         select = select
             .filter(
@@ -287,7 +288,7 @@ pub async fn update_contest(
     AppPath(id): AppPath<i32>,
     AppJson(payload): AppJson<UpdateContestRequest>,
 ) -> Result<Json<ContestResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_update_contest(&payload)?;
 
     if payload == UpdateContestRequest::default() {
@@ -369,7 +370,7 @@ pub async fn delete_contest(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:delete")?;
+    auth_user.require_permission(perm::CONTEST_DELETE)?;
 
     let txn = state.db.begin().await?;
     let contest = find_contest_for_update(&txn, id).await?;

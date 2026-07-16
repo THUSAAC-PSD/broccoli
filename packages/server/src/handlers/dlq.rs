@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use broccoli_server_sdk::permissions as perm;
 use common::{DlqMessageType, SubmissionStatus};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
@@ -43,7 +44,7 @@ pub async fn list_dlq_messages(
     State(state): State<AppState>,
     Query(params): Query<ListDlqParams>,
 ) -> Result<Json<DlqListResponse>, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
 
     let message_type = params
         .message_type
@@ -92,7 +93,7 @@ pub async fn get_dlq_stats(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<DlqStatsResponse>, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
 
     let dlq = dlq_service(&state.db);
     let stats = dlq.stats().await?;
@@ -122,7 +123,7 @@ pub async fn get_dlq_message(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<DlqMessageDetailResponse>, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
 
     let dlq = dlq_service(&state.db);
     let message = dlq
@@ -158,7 +159,7 @@ pub async fn retry_dlq_message(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<DlqRetryResponse>, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
     // UP#39 backpressure-on-post: DLQ retry flips the submission back
     // into `Queued` (see comment below the update). Treat it as a
     // fresh durable-accept and apply the same cap.
@@ -263,7 +264,7 @@ pub async fn delete_dlq_message(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
 
     let dlq = dlq_service(&state.db);
     let result = dlq.resolve(id, Some(auth_user.user_id)).await?;
@@ -304,7 +305,7 @@ pub async fn bulk_retry_dlq(
     State(state): State<AppState>,
     AppJson(payload): AppJson<BulkRetryDlqRequest>,
 ) -> Result<Json<BulkRetryDlqResponse>, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
     validate_bulk_retry_dlq(&payload)?;
     // UP#39 backpressure-on-post: bulk DLQ retry flips many
     // submissions back to `Queued` in a single call. The check here
@@ -511,7 +512,7 @@ pub async fn bulk_delete_dlq(
     State(state): State<AppState>,
     AppJson(payload): AppJson<BulkDeleteDlqRequest>,
 ) -> Result<Json<BulkDeleteDlqResponse>, AppError> {
-    auth_user.require_permission("dlq:manage")?;
+    auth_user.require_permission(perm::DLQ_MANAGE)?;
     validate_bulk_delete_dlq(&payload)?;
 
     let dlq = dlq_service(&state.db);

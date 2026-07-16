@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::SubmissionStatus;
 use sea_orm::*;
@@ -144,7 +145,7 @@ pub async fn run_code(
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<RunCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
+    auth_user.require_permission(perm::SUBMISSION_SUBMIT)?;
     validate_run_code(&payload, state.config.submission.max_size)?;
     check_rate_limit(
         &state.db,
@@ -237,7 +238,7 @@ pub async fn run_contest_code(
     AppPath((id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<RunCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
+    auth_user.require_permission(perm::SUBMISSION_SUBMIT)?;
     validate_run_code(&payload, state.config.submission.max_size)?;
     check_rate_limit(
         &state.db,
@@ -334,7 +335,7 @@ pub async fn get_code_run(
         .ok_or_else(|| AppError::NotFound("Code run not found".into()))?;
 
     let can_view =
-        cr.user_id == auth_user.user_id || auth_user.has_permission("submission:view_all");
+        cr.user_id == auth_user.user_id || auth_user.has_permission(perm::SUBMISSION_VIEW_ALL);
 
     if !can_view {
         return Err(AppError::NotFound("Code run not found".into()));

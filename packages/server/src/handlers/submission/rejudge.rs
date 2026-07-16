@@ -3,6 +3,7 @@ use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::SubmissionStatus;
 use sea_orm::sea_query::LockType;
@@ -52,7 +53,7 @@ pub async fn apply_submission_judgement(
     State(state): State<AppState>,
     AppPath((id, judgement_id)): AppPath<(i32, i32)>,
 ) -> Result<Json<SubmissionResponse>, AppError> {
-    auth_user.require_permission("submission:rejudge")?;
+    auth_user.require_permission(perm::SUBMISSION_REJUDGE)?;
 
     let txn = state.db.begin().await?;
     let sub = submission::Entity::find_by_id(id)
@@ -146,7 +147,7 @@ pub async fn discard_submission_judgement(
     State(state): State<AppState>,
     AppPath((id, judgement_id)): AppPath<(i32, i32)>,
 ) -> Result<StatusCode, AppError> {
-    auth_user.require_permission("submission:rejudge")?;
+    auth_user.require_permission(perm::SUBMISSION_REJUDGE)?;
 
     let txn = state.db.begin().await?;
     let _sub = submission::Entity::find_by_id(id)
@@ -221,7 +222,7 @@ pub async fn rejudge_submission(
     Query(query): Query<RejudgeQuery>,
     body: Bytes,
 ) -> Result<Json<SubmissionResponse>, AppError> {
-    auth_user.require_permission("submission:rejudge")?;
+    auth_user.require_permission(perm::SUBMISSION_REJUDGE)?;
 
     let payload = if body.is_empty() {
         RejudgeRequest::default()
@@ -243,11 +244,11 @@ pub async fn rejudge_submission(
     let new_target: Option<Option<String>> = match requested_target {
         None => None,
         Some("") => {
-            auth_user.require_permission("system:admin")?;
+            auth_user.require_permission(perm::SYSTEM_ADMIN)?;
             Some(None)
         }
         Some(raw) => {
-            auth_user.require_permission("system:admin")?;
+            auth_user.require_permission(perm::SYSTEM_ADMIN)?;
             validate_worker_id_format(raw)?;
             let live = crate::handlers::system::live_worker_ids(&state).await;
             if !live.contains(raw) {
@@ -362,7 +363,7 @@ pub async fn bulk_rejudge_submissions(
     State(state): State<AppState>,
     AppJson(payload): AppJson<BulkRejudgeRequest>,
 ) -> Result<Json<BulkRejudgeResponse>, AppError> {
-    auth_user.require_permission("submission:rejudge")?;
+    auth_user.require_permission(perm::SUBMISSION_REJUDGE)?;
     validate_bulk_rejudge(&payload)?;
     // UP#39 backpressure-on-post: bulk rejudge can insert hundreds of
     // `Queued` rows in one call. The check here samples the depth
@@ -380,11 +381,11 @@ pub async fn bulk_rejudge_submissions(
     let new_target: Option<Option<String>> = match payload.target_worker_id.as_deref() {
         None => None,
         Some("") => {
-            auth_user.require_permission("system:admin")?;
+            auth_user.require_permission(perm::SYSTEM_ADMIN)?;
             Some(None)
         }
         Some(raw) => {
-            auth_user.require_permission("system:admin")?;
+            auth_user.require_permission(perm::SYSTEM_ADMIN)?;
             let live = crate::handlers::system::live_worker_ids(&state).await;
             if !live.contains(raw) {
                 return Err(AppError::Validation(format!(
@@ -512,7 +513,7 @@ pub async fn admin_fan_out_submission(
     State(state): State<AppState>,
     AppJson(payload): AppJson<AdminFanOutSubmissionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("system:admin")?;
+    auth_user.require_permission(perm::SYSTEM_ADMIN)?;
     validate_admin_fan_out(&payload)?;
     validate_code_payload(
         &payload.files,

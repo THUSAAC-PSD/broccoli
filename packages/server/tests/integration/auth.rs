@@ -1,3 +1,4 @@
+use broccoli_server_sdk::permissions as perm;
 use serde_json::json;
 
 use crate::common::{TestApp, TestResponse, routes};
@@ -147,7 +148,7 @@ mod login {
         let permissions = res.body["permissions"]
             .as_array()
             .expect("permissions should be an array");
-        assert!(permissions.contains(&json!("submission:submit")));
+        assert!(permissions.contains(&json!(perm::SUBMISSION_SUBMIT)));
     }
 
     #[tokio::test]

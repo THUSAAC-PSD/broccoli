@@ -1,4 +1,5 @@
 use axum::{Json, extract::State, response::IntoResponse};
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, TransactionTrait};
 use tracing::instrument;
 
@@ -175,7 +176,7 @@ pub async fn list_plugin_global_config(
     State(state): State<AppState>,
     AppPath(plugin_id): AppPath<String>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     let target = ConfigTarget::plugin(&plugin_id);
     list_config_inner(&state.db, &target, &[]).await
@@ -206,7 +207,7 @@ pub async fn get_plugin_global_config(
     State(state): State<AppState>,
     AppPath((plugin_id, namespace)): AppPath<(String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let target = ConfigTarget::plugin(&plugin_id);
@@ -239,7 +240,7 @@ pub async fn upsert_plugin_global_config(
     AppPath((plugin_id, namespace)): AppPath<(String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let target = ConfigTarget::plugin(&plugin_id);
@@ -280,7 +281,7 @@ pub async fn delete_plugin_global_config(
     State(state): State<AppState>,
     AppPath((plugin_id, namespace)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let target = ConfigTarget::plugin(&plugin_id);
@@ -308,7 +309,7 @@ pub async fn list_problem_config(
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     find_problem(&state.db, problem_id).await?;
     let target = ConfigTarget::problem(problem_id);
     let schemas = collect_schemas_for_scope(&*state.plugins, ConfigScope::Problem);
@@ -341,7 +342,7 @@ pub async fn get_problem_config(
     State(state): State<AppState>,
     AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_problem(&state.db, problem_id).await?;
@@ -379,7 +380,7 @@ pub async fn upsert_problem_config(
     AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
@@ -424,7 +425,7 @@ pub async fn delete_problem_config(
     State(state): State<AppState>,
     AppPath((problem_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
@@ -459,7 +460,7 @@ pub async fn list_contest_problem_config(
     State(state): State<AppState>,
     AppPath((contest_id, problem_id)): AppPath<(i32, i32)>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
     let target = ConfigTarget::contest_problem(contest_id, problem_id);
     let schemas = collect_schemas_for_scope(&*state.plugins, ConfigScope::ContestProblem);
@@ -496,7 +497,7 @@ pub async fn get_contest_problem_config(
     State(state): State<AppState>,
     AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_contest_problem(&state.db, contest_id, problem_id).await?;
@@ -535,7 +536,7 @@ pub async fn upsert_contest_problem_config(
     AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
@@ -584,7 +585,7 @@ pub async fn delete_contest_problem_config(
     State(state): State<AppState>,
     AppPath((contest_id, problem_id, plugin_id, namespace)): AppPath<(i32, i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
@@ -616,7 +617,7 @@ pub async fn list_contest_config(
     State(state): State<AppState>,
     AppPath(contest_id): AppPath<i32>,
 ) -> Result<Json<Vec<PluginConfigResponse>>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     find_contest(&state.db, contest_id).await?;
     let target = ConfigTarget::contest(contest_id);
     let schemas = collect_schemas_for_scope(&*state.plugins, ConfigScope::Contest);
@@ -649,7 +650,7 @@ pub async fn get_contest_config(
     State(state): State<AppState>,
     AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     find_contest(&state.db, contest_id).await?;
@@ -687,7 +688,7 @@ pub async fn upsert_contest_config(
     AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
     AppJson(payload): AppJson<UpsertPluginConfigRequest>,
 ) -> Result<Json<PluginConfigResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;
@@ -732,7 +733,7 @@ pub async fn delete_contest_config(
     State(state): State<AppState>,
     AppPath((contest_id, plugin_id, namespace)): AppPath<(i32, String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_plugin_id(&plugin_id)?;
     validate_namespace(&namespace)?;
     let txn = state.db.begin().await?;

@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use tracing::instrument;
 
 use crate::error::{AppError, ErrorBody};
@@ -41,7 +42,11 @@ pub async fn upload_config_blob(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_any_permission(&["problem:edit", "plugin:manage", "contest:manage"])?;
+    auth_user.require_any_permission(&[
+        perm::PROBLEM_EDIT,
+        perm::PLUGIN_MANAGE,
+        perm::CONTEST_MANAGE,
+    ])?;
 
     let mut file_result = None;
     let mut file_name = None;

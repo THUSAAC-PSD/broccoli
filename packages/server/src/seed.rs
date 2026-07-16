@@ -1,3 +1,4 @@
+use broccoli_server_sdk::permissions as perm;
 use common::storage::BlobStore;
 use sea_orm::*;
 use sea_query::{Expr, Index, PostgresQueryBuilder};
@@ -18,26 +19,26 @@ const LARGE_TEST_CASE_BODY_BACKFILL_KEY: &str = "large_test_case_body_backfill_v
 const LARGE_TEST_CASE_BODY_BACKFILL_BATCH_SIZE: u64 = 2;
 
 const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
-    ("admin", "submission:submit"),
-    ("admin", "submission:view_all"),
-    ("admin", "submission:rejudge"),
-    ("admin", "problem:create"),
-    ("admin", "problem:edit"),
-    ("admin", "problem:delete"),
-    ("admin", "contest:create"),
-    ("admin", "contest:manage"),
-    ("admin", "contest:delete"),
-    ("admin", "user:manage"),
-    ("admin", "role:manage"),
-    ("admin", "plugin:manage"),
-    ("admin", "dlq:manage"),
-    ("admin", "system:view"),
-    ("admin", "system:admin"),
-    ("problem_setter", "submission:submit"),
-    ("problem_setter", "submission:view_all"),
-    ("problem_setter", "problem:create"),
-    ("problem_setter", "problem:edit"),
-    ("contestant", "submission:submit"),
+    ("admin", perm::SUBMISSION_SUBMIT),
+    ("admin", perm::SUBMISSION_VIEW_ALL),
+    ("admin", perm::SUBMISSION_REJUDGE),
+    ("admin", perm::PROBLEM_CREATE),
+    ("admin", perm::PROBLEM_EDIT),
+    ("admin", perm::PROBLEM_DELETE),
+    ("admin", perm::CONTEST_CREATE),
+    ("admin", perm::CONTEST_MANAGE),
+    ("admin", perm::CONTEST_DELETE),
+    ("admin", perm::USER_MANAGE),
+    ("admin", perm::ROLE_MANAGE),
+    ("admin", perm::PLUGIN_MANAGE),
+    ("admin", perm::DLQ_MANAGE),
+    ("admin", perm::SYSTEM_VIEW),
+    ("admin", perm::SYSTEM_ADMIN),
+    ("problem_setter", perm::SUBMISSION_SUBMIT),
+    ("problem_setter", perm::SUBMISSION_VIEW_ALL),
+    ("problem_setter", perm::PROBLEM_CREATE),
+    ("problem_setter", perm::PROBLEM_EDIT),
+    ("contestant", perm::SUBMISSION_SUBMIT),
 ];
 
 pub async fn seed_role_permissions(db: &DatabaseConnection) -> Result<(), DbErr> {

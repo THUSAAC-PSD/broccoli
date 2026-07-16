@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::prelude::Expr;
 use sea_orm::*;
 use tracing::instrument;
@@ -49,7 +50,7 @@ pub async fn create_test_case(
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<CreateTestCaseRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
@@ -122,7 +123,7 @@ pub async fn list_test_cases(
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<Vec<TestCaseListItem>>, AppError> {
-    auth_user.require_any_permission(&["problem:create", "problem:edit"])?;
+    auth_user.require_any_permission(&[perm::PROBLEM_CREATE, perm::PROBLEM_EDIT])?;
 
     find_problem(&state.db, problem_id).await?;
 
@@ -195,7 +196,9 @@ pub async fn get_test_case(
 ) -> Result<Json<TestCaseResponse>, AppError> {
     let tc = find_test_case_for_problem(&state.db, problem_id, tc_id).await?;
 
-    if !auth_user.has_permission("problem:create") && !auth_user.has_permission("problem:edit") {
+    if !auth_user.has_permission(perm::PROBLEM_CREATE)
+        && !auth_user.has_permission(perm::PROBLEM_EDIT)
+    {
         require_problem_read_access(&state.db, &auth_user, problem_id).await?;
         if !tc.is_sample {
             return Err(AppError::NotFound("Test case not found".into()));
@@ -236,7 +239,7 @@ pub async fn update_test_case(
     AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<UpdateTestCaseRequest>,
 ) -> Result<Json<TestCaseResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_update_test_case(&payload)?;
 
     if payload == UpdateTestCaseRequest::default() {
@@ -318,7 +321,7 @@ pub async fn delete_test_case(
     State(state): State<AppState>,
     AppPath((problem_id, tc_id)): AppPath<(i32, i32)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let txn = state.db.begin().await?;
     find_problem_for_update(&txn, problem_id).await?;
@@ -365,7 +368,7 @@ pub async fn reorder_test_cases(
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<ReorderTestCasesRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_reorder_test_cases(&payload)?;
 
     let txn = state.db.begin().await?;
@@ -433,7 +436,7 @@ pub async fn bulk_delete_test_cases(
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<BulkDeleteTestCasesRequest>,
 ) -> Result<Json<BulkDeleteTestCasesResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
     validate_bulk_delete_test_cases(&payload)?;
 
     let txn = state.db.begin().await?;
