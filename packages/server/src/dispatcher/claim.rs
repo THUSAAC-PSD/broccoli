@@ -361,7 +361,16 @@ async fn claim_queued_judgements(
 
     let mut pairs = Vec::with_capacity(judgements.len());
     for j in judgements {
-        if let Some(s) = sub_by_id.get(&j.submission_id).cloned() {
+        if let Some(mut s) = sub_by_id.get(&j.submission_id).cloned() {
+            // Dispatch runs the plugin at `sub.judge_epoch`, and every host
+            // persistence write is gated on that epoch. A deferred rejudge
+            // judgement lives at a NEW epoch while its parent submission row
+            // stays at the old one, so without this override the plugin runs
+            // at the stale epoch and every finalize/result write matches 0
+            // rows (the rejudge silently produces nothing). Mirrors the
+            // deferred-steal path (steal.rs). In-memory copy only; the
+            // submission row is never mutated.
+            s.judge_epoch = j.judge_epoch;
             pairs.push((s, j));
         } else {
             // Parent submission vanished between SELECT and JOIN -
