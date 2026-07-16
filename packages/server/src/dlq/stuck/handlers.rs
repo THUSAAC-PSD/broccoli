@@ -149,7 +149,11 @@ pub(super) async fn handle_stuck_submission(
             );
             let dispatch_state = state.clone();
             tokio::spawn(async move {
-                crate::handlers::submission::dispatch_to_plugin(dispatch_state, model).await;
+                crate::services::submission_dispatch::dispatch_submission_to_plugin(
+                    dispatch_state,
+                    model,
+                )
+                .await;
             });
         }
         StuckRecovery::RedispatchCodeRun { .. } | StuckRecovery::RedispatchJudgement { .. } => {
@@ -263,7 +267,11 @@ pub(super) async fn handle_stuck_code_run(
             );
             let dispatch_state = state.clone();
             tokio::spawn(async move {
-                crate::handlers::code_run::dispatch_to_plugin(dispatch_state, model).await;
+                crate::services::code_run_dispatch::dispatch_code_run_to_plugin(
+                    dispatch_state,
+                    model,
+                )
+                .await;
             });
         }
         StuckRecovery::RedispatchSubmission { .. } | StuckRecovery::RedispatchJudgement { .. } => {
@@ -417,7 +425,7 @@ pub(super) async fn handle_stuck_submission_judgement(
             );
             let dispatch_state = state.clone();
             tokio::spawn(async move {
-                crate::handlers::submission::dispatch_to_plugin_with_judgement(
+                crate::services::submission_dispatch::dispatch_submission_to_plugin_with_judgement(
                     dispatch_state,
                     submission,
                     Some(judgement_id),

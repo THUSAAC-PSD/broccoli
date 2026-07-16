@@ -131,7 +131,7 @@ async fn scan_once(
                 let state = state.clone();
                 let judgement_id = judgement.id;
                 slot.spawn("system_error_retry", async move {
-                    crate::handlers::submission::dispatch_to_plugin_with_judgement(
+                    crate::services::submission_dispatch::dispatch_submission_to_plugin_with_judgement(
                         state,
                         resubmission,
                         Some(judgement_id),

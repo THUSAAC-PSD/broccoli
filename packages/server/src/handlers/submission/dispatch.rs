@@ -2,7 +2,6 @@ use broccoli_server_sdk::types::{AfterSubmissionEvent, BeforeSubmissionEvent};
 use chrono::Utc;
 use common::SubmissionStatus;
 use sea_orm::*;
-use tracing::instrument;
 
 use crate::entity::{submission, submission_judgement};
 use crate::error::AppError;
@@ -148,33 +147,4 @@ pub(super) async fn open_rejudge_judgement(
         ..Default::default()
     };
     Ok(new.insert(txn).await?)
-}
-
-#[instrument(skip(state), fields(submission_id = submission.id))]
-pub(crate) async fn dispatch_to_plugin(state: AppState, submission: submission::Model) {
-    crate::services::submission_dispatch::dispatch_submission_to_plugin(state, submission).await;
-}
-
-#[instrument(
-    skip(state),
-    fields(
-        submission_id = submission.id,
-        judgement_id = ?judgement_id,
-        problem_id = tracing::field::Empty,
-        contest_id = tracing::field::Empty,
-    )
-)]
-pub(crate) async fn dispatch_to_plugin_with_judgement(
-    state: AppState,
-    submission: submission::Model,
-    judgement_id: Option<i32>,
-    fire_after_judging: bool,
-) {
-    crate::services::submission_dispatch::dispatch_submission_to_plugin_with_judgement(
-        state,
-        submission,
-        judgement_id,
-        fire_after_judging,
-    )
-    .await;
 }

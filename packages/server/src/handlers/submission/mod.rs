@@ -34,7 +34,6 @@ mod filter;
 mod rejudge;
 mod response;
 
-pub(crate) use dispatch::{dispatch_to_plugin, dispatch_to_plugin_with_judgement};
 pub use rejudge::*;
 
 use dispatch::{dispatch_before_submission_hooks, find_submission, fire_after_submission_hooks};

@@ -122,7 +122,8 @@ async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyho
     for model in submission_models {
         let state_clone = state.clone();
         tokio::spawn(async move {
-            crate::handlers::submission::dispatch_to_plugin(state_clone, model).await;
+            crate::services::submission_dispatch::dispatch_submission_to_plugin(state_clone, model)
+                .await;
         });
     }
 
@@ -130,7 +131,8 @@ async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyho
     for model in code_run_models {
         let state_clone = state.clone();
         tokio::spawn(async move {
-            crate::handlers::code_run::dispatch_to_plugin(state_clone, model).await;
+            crate::services::code_run_dispatch::dispatch_code_run_to_plugin(state_clone, model)
+                .await;
         });
     }
 
@@ -146,7 +148,7 @@ async fn claim_once(state: &AppState, server_id: &str, batch_size: u32) -> anyho
         let judgement_id = judgement_model.id;
         let is_current = judgement_model.is_current;
         tokio::spawn(async move {
-            crate::handlers::submission::dispatch_to_plugin_with_judgement(
+            crate::services::submission_dispatch::dispatch_submission_to_plugin_with_judgement(
                 state_clone,
                 sub_model,
                 Some(judgement_id),

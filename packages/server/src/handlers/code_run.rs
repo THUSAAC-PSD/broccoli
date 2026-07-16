@@ -24,18 +24,6 @@ use crate::utils::problem::find_problem;
 use crate::utils::rate_limit::check_rate_limit;
 use crate::utils::text::sanitize_db_json;
 
-#[instrument(
-    skip(state),
-    fields(
-        code_run_id = code_run.id,
-        problem_id = code_run.problem_id,
-        contest_id = tracing::field::Empty,
-    )
-)]
-pub(crate) async fn dispatch_to_plugin(state: AppState, code_run: code_run::Model) {
-    crate::services::code_run_dispatch::dispatch_code_run_to_plugin(state, code_run).await;
-}
-
 async fn build_code_run_response(
     db: &DatabaseConnection,
     cr: code_run::Model,

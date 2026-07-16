@@ -117,7 +117,8 @@ async fn scan_once(
         for (sub, dispatch_slot) in submissions.into_iter().zip(submission_slots) {
             let state = state.clone();
             dispatch_slot.spawn("steal_submission", async move {
-                crate::handlers::submission::dispatch_to_plugin(state, sub).await;
+                crate::services::submission_dispatch::dispatch_submission_to_plugin(state, sub)
+                    .await;
             });
         }
     }
@@ -143,7 +144,7 @@ async fn scan_once(
             // reclaimed row is always current; hardcoding `false` here silently
             // dropped those hooks and left the board/notifications stale.
             dispatch_slot.spawn("steal_deferred_judgement", async move {
-                crate::handlers::submission::dispatch_to_plugin_with_judgement(
+                crate::services::submission_dispatch::dispatch_submission_to_plugin_with_judgement(
                     state,
                     sub,
                     Some(judgement_id),
@@ -167,7 +168,8 @@ async fn scan_once(
         for (code_run, dispatch_slot) in code_runs.into_iter().zip(code_run_slots) {
             let state = state.clone();
             dispatch_slot.spawn("steal_code_run", async move {
-                crate::handlers::code_run::dispatch_to_plugin(state, code_run).await;
+                crate::services::code_run_dispatch::dispatch_code_run_to_plugin(state, code_run)
+                    .await;
             });
         }
     }
