@@ -13,6 +13,12 @@ pub struct Claims {
     pub roles: Vec<String>,
     pub permissions: Vec<String>,
     pub exp: u64,
+    /// Issued-at (unix seconds). `#[serde(default)]` so tokens minted before
+    /// this claim existed still decode (as `iat = 0`) on the stateless path;
+    /// the `FreshAuthUser` extractor treats such a token as predating any
+    /// credential change and re-authenticates it.
+    #[serde(default)]
+    pub iat: u64,
 }
 
 pub fn sign_access_token(
@@ -22,7 +28,8 @@ pub fn sign_access_token(
     permissions: Vec<String>,
     secret: &str,
 ) -> Result<String> {
-    let expiration = Utc::now()
+    let now = Utc::now();
+    let expiration = now
         .checked_add_signed(Duration::minutes(5))
         .expect("valid timestamp")
         .timestamp();
@@ -34,6 +41,7 @@ pub fn sign_access_token(
         roles,
         permissions,
         exp: expiration as u64,
+        iat: now.timestamp().max(0) as u64,
     };
 
     let token = encode(

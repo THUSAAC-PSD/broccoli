@@ -477,3 +477,63 @@ mod authenticated_access {
         assert_eq!(res.body["code"], "TOKEN_INVALID");
     }
 }
+
+mod token_freshness {
+    use super::*;
+    use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Statement};
+    use server::entity::user;
+
+    /// A `FreshAuthUser`-guarded mutation must reject an access token minted
+    /// before the caller's `credentials_changed_at`, while the stateless read
+    /// path keeps accepting the same token (so the hot path stays DB-free).
+    #[tokio::test]
+    async fn stale_access_token_rejected_on_mutation_but_accepted_on_reads() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("fresh_admin", "securepass", "admin")
+            .await;
+
+        let admin_id = user::Entity::find()
+            .filter(user::Column::Username.eq("fresh_admin"))
+            .one(&app.db)
+            .await
+            .expect("db query failed")
+            .expect("admin should exist")
+            .id;
+
+        // Simulate a credential/authorization change strictly after the token
+        // was minted (an hour ahead removes any same-second flakiness).
+        app.db
+            .execute_raw(Statement::from_string(
+                app.db.get_database_backend(),
+                format!(
+                    "UPDATE \"user\" SET credentials_changed_at = now() + interval '1 hour' WHERE id = {admin_id}"
+                ),
+            ))
+            .await
+            .expect("bump credentials_changed_at");
+
+        // Guarded high-value mutation rejects the now-stale token.
+        let stale = app
+            .post_with_token(
+                &routes::user_roles(admin_id),
+                &json!({ "role": "contestant" }),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(
+            stale.status, 401,
+            "stale token must be rejected on a guarded mutation: {}",
+            stale.text
+        );
+        assert_eq!(stale.body["code"], "TOKEN_INVALID");
+
+        // The stateless read path still accepts the same token.
+        let read = app.get_with_token(routes::USERS, &admin_token).await;
+        assert_eq!(
+            read.status, 200,
+            "stateless read path must keep accepting the token: {}",
+            read.text
+        );
+    }
+}

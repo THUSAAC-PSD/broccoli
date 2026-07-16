@@ -5,9 +5,9 @@ use axum::response::IntoResponse;
 use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 
-use crate::entity::{role, role_permission};
+use crate::entity::{role, role_permission, user};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::user::PermissionGrantRequest;
@@ -94,7 +94,7 @@ pub async fn list_role_permissions(
     security(("jwt" = [])),
 )]
 pub async fn grant_permission_to_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(role_name): AppPath<String>,
     AppJson(req): AppJson<PermissionGrantRequest>,
@@ -111,10 +111,16 @@ pub async fn grant_permission_to_role(
     }
 
     let new_grant = role_permission::ActiveModel {
-        role: Set(role_name),
+        role: Set(role_name.clone()),
         permission: Set(req.permission),
     };
-    new_grant.insert(&state.db).await?;
+    // Grant + invalidate the in-flight access tokens of everyone holding this
+    // role in one transaction, so the new permission cannot be exercised by a
+    // stale token from before the grant.
+    let txn = state.db.begin().await?;
+    new_grant.insert(&txn).await?;
+    user::Entity::touch_credentials_changed_for_role(&txn, &role_name).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::CREATED)
 }
@@ -139,7 +145,7 @@ pub async fn grant_permission_to_role(
     security(("jwt" = [])),
 )]
 pub async fn revoke_permission_from_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((role_name, permission_name)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -153,9 +159,15 @@ pub async fn revoke_permission_from_role(
         return Err(AppError::NotFound("Role permission not found".into()));
     }
 
-    role_permission::Entity::delete_by_id((role_name, permission_name))
-        .exec(&state.db)
+    // Revoke + invalidate the in-flight access tokens of everyone holding this
+    // role in one transaction, so a stale token cannot keep exercising the
+    // permission that was just removed.
+    let txn = state.db.begin().await?;
+    role_permission::Entity::delete_by_id((role_name.clone(), permission_name))
+        .exec(&txn)
         .await?;
+    user::Entity::touch_credentials_changed_for_role(&txn, &role_name).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

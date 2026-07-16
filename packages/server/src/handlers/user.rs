@@ -10,7 +10,7 @@ use tracing::instrument;
 
 use crate::entity::{contest, contest_user, refresh_token, role, user, user_role};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::user::{RoleAssignmentRequest, UpdateUserRequest, UserResponse};
 use crate::state::AppState;
@@ -103,7 +103,7 @@ pub async fn get_user(
     security(("jwt" = [])),
 )]
 pub async fn update_user(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
     Json(payload): Json<UpdateUserRequest>,
@@ -126,6 +126,7 @@ pub async fn update_user(
             .map_err(|_| AppError::Validation("Failed to hash password".into()))?;
         active.password = Set(password_hash);
         refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+        user::Entity::touch_credentials_changed(&txn, id).await?;
     }
     let updated_user = active.update(&txn).await?;
 
@@ -160,7 +161,7 @@ pub async fn update_user(
 )]
 #[instrument(skip(state, auth_user), fields(id, user_id = auth_user.user_id))]
 pub async fn delete_user(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -243,7 +244,7 @@ pub async fn delete_user(
     security(("jwt" = [])),
 )]
 pub async fn assign_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
     Json(payload): Json<RoleAssignmentRequest>,
@@ -264,6 +265,7 @@ pub async fn assign_role(
     let txn = state.db.begin().await?;
     user_model.assign_role(&txn, role_model.name).await?;
     refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    user::Entity::touch_credentials_changed(&txn, id).await?;
     txn.commit().await?;
 
     Ok(StatusCode::CREATED)
@@ -289,7 +291,7 @@ pub async fn assign_role(
     security(("jwt" = [])),
 )]
 pub async fn revoke_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((id, role_name)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -307,6 +309,7 @@ pub async fn revoke_role(
     let txn = state.db.begin().await?;
     active.delete(&txn).await?;
     refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    user::Entity::touch_credentials_changed(&txn, id).await?;
     txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)

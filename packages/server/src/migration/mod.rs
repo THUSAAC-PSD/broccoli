@@ -17,12 +17,16 @@
 use sea_orm_migration::prelude::*;
 
 mod m0001_supplementary_ddl;
+mod m0002_user_credentials_changed_at;
 
 pub struct Migrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m0001_supplementary_ddl::Migration)]
+        vec![
+            Box::new(m0001_supplementary_ddl::Migration),
+            Box::new(m0002_user_credentials_changed_at::Migration),
+        ]
     }
 }
