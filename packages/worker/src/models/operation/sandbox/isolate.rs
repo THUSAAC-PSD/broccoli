@@ -276,6 +276,16 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
         signal: parse_i32("exitsig"),
         time_used: parse_f64("time"),
         wall_time_used: parse_f64("time-wall"),
+        // KNOWN LIMITATION: with `--cg`, `cg-mem` is the box cgroup's memory PEAK
+        // since `--init`, shared by every step in the box - so for a step that runs
+        // after a heavier one (e.g. `run` after `compile`), the reported memory is
+        // inflated to the earlier step's peak. Unlike CPU (cumulative, so the
+        // per-step delta is recoverable by subtraction - see `box_cpu_secs`), a
+        // peak is not additive, so there is no arithmetic reconciliation. Fixing it
+        // needs either resetting `memory.peak` between `--run`s (kernel/isolate
+        // dependent) or reporting per-step `max-rss` instead (RSS != cgroup
+        // accounting). This only skews the REPORTED number; MLE is gated on the
+        // accurate `cg-oom-killed` flag below, not on this value.
         memory_used: parse_u32("cg-mem").or(parse_u32("max-rss")),
         cg_oom_killed: parse_i32("cg-oom-killed").map(|v| v != 0).unwrap_or(false),
         killed: parse_i32("killed").map(|v| v != 0).unwrap_or(false),
@@ -572,6 +582,18 @@ impl IsolateSandboxManager {
             "broccoli-isolate-{box_id}-{}.meta",
             uuid::Uuid::new_v4()
         ));
+        // Remove the --meta temp file on EVERY return path. isolate writes it on
+        // exit, and any early `?` after that (JoinError on the pipe readers, an
+        // unreadable/short meta file, a failed wait) would otherwise leak it into
+        // /tmp, which nothing sweeps - unbounded accumulation over a long-lived
+        // worker. A sync unlink in Drop is fine for one temp file.
+        struct MetaGuard(std::path::PathBuf);
+        impl Drop for MetaGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _meta_guard = MetaGuard(meta_path.clone());
 
         let mut command = Command::new(&self.isolate_bin);
         command.arg(format!("--box-id={box_id}"));
@@ -660,7 +682,6 @@ impl IsolateSandboxManager {
         match status.code() {
             Some(0) | Some(1) => {
                 let mut result = parse_meta_file(&meta_path).await?;
-                let _ = fs::remove_file(&meta_path).await;
                 let box_dir = self
                     .sandboxes
                     .read()
@@ -714,13 +735,10 @@ impl IsolateSandboxManager {
                 };
                 Ok(result)
             }
-            _ => {
-                let _ = fs::remove_file(&meta_path).await;
-                Err(SandboxError::Unknown(format!(
-                    "isolate internal error: {}",
-                    String::from_utf8_lossy(&output_stderr).trim()
-                )))
-            }
+            _ => Err(SandboxError::Unknown(format!(
+                "isolate internal error: {}",
+                String::from_utf8_lossy(&output_stderr).trim()
+            ))),
         }
     }
 }
