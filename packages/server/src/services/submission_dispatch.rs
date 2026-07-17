@@ -167,7 +167,33 @@ pub(crate) async fn ensure_active_judgement_id(
         .one(db)
         .await;
     match existing {
-        Ok(Some(j)) => return j.id,
+        Ok(Some(j)) => {
+            // Adopt the existing current judgement under THIS dispatch's owner +
+            // a fresh lease, exactly as the creation branch below stamps a new
+            // one. A judgement created unowned elsewhere - notably the
+            // apply-immediately rejudge path (`open_rejudge_judgement`), which
+            // inserts it with owner_server_id=NULL - would otherwise stay unowned
+            // while being judged, and the deferred-judgement steal
+            // (`owner_server_id IS NULL AND created_at < threshold`) would reclaim
+            // it ~lease_ttl later and double-dispatch it onto a second worker,
+            // aborting the in-progress (possibly interactive) judge. Only write
+            // when the owner/lease actually needs updating, to avoid a redundant
+            // UPDATE on the common already-owned dispatch.
+            if j.owner_server_id != sub.owner_server_id || j.lease_heartbeat_at.is_none() {
+                let mut am: submission_judgement::ActiveModel = j.clone().into();
+                am.owner_server_id = Set(sub.owner_server_id.clone());
+                am.lease_heartbeat_at = Set(Some(Utc::now()));
+                if let Err(e) = am.update(db).await {
+                    warn!(
+                        error = %e,
+                        submission_id = sub.id,
+                        judgement_id = j.id,
+                        "Failed to stamp adopted judgement owner/lease; deferred steal may double-dispatch"
+                    );
+                }
+            }
+            return j.id;
+        }
         Ok(None) => {}
         Err(e) => {
             warn!(error = %e, submission_id = sub.id, "Judgement lookup failed, dispatching with id=0");
