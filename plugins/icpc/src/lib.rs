@@ -472,19 +472,26 @@ fn run_judge(host: &Host, req: &OnSubmissionInput) -> Result<OnSubmissionOutput,
     if test_cases.is_empty() {
         let _ = host
             .log
-            .info("ICPC: No test cases found, marking as judged with score 0");
+            .info("ICPC: No test cases found; marking as SystemError (not a solve)");
         let affected = host.submission.update(&SubmissionUpdate {
             submission_id: req.submission_id,
             judgement_id: req.judgement_id,
             judge_epoch: req.judge_epoch,
             status: Some(SubmissionStatus::Judged),
-            verdict: Some(Some(Verdict::Accepted)),
+            // A problem with NO test cases is a misconfiguration, not a solve.
+            // Marking it Accepted would credit EVERY team a free solve on the ICPC
+            // standings (compute_problem_states counts any Accepted verdict) and
+            // hand the earliest submitter a first-solve balloon. Surface it as a
+            // SystemError so it is visible and never counts as solved.
+            verdict: Some(Some(Verdict::SystemError)),
             score: Some(0.0),
             time_used: Some(None),
             memory_used: Some(None),
             compile_output: None,
-            error_code: None,
-            error_message: None,
+            error_code: Some(Some("NO_TEST_CASES".to_string())),
+            error_message: Some(Some(
+                "Problem has no test cases; cannot be judged".to_string(),
+            )),
         })?;
         if affected == 0 {
             return Err(SdkError::StaleEpoch);
