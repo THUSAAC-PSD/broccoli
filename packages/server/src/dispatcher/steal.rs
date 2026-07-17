@@ -97,6 +97,62 @@ pub async fn run(
     }
 }
 
+/// True if `e` (anywhere in its chain) is a Postgres deadlock abort. Prefers the
+/// SQLSTATE (40P01) so it is locale-independent; falls back to the English
+/// message text for error shapes that do not expose a code.
+fn is_deadlock(e: &anyhow::Error) -> bool {
+    fn sqlstate(err: &sea_orm::DbErr) -> Option<String> {
+        use sea_orm::{DbErr, RuntimeErr};
+        let sqlx_err = match err {
+            DbErr::Query(RuntimeErr::SqlxError(e))
+            | DbErr::Exec(RuntimeErr::SqlxError(e))
+            | DbErr::Conn(RuntimeErr::SqlxError(e)) => e,
+            _ => return None,
+        };
+        sqlx_err
+            .as_database_error()
+            .and_then(|db| db.code())
+            .map(|c| c.into_owned())
+    }
+    e.chain().any(|cause| {
+        cause
+            .downcast_ref::<sea_orm::DbErr>()
+            .and_then(sqlstate)
+            .as_deref()
+            == Some("40P01")
+            || cause.to_string().contains("deadlock detected")
+    })
+}
+
+/// Run a steal claim, retrying if Postgres aborts it with a deadlock. The
+/// `submission` and `submission_judgement` steal scans lock the two rows of a
+/// (submission, current-judgement) pair in opposite orders (see
+/// `claim_deferred_judgements`), so during a coordinator failover two replicas
+/// running the opposite scans can deadlock on the same pair. Postgres always
+/// aborts exactly one, so retrying the victim after the winner commits succeeds -
+/// turning a dropped scan (re-dispatch delayed a whole tick, plus an error log)
+/// into an immediate in-tick recovery. Bounded so a genuinely persistent error
+/// still surfaces.
+async fn claim_retrying_deadlocks<T, F, Fut>(mut claim: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        match claim().await {
+            Err(e) if attempt < 3 && is_deadlock(&e) => {
+                attempt += 1;
+                tracing::debug!(attempt, "steal claim deadlocked; retrying");
+                // Brief backoff so the winning transaction commits and releases
+                // its locks before the retry re-acquires them.
+                tokio::time::sleep(std::time::Duration::from_millis(u64::from(attempt) * 20)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
 async fn scan_once(
     state: AppState,
     server_id: &str,
@@ -106,13 +162,15 @@ async fn scan_once(
 ) -> anyhow::Result<()> {
     let submission_slots = reserve_redispatch_slots(&state, batch_size, "submission");
     if !submission_slots.is_empty() {
-        let submissions = claim_submissions(
-            &state,
-            server_id,
-            lease_ttl_secs,
-            submission_slots.len() as u32,
-            max_dispatch_retries,
-        )
+        let submissions = claim_retrying_deadlocks(|| {
+            claim_submissions(
+                &state,
+                server_id,
+                lease_ttl_secs,
+                submission_slots.len() as u32,
+                max_dispatch_retries,
+            )
+        })
         .await?;
         for (sub, dispatch_slot) in submissions.into_iter().zip(submission_slots) {
             let state = state.clone();
@@ -125,13 +183,15 @@ async fn scan_once(
 
     let deferred_slots = reserve_redispatch_slots(&state, batch_size, "deferred_judgement");
     if !deferred_slots.is_empty() {
-        let deferred_judgements = claim_deferred_judgements(
-            &state.db,
-            server_id,
-            lease_ttl_secs,
-            deferred_slots.len() as u32,
-            max_dispatch_retries,
-        )
+        let deferred_judgements = claim_retrying_deadlocks(|| {
+            claim_deferred_judgements(
+                &state.db,
+                server_id,
+                lease_ttl_secs,
+                deferred_slots.len() as u32,
+                max_dispatch_retries,
+            )
+        })
         .await?;
         for ((sub, judgement_id, is_current), dispatch_slot) in
             deferred_judgements.into_iter().zip(deferred_slots)
@@ -157,13 +217,15 @@ async fn scan_once(
 
     let code_run_slots = reserve_redispatch_slots(&state, batch_size, "code_run");
     if !code_run_slots.is_empty() {
-        let code_runs = claim_code_runs(
-            &state,
-            server_id,
-            lease_ttl_secs,
-            code_run_slots.len() as u32,
-            max_dispatch_retries,
-        )
+        let code_runs = claim_retrying_deadlocks(|| {
+            claim_code_runs(
+                &state,
+                server_id,
+                lease_ttl_secs,
+                code_run_slots.len() as u32,
+                max_dispatch_retries,
+            )
+        })
         .await?;
         for (code_run, dispatch_slot) in code_runs.into_iter().zip(code_run_slots) {
             let state = state.clone();
@@ -539,16 +601,17 @@ async fn clear_current_submission_results(
     Ok(())
 }
 
-// KNOWN (low severity, self-healing): lock-order inversion vs `claim_submissions`.
-// This path locks the JUDGEMENT first (`claim_deferred_judgement_rows`, FOR UPDATE
-// SKIP LOCKED on `submission_judgement`) then the parent SUBMISSION (the UPDATE
-// below); `claim_submissions` locks the SUBMISSION first then the judgement
-// (`open_stolen_submission_judgements`). When a coordinator fails over and many
-// (submission, current-judgement) pairs go stale at once, two replicas running the
-// opposite scans can deadlock (Postgres 40P01) on the same pair. The aborted scan
-// just retries next tick, so re-dispatch is only delayed, not lost. A real fix
-// (uniform lock order, a per-submission advisory lock, or leader-electing the
-// stealer) is a risky change to the core dispatch path and deferred deliberately.
+// Lock-order note: this path locks the JUDGEMENT first
+// (`claim_deferred_judgement_rows`, FOR UPDATE SKIP LOCKED on
+// `submission_judgement`) then the parent SUBMISSION (the UPDATE below);
+// `claim_submissions` locks the SUBMISSION first then the judgement
+// (`open_stolen_submission_judgements`). During a coordinator failover, two
+// replicas running the opposite scans can deadlock (Postgres 40P01) on the same
+// (submission, current-judgement) pair. Rather than rewrite the core steal query
+// to force a uniform lock order (risky, and hard to make airtight across two
+// batch scanners), the caller wraps each claim in `claim_retrying_deadlocks`,
+// which retries the aborted victim in-tick - the textbook resolution for an
+// unavoidable lock-order conflict.
 async fn claim_deferred_judgements(
     db: &DatabaseConnection,
     server_id: &str,
