@@ -23,6 +23,25 @@ pub(crate) struct TcResultRow {
     submission_id: i32,
     test_case_id: i32,
     score: f64,
+    verdict: Verdict,
+}
+
+/// Normalize a persisted per-test result back to a 0..1 raw score for subtask
+/// RECOMPUTE. The stored `score` is the point-WEIGHTED value `round(raw * tc_max)`,
+/// which is LOSSY: a passing zero-point member (`tc_max == 0`) stores 0, and a
+/// non-2-decimal weight rounds a full pass slightly below 1.0. Re-deriving raw as
+/// `score / tc_max` would therefore wrongly FAIL a GroupMin/GroupMul subtask that
+/// actually passed (those methods gate on `raw >= 1.0`), diverging from the live
+/// judging path (which scores from the true `outcome.score`). Use the persisted
+/// verdict for the full-pass signal so recompute matches live scoring.
+pub(crate) fn normalized_raw_score(verdict: &Verdict, score: f64, tc_max: f64) -> f64 {
+    if verdict.is_accepted() {
+        1.0
+    } else if tc_max > 0.0 {
+        (score / tc_max).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -64,11 +83,7 @@ pub(crate) fn score_submission_subtask_details(
             continue;
         };
         let tc_max = max_map.get(&row.test_case_id).copied().unwrap_or(0.0);
-        let raw_score = if tc_max > 0.0 {
-            row.score / tc_max
-        } else {
-            0.0
-        };
+        let raw_score = normalized_raw_score(&row.verdict, row.score, tc_max);
         tc_scores.insert(label.clone(), raw_score);
     }
 
@@ -92,7 +107,7 @@ pub(crate) fn load_current_submission_test_case_results(
 ) -> Result<Vec<TcResultRow>, SdkError> {
     let mut p = Params::new();
     let sql = format!(
-        "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
+        "SELECT tcr.submission_id, tcr.test_case_id, tcr.score, tcr.verdict \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
          JOIN submission_judgement sj \
@@ -153,7 +168,7 @@ fn recompute_sum_best_subtask(
 ) -> Result<f64, SdkError> {
     let mut p = Params::new();
     let sql = format!(
-        "SELECT tcr.submission_id, tcr.test_case_id, tcr.score \
+        "SELECT tcr.submission_id, tcr.test_case_id, tcr.score, tcr.verdict \
          FROM test_case_result tcr \
          JOIN submission s ON s.id = tcr.submission_id \
          JOIN submission_judgement sj \
@@ -189,11 +204,7 @@ fn recompute_sum_best_subtask(
     let mut by_submission: HashMap<i32, HashMap<String, f64>> = HashMap::new();
     for row in &tc_results {
         let tc_max = max_map.get(&row.test_case_id).copied().unwrap_or(0.0);
-        let raw_score = if tc_max > 0.0 {
-            row.score / tc_max
-        } else {
-            0.0
-        };
+        let raw_score = normalized_raw_score(&row.verdict, row.score, tc_max);
         let label = id_to_label
             .get(&row.test_case_id)
             .cloned()
@@ -379,11 +390,13 @@ mod tests {
                 submission_id: 1,
                 test_case_id: 11,
                 score: 50.0,
+                verdict: Verdict::Accepted,
             },
             TcResultRow {
                 submission_id: 1,
                 test_case_id: 12,
                 score: 0.0,
+                verdict: Verdict::WrongAnswer,
             },
         ];
 
@@ -427,11 +440,13 @@ mod tests {
                 submission_id: 1,
                 test_case_id: 11,
                 score: 10.0,
+                verdict: Verdict::Accepted,
             },
             TcResultRow {
                 submission_id: 1,
                 test_case_id: 12,
                 score: 0.0,
+                verdict: Verdict::WrongAnswer,
             },
         ];
 
@@ -441,5 +456,84 @@ mod tests {
         assert_eq!(scores[0].name, "All Tests");
         assert_eq!(scores[0].score, 10.0);
         assert_eq!(scores[0].max_score, 100.0);
+    }
+
+    /// Regression: a fully-passing GroupMin subtask whose member test cases carry
+    /// ZERO points must score its full max on RECOMPUTE. The persisted per-test
+    /// score is `round(raw * tc.score) = round(1.0 * 0) = 0`, so re-deriving raw as
+    /// `score / tc_max` (tc_max=0 -> 0.0) wrongly failed the subtask; the verdict
+    /// (Accepted) is the authoritative full-pass signal.
+    #[test]
+    fn zero_point_group_min_member_full_pass_scores_full_on_recompute() {
+        let test_cases = vec![
+            TestCaseRow {
+                id: 11,
+                score: 0.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("m1".into()),
+                input: TestCaseBodyRef::inline(""),
+                expected_output: TestCaseBodyRef::inline(""),
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 12,
+                score: 0.0,
+                is_sample: false,
+                position: 2,
+                description: None,
+                label: Some("m2".into()),
+                input: TestCaseBodyRef::inline(""),
+                expected_output: TestCaseBodyRef::inline(""),
+                is_custom: false,
+            },
+        ];
+        let subtasks = vec![SubtaskDef {
+            name: "S".into(),
+            scoring_method: crate::config::SubtaskScoringMethod::GroupMin,
+            max_score: 30.0,
+            test_cases: vec!["m1".into(), "m2".into()],
+        }];
+        // Both members passed (Accepted), persisted score 0 because point value 0.
+        let current_rows = vec![
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 11,
+                score: 0.0,
+                verdict: Verdict::Accepted,
+            },
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 12,
+                score: 0.0,
+                verdict: Verdict::Accepted,
+            },
+        ];
+
+        let scores = score_submission_subtask_details(&test_cases, &subtasks, &current_rows);
+        assert_eq!(scores.len(), 1);
+        assert_eq!(
+            scores[0].score, 30.0,
+            "fully-passing zero-point GroupMin subtask must score its full max, not 0"
+        );
+
+        // And a FAILED member (not Accepted) must still zero the GroupMin subtask.
+        let failed_rows = vec![
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 11,
+                score: 0.0,
+                verdict: Verdict::Accepted,
+            },
+            TcResultRow {
+                submission_id: 1,
+                test_case_id: 12,
+                score: 0.0,
+                verdict: Verdict::WrongAnswer,
+            },
+        ];
+        let failed = score_submission_subtask_details(&test_cases, &subtasks, &failed_rows);
+        assert_eq!(failed[0].score, 0.0, "a failed member must zero GroupMin");
     }
 }

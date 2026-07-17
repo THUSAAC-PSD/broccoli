@@ -99,6 +99,7 @@ struct ScoreboardTcScoreRow {
     submission_id: i32,
     test_case_id: i32,
     score: f64,
+    verdict: Verdict,
     elapsed_seconds: i64,
 }
 
@@ -337,7 +338,7 @@ fn load_sum_best_subtask_scoreboard_cells(
     let problem_placeholders: Vec<String> = problem_ids.iter().map(|id| p.bind(*id)).collect();
     let sql = format!(
         "SELECT s.user_id, s.problem_id, s.id as submission_id, \
-                tcr.test_case_id, tcr.score, \
+                tcr.test_case_id, tcr.score, tcr.verdict, \
                 GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
                   as elapsed_seconds \
          FROM submission s \
@@ -365,11 +366,7 @@ fn load_sum_best_subtask_scoreboard_cells(
         else {
             continue;
         };
-        let raw_score = if *max_score > 0.0 {
-            row.score / *max_score
-        } else {
-            0.0
-        };
+        let raw_score = crate::score::normalized_raw_score(&row.verdict, row.score, *max_score);
         let (elapsed, scores) = by_submission
             .entry((row.user_id, row.problem_id, row.submission_id))
             .or_insert_with(|| (row.elapsed_seconds, HashMap::new()));
