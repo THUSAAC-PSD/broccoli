@@ -1,4 +1,3 @@
-use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
 use tokio::sync::Mutex;
 use tracing::warn;
@@ -34,6 +33,18 @@ local hb_exists = redis.call('EXISTS', hb_key)
 if hb_exists == 0 then
   redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
   return 2
+end
+return 0
+"#;
+
+/// Compare-and-delete release: only delete the claim if it STILL holds our
+/// worker_id. An unconditional DEL would delete a claim that another live worker
+/// already STOLE (after our heartbeat lapsed and it took over), which would let a
+/// later redelivery re-claim the key and run the same operation concurrently with
+/// the current owner - the exact duplicate-execution the dedup exists to prevent.
+const RELEASE_SCRIPT: &str = r#"
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
 end
 return 0
 "#;
@@ -145,7 +156,13 @@ impl RedisTaskDedup {
             }
         };
 
-        let result: Result<(), _> = conn.del(&key).await;
+        let result: Result<i64, _> = redis::cmd("EVAL")
+            .arg(RELEASE_SCRIPT)
+            .arg(1)
+            .arg(&key)
+            .arg(&self.worker_id)
+            .query_async(&mut conn)
+            .await;
         if let Err(e) = result {
             warn!(task_id, error = %e, "Redis dedup release failed");
             self.invalidate_conn().await;
