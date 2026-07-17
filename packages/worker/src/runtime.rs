@@ -305,13 +305,20 @@ async fn run_consume_loop<F, Fut>(
         };
 
         let mq = Arc::clone(&mq);
-        let in_flight = in_flight.clone();
         let handle = handle.clone();
+        // Acquire the in-flight guard SYNCHRONOUSLY here, before the spawn, so the
+        // counter is incremented the instant the task is consumed - not on the
+        // spawned future's first poll. Otherwise, if shutdown fires right after
+        // this consume, the loop can break and `drain_in_flight` read current()==0
+        // (the future not yet polled) and return, abandoning this just-consumed
+        // task mid-flight (recovered only later via broker redelivery). The guard
+        // is moved into the task and dropped when it is fully resolved.
+        let in_flight_guard = in_flight.guard();
         tokio::spawn(async move {
             // Hold the in-flight guard and the permit across BOTH processing and
             // the ack/reject, so `drain_in_flight` waits until the task is fully
             // resolved (acked or rejected), not just executed.
-            let _in_flight = in_flight.guard();
+            let _in_flight = in_flight_guard;
             let _permit = permit;
             match handle(message.clone()).await {
                 Ok(()) => {
