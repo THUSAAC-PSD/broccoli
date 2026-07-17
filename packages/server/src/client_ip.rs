@@ -62,11 +62,18 @@ fn resolve_client_ip(
 }
 
 fn rightmost_x_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
-    let value = headers.get(X_FORWARDED_FOR)?.to_str().ok()?;
-    value
-        .split(',')
-        .rev()
-        .find_map(|part| part.trim().parse::<IpAddr>().ok())
+    // Consider EVERY X-Forwarded-For header line, not just the first. HTTP treats
+    // repeated headers as one ordered list, and a proxy that appends the real
+    // client puts it rightmost; reading only `headers.get()` (the FIRST line) lets
+    // a client spoof the throttle/audit key by sending their own XFF line ahead of
+    // the proxy's. The rightmost valid IP across all lines is the last-appended.
+    headers
+        .get_all(X_FORWARDED_FOR)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|line| line.split(','))
+        .filter_map(|part| part.trim().parse::<IpAddr>().ok())
+        .last()
 }
 
 pub fn parse_trusted_proxy_networks(entries: &[String]) -> Arc<Vec<IpNet>> {
