@@ -42,14 +42,14 @@ const REQUIRED_DDL: &[&str] = &[
     // Refresh-token reuse detection: a rotated token is retained with this set
     // rather than deleted, so a replay can be detected as theft.
     r#"ALTER TABLE IF EXISTS "refresh_tokens" ADD COLUMN IF NOT EXISTS "revoked_at" TIMESTAMPTZ"#,
-    // --- Phase 2 SQL-capability lockdown: the `broccoli_plugin` role ---------
-    // A NOLOGIN role the app role is a MEMBER of: it may READ every core table
-    // but has NO write DML on them and, as a non-owner, cannot DROP/ALTER them.
-    // A plugin's OWN tables (created via raw `CREATE TABLE` under this role) are
-    // owned by `broccoli_plugin`, so the plugin retains full read/write/DDL on
-    // them; legitimate core WRITES keep working via the gated host fns on the
-    // privileged pool. NOTE: no INSERT/UPDATE/DELETE is granted on any core
-    // table -- exactly what the negative security test relies on.
+    // --- The `broccoli_plugin` role -----------------------------------------
+    // A NOLOGIN role the app role is a MEMBER of. As created HERE it has only
+    // SELECT on core; the read deny-list + write grants were later opened by
+    // product decision, so the CURRENT effective grants are set by m0003 (reads)
+    // and m0004 (writes) -- see those migrations. As a non-owner it still cannot
+    // DROP/ALTER core tables regardless. A plugin's OWN tables (created via raw
+    // `CREATE TABLE` under this role) are owned by `broccoli_plugin`, so the
+    // plugin retains full read/write/DDL on them.
     "DO $$ BEGIN CREATE ROLE broccoli_plugin NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;",
     "GRANT broccoli_plugin TO CURRENT_USER",
     "GRANT USAGE, CREATE ON SCHEMA public TO broccoli_plugin",

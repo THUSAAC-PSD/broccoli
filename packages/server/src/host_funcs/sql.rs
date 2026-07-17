@@ -188,12 +188,12 @@ async fn connect_fresh_single(
 }
 
 /// Which DB role a fresh fallback connection must assume before running its
-/// statement. Pooled plugin connections downshift to the restricted
-/// `broccoli_plugin` role via `after_connect` (see
-/// [`crate::database::init_plugin_db`]), but a fresh fallback connection is
-/// opened OUTSIDE that pool and would otherwise default to the privileged app
-/// role. The raw `sql` path must re-apply the restricted role so a plugin write
-/// the role forbids cannot succeed merely by riding the 0x00 fallback; the
+/// statement. Pooled plugin connections downshift to the `broccoli_plugin` role
+/// via `after_connect` (see [`crate::database::init_plugin_db`]), but a fresh
+/// fallback connection is opened OUTSIDE that pool and would otherwise default to
+/// the privileged app role. The raw `sql` path must re-apply the plugin role so
+/// riding the 0x00 fallback cannot slip a statement past the role's boundary
+/// (schema DDL on core, `plugin_login_secret`) by running as the app role; the
 /// server-owned structured `host.submission.*` path is privileged by design and
 /// keeps the app role.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1262,11 +1262,14 @@ mod tests {
     }
 
     /// Security regression: the raw `sql` path opens its 0x00 fallback with
-    /// [`FallbackRole::Restricted`], so a write the `broccoli_plugin` role is not
-    /// granted MUST be denied on the fresh connection just as it is on the pooled
-    /// one - the fallback must not become a privilege-escalation hatch back to the
-    /// app role. The structured path's [`FallbackRole::Privileged`] keeps the app
-    /// role so its server-owned core writes still land.
+    /// [`FallbackRole::Restricted`], which must run AS `broccoli_plugin`, not the
+    /// app role - the fallback must not become a privilege-escalation hatch. To
+    /// probe that, this test gives a stand-in `broccoli_plugin` role SELECT but no
+    /// INSERT on a table (a deliberately minimal grant, NOT the production migrated
+    /// role, which now has full DML) and asserts the fallback's INSERT is denied:
+    /// that can only happen if the fallback downshifted rather than staying app.
+    /// The structured path's [`FallbackRole::Privileged`] keeps the app role so
+    /// its server-owned core writes still land.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn restricted_fallback_denies_writes_the_plugin_role_lacks() {
         use testcontainers::ImageExt;
@@ -1284,8 +1287,10 @@ mod tests {
             .expect("postgres host port");
         let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
-        // Set up the restricted role exactly as the migration does: NOLOGIN,
-        // app-role is a member, SELECT-only on the table under test (no INSERT).
+        // A deliberately minimal stand-in role: NOLOGIN, app-role is a member,
+        // SELECT-only on the table under test (no INSERT). This is NOT the
+        // production role (which has full DML); the missing INSERT is the probe
+        // that proves the fallback runs AS this role, not the app role.
         let admin = Database::connect(url.clone())
             .await
             .expect("connect as app role");

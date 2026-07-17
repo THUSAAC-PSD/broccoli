@@ -272,19 +272,22 @@ async fn connect_restricted_pool_with_fallback(
 ///    a blocking thread, never cancelled), so a pool used ONLY by them stays
 ///    clean. No schema-sync/seeding here - the main pool already ran it.
 ///
-/// 2. **Least privilege (phase 2 of the SQL-capability redesign)** - every
-///    connection runs `SET ROLE broccoli_plugin` before the plugin can use it,
-///    via sqlx's per-connection `after_connect` hook. `broccoli_plugin` is a
-///    NOLOGIN role (created + granted in [`init_db_with_max_connections`]) that
-///    the app role is a MEMBER of. It has only `SELECT` on core tables and does
-///    not OWN them, so raw plugin SQL can READ core state but can neither
-///    write it (no INSERT/UPDATE/DELETE granted) nor DROP/ALTER it
-///    (ownership-gated by Postgres). A plugin's OWN tables - created via raw
-///    `CREATE TABLE` under this role - are owned by `broccoli_plugin`, so the
-///    plugin keeps full read/write/DDL on them. Legitimate core WRITES keep
-///    working because the gated `host.submission.*` (phase 1), `host.storage.*`,
-///    and `config:write` host fns run on the PRIVILEGED pool
-///    ([`init_plugin_db_privileged`]), which does NOT `SET ROLE`.
+/// 2. **Bounded privilege** - every connection runs `SET ROLE broccoli_plugin`
+///    before the plugin can use it, via sqlx's per-connection `after_connect`
+///    hook. `broccoli_plugin` is a NOLOGIN role (created + granted in
+///    [`init_db_with_max_connections`]) that the app role is a MEMBER of. By
+///    product decision (migrations m0003/m0004) it has full read + write DML
+///    (SELECT/INSERT/UPDATE/DELETE) on every table, so raw plugin SQL can freely
+///    read and mutate contest DATA. What it still CANNOT do, and what this role
+///    boundary exists to enforce, is: schema DDL on core tables (DROP/ALTER are
+///    owner-only, and the role does not OWN core tables), TRUNCATE, reaching the
+///    app role's DDL/superuser powers, or reading/writing `plugin_login_secret`.
+///    A plugin's OWN tables - created via raw `CREATE TABLE` under this role -
+///    are owned by `broccoli_plugin`, so it keeps full DDL on those. The gated
+///    `host.submission.*` / `host.storage.*` / `config:write` host fns still run
+///    on the PRIVILEGED pool ([`init_plugin_db_privileged`], which does NOT
+///    `SET ROLE`) - server-owned structured writes, independent of what raw SQL
+///    may now also do.
 ///
 /// `login`, when `Some`, overrides the URL's username/password so the pool
 /// authenticates as the dedicated least-privilege [`PLUGIN_DB_LOGIN_ROLE`]
@@ -314,9 +317,10 @@ pub async fn init_plugin_db(
         .max_lifetime(Duration::from_secs(1800))
         .test_before_acquire(true)
         // The unbypassable choke point: every physical connection downshifts to
-        // the read-only plugin role at connect time. `SET ROLE` is session-level
-        // and persists for the connection's lifetime, so pooled reuse stays
-        // restricted. This is what makes the negative security test pass.
+        // the bounded `broccoli_plugin` role at connect time. `SET ROLE` is
+        // session-level and persists for the connection's lifetime, so pooled
+        // reuse stays on the plugin role (no schema DDL on core, no app-role
+        // powers) even though it may now read/write data freely.
         .after_connect(|conn, _meta| {
             Box::pin(async move {
                 sea_orm::sqlx::Executor::execute(
@@ -354,15 +358,14 @@ pub async fn init_plugin_db(
 /// same pool sizing/timeouts) but WITHOUT the `SET ROLE broccoli_plugin`
 /// downshift, so its connections run as the full app role.
 ///
-/// The gated core-WRITE host functions run here, NOT on the restricted pool:
-/// `host.submission.*` (phase 1), `host.storage.*`, and `config:write`. Each
-/// builds server-owned, structured, plugin-scoped SQL that legitimately writes
-/// a core table (`submission`/`submission_judgement`/`test_case_result`,
-/// `plugin_storage`, `plugin_config`), so - by the same rule that sends
-/// `host.submission.*` here - they must not be constrained to the read-only
-/// plugin role. Only the raw `sql` capability, which executes arbitrary
-/// plugin-authored SQL, is restricted (on [`init_plugin_db`]). Both pools point
-/// at the same database URL; only the effective role differs.
+/// The gated, server-owned structured host functions run here, NOT on the
+/// `broccoli_plugin` pool: `host.submission.*`, `host.storage.*`, and
+/// `config:write`. Each builds structured, plugin-scoped SQL owned by the server,
+/// and runs as the app role so it is not bound by the plugin role's boundaries
+/// (no schema DDL on core, no `plugin_login_secret`). That the raw `sql`
+/// capability may now also read/write data on its own pool does not change this:
+/// the structured path stays server-controlled and app-role. Both pools point at
+/// the same database URL; only the effective role differs.
 pub async fn init_plugin_db_privileged(
     db_url: &str,
     max_connections: u32,

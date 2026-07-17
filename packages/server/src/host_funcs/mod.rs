@@ -64,13 +64,14 @@ pub(crate) fn host_fn_span(host_fn: &'static str, plugin_id: &str) -> Span {
 
 pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
-    // RESTRICTED pool (runs as `broccoli_plugin`): backs the raw `sql`
-    // capability and read-only `config:read`. Cannot write/DDL core tables.
+    // `broccoli_plugin` pool: backs the raw `sql` capability and `config:read`.
+    // Full read + write DML on data, but no schema DDL on core and no app-role
+    // powers.
     let db = deps.system.db.clone();
-    // PRIVILEGED pool (runs as the app role): backs the gated core-WRITE host
-    // fns - `host.storage.*`, `host.submission.*` (phase 1), and `config:write`.
-    // Each builds server-owned, plugin-scoped SQL that legitimately writes a
-    // core table, so they must not be constrained to the read-only plugin role.
+    // PRIVILEGED pool (runs as the app role): backs the server-owned structured
+    // host fns - `host.storage.*`, `host.submission.*`, and `config:write` -
+    // which build plugin-scoped SQL the server controls and run outside the
+    // plugin role's boundary (core DDL, `plugin_login_secret`).
     let privileged_db = deps.system.privileged_db.clone();
 
     hr.register("logger", |plugin_id| {
