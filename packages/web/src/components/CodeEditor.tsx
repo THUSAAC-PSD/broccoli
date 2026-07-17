@@ -280,15 +280,24 @@ function CodeEditorContent({
   supportedLanguages,
 }: CodeEditorProps & { supportedLanguages: Language[] }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  // Scope the localStorage draft keys by the signed-in user, so a shared
-  // contest machine never surfaces one contestant's in-progress solution to the
-  // next. Falls back to the raw key when unauthenticated (no cross-user
-  // identity to protect, and such a draft cannot be submitted anyway).
+  const { user, isLoading: authLoading } = useAuth();
+  // Scope the localStorage draft keys by the signed-in user so a shared contest
+  // machine never surfaces one contestant's in-progress solution to the next.
+  //
+  // The id is captured in a sticky ref (only ever updated to a non-null value)
+  // so a transient refresh blip (user -> null -> user) does NOT flip the key and
+  // trip the reset effect that would wipe in-progress code. And we persist only
+  // once auth has RESOLVED and a user is known: during the pre-auth window (and
+  // for logged-out users) the key is undefined, so nothing is written to an
+  // unscoped key that would be orphaned once the id resolves.
+  const userIdRef = useRef<number | null>(null);
+  if (user?.id != null) {
+    userIdRef.current = user.id;
+  }
   const storageKey =
-    storageKeyProp && user?.id != null
-      ? `u${user.id}:${storageKeyProp}`
-      : storageKeyProp;
+    !authLoading && storageKeyProp && userIdRef.current != null
+      ? `u${userIdRef.current}:${storageKeyProp}`
+      : undefined;
   const gating = useSubmitGating();
   const isGated = gating?.isBlocked ?? false;
 
