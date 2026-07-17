@@ -100,6 +100,17 @@ mod plugin {
         let g2 = p.bind(PENDING_GRACE_SECS);
         let g3 = p.bind(PENDING_GRACE_SECS);
         let m = p.bind(max);
+        // KNOWN LIMITATION (low severity): the durable `confirmed` count is only
+        // ever incremented by the fire-and-forget `after_submission` confirm hook
+        // (no retry, lost on server restart). This reclaim resets `pending` to 1
+        // once it is older than PENDING_GRACE_SECS, assuming the pending
+        // submission failed - but a submission that COMMITTED yet whose confirm
+        // was lost/delayed looks identical, so its slot is refunded and the cap can
+        // be exceeded by a few. A correct fix reconciles `confirmed` against the
+        // actual committed submission count rather than the pending/confirmed claim
+        // state; it is deferred because the claim runs pre-insert and the fix
+        // touches this concurrency-sensitive single-statement UPSERT (the plugin
+        // host DB has no working transactions under concurrent submissions).
         let sql = format!(
             "INSERT INTO submission_limit_claim \
                (user_id, problem_id, contest_id, confirmed, pending, oldest_pending_at) \

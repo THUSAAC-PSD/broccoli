@@ -107,6 +107,16 @@ pub fn counts_as_live(
 /// contest ends - announcing "you were first" would itself leak that no one else
 /// solved the problem earlier. So the flag is suppressed entirely (empty map)
 /// rather than falsely crowning the viewer on every problem they solved.
+///
+/// KNOWN LIMITATION (low severity, cosmetic): during a scoreboard FREEZE on a
+/// PUBLIC board (`restricted=false`), the caller's `states` include the viewer's
+/// OWN during-freeze solves (kept live) but exclude every other team's frozen
+/// solves. So if the viewer solves a problem during the freeze that another team
+/// solved earlier (also during the freeze, hence hidden), this wrongly shows the
+/// viewer a first-solve balloon until an organizer reveals the board. A correct
+/// fix computes first-solve from the truly-public frozen states (pre-freeze
+/// confirmed only, excluding the viewer's own during-freeze), separate from the
+/// per-viewer live partition used for their own score.
 pub fn compute_first_solvers(
     states: &HashMap<(i32, i32), ProblemState>,
     restricted: bool,
