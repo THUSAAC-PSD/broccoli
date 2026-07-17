@@ -368,22 +368,31 @@ fn reject_role_escalation(plugin_id: &str, sql: &str) -> Result<(), extism::Erro
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .filter(|t| !t.is_empty())
         .collect();
-    let has_seq = |a: &str, b: &str| tokens.windows(2).any(|w| w[0] == a && w[1] == b);
-    let has_seq3 = |a: &str, b: &str, c: &str| {
-        tokens
-            .windows(3)
-            .any(|w| w[0] == a && w[1] == b && w[2] == c)
-    };
+    // A SET/RESET changes the role or session authorization when its target
+    // token -- allowing an optional SESSION/LOCAL scope keyword in between -- is
+    // ROLE, AUTHORIZATION (SET SESSION AUTHORIZATION / RESET SESSION
+    // AUTHORIZATION), or ALL (RESET ALL). Matching the target rather than a
+    // fixed adjacent pair is what catches the scoped forms `SET LOCAL ROLE` /
+    // `SET SESSION ROLE` (SET ROLE needs only role membership, not superuser, so
+    // this is a live escalation), while still leaving `SET role_id = $1` (target
+    // `role_id`, a distinct token) and `SET statement_timeout = 5` untouched.
+    let sets_role_or_auth = tokens.iter().enumerate().any(|(i, &t)| {
+        if t != "set" && t != "reset" {
+            return false;
+        }
+        let target = match tokens.get(i + 1).copied() {
+            Some("local") | Some("session") => tokens.get(i + 2).copied(),
+            other => other,
+        };
+        matches!(target, Some("role") | Some("authorization") | Some("all"))
+    });
     let blocked =
         // DO runs arbitrary procedural code; DISCARD [ALL] resets the session
         // role -- neither is needed by a plugin, so block them as a statement.
         tokens.first().is_some_and(|t| *t == "do" || *t == "discard")
-        // Direct or function-body/DO-wrapped role & authorization changes.
-        || has_seq("set", "role")
-        || has_seq("reset", "role")
-        || has_seq("reset", "all")
-        || has_seq("reset", "session")
-        || has_seq3("set", "session", "authorization")
+        // Direct or function-body/DO-wrapped role & authorization changes,
+        // including the scoped `SET LOCAL/SESSION ROLE` variants.
+        || sets_role_or_auth
         // `set_config('role',..)` / `pg_catalog.set_config(..)` (any spacing),
         // and the underscore `session_authorization` GUC form.
         || tokens
@@ -1021,6 +1030,13 @@ mod tests {
             "SET ROLE app_role",
             "set role \"app\"",
             "SET  ROLE app",
+            // scoped variants: the optional SESSION/LOCAL keyword must not slip
+            // a role change past a naive adjacent-pair match
+            "SET LOCAL ROLE app_role",
+            "SET SESSION ROLE app_role",
+            "SET LOCAL role = app_role",
+            "SET ROLE TO app_role",
+            "RESET SESSION AUTHORIZATION",
             "RESET ALL",
             "DISCARD ALL",
             "SET SESSION AUTHORIZATION app_role",
@@ -1057,6 +1073,9 @@ mod tests {
             "INSERT INTO sessions (session_token) VALUES ($1)",
             "SELECT * FROM roles WHERE name = $1",
             "SET statement_timeout = 5000",
+            // scope keyword before a NON-role parameter must stay allowed
+            "SET LOCAL statement_timeout = 5000",
+            "SET SESSION search_path TO my_schema",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_ok(),
