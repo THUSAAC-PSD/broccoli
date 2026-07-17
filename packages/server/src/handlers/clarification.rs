@@ -257,10 +257,15 @@ pub async fn create_clarification(
         recipient_name = Some(recipient.username);
     }
 
+    // Only admins may publish a clarification to ALL participants. A non-admin's
+    // supplied is_public is ignored (forced false), the same way recipient_id and
+    // the announcement type are gated above - otherwise a contestant could set
+    // is_public:true on their own "question" and broadcast arbitrary content to
+    // every participant, an unmoderated cross-contestant channel.
     let is_public = if payload.clarification_type == "announcement" {
         true
     } else {
-        payload.is_public.unwrap_or(false)
+        is_admin && payload.is_public.unwrap_or(false)
     };
 
     let now = chrono::Utc::now();
