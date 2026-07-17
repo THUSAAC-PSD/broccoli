@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use chrono::Utc;
 use common::{DlqEnvelope, DlqErrorCode, DlqMessageType};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, SqlErr, sea_query::LockType,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, sea_query::LockType,
 };
 
 use crate::entity::dead_letter_message;
@@ -101,21 +101,33 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         message_id: &str,
         model: dead_letter_message::ActiveModel,
     ) -> Result<dead_letter_message::Model, DbErr> {
-        match model.insert(self.conn).await {
-            Ok(inserted) => Ok(inserted),
-            Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                dead_letter_message::Entity::find()
-                    .filter(dead_letter_message::Column::MessageId.eq(message_id))
-                    .one(self.conn)
-                    .await?
-                    .ok_or_else(|| {
-                        DbErr::Custom(
-                            "UniqueConstraintViolation but existing row not found".to_string(),
-                        )
-                    })
-            }
-            Err(e) => Err(e),
+        // ON CONFLICT DO NOTHING, NOT a bare insert. A duplicate message_id (broker
+        // redelivery / lost-ack - exactly what the DLQ must survive) would raise a
+        // unique-constraint violation, and a violation ABORTS the surrounding
+        // Postgres transaction; the recovery read that follows would then fail with
+        // 25P02 on the aborted txn, so every transactional caller's idempotent
+        // retry breaks. `exec_without_returning` with `do_nothing` instead leaves
+        // the txn valid and returns `RecordNotInserted` on conflict; either way we
+        // read the row back (the one just inserted, or the pre-existing duplicate).
+        match dead_letter_message::Entity::insert(model)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(dead_letter_message::Column::MessageId)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec_without_returning(self.conn)
+            .await
+        {
+            Ok(_) | Err(DbErr::RecordNotInserted) => {}
+            Err(e) => return Err(e),
         }
+        dead_letter_message::Entity::find()
+            .filter(dead_letter_message::Column::MessageId.eq(message_id))
+            .one(self.conn)
+            .await?
+            .ok_or_else(|| {
+                DbErr::Custom("dead_letter_message row missing after upsert".to_string())
+            })
     }
 
     pub async fn list(
