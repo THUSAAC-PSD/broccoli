@@ -18,6 +18,7 @@ use sea_orm_migration::prelude::*;
 
 mod m0001_supplementary_ddl;
 mod m0002_user_credentials_changed_at;
+mod m0003_remove_plugin_read_denylist;
 
 pub struct Migrator;
 
@@ -27,6 +28,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m0001_supplementary_ddl::Migration),
             Box::new(m0002_user_credentials_changed_at::Migration),
+            Box::new(m0003_remove_plugin_read_denylist::Migration),
         ]
     }
 }

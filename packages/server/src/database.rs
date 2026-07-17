@@ -745,15 +745,15 @@ mod tests {
             .expect("the degraded app-role pool must be usable");
     }
 
-    /// SECURITY - SQL-capability read narrowing.
-    ///
-    /// Even with SELECT-only access, the blanket `GRANT SELECT ON ALL TABLES`
-    /// let raw plugin SQL read credentials, auth tokens, authz config, and other
-    /// plugins' private storage/config. The migration revokes SELECT on those and
-    /// exposes only a curated, PII-free `plugin_user_public` view. This drives the
-    /// REAL migration + REAL restricted pool against a live Postgres.
+    /// The plugin read DENY-LIST was removed by product decision (m0003): plugins
+    /// may `SELECT` every table, including formerly-restricted ones. This drives
+    /// the REAL migration + REAL restricted pool against a live Postgres and
+    /// asserts the previously-denied tables are now readable. (Credential columns
+    /// they expose are argon2-hashed at rest; contest admins are trusted.) Note
+    /// this is READ only - `broccoli_plugin_role_blocks_core_writes_...` still
+    /// proves core WRITES remain denied.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn broccoli_plugin_role_cannot_read_sensitive_tables_but_can_read_curated_view() {
+    async fn broccoli_plugin_can_read_all_tables_after_denylist_removed() {
         use testcontainers::ImageExt;
         use testcontainers::runners::AsyncRunner;
         use testcontainers_modules::postgres::Postgres;
@@ -776,10 +776,7 @@ mod tests {
             .await
             .expect("restricted plugin pool");
 
-        // NEGATIVE: SELECT on each sensitive table is denied. `user` (password
-        // hash), `refresh_tokens` (session tokens), and `plugin_config` /
-        // `plugin_storage` (another plugin's private rows) are the load-bearing
-        // ones; the rest are authz/internal tables no plugin needs.
+        // Every formerly deny-listed table is now SELECT-able by the plugin role.
         for table in [
             r#""user""#,
             "refresh_tokens",
@@ -792,28 +789,22 @@ mod tests {
             "idempotency_key",
             "dead_letter_message",
         ] {
-            let err = restricted
+            restricted
                 .execute_unprepared(&format!("SELECT * FROM {table} LIMIT 1"))
                 .await
-                .expect_err(&format!(
-                    "SELECT from {table} must be denied for broccoli_plugin"
-                ));
-            assert!(
-                err.to_string().to_lowercase().contains("permission denied"),
-                "expected permission-denied SELECT on {table}, got: {err}"
-            );
+                .unwrap_or_else(|e| {
+                    panic!("SELECT from {table} must be allowed after deny-list removal, got: {e}")
+                });
         }
 
-        // POSITIVE: contest-data tables stay readable (not on the revoke list).
+        // Contest-data tables and the curated view stay readable too.
         restricted
             .execute_unprepared("SELECT id FROM submission LIMIT 1")
             .await
             .expect("contest-data reads must still work");
-
-        // POSITIVE: the curated view exposes id + username with no PII column.
         restricted
             .execute_unprepared("SELECT id, username FROM plugin_user_public LIMIT 1")
             .await
-            .expect("the curated user view must be readable");
+            .expect("the curated user view must still be readable");
     }
 }
