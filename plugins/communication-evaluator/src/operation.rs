@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask,
-    OutputSpec, ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig, StepKind,
+    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask, OutputSpec,
+    ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig, StepKind,
 };
 
 use crate::config::{CommConfig, CommunicationMode, ManagerSourceEntry, SandboxConfig};
@@ -57,10 +57,7 @@ pub fn build_operation(
             )
         })
         .collect();
-    manager_files_in.push((
-        "input.txt".to_string(),
-        req.test_input.to_session_file(),
-    ));
+    manager_files_in.push(("input.txt".to_string(), req.test_input.to_session_file()));
 
     environments.push(Environment {
         id: "manager_env".to_string(),
@@ -222,6 +219,7 @@ pub fn build_operation(
             resource_limits: sandbox_config.manager_limits(
                 comm_config.manager_time_limit_s,
                 comm_config.manager_memory_limit_kb,
+                comm_config.num_processes,
             ),
             wait: true,
             env_rules: vec![],
@@ -303,7 +301,6 @@ pub fn build_operation(
         test_case_id: Some(req.test_case_id),
     }])
 }
-
 
 #[cfg(test)]
 mod tests {
