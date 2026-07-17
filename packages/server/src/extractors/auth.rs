@@ -118,6 +118,14 @@ where
 
         // Tokens predating the last credential change (including legacy tokens
         // with no `iat`, which decode as 0) are stale -> force a re-auth.
+        //
+        // Strict `<` (NOT `<=`) is deliberate: `iat` is second-granularity per the
+        // JWT spec, so a token minted by a re-login in the SAME second as the
+        // credential change has `iat == credentials_changed_at`. `<=` would revoke
+        // that fresh token, breaking login/refresh right after a password/role
+        // change (a login loop). The residual sub-second window (a token issued
+        // <1s BEFORE the change surviving) is negligible: the access token lives
+        // only ~5 min and the same change already revokes the refresh tokens.
         if (claims.iat as i64) < credentials_changed_at.timestamp() {
             return Err(AppError::TokenInvalid);
         }

@@ -86,6 +86,16 @@ async fn probe_one(probe: &Probe) -> String {
             info!(probe = probe.name, version = %text, "toolchain probe succeeded");
             text
         }
+        // KNOWN LIMITATION (low severity): a TRANSIENT probe failure (non-zero
+        // exit, spawn error, timeout below) collapses to the same stable
+        // "unavailable" token as a genuinely-absent toolchain. Because this token
+        // feeds the compile-cache key, a binary compiled on a worker whose probe
+        // transiently failed can be reused on a worker with a DIFFERENT actual
+        // toolchain whose probe also failed - a wrong-toolchain cache hit -> wrong
+        // compile output -> wrong verdict. The correct fix is to treat a probe
+        // failure as an UNRELIABLE fingerprint and have the caller skip the
+        // compile cache for that operation (a cache-contract change), not to emit
+        // a stable token here.
         Ok(Ok(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             warn!(

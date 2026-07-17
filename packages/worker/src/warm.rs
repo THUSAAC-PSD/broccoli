@@ -75,6 +75,14 @@ async fn run(config: WorkerAppConfig, metrics: Option<Metrics>) -> anyhow::Resul
 }
 
 /// Build a [`FileCacher`] over the same blob store + cache dir the executor uses.
+///
+/// KNOWN LIMITATION (low severity): this is a SEPARATE cacher instance from the
+/// executor's, each with its own in-memory LRU enforcing `max_cache_size` against
+/// the SAME on-disk `cache_dir`. Because neither knows about the other's LRU
+/// accounting, total on-disk usage can reach ~2x the configured cap before either
+/// evicts. The correct fix is to SHARE a single `Arc<dyn FileCacher>` between the
+/// warm subscriber and the executor; it is deferred because that requires
+/// threading the executor's cacher through worker startup.
 async fn build_cacher(
     config: &WorkerAppConfig,
     metrics: Option<Metrics>,
