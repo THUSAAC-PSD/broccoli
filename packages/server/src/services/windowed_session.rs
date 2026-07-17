@@ -354,7 +354,17 @@ pub async fn run_windowed_session<S: WindowedSession>(
                             return;
                         }
                     }
-                    break;
+                    // `continue`, NOT `break`: the failed item was already surfaced
+                    // to the plugin (which chose Continue), so drop it and try the
+                    // remaining pending. Breaking here would exit the refill loop
+                    // with `active` possibly empty while `pending` is non-empty; the
+                    // termination guard below would then be false and the outer
+                    // `rx.recv()` would block forever with no in-flight slot to ever
+                    // wake it (a permanent session hang from a transient start
+                    // failure). Continuing drains pending: it either fills the
+                    // window from a later successful start, or empties pending so
+                    // the guard below terminates the session cleanly.
+                    continue;
                 }
             }
         }
