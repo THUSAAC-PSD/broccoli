@@ -276,17 +276,19 @@ async fn parse_meta_file(meta_path: &Path) -> Result<ExecutionResult, SandboxErr
         signal: parse_i32("exitsig"),
         time_used: parse_f64("time"),
         wall_time_used: parse_f64("time-wall"),
-        // KNOWN LIMITATION: with `--cg`, `cg-mem` is the box cgroup's memory PEAK
-        // since `--init`, shared by every step in the box - so for a step that runs
-        // after a heavier one (e.g. `run` after `compile`), the reported memory is
-        // inflated to the earlier step's peak. Unlike CPU (cumulative, so the
-        // per-step delta is recoverable by subtraction - see `box_cpu_secs`), a
-        // peak is not additive, so there is no arithmetic reconciliation. Fixing it
-        // needs either resetting `memory.peak` between `--run`s (kernel/isolate
-        // dependent) or reporting per-step `max-rss` instead (RSS != cgroup
-        // accounting). This only skews the REPORTED number; MLE is gated on the
-        // accurate `cg-oom-killed` flag below, not on this value.
-        memory_used: parse_u32("cg-mem").or(parse_u32("max-rss")),
+        // Prefer per-step `max-rss` over `cg-mem`. With `--cg`, `cg-mem` is the box
+        // cgroup's memory PEAK since `--init`, SHARED by every step in the box, so
+        // a step running after a heavier one (e.g. `run` after `compile`) inherits
+        // the earlier step's peak - reporting hundreds of MB for a 4 MB run. Unlike
+        // CPU (cumulative -> per-step delta recoverable by subtraction, see
+        // `box_cpu_secs`), a peak is not additive, so there is no arithmetic
+        // reconciliation. `max-rss` comes from wait4/getrusage of THIS `--run`'s
+        // child, so it is genuinely per-step. It is also consistent with the
+        // `cg-oom-killed`-gated MLE verdict (OOM is driven by live usage crossing
+        // the limit, which max-rss tracks) and is the conventional "memory used"
+        // metric. `cg-mem` remains the fallback if a build omits max-rss. This is a
+        // REPORTED-value change only; the MLE verdict is gated on `cg-oom-killed`.
+        memory_used: parse_u32("max-rss").or(parse_u32("cg-mem")),
         cg_oom_killed: parse_i32("cg-oom-killed").map(|v| v != 0).unwrap_or(false),
         killed: parse_i32("killed").map(|v| v != 0).unwrap_or(false),
         sandbox_status: SandboxStatus::from_isolate(&status),
