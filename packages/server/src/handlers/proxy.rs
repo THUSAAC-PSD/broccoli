@@ -11,16 +11,25 @@ use plugin_core::http::{PluginHttpAuth, PluginHttpRequest, PluginHttpResponse};
 use plugin_core::traits::PluginInvokerExt;
 use tracing::{info, instrument, warn};
 
+use sea_orm::{ColumnTrait, QueryFilter, QuerySelect};
+
+use crate::entity::user;
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::path::AppPath;
 use crate::state::AppState;
 use crate::utils::jwt;
+use crate::utils::soft_delete::SoftDeletable;
 
+/// Resolve the caller from the bearer token, returning the `AuthUser` plus the
+/// token's `iat` (issued-at). The `iat` is carried so a permission-gated plugin
+/// route can enforce credential freshness (see [`is_token_fresh`]); an
+/// absent/malformed/invalid token yields `None`, since some plugin routes are
+/// public.
 fn resolve_optional_auth_user(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<Option<AuthUser>, AppError> {
+) -> Result<Option<(AuthUser, i64)>, AppError> {
     let auth_header = match headers.get(AUTHORIZATION) {
         Some(value) => value,
         None => return Ok(None),
@@ -39,12 +48,35 @@ fn resolve_optional_auth_user(
         Err(_) => return Ok(None),
     };
 
-    Ok(Some(AuthUser {
-        user_id: claims.uid,
-        username: claims.sub,
-        roles: claims.roles,
-        permissions: claims.permissions,
-    }))
+    Ok(Some((
+        AuthUser {
+            user_id: claims.uid,
+            username: claims.sub,
+            roles: claims.roles,
+            permissions: claims.permissions,
+        },
+        claims.iat as i64,
+    )))
+}
+
+/// Whether the token is still fresh: the user is active AND the token was issued
+/// at or after the last credential change (`iat >= credentials_changed_at`),
+/// mirroring the `FreshAuthUser` extractor. A role/permission revoke or a user
+/// deactivation bumps `credentials_changed_at` (or drops the active-user row), so
+/// a stale token returns `false`. Returns `Err` only on a DB failure.
+async fn is_token_fresh(state: &AppState, user_id: i32, iat: i64) -> Result<bool, AppError> {
+    let credentials_changed_at: Option<chrono::DateTime<chrono::Utc>> = user::Entity::find_active()
+        .filter(user::Column::Id.eq(user_id))
+        .select_only()
+        .column(user::Column::CredentialsChangedAt)
+        .into_tuple()
+        .one(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("credential freshness lookup failed: {e}")))?;
+    match credentials_changed_at {
+        None => Ok(false), // user soft-deleted / deactivated
+        Some(changed_at) => Ok(iat >= changed_at.timestamp()),
+    }
 }
 
 async fn handle_plugin_request_impl(
@@ -68,7 +100,21 @@ async fn handle_plugin_request_impl(
         plugin_id, normalized_path
     );
 
-    let auth_user = resolve_optional_auth_user(&state, &headers)?;
+    let mut auth_user = resolve_optional_auth_user(&state, &headers)?;
+
+    // Drop a stale/revoked identity to anonymous BEFORE any authorization decision.
+    // This must run for EVERY authenticated request, not only routes with a
+    // manifest `permission`, because a plugin can gate its own actions on the
+    // forwarded `auth.permissions` via `PluginHttpRequest::has_permission` (e.g.
+    // icpc `/reveal`). Zeroing the identity here means a revoked role / deactivated
+    // account fails both the manifest-permission check below AND any plugin-side
+    // permission check, matching FreshAuthUser on core routes. Anonymous requests
+    // (no token) are unaffected.
+    if let Some((user, iat)) = &auth_user
+        && !is_token_fresh(&state, user.user_id, *iat).await?
+    {
+        auth_user = None;
+    }
 
     let (handler_name, required_permission, params) = {
         let registry = state
@@ -108,7 +154,10 @@ async fn handle_plugin_request_impl(
     };
 
     if let Some(ref permission) = required_permission {
-        let user = auth_user.as_ref().ok_or_else(|| {
+        // `auth_user` was already downgraded to None above if the token was stale
+        // or revoked, so a None here on a permission-gated route means no valid
+        // identity (missing/invalid/stale token).
+        let (user, _iat) = auth_user.as_ref().ok_or_else(|| {
             warn!("Unauthorized access attempt to protected plugin route");
             if headers.contains_key("Authorization") {
                 AppError::TokenInvalid
@@ -136,7 +185,7 @@ async fn handle_plugin_request_impl(
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
             .collect(),
         body: serde_json::from_str(&body).ok(),
-        auth: auth_user.map(|user| PluginHttpAuth {
+        auth: auth_user.map(|(user, _iat)| PluginHttpAuth {
             user_id: user.user_id,
             username: user.username,
             roles: user.roles,
