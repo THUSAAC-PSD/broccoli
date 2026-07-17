@@ -507,6 +507,7 @@ impl E2eTestApp {
                 url: db_url.clone(),
                 max_connections: db_max_connections,
                 plugin_max_connections: 1,
+                plugin_privileged_max_connections: 1,
                 plugin_url: None,
             },
             auth: AuthConfig {

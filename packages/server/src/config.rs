@@ -16,13 +16,22 @@ pub struct DatabaseConfig {
     pub url: String,
     #[serde(default = "default_database_max_connections")]
     pub max_connections: u32,
-    /// Size of the SEPARATE pool dedicated to plugin host-function DB calls,
-    /// isolated from the main pool to avoid cross-operation connection-protocol
-    /// desync (the spurious 0x00 bug). Total backend connections used is
-    /// `max_connections + plugin_max_connections`, so Postgres `max_connections`
-    /// must accommodate both.
+    /// Size of the RESTRICTED plugin pool (raw `host.db.*` SQL), isolated from the
+    /// main pool to avoid cross-operation connection-protocol desync (the spurious
+    /// 0x00 bug). There is a SECOND, privileged plugin pool sized by
+    /// `plugin_privileged_max_connections`, so total backend connections are
+    /// `max_connections + plugin_max_connections + plugin_privileged_max_connections`
+    /// - Postgres `max_connections` must accommodate all three.
     #[serde(default = "default_plugin_max_connections")]
     pub plugin_max_connections: u32,
+    /// Size of the PRIVILEGED plugin pool that backs the structured, server-owned
+    /// host fns (`host.submission.*`, `host.storage.*`, `config:write`). These are
+    /// short finalize-time writes, far lower-concurrency than raw plugin SQL, so it
+    /// defaults smaller than `plugin_max_connections` to keep the total connection
+    /// footprint down. Raise it for write-heavy plugins or high evaluator
+    /// parallelism (its own acquire waits would otherwise slow finalize).
+    #[serde(default = "default_plugin_privileged_max_connections")]
+    pub plugin_privileged_max_connections: u32,
     /// Optional dedicated connection string for the RESTRICTED plugin SQL pool,
     /// authenticating as a pre-provisioned least-privilege LOGIN role (e.g.
     /// `broccoli_plugin_login`, a NOINHERIT member of `broccoli_plugin`). Set
@@ -43,6 +52,7 @@ impl Default for DatabaseConfig {
             url: default_database_url(),
             max_connections: default_database_max_connections(),
             plugin_max_connections: default_plugin_max_connections(),
+            plugin_privileged_max_connections: default_plugin_privileged_max_connections(),
             plugin_url: None,
         }
     }
@@ -58,6 +68,10 @@ fn default_database_max_connections() -> u32 {
 
 fn default_plugin_max_connections() -> u32 {
     20
+}
+
+fn default_plugin_privileged_max_connections() -> u32 {
+    10
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

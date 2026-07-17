@@ -108,11 +108,13 @@ impl ServerRuntime {
         // `broccoli_plugin` role for the raw `sql` capability (phase 2).
         let privileged_plugin_db = crate::database::init_plugin_db_privileged(
             &app_config.database.url,
-            app_config.database.plugin_max_connections,
+            app_config.database.plugin_privileged_max_connections,
         )
         .await?;
         info!(
             plugin_max_connections = app_config.database.plugin_max_connections,
+            plugin_privileged_max_connections =
+                app_config.database.plugin_privileged_max_connections,
             "Initialized isolated plugin host-function DB pools (restricted sql + privileged writes)"
         );
         // URLs for the guaranteed fresh-connection fallback when pool retries are
