@@ -576,7 +576,8 @@ impl OperationHandler {
                         file,
                         step_working_dirs,
                         &step.depends_on,
-                    )?;
+                    )
+                    .await?;
                     stage_step_output_file(&src, &mount.inside_path, &env.working_dir).await?;
                 }
                 // PlatformTool is a read-only directory mount (the tools dir at

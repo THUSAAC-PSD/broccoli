@@ -78,8 +78,10 @@ pub(super) fn platform_tool_directory_rule(
 /// working dir - no blob round-trip.
 ///
 /// Safety: `from_step` must be in the consuming step's `depends_on` (so it has
-/// already run and the file exists) and `file` must resolve safely within the
-/// producer's working dir (no `..` or absolute escape, via [`safe_join`]).
+/// already run and the file exists) and `file` must resolve to a real path INSIDE
+/// the producer's working dir - both the string check ([`safe_join`], no
+/// `..`/absolute) AND symlink resolution (canonicalize + containment), because
+/// the producer box is writable by the contestant's program.
 ///
 /// The resolved file is COPIED into the consumer's box by
 /// [`stage_step_output_file`], NOT bind-mounted. isolate's `--dir` bind-mounts
@@ -88,7 +90,7 @@ pub(super) fn platform_tool_directory_rule(
 /// instead is unacceptable here: the producer (a solution exec/compile step)
 /// holds the contestant's source and binary, which must never be exposed to the
 /// author-controlled checker. A copy hands over exactly the one named file.
-pub(super) fn resolve_step_output_src(
+pub(super) async fn resolve_step_output_src(
     from_step: &str,
     file: &str,
     step_working_dirs: &HashMap<String, PathBuf>,
@@ -102,7 +104,31 @@ pub(super) fn resolve_step_output_src(
     let from_dir = step_working_dirs
         .get(from_step)
         .ok_or_else(|| anyhow!("step mounts output of unknown step '{from_step}'"))?;
-    safe_join(from_dir, file)
+    // `safe_join` validates only the path STRING. The producer box is where the
+    // contestant's own program ran, so it can plant a symlink at the named output
+    // (or an intermediate dir) pointing at a host file - and the copy in
+    // `stage_step_output_file` follows symlinks. Resolve the real target and
+    // require it to stay inside the producer box, or a contestant could hand the
+    // author-controlled checker a host secret (exfiltration) or the reference
+    // answer (undeserved Accept). The producer step has already exited (layered
+    // execution), so there is no TOCTOU window after this check. Mirrors the
+    // hardening on `collect_output`; a handoff file is required, so an escape is a
+    // hard error rather than a skip.
+    let joined = safe_join(from_dir, file)?;
+    let real_base = tokio::fs::canonicalize(from_dir)
+        .await
+        .with_context(|| format!("canonicalizing producer box for step '{from_step}'"))?;
+    let real = tokio::fs::canonicalize(&joined).await.with_context(|| {
+        format!("resolving step output '{file}' from '{from_step}' (missing or dangling symlink?)")
+    })?;
+    if !real.starts_with(&real_base) {
+        return Err(anyhow!(
+            "step output '{file}' from '{from_step}' resolves outside the producer box \
+             ({}) - symlink escape rejected",
+            real.display()
+        ));
+    }
+    Ok(real)
 }
 
 /// Copy a resolved [`resolve_step_output_src`] file into the consuming step's box
@@ -208,42 +234,88 @@ mod mount_tests {
         m
     }
 
-    #[test]
-    fn step_output_src_resolves_under_from_step_dir() {
-        let dirs = dirs_with("producer", "/work/a");
+    #[tokio::test]
+    async fn step_output_src_resolves_a_real_file_under_from_step_dir() {
+        let producer = tempfile::tempdir().unwrap();
+        std::fs::write(producer.path().join("out.txt"), b"x").unwrap();
+        let dirs = dirs_with("producer", producer.path().to_str().unwrap());
         let deps = ["producer".to_string()];
-        let src = resolve_step_output_src("producer", "out.txt", &dirs, &deps).unwrap();
-        assert_eq!(src, PathBuf::from("/work/a/out.txt"));
+        let src = resolve_step_output_src("producer", "out.txt", &dirs, &deps)
+            .await
+            .unwrap();
+        let base = tokio::fs::canonicalize(producer.path()).await.unwrap();
+        assert!(
+            src.starts_with(&base),
+            "resolved src must be inside the box"
+        );
+        assert_eq!(src.file_name().unwrap(), "out.txt");
     }
 
-    #[test]
-    fn step_output_src_requires_declared_dependency() {
+    #[tokio::test]
+    async fn step_output_src_requires_declared_dependency() {
         let dirs = dirs_with("producer", "/work/a");
         // from_step not in depends_on -> rejected (ordering + visibility unsafe).
-        assert!(resolve_step_output_src("producer", "out.txt", &dirs, &[]).is_err());
+        assert!(
+            resolve_step_output_src("producer", "out.txt", &dirs, &[])
+                .await
+                .is_err()
+        );
     }
 
-    #[test]
-    fn step_output_src_rejects_file_path_traversal() {
+    #[tokio::test]
+    async fn step_output_src_rejects_file_path_traversal() {
         let dirs = dirs_with("producer", "/work/a");
         let deps = ["producer".to_string()];
         for bad in ["../escape", "/abs", "a/../../b"] {
             assert!(
-                resolve_step_output_src("producer", bad, &dirs, &deps).is_err(),
+                resolve_step_output_src("producer", bad, &dirs, &deps)
+                    .await
+                    .is_err(),
                 "file {bad:?} must be rejected"
             );
         }
     }
 
-    #[test]
-    fn step_output_src_unknown_from_step_errors() {
+    #[tokio::test]
+    async fn step_output_src_unknown_from_step_errors() {
         let dirs: HashMap<String, PathBuf> = HashMap::new();
         let deps = ["ghost".to_string()];
-        assert!(resolve_step_output_src("ghost", "out.txt", &dirs, &deps).is_err());
+        assert!(
+            resolve_step_output_src("ghost", "out.txt", &dirs, &deps)
+                .await
+                .is_err()
+        );
     }
 
-    #[test]
-    fn stage_step_output_file_copies_only_the_named_file() {
+    /// SECURITY: a contestant can plant a symlink at the named output pointing at
+    /// a host file (or the reference answer). `safe_join` passes it (the string is
+    /// clean), so the canonicalize + containment check is the only thing that
+    /// rejects it - without which the copy would follow it and hand the target's
+    /// bytes to the author-controlled checker.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn step_output_src_rejects_symlink_escaping_producer_box() {
+        let producer = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), b"host secret").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            producer.path().join("out.txt"),
+        )
+        .unwrap();
+
+        let dirs = dirs_with("producer", producer.path().to_str().unwrap());
+        let deps = ["producer".to_string()];
+        assert!(
+            resolve_step_output_src("producer", "out.txt", &dirs, &deps)
+                .await
+                .is_err(),
+            "a symlink escaping the producer box must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_step_output_file_copies_only_the_named_file() {
         // The handoff copies exactly the one named file into the consumer box -
         // never the producer's other files (which hold the contestant's source).
         // This is what makes testlib (File-output) checkers work at all: isolate
@@ -255,13 +327,12 @@ mod mount_tests {
 
         let dirs = dirs_with("producer", producer.path().to_str().unwrap());
         let deps = ["producer".to_string()];
-        let src = resolve_step_output_src("producer", "out.txt", &dirs, &deps).unwrap();
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
+        let src = resolve_step_output_src("producer", "out.txt", &dirs, &deps)
+            .await
             .unwrap();
-        rt.block_on(stage_step_output_file(&src, "output.txt", consumer.path()))
+
+        stage_step_output_file(&src, "output.txt", consumer.path())
+            .await
             .unwrap();
 
         assert_eq!(
