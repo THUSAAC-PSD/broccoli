@@ -425,18 +425,13 @@ mod tests {
     use super::*;
     use sea_orm::ConnectionTrait;
 
-    /// SECURITY - phase 2 of the SQL-capability redesign.
-    ///
-    /// The restricted plugin pool ([`init_plugin_db`]) runs as `broccoli_plugin`
-    /// and MUST be able to READ core tables and fully own/read/write/DDL its OWN
-    /// tables, while every WRITE and DDL against a CORE table MUST be denied. The
-    /// privileged pool ([`init_plugin_db_privileged`], which backs
-    /// `host.submission.*` / `host.storage.*` / `config:write`) MUST still write
-    /// core. This drives the REAL migration + REAL pools against a live Postgres,
-    /// so it is the acceptance proof that raw plugin SQL can no longer mutate
-    /// core state.
+    /// The plugin role may now READ and WRITE (DML) any core table by product
+    /// decision (m0003 reads, m0004 writes), but core schema DDL (`DROP`/`ALTER`)
+    /// stays owner-only, so a plugin cannot corrupt/drop the schema. It retains
+    /// full DDL on its OWN tables. Drives the REAL migration + REAL pools against
+    /// a live Postgres.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn broccoli_plugin_role_blocks_core_writes_and_ddl_but_allows_reads_and_own_tables() {
+    async fn broccoli_plugin_can_read_write_core_but_not_ddl_it_and_owns_its_tables() {
         use testcontainers::ImageExt;
         use testcontainers::runners::AsyncRunner;
         use testcontainers_modules::postgres::Postgres;
@@ -452,9 +447,9 @@ mod tests {
             .expect("postgres host port");
         let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
-        // Full app migration: syncs the core schema AND creates the
-        // `broccoli_plugin` role with SELECT-only grants on core.
-        let _app = init_db_with_max_connections(&url, 5)
+        // Full app migration: syncs the core schema AND applies the plugin role's
+        // read (m0003) + write (m0004) grants.
+        let app = init_db_with_max_connections(&url, 5)
             .await
             .expect("app migration + schema sync");
 
@@ -467,56 +462,41 @@ mod tests {
             .await
             .expect("privileged plugin pool");
 
-        // POSITIVE: the restricted role can READ core state.
+        // POSITIVE: the plugin role can READ core state.
         restricted
             .execute_unprepared("SELECT id FROM submission LIMIT 1")
             .await
-            .expect("restricted role must be able to SELECT from a core table");
+            .expect("plugin role must be able to SELECT from a core table");
 
-        // NEGATIVE: core WRITE (UPDATE) is denied.
-        let update_err = restricted
+        // POSITIVE: core WRITES (UPDATE/DELETE) are now permitted.
+        restricted
             .execute_unprepared("UPDATE submission SET score = 999")
             .await
-            .expect_err("UPDATE submission must be denied for broccoli_plugin");
-        assert!(
-            update_err
-                .to_string()
-                .to_lowercase()
-                .contains("permission denied"),
-            "expected permission-denied UPDATE, got: {update_err}"
-        );
-
-        // NEGATIVE: core WRITE (INSERT) is denied.
-        let insert_err = restricted
-            .execute_unprepared(r#"INSERT INTO "user" (username) VALUES ('attacker')"#)
-            .await
-            .expect_err("INSERT into user must be denied for broccoli_plugin");
-        assert!(
-            insert_err
-                .to_string()
-                .to_lowercase()
-                .contains("permission denied"),
-            "expected permission-denied INSERT, got: {insert_err}"
-        );
-
-        // NEGATIVE: core WRITE (DELETE) is denied.
-        let delete_err = restricted
+            .expect("plugin role must be able to UPDATE a core table");
+        restricted
             .execute_unprepared("DELETE FROM test_case_result")
             .await
-            .expect_err("DELETE from a core table must be denied for broccoli_plugin");
-        assert!(
-            delete_err
-                .to_string()
-                .to_lowercase()
-                .contains("permission denied"),
-            "expected permission-denied DELETE, got: {delete_err}"
-        );
+            .expect("plugin role must be able to DELETE from a core table");
 
-        // NEGATIVE: DDL (DROP) is denied - non-owner.
+        // POSITIVE: INSERT into a serial-PK table works - proving BOTH the
+        // future-table default-privilege grant AND the sequence USAGE grant
+        // landed (drawing an id via nextval needs sequence USAGE). The app role
+        // creates the table AFTER migration, so only the `ALTER DEFAULT
+        // PRIVILEGES` grants (not the one-time `ALL TABLES`/`ALL SEQUENCES`) can
+        // make this succeed.
+        app.execute_unprepared("CREATE TABLE seqtest (id serial PRIMARY KEY, v int)")
+            .await
+            .expect("app role creates a serial table post-migration");
+        restricted
+            .execute_unprepared("INSERT INTO seqtest (v) VALUES (1)")
+            .await
+            .expect("plugin role must INSERT into a future table and draw a serial id");
+
+        // NEGATIVE: schema DDL (DROP) is still denied - non-owner.
         let drop_err = restricted
             .execute_unprepared("DROP TABLE submission")
             .await
-            .expect_err("DROP TABLE submission must be denied for broccoli_plugin");
+            .expect_err("DROP TABLE submission must stay denied for broccoli_plugin");
         assert!(
             drop_err
                 .to_string()
@@ -525,11 +505,11 @@ mod tests {
             "expected must-be-owner DROP, got: {drop_err}"
         );
 
-        // NEGATIVE: DDL (ALTER) is denied - non-owner.
+        // NEGATIVE: schema DDL (ALTER) is still denied - non-owner.
         let alter_err = restricted
             .execute_unprepared("ALTER TABLE submission ADD COLUMN pwn text")
             .await
-            .expect_err("ALTER TABLE submission must be denied for broccoli_plugin");
+            .expect_err("ALTER TABLE submission must stay denied for broccoli_plugin");
         assert!(
             alter_err
                 .to_string()
