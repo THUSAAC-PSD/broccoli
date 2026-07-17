@@ -539,6 +539,16 @@ async fn clear_current_submission_results(
     Ok(())
 }
 
+// KNOWN (low severity, self-healing): lock-order inversion vs `claim_submissions`.
+// This path locks the JUDGEMENT first (`claim_deferred_judgement_rows`, FOR UPDATE
+// SKIP LOCKED on `submission_judgement`) then the parent SUBMISSION (the UPDATE
+// below); `claim_submissions` locks the SUBMISSION first then the judgement
+// (`open_stolen_submission_judgements`). When a coordinator fails over and many
+// (submission, current-judgement) pairs go stale at once, two replicas running the
+// opposite scans can deadlock (Postgres 40P01) on the same pair. The aborted scan
+// just retries next tick, so re-dispatch is only delayed, not lost. A real fix
+// (uniform lock order, a per-submission advisory lock, or leader-electing the
+// stealer) is a risky change to the core dispatch path and deferred deliberately.
 async fn claim_deferred_judgements(
     db: &DatabaseConnection,
     server_id: &str,
@@ -740,9 +750,18 @@ async fn claim_deferred_judgements(
                 submission::Column::LeaseHeartbeatAt,
                 sea_orm::sea_query::Expr::cust("NOW()").into(),
             )
+            // Never LOWER the submission's dispatch-retry count: claim_submissions
+            // accumulates it on the submission row and terminalizes when it exceeds
+            // the cap, but a deferred judgement carries its own (often fresh, 0)
+            // count. Overwriting the submission's with the judgement's would reset
+            // an already-flapping submission's budget every deferred steal, so it
+            // would never hit max_dispatch_retries. GREATEST keeps it monotonic.
             .col_expr(
                 submission::Column::RetryCount,
-                sea_orm::sea_query::Expr::value(judgement.retry_count).into(),
+                sea_orm::sea_query::Expr::cust_with_values(
+                    "GREATEST(retry_count, $1)",
+                    [judgement.retry_count],
+                ),
             )
             .col_expr(
                 submission::Column::Verdict,
