@@ -22,8 +22,16 @@ const CHECK_STEP_ID: &str = "check";
 // giant newline-free stream, so without limits the check step has unbounded CPU,
 // wall time, and memory (worker DoS). These are generous for any real comparison
 // but bound a pathological stream. See resolve_builtin below.
+//
+// CPU (`TIME_LIMIT`) bounds actual comparison work. WALL must be large because in
+// Stream mode the checker runs CONCURRENTLY with the solution and only finishes
+// when the solution's stdout stream CLOSES (which the solution's OWN wall limit
+// guarantees). A tight wall here would kill the checker - and thus WA a correct
+// answer - for any solution whose run legitimately exceeds it; so the wall is a
+// coarse backstop well above any realistic per-test time limit, not a bound on
+// the checker's own work (that is CPU).
 const BUILTIN_CHECK_TIME_LIMIT_S: f64 = 30.0;
-const BUILTIN_CHECK_WALL_LIMIT_S: f64 = 60.0;
+const BUILTIN_CHECK_WALL_LIMIT_S: f64 = 600.0;
 const BUILTIN_CHECK_MEMORY_LIMIT_KB: u32 = 256 * 1024;
 /// The solution's run step id in the fused op. batch-evaluator names it "exec";
 /// a File-mode checker mounts THAT step's captured output read-only. The
