@@ -6,12 +6,23 @@ use broccoli_server_sdk::types::{
 use sea_orm::EntityTrait;
 use tracing::{Instrument, error, info, instrument, warn};
 
+use plugin_core::retry::{PoolRetryPolicy, call_raw_with_pool_retry};
+
 use crate::consumers::mark_code_run_system_error_with_epoch;
 use crate::entity::{code_run, problem};
 use crate::models::code_run::CustomTestCaseInput;
 use crate::state::AppState;
 
-const CODE_RUN_DISPATCH_TIMEOUT: Duration = Duration::from_secs(180);
+/// Loose safety net for a code run's SYNCHRONOUS `evaluate_run` plugin call. It
+/// must exceed the inner budget or it fails legitimate runs: `evaluate_run` waits
+/// up to `DEFAULT_EVALUATION_RESULT_TIMEOUT_MAX_MS` (60 min) PER operation result,
+/// a code run chains compile + run, and under a deep shared worker queue an
+/// operation legitimately waits (the operation reaper floor alone is 30 min). The
+/// previous 180s cap undercut all of that, spuriously turning custom runs into
+/// DISPATCH_TIMEOUT SystemErrors under exactly the backlog conditions the
+/// operation infra is built to tolerate. Sized well above the worst-case inner
+/// budget so only a genuinely stuck call trips it.
+const CODE_RUN_DISPATCH_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 
 /// Mark a code_run as SystemError, LOGGING a failure of the mark itself instead
 /// of swallowing it with `let _ =`. If the terminalizing write fails (e.g. a
@@ -208,7 +219,17 @@ pub(crate) async fn dispatch_code_run_to_plugin(state: AppState, code_run: code_
     );
     tokio::spawn(async move {
         async move {
-            let call_fut = plugins.call_raw(&plugin_id, &function_name, input_bytes);
+            // Retry on plugin-pool contention, like the graded-submission path:
+            // PoolTimeout is transient backpressure and must not become a permanent
+            // SystemError for a custom run at exactly the peak-load moment the
+            // retry exists to absorb.
+            let call_fut = call_raw_with_pool_retry(
+                plugins.as_ref(),
+                &plugin_id,
+                &function_name,
+                input_bytes,
+                PoolRetryPolicy::default(),
+            );
             let result = match tokio::time::timeout(CODE_RUN_DISPATCH_TIMEOUT, call_fut).await {
                 Ok(r) => r,
                 Err(_) => {
