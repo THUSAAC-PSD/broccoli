@@ -343,8 +343,13 @@ pub fn compare_tokens<O: Read, A: Read>(
 struct LineStream<R: Read> {
     chars: CharStream<R>,
     current: String,
-    /// Count of trimmed-empty lines seen but not yet flushed.
+    /// Count of trimmed-empty lines seen but not yet confirmed internal.
     pending_empty: usize,
+    /// Count of confirmed-internal empty lines still to be emitted, one at a time.
+    /// Held as a COUNTER (not materialized String entries) so a contestant cannot
+    /// OOM the checker by emitting a huge run of blank lines before a non-empty
+    /// one.
+    flush_empty: usize,
     /// Lines ready to be handed out.
     queued: std::collections::VecDeque<String>,
 }
@@ -355,12 +360,20 @@ impl<R: Read> LineStream<R> {
             chars: CharStream::new(reader),
             current: String::new(),
             pending_empty: 0,
+            flush_empty: 0,
             queued: std::collections::VecDeque::new(),
         }
     }
 
     fn next_line(&mut self) -> std::io::Result<Option<String>> {
         loop {
+            // Emit confirmed-internal blank lines one at a time from the counter,
+            // BEFORE the buffered non-empty line, without ever materializing all
+            // of them (a run of N blanks costs O(1) memory, not O(N) Strings).
+            if self.flush_empty > 0 {
+                self.flush_empty -= 1;
+                return Ok(Some(String::new()));
+            }
             if let Some(line) = self.queued.pop_front() {
                 return Ok(Some(line));
             }
@@ -371,9 +384,9 @@ impl<R: Read> LineStream<R> {
                         self.pending_empty += 1;
                         continue;
                     }
-                    for _ in 0..self.pending_empty {
-                        self.queued.push_back(String::new());
-                    }
+                    // A non-empty line confirms the buffered blanks were internal:
+                    // schedule them as a COUNT to be emitted before this line.
+                    self.flush_empty = self.pending_empty;
                     self.pending_empty = 0;
                     self.queued.push_back(line);
                 }
