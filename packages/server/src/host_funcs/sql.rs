@@ -358,19 +358,37 @@ fn strip_sql_comments(sql: &str) -> String {
 /// plugin-authored entry points, never to the server-owned privileged writes.
 fn reject_role_escalation(plugin_id: &str, sql: &str) -> Result<(), extism::Error> {
     let scrubbed = strip_sql_comments(sql).to_ascii_lowercase();
-    let first_keyword: String = scrubbed
-        .trim_start()
-        .chars()
-        .take_while(|c| c.is_ascii_alphabetic())
+    // Tokenize into SQL identifier/keyword tokens (split on any char that is not
+    // part of an identifier). Token-aware matching is both whitespace-/comment-
+    // insensitive (`set_config ('role'..)`, `set/**/role`, tabs) AND precise
+    // (`SET role_id = $1` tokenizes as [set, role_id], which is NOT the
+    // [set, role] sequence, so ordinary DML on a `role*`/`session*` column is
+    // not falsely rejected).
+    let tokens: Vec<&str> = scrubbed
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|t| !t.is_empty())
         .collect();
-    let blocked = matches!(first_keyword.as_str(), "set" | "reset" | "discard" | "do")
-        || scrubbed.contains("set role")
-        || scrubbed.contains("reset role")
-        || scrubbed.contains("reset all")
-        || scrubbed.contains("reset session")
-        || scrubbed.contains("set session authorization")
-        || scrubbed.contains("set session_authorization")
-        || scrubbed.contains("set_config(");
+    let has_seq = |a: &str, b: &str| tokens.windows(2).any(|w| w[0] == a && w[1] == b);
+    let has_seq3 = |a: &str, b: &str, c: &str| {
+        tokens
+            .windows(3)
+            .any(|w| w[0] == a && w[1] == b && w[2] == c)
+    };
+    let blocked =
+        // DO runs arbitrary procedural code; DISCARD [ALL] resets the session
+        // role -- neither is needed by a plugin, so block them as a statement.
+        tokens.first().is_some_and(|t| *t == "do" || *t == "discard")
+        // Direct or function-body/DO-wrapped role & authorization changes.
+        || has_seq("set", "role")
+        || has_seq("reset", "role")
+        || has_seq("reset", "all")
+        || has_seq("reset", "session")
+        || has_seq3("set", "session", "authorization")
+        // `set_config('role',..)` / `pg_catalog.set_config(..)` (any spacing),
+        // and the underscore `session_authorization` GUC form.
+        || tokens
+            .iter()
+            .any(|t| *t == "set_config" || *t == "session_authorization");
     if blocked {
         tracing::warn!(
             plugin_id,
@@ -1002,10 +1020,16 @@ mod tests {
             "reset role",
             "SET ROLE app_role",
             "set role \"app\"",
+            "SET  ROLE app",
             "RESET ALL",
             "DISCARD ALL",
             "SET SESSION AUTHORIZATION app_role",
+            "SET SESSION_AUTHORIZATION app",
             "SELECT set_config('role', 'app_role', false)",
+            // whitespace / comment before the paren must not defeat the guard
+            "SELECT set_config ('role', 'none', false)",
+            "SELECT pg_catalog.set_config\t('role','x',false)",
+            "SELECT set_config/**/('role','x',false)",
             "/* sneaky */ RESET ROLE",
             "-- c\nRESET ROLE",
             "DO $$ BEGIN EXECUTE 'reset role'; END $$",
@@ -1028,6 +1052,11 @@ mod tests {
             "ALTER TABLE my_plugin_table SET (fillfactor = 90)",
             "WITH x AS (SELECT 1) SELECT * FROM x",
             "DELETE FROM my_plugin_table WHERE k = $1",
+            // a column named role*/session* must NOT be a false positive
+            "UPDATE t SET role_id = $1 WHERE k = $2",
+            "INSERT INTO sessions (session_token) VALUES ($1)",
+            "SELECT * FROM roles WHERE name = $1",
+            "SET statement_timeout = 5000",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_ok(),
