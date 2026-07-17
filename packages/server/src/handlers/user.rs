@@ -225,6 +225,39 @@ pub async fn delete_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Privilege ceiling for adding or removing a role: a caller may only touch a role
+/// whose permission set is a SUBSET of the caller's own (SYSTEM_ADMIN bypasses).
+/// USER_MANAGE governs user accounts, not privilege definitions (that is
+/// ROLE_MANAGE); without this ceiling a USER_MANAGE-only principal could assign
+/// itself the all-powerful `admin` role (escalation) or strip `admin` from other
+/// admins (lockout). Mirrors "you cannot grant or revoke what you do not hold".
+async fn require_role_within_ceiling(
+    state: &AppState,
+    auth_user: &FreshAuthUser,
+    role_name: &str,
+) -> Result<(), AppError> {
+    if auth_user.has_permission(perm::SYSTEM_ADMIN) {
+        return Ok(());
+    }
+    let role_permissions = role_permission::Entity::find()
+        .filter(role_permission::Column::Role.eq(role_name.to_string()))
+        .all(&state.db)
+        .await?;
+    if let Some(rp) = role_permissions
+        .iter()
+        .find(|rp| !auth_user.has_permission(&rp.permission))
+    {
+        tracing::warn!(
+            actor = auth_user.user_id,
+            role = %role_name,
+            missing_permission = %rp.permission,
+            "Refused role change crossing the caller's privilege ceiling"
+        );
+        return Err(AppError::PermissionDenied);
+    }
+    Ok(())
+}
+
 #[utoipa::path(
     post,
     path = "/{id}/roles",
@@ -262,32 +295,7 @@ pub async fn assign_role(
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 
-    // Privilege ceiling: a caller may only assign a role whose permission set is a
-    // SUBSET of the caller's own. Without this, holding USER_MANAGE alone would let
-    // a principal assign themselves (or anyone) the `admin` role - which bundles
-    // system:admin + role:manage + every other permission - and self-escalate to
-    // full administrator, since defining/granting privileges is ROLE_MANAGE's job,
-    // not USER_MANAGE's. SYSTEM_ADMIN holders bypass the ceiling (they already hold
-    // everything). This mirrors "you cannot grant what you do not have".
-    if !auth_user.has_permission(perm::SYSTEM_ADMIN) {
-        let role_permissions = role_permission::Entity::find()
-            .filter(role_permission::Column::Role.eq(role_model.name.clone()))
-            .all(&state.db)
-            .await?;
-        if let Some(rp) = role_permissions
-            .iter()
-            .find(|rp| !auth_user.has_permission(&rp.permission))
-        {
-            tracing::warn!(
-                actor = auth_user.user_id,
-                target_user = id,
-                role = %role_model.name,
-                missing_permission = %rp.permission,
-                "Refused role assignment that would grant a permission the caller does not hold"
-            );
-            return Err(AppError::PermissionDenied);
-        }
-    }
+    require_role_within_ceiling(&state, &auth_user, &role_model.name).await?;
 
     let txn = state.db.begin().await?;
     user_model.assign_role(&txn, role_model.name).await?;
@@ -323,6 +331,12 @@ pub async fn revoke_role(
     AppPath((id, role_name)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission(perm::USER_MANAGE)?;
+
+    // Same privilege ceiling as assign_role: revoking a role also crosses the
+    // USER_MANAGE/ROLE_MANAGE boundary. Without it, a USER_MANAGE-only principal
+    // could strip `admin` (system:admin/role:manage) from every other admin - an
+    // administrative lockout, the inverse of the self-escalation assign_role guards.
+    require_role_within_ceiling(&state, &auth_user, &role_name).await?;
 
     let active = user_role::Entity::find_by_id((id, role_name))
         .one(&state.db)
