@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use extism::host_fn;
 use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DatabaseTransaction, DbBackend,
-    Statement, TransactionTrait,
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, Statement,
+    TransactionTrait,
 };
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -115,6 +115,78 @@ pub fn set_plugin_db_fallback_url(url: String) {
     let _ = PLUGIN_DB_FALLBACK_URL.set(url);
 }
 
+/// Connection parameters for the RESTRICTED fresh-connection fallback. When set,
+/// the restricted 0x00 fallback authenticates as the dedicated non-privileged
+/// login role (see [`crate::database::provision_restricted_plugin_login`]),
+/// exactly like the restricted pool, instead of the privileged app role - so an
+/// escape that survives the SQL text guard lands on no privileges on THIS path
+/// too, keeping the invariant "every restricted path authenticates as a
+/// non-privileged login" whole. Its `url` may differ from
+/// [`PLUGIN_DB_FALLBACK_URL`] (e.g. a DBA-managed `database.plugin_url`). When
+/// unset, the restricted fallback keeps app-role auth plus the after-connect
+/// `SET ROLE broccoli_plugin` downshift (backward compatible).
+static PLUGIN_DB_RESTRICTED_FALLBACK: OnceLock<RestrictedFallback> = OnceLock::new();
+
+struct RestrictedFallback {
+    url: String,
+    login: Option<crate::database::PluginLoginOverride>,
+}
+
+/// Register the restricted fresh-connection fallback target. Idempotent.
+pub fn set_plugin_db_restricted_fallback(
+    url: String,
+    login: Option<crate::database::PluginLoginOverride>,
+) {
+    let _ = PLUGIN_DB_RESTRICTED_FALLBACK.set(RestrictedFallback { url, login });
+}
+
+/// Resolve the (url, login-override) a fresh fallback connection should use for
+/// `role`. The restricted role prefers the dedicated-login target when set; the
+/// privileged role always uses the app-role fallback URL.
+fn fallback_target(
+    role: FallbackRole,
+) -> Result<(String, Option<crate::database::PluginLoginOverride>), sea_orm::DbErr> {
+    if role == FallbackRole::Restricted {
+        if let Some(rf) = PLUGIN_DB_RESTRICTED_FALLBACK.get() {
+            return Ok((rf.url.clone(), rf.login.clone()));
+        }
+    }
+    let url = PLUGIN_DB_FALLBACK_URL
+        .get()
+        .ok_or_else(|| sea_orm::DbErr::Custom("plugin DB fallback URL not set".to_string()))?
+        .clone();
+    Ok((url, None))
+}
+
+/// Open a fresh single-connection pool, applying a login override when present so
+/// the connection can authenticate as the dedicated non-privileged login role
+/// rather than the app role. Overriding on `PgConnectOptions` (not by rewriting
+/// the URL) avoids any credential-escaping concern.
+async fn connect_fresh_single(
+    url: &str,
+    login: Option<&crate::database::PluginLoginOverride>,
+) -> Result<DatabaseConnection, sea_orm::DbErr> {
+    use sea_orm::sqlx::ConnectOptions as _;
+    use sea_orm::sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+
+    let mut opts = url
+        .parse::<PgConnectOptions>()
+        .map_err(|e| sea_orm::DbErr::Conn(sea_orm::RuntimeErr::SqlxError(e.into())))?
+        .disable_statement_logging();
+    if let Some(login) = login {
+        opts = opts.username(&login.username).password(&login.password);
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .connect_with(opts)
+        .await
+        .map_err(|e| sea_orm::DbErr::Conn(sea_orm::RuntimeErr::SqlxError(e.into())))?;
+    Ok(sea_orm::SqlxPostgresConnector::from_sqlx_postgres_pool(
+        pool,
+    ))
+}
+
 /// Which DB role a fresh fallback connection must assume before running its
 /// statement. Pooled plugin connections downshift to the restricted
 /// `broccoli_plugin` role via `after_connect` (see
@@ -160,28 +232,23 @@ fn execute_on_fresh_connection(
     stmt: Statement,
     role: FallbackRole,
 ) -> Result<sea_orm::ExecResult, sea_orm::DbErr> {
-    let url = PLUGIN_DB_FALLBACK_URL
-        .get()
-        .ok_or_else(|| sea_orm::DbErr::Custom("plugin DB fallback URL not set".to_string()))?
-        .clone();
-    execute_on_fresh_connection_url(&url, stmt, role)
+    let (url, login) = fallback_target(role)?;
+    execute_on_fresh_connection_url(&url, stmt, role, login.as_ref())
 }
 
 /// Inner helper split out from [`execute_on_fresh_connection`] so the
 /// fresh-connection behaviour (including the role downshift) is testable against
-/// a real database without the process-global `PLUGIN_DB_FALLBACK_URL` `OnceLock`.
+/// a real database without the process-global fallback `OnceLock`s. `login`, when
+/// present, authenticates the fresh connection as the dedicated non-privileged
+/// login role instead of the app role.
 fn execute_on_fresh_connection_url(
     url: &str,
     stmt: Statement,
     role: FallbackRole,
+    login: Option<&crate::database::PluginLoginOverride>,
 ) -> Result<sea_orm::ExecResult, sea_orm::DbErr> {
-    let url = url.to_string();
     tokio::runtime::Handle::current().block_on(async move {
-        let mut opt = ConnectOptions::new(url);
-        opt.max_connections(1)
-            .min_connections(1)
-            .sqlx_logging(false);
-        let fresh = Database::connect(opt).await?;
+        let fresh = connect_fresh_single(url, login).await?;
         apply_fallback_role(&fresh, role).await?;
         let result = fresh.execute_raw(stmt).await;
         fresh.close().await.ok();
@@ -202,28 +269,22 @@ fn query_on_fresh_connection(
     stmt: Statement,
     role: FallbackRole,
 ) -> Result<Option<sea_orm::QueryResult>, sea_orm::DbErr> {
-    let url = PLUGIN_DB_FALLBACK_URL
-        .get()
-        .ok_or_else(|| sea_orm::DbErr::Custom("plugin DB fallback URL not set".to_string()))?
-        .clone();
-    query_on_fresh_connection_url(&url, stmt, role)
+    let (url, login) = fallback_target(role)?;
+    query_on_fresh_connection_url(&url, stmt, role, login.as_ref())
 }
 
 /// Inner helper split out from [`query_on_fresh_connection`] so the
 /// fresh-connection behaviour is testable against a real database without
-/// depending on the process-global `PLUGIN_DB_FALLBACK_URL` `OnceLock`.
+/// depending on the process-global fallback `OnceLock`s. `login`, when present,
+/// authenticates the fresh connection as the dedicated non-privileged login role.
 fn query_on_fresh_connection_url(
     url: &str,
     stmt: Statement,
     role: FallbackRole,
+    login: Option<&crate::database::PluginLoginOverride>,
 ) -> Result<Option<sea_orm::QueryResult>, sea_orm::DbErr> {
-    let url = url.to_string();
     tokio::runtime::Handle::current().block_on(async move {
-        let mut opt = ConnectOptions::new(url);
-        opt.max_connections(1)
-            .min_connections(1)
-            .sqlx_logging(false);
-        let fresh = Database::connect(opt).await?;
+        let fresh = connect_fresh_single(url, login).await?;
         apply_fallback_role(&fresh, role).await?;
         let result = fresh.query_one_raw(stmt).await;
         fresh.close().await.ok();
@@ -1020,6 +1081,8 @@ pub(super) fn query_on_pool(
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::{ConnectOptions, Database};
+
     use super::*;
 
     #[test]
@@ -1186,7 +1249,7 @@ mod tests {
         // thread (not a runtime worker). Replicate that here so `block_on` is
         // legal - calling it directly on the test's runtime thread would panic.
         let row = tokio::task::spawn_blocking(move || {
-            query_on_fresh_connection_url(&url, stmt, FallbackRole::Privileged)
+            query_on_fresh_connection_url(&url, stmt, FallbackRole::Privileged, None)
         })
         .await
         .expect("blocking task joins")
@@ -1242,7 +1305,7 @@ mod tests {
         let insert = Statement::from_string(DbBackend::Postgres, "INSERT INTO core_t VALUES (1)");
         let denied_url = url.clone();
         let denied = tokio::task::spawn_blocking(move || {
-            execute_on_fresh_connection_url(&denied_url, insert, FallbackRole::Restricted)
+            execute_on_fresh_connection_url(&denied_url, insert, FallbackRole::Restricted, None)
         })
         .await
         .expect("blocking task joins");
@@ -1258,7 +1321,7 @@ mod tests {
         );
         let read_url = url.clone();
         let read_ok = tokio::task::spawn_blocking(move || {
-            query_on_fresh_connection_url(&read_url, read, FallbackRole::Restricted)
+            query_on_fresh_connection_url(&read_url, read, FallbackRole::Restricted, None)
         })
         .await
         .expect("blocking task joins");
@@ -1272,7 +1335,12 @@ mod tests {
             Statement::from_string(DbBackend::Postgres, "INSERT INTO core_t VALUES (2)");
         let priv_url = url.clone();
         let allowed = tokio::task::spawn_blocking(move || {
-            execute_on_fresh_connection_url(&priv_url, privileged_insert, FallbackRole::Privileged)
+            execute_on_fresh_connection_url(
+                &priv_url,
+                privileged_insert,
+                FallbackRole::Privileged,
+                None,
+            )
         })
         .await
         .expect("blocking task joins");

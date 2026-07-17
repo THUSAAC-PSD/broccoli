@@ -23,6 +23,18 @@ pub struct DatabaseConfig {
     /// must accommodate both.
     #[serde(default = "default_plugin_max_connections")]
     pub plugin_max_connections: u32,
+    /// Optional dedicated connection string for the RESTRICTED plugin SQL pool,
+    /// authenticating as a pre-provisioned least-privilege LOGIN role (e.g.
+    /// `broccoli_plugin_login`, a NOINHERIT member of `broccoli_plugin`). Set
+    /// this when a DBA manages that role out of band and the app role must NOT
+    /// hold CREATEROLE. When unset, the server auto-provisions the role using the
+    /// app role's privileges, with a stable per-database password (so every
+    /// replica converges on the same value); if that also fails it falls back to
+    /// app-role auth, still guarded by the SQL text guard. Either
+    /// way the pool ends up authenticating as a role that cannot `RESET ROLE`
+    /// its way back to the privileged app role.
+    #[serde(default)]
+    pub plugin_url: Option<String>,
 }
 
 impl Default for DatabaseConfig {
@@ -31,6 +43,7 @@ impl Default for DatabaseConfig {
             url: default_database_url(),
             max_connections: default_database_max_connections(),
             plugin_max_connections: default_plugin_max_connections(),
+            plugin_url: None,
         }
     }
 }

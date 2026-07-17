@@ -631,6 +631,7 @@ impl TestApp {
                 url: db_url.clone(),
                 max_connections: 2,
                 plugin_max_connections: 1,
+                plugin_url: None,
             },
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),

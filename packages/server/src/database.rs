@@ -17,6 +17,247 @@ pub async fn init_db(db_url: &str) -> Result<DatabaseConnection, DbErr> {
 /// keeps its own literal since that is statement text, not a role handle.
 pub const PLUGIN_DB_ROLE: &str = "broccoli_plugin";
 
+/// The dedicated, least-privilege LOGIN role the RESTRICTED plugin pool
+/// authenticates as (see [`provision_restricted_plugin_login`]).
+///
+/// Why a separate login role at all: the app login role is privileged, and the
+/// restricted pool only *downshifts* to [`PLUGIN_DB_ROLE`] via a session-level
+/// `SET ROLE`. A plugin that runs `RESET ROLE` (or `SET ROLE <app-login>`)
+/// climbs straight back to the privileged app role - and on a POOLED connection
+/// that reset persists into the next plugin call. The SQL text guard blocks the
+/// statements that do this, but a denylist is inherently leaky. Authenticating
+/// the pool as this role instead closes the hole at the engine: a session whose
+/// login role is `broccoli_plugin_login` can only ever `RESET ROLE` back to
+/// *itself* - a NOINHERIT member of `broccoli_plugin` with no privileges of its
+/// own - so an escape lands on a non-privileged role, not the app role.
+pub const PLUGIN_DB_LOGIN_ROLE: &str = "broccoli_plugin_login";
+
+/// Username + password to point the restricted plugin pool at a dedicated login
+/// role instead of the app role. Applied to the pool's `PgConnectOptions` in
+/// [`init_plugin_db`]; the password is never logged.
+#[derive(Clone)]
+pub struct PluginLoginOverride {
+    pub username: String,
+    pub password: String,
+}
+
+/// Ensure the [`PLUGIN_DB_LOGIN_ROLE`] exists and set its password, using a
+/// PRIVILEGED connection (the app role). Returns the login override to point the
+/// restricted plugin pool at that role, or `None` if the app role lacks the
+/// privilege to manage it - in which case the caller keeps app-role auth for the
+/// restricted pool (still defended by the SQL text guard), so this is a
+/// hardening, never a hard boot dependency.
+///
+/// The password is a per-DATABASE persistent random secret: seeded once into a
+/// dedicated `plugin_login_secret` table (first writer wins) and read back by
+/// every replica on every boot. This is what makes multi-replica deployments
+/// safe: all replicas converge on the SAME stored password, so their idempotent
+/// `ALTER ROLE ... PASSWORD` set the same value and no replica's pool is ever
+/// locked out - not when a peer boots, not when a pooled connection is later
+/// replaced. It is deliberately NOT derived from `auth.jwt_secret`: rotating the
+/// JWT secret during a rolling deploy would otherwise have the first
+/// new-secret replica clobber the password older still-serving replicas are
+/// authenticated with. The secret table is REVOKED from `broccoli_plugin`, so a
+/// plugin cannot read the login password. Leaking it anyway only unlocks the
+/// already-restricted `broccoli_plugin_login` role (which the pool already
+/// runs as).
+///
+/// Why this DDL lives here at runtime and NOT in a versioned migration (the
+/// usual home for schema DDL): provisioning must be BEST-EFFORT. A migration
+/// runs under `Migrator::up` with `?`, so a role/table creation the app role is
+/// not privileged to run would abort boot - turning this hardening into a
+/// breaking change for every locked-down deployment. Doing it here lets a
+/// failure degrade to app-role auth (return `None`) instead. Do not move it into
+/// a migration.
+pub async fn provision_restricted_plugin_login(
+    privileged: &DatabaseConnection,
+) -> Option<PluginLoginOverride> {
+    use sea_orm::{ConnectionTrait, DbBackend, Statement};
+
+    // A fresh candidate secret; only the FIRST writer's value persists (ON
+    // CONFLICT DO NOTHING), so every replica ends up reading the same stored
+    // value. 64 hex chars => no character needing SQL-string or URL escaping.
+    let candidate = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+
+    // 1) Persistent secret store, unreadable by the plugin role. `ALTER DEFAULT
+    //    PRIVILEGES` auto-grants SELECT on app-role-created tables to
+    //    broccoli_plugin, so the REVOKE is load-bearing, not decorative.
+    // 2) Seed-if-absent, then read the winning value.
+    let setup = [
+        // `CREATE TABLE IF NOT EXISTS` is NOT race-safe: two replicas booting at
+        // once can both pass the catalog existence check and the loser then hits a
+        // duplicate error, which would abort provisioning and silently downgrade
+        // that replica to app-role auth for its whole lifetime. Guard it with the
+        // same exception pattern as the CREATE ROLE below (the pg_class/pg_type
+        // race can surface as duplicate_table, duplicate_object, or unique_violation).
+        "DO $$ BEGIN \
+           CREATE TABLE plugin_login_secret (\
+             singleton boolean PRIMARY KEY DEFAULT true, password text NOT NULL); \
+         EXCEPTION WHEN duplicate_table OR duplicate_object OR unique_violation THEN NULL; END $$;"
+            .to_string(),
+        format!("REVOKE ALL ON plugin_login_secret FROM {PLUGIN_DB_ROLE}"),
+        format!(
+            "INSERT INTO plugin_login_secret (singleton, password) VALUES (true, '{candidate}') \
+             ON CONFLICT (singleton) DO NOTHING"
+        ),
+    ];
+    for stmt in &setup {
+        if let Err(e) = privileged.execute_unprepared(stmt).await {
+            warn_provision_failed(&e);
+            return None;
+        }
+    }
+    let password: String = match privileged
+        .query_one_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "SELECT password FROM plugin_login_secret WHERE singleton".to_owned(),
+        ))
+        .await
+    {
+        Ok(Some(row)) => match row.try_get_by_index(0) {
+            Ok(p) => p,
+            Err(e) => {
+                warn_provision_failed(&e);
+                return None;
+            }
+        },
+        Ok(None) => return None,
+        Err(e) => {
+            warn_provision_failed(&e);
+            return None;
+        }
+    };
+
+    // Create-if-missing as NOLOGIN (so a half-provisioned role never sits around
+    // LOGIN-able without the intended password), then flip to LOGIN with the
+    // stored password. NOINHERIT means a `RESET ROLE` onto this role yields NO
+    // privileges until an explicit `SET ROLE broccoli_plugin`; membership in
+    // broccoli_plugin is what the after-connect `SET ROLE` relies on. The
+    // NO{SUPERUSER,CREATEDB,CREATEROLE,REPLICATION,BYPASSRLS} flags keep it
+    // strictly at or below broccoli_plugin.
+    let create = format!(
+        "DO $$ BEGIN \
+           CREATE ROLE {role} NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS IN ROLE {parent}; \
+         EXCEPTION WHEN duplicate_object THEN NULL; END $$;",
+        role = PLUGIN_DB_LOGIN_ROLE,
+        parent = PLUGIN_DB_ROLE,
+    );
+    // Re-assert membership + flags even if the role pre-existed from an older
+    // boot, then set LOGIN and the stored password. The password is our own hex,
+    // so string interpolation carries no injection; sqlx statement logging is
+    // off on this (the app) pool. It CAN still reach the Postgres server log if
+    // the operator sets `log_statement = 'ddl'|'all'`, but the value only unlocks
+    // the already-restricted `broccoli_plugin_login` role, so that exposure is
+    // low-value; operators who log DDL and object can instead point
+    // `database.plugin_url` at a DBA-managed role.
+    let grant = format!(
+        "GRANT {parent} TO {role}",
+        parent = PLUGIN_DB_ROLE,
+        role = PLUGIN_DB_LOGIN_ROLE,
+    );
+    let alter = format!(
+        "ALTER ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'",
+        role = PLUGIN_DB_LOGIN_ROLE,
+    );
+
+    for stmt in [create, grant, alter] {
+        if let Err(e) = privileged.execute_unprepared(&stmt).await {
+            warn_provision_failed(&e);
+            return None;
+        }
+    }
+
+    tracing::info!(
+        role = PLUGIN_DB_LOGIN_ROLE,
+        "Provisioned dedicated least-privilege login for the restricted plugin SQL pool"
+    );
+    Some(PluginLoginOverride {
+        username: PLUGIN_DB_LOGIN_ROLE.to_string(),
+        password,
+    })
+}
+
+fn warn_provision_failed(e: &sea_orm::DbErr) {
+    tracing::warn!(
+        error = %e,
+        "Could not provision the dedicated restricted plugin login role; \
+         falling back to app-role auth for the plugin SQL pool (the SQL text \
+         guard remains the active defense). Grant the app role CREATEROLE, or \
+         set database.plugin_url to a DBA-managed role, to enable engine-level \
+         role isolation."
+    );
+}
+
+/// How the restricted plugin pool should authenticate, and the fresh-connection
+/// fallback that must match it: the pool itself, the URL it connected on, and the
+/// login override it used (`None` = app-role auth).
+pub struct RestrictedPluginPool {
+    pub pool: DatabaseConnection,
+    pub fallback_url: String,
+    pub fallback_login: Option<PluginLoginOverride>,
+}
+
+/// Resolve and open the RESTRICTED plugin pool: point it at a DBA-managed
+/// `plugin_url` when configured, else auto-provision `broccoli_plugin_login` and
+/// override the app URL's credentials. Connecting can fail even when the role
+/// exists (e.g. a pg_hba username allow-list), so an auto-provisioned login that
+/// cannot connect degrades to app-role auth rather than aborting boot; an
+/// explicitly configured `plugin_url` that fails is a real misconfiguration and
+/// propagates. Extracted from `ServerRuntime::build` so the degrade-not-abort
+/// branch is unit-testable.
+pub async fn resolve_restricted_plugin_pool(
+    privileged: &DatabaseConnection,
+    app_url: &str,
+    plugin_url: Option<&str>,
+    max_connections: u32,
+) -> Result<RestrictedPluginPool, DbErr> {
+    let (primary_url, login) = match plugin_url {
+        Some(url) => (url.to_string(), None),
+        None => (
+            app_url.to_string(),
+            provision_restricted_plugin_login(privileged).await,
+        ),
+    };
+    connect_restricted_pool_with_fallback(app_url, primary_url, login, max_connections).await
+}
+
+/// Connect the restricted pool on `primary_url`/`primary_login`, falling back to
+/// app-role auth ONLY when a dedicated `primary_login` was attempted and refused.
+/// A `None` login (ops-configured `plugin_url`, or provisioning already
+/// declined) is never downgraded further - its failure propagates.
+async fn connect_restricted_pool_with_fallback(
+    app_url: &str,
+    primary_url: String,
+    primary_login: Option<PluginLoginOverride>,
+    max_connections: u32,
+) -> Result<RestrictedPluginPool, DbErr> {
+    match init_plugin_db(&primary_url, max_connections, primary_login.clone()).await {
+        Ok(pool) => Ok(RestrictedPluginPool {
+            pool,
+            fallback_url: primary_url,
+            fallback_login: primary_login,
+        }),
+        Err(e) if primary_login.is_some() => {
+            tracing::warn!(
+                error = %e,
+                "Restricted plugin pool could not connect as the dedicated login role; \
+                 falling back to app-role auth (the SQL text guard remains the defense)"
+            );
+            let pool = init_plugin_db(app_url, max_connections, None).await?;
+            Ok(RestrictedPluginPool {
+                pool,
+                fallback_url: app_url.to_string(),
+                fallback_login: None,
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// The RESTRICTED plugin pool for the raw `sql` capability (`host.db.*`).
 ///
 /// Two properties, both essential:
@@ -44,9 +285,19 @@ pub const PLUGIN_DB_ROLE: &str = "broccoli_plugin";
 ///    working because the gated `host.submission.*` (phase 1), `host.storage.*`,
 ///    and `config:write` host fns run on the PRIVILEGED pool
 ///    ([`init_plugin_db_privileged`]), which does NOT `SET ROLE`.
+///
+/// `login`, when `Some`, overrides the URL's username/password so the pool
+/// authenticates as the dedicated least-privilege [`PLUGIN_DB_LOGIN_ROLE`]
+/// rather than the (privileged) app login role. This is what makes a plugin's
+/// `RESET ROLE` land on a non-privileged role instead of the app role; the
+/// after-connect `SET ROLE broccoli_plugin` still runs on top for normal
+/// operation (and so a `CREATE TABLE` is owned by the shared plugin role, not
+/// the login role). When `None` the pool keeps app-role auth, defended by the
+/// SQL text guard alone.
 pub async fn init_plugin_db(
     db_url: &str,
     max_connections: u32,
+    login: Option<PluginLoginOverride>,
 ) -> Result<DatabaseConnection, DbErr> {
     // `sqlx::ConnectOptions` (trait) brings `disable_statement_logging` into
     // scope; it is distinct from `sea_orm::ConnectOptions` (struct) used below.
@@ -77,10 +328,17 @@ pub async fn init_plugin_db(
             })
         });
 
-    let connect_options = db_url
+    let mut connect_options = db_url
         .parse::<PgConnectOptions>()
         .map_err(|e| DbErr::Conn(sea_orm::RuntimeErr::SqlxError(e.into())))?
         .disable_statement_logging();
+    if let Some(login) = &login {
+        // Overriding on PgConnectOptions (not by rewriting the URL string) means
+        // no percent-encoding concerns for the credentials.
+        connect_options = connect_options
+            .username(&login.username)
+            .password(&login.password);
+    }
 
     let pool = pool_options
         .connect_with(connect_options)
@@ -201,7 +459,7 @@ mod tests {
             .expect("app migration + schema sync");
 
         // RESTRICTED pool: every connection `SET ROLE broccoli_plugin`.
-        let restricted = init_plugin_db(&url, 2)
+        let restricted = init_plugin_db(&url, 2, None)
             .await
             .expect("restricted plugin pool");
         // PRIVILEGED pool: runs as the app role (no SET ROLE).
@@ -308,6 +566,185 @@ mod tests {
             .expect("privileged pool must be able to write core tables");
     }
 
+    /// SECURITY - engine-level role-escalation containment (the root-cause fix
+    /// behind the SQL text guard).
+    ///
+    /// When the restricted pool authenticates as the dedicated
+    /// [`PLUGIN_DB_LOGIN_ROLE`], a plugin that escapes the after-connect
+    /// `SET ROLE broccoli_plugin` via `RESET ROLE` / `SET ROLE <app>` must land
+    /// on a NON-privileged role, never the app role. This drives the REAL
+    /// provisioning + REAL restricted pool (with the login override) against a
+    /// live Postgres and asserts the escape is powerless. `max_connections = 1`
+    /// forces every statement onto the one physical connection, so a persisted
+    /// `RESET ROLE` carries into the next statement exactly as it would across
+    /// pooled plugin calls.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dedicated_login_contains_role_escalation_escape() {
+        use testcontainers::ImageExt;
+        use testcontainers::runners::AsyncRunner;
+        use testcontainers_modules::postgres::Postgres;
+
+        let container = Postgres::default()
+            .with_tag("17-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres host port");
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+
+        let app = init_db_with_max_connections(&url, 5)
+            .await
+            .expect("app migration + schema sync");
+
+        // Provision the dedicated login using the privileged app connection.
+        let login = provision_restricted_plugin_login(&app)
+            .await
+            .expect("app role (superuser here) can provision the dedicated login");
+        assert_eq!(login.username, PLUGIN_DB_LOGIN_ROLE);
+
+        // Single-connection restricted pool authenticating as the dedicated role.
+        let restricted = init_plugin_db(&url, 1, Some(login))
+            .await
+            .expect("restricted plugin pool on the dedicated login");
+
+        // Baseline: normal operation runs as broccoli_plugin (after-connect SET
+        // ROLE) and can read core.
+        restricted
+            .execute_unprepared("SELECT id FROM submission LIMIT 1")
+            .await
+            .expect("dedicated-login pool must read core as broccoli_plugin");
+
+        // ESCAPE 1 - RESET ROLE drops to the login role, which is NOT the app
+        // role: it is broccoli_plugin_login, a NOINHERIT member of broccoli_plugin
+        // with no privileges of its own.
+        restricted
+            .execute_unprepared("RESET ROLE")
+            .await
+            .expect("RESET ROLE itself is allowed; it just lands on the login role");
+        let who = restricted
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DbBackend::Postgres,
+                "SELECT current_user, session_user".to_owned(),
+            ))
+            .await
+            .expect("query current/session user")
+            .expect("one row");
+        let current_user: String = who.try_get_by_index(0).expect("current_user");
+        let session_user: String = who.try_get_by_index(1).expect("session_user");
+        assert_eq!(
+            current_user, PLUGIN_DB_LOGIN_ROLE,
+            "RESET ROLE must land on the dedicated login, not the app role"
+        );
+        assert_eq!(
+            session_user, PLUGIN_DB_LOGIN_ROLE,
+            "the session must be authenticated as the dedicated login, not the app role"
+        );
+        assert_ne!(
+            session_user, "postgres",
+            "the restricted pool must NOT be authenticated as the privileged app role"
+        );
+
+        // After the escape, a core WRITE is still denied (login role has no privs
+        // of its own; it is NOINHERIT so it does not even carry broccoli_plugin's
+        // SELECT until an explicit SET ROLE).
+        let write_err = restricted
+            .execute_unprepared("UPDATE submission SET score = 999")
+            .await
+            .expect_err("core write after RESET ROLE must stay denied");
+        assert!(
+            write_err
+                .to_string()
+                .to_lowercase()
+                .contains("permission denied"),
+            "expected permission-denied write after escape, got: {write_err}"
+        );
+
+        // ESCAPE 2 - directly targeting the app role fails: the login role is not
+        // a member of it, so Postgres refuses the SET ROLE.
+        let set_app_err = restricted
+            .execute_unprepared("SET ROLE postgres")
+            .await
+            .expect_err("SET ROLE to the app role must be refused for the dedicated login");
+        let msg = set_app_err.to_string().to_lowercase();
+        assert!(
+            msg.contains("permission denied") || msg.contains("cannot") || msg.contains("must be"),
+            "expected a refusal escalating to the app role, got: {set_app_err}"
+        );
+
+        // The login password lives in `plugin_login_secret`; a plugin (running as
+        // broccoli_plugin) must NOT be able to read it, or it could learn its own
+        // pool credentials. The REVOKE in provisioning is what enforces this.
+        restricted
+            .execute_unprepared("SET ROLE broccoli_plugin")
+            .await
+            .expect("re-enter the broccoli_plugin role");
+        let secret_err = restricted
+            .execute_unprepared("SELECT password FROM plugin_login_secret")
+            .await
+            .expect_err("plugin role must not read the login secret table");
+        assert!(
+            secret_err
+                .to_string()
+                .to_lowercase()
+                .contains("permission denied"),
+            "expected permission-denied reading plugin_login_secret, got: {secret_err}"
+        );
+    }
+
+    /// Availability: when a dedicated login was attempted but the connection is
+    /// refused (here simulated with a non-existent login role, standing in for a
+    /// pg_hba username allow-list), the restricted pool must DEGRADE to app-role
+    /// auth and still come up - never abort boot. Drives the real fallback branch
+    /// of `connect_restricted_pool_with_fallback`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn restricted_pool_degrades_to_app_role_when_dedicated_login_cannot_connect() {
+        use testcontainers::ImageExt;
+        use testcontainers::runners::AsyncRunner;
+        use testcontainers_modules::postgres::Postgres;
+
+        let container = Postgres::default()
+            .with_tag("17-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres host port");
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+
+        let _app = init_db_with_max_connections(&url, 5)
+            .await
+            .expect("app migration + schema sync");
+
+        // A login that can never authenticate: the role does not exist.
+        let unusable = PluginLoginOverride {
+            username: "no_such_plugin_login".to_string(),
+            password: "nope".to_string(),
+        };
+        let resolved = connect_restricted_pool_with_fallback(&url, url.clone(), Some(unusable), 2)
+            .await
+            .expect("a refused dedicated login must degrade, not error");
+
+        // Degraded to app-role auth, and the returned pool actually works.
+        assert!(
+            resolved.fallback_login.is_none(),
+            "must have downgraded to app-role auth"
+        );
+        assert_eq!(
+            resolved.fallback_url, url,
+            "fallback must report the app URL"
+        );
+        resolved
+            .pool
+            .execute_unprepared("SELECT 1")
+            .await
+            .expect("the degraded app-role pool must be usable");
+    }
+
     /// SECURITY - SQL-capability read narrowing.
     ///
     /// Even with SELECT-only access, the blanket `GRANT SELECT ON ALL TABLES`
@@ -335,7 +772,7 @@ mod tests {
         let _app = init_db_with_max_connections(&url, 5)
             .await
             .expect("app migration + schema sync");
-        let restricted = init_plugin_db(&url, 2)
+        let restricted = init_plugin_db(&url, 2, None)
             .await
             .expect("restricted plugin pool");
 

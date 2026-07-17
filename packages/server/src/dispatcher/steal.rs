@@ -1203,6 +1203,7 @@ mod tests {
                     url: "mock://steal-test".to_string(),
                     max_connections: 1,
                     plugin_max_connections: 1,
+                    plugin_url: None,
                 },
                 auth: AuthConfig {
                     jwt_secret: "test-secret".to_string(),
