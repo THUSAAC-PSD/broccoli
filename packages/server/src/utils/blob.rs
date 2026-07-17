@@ -61,14 +61,30 @@ pub async fn build_blob_response(
         .as_deref()
         .unwrap_or("application/octet-stream");
 
+    // SECURITY: these blobs are user uploads served from the SAME origin as the
+    // SPA. An attachment whose bytes are HTML or SVG-with-script, served `inline`
+    // with a matching Content-Type, would EXECUTE in a contestant's/admin's
+    // browser (stored XSS -> session/JWT theft). Only a small allowlist of
+    // non-scriptable RASTER image types is rendered inline (they are embedded in
+    // problem markdown); everything else - including SVG - is forced to download
+    // as an attachment so the browser never renders it. `nosniff` on every
+    // response stops the browser from MIME-sniffing a declared-safe type into an
+    // executable one.
+    let inline_ok = matches!(
+        content_type,
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/bmp"
+    );
+    let disposition = if inline_ok { "inline" } else { "attachment" };
+
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_LENGTH, metadata.size.to_string())
         .header(
             header::CONTENT_DISPOSITION,
-            content_disposition_value(&metadata.filename),
+            content_disposition_value(disposition, &metadata.filename),
         )
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::ETAG, &etag_value)
         .header(header::CACHE_CONTROL, "private, max-age=3600")
         .body(body)
@@ -77,7 +93,7 @@ pub async fn build_blob_response(
     Ok(response)
 }
 
-pub fn content_disposition_value(filename: &str) -> String {
+pub fn content_disposition_value(disposition: &str, filename: &str) -> String {
     let ascii_safe: String = filename
         .chars()
         .filter(|c| c.is_ascii_graphic() && !matches!(c, '"' | ';' | '\\'))
@@ -110,7 +126,7 @@ pub fn content_disposition_value(filename: &str) -> String {
         })
         .collect();
 
-    format!("inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}")
+    format!("{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}")
 }
 
 pub async fn stream_field_to_store(
