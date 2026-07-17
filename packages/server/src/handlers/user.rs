@@ -8,7 +8,7 @@ use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{contest, contest_user, refresh_token, role, user, user_role};
+use crate::entity::{contest, contest_user, refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
@@ -261,6 +261,33 @@ pub async fn assign_role(
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
+
+    // Privilege ceiling: a caller may only assign a role whose permission set is a
+    // SUBSET of the caller's own. Without this, holding USER_MANAGE alone would let
+    // a principal assign themselves (or anyone) the `admin` role - which bundles
+    // system:admin + role:manage + every other permission - and self-escalate to
+    // full administrator, since defining/granting privileges is ROLE_MANAGE's job,
+    // not USER_MANAGE's. SYSTEM_ADMIN holders bypass the ceiling (they already hold
+    // everything). This mirrors "you cannot grant what you do not have".
+    if !auth_user.has_permission(perm::SYSTEM_ADMIN) {
+        let role_permissions = role_permission::Entity::find()
+            .filter(role_permission::Column::Role.eq(role_model.name.clone()))
+            .all(&state.db)
+            .await?;
+        if let Some(rp) = role_permissions
+            .iter()
+            .find(|rp| !auth_user.has_permission(&rp.permission))
+        {
+            tracing::warn!(
+                actor = auth_user.user_id,
+                target_user = id,
+                role = %role_model.name,
+                missing_permission = %rp.permission,
+                "Refused role assignment that would grant a permission the caller does not hold"
+            );
+            return Err(AppError::PermissionDenied);
+        }
+    }
 
     let txn = state.db.begin().await?;
     user_model.assign_role(&txn, role_model.name).await?;
