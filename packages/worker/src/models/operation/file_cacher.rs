@@ -261,7 +261,8 @@ impl BlobStoreFileCacher {
             metrics.blob_cache_size_bytes.add(total_size as i64, &[]);
         }
 
-        cacher.evict_if_needed().await;
+        // Startup scan: no just-inserted entry to protect.
+        cacher.evict_if_needed("").await;
 
         Ok(cacher)
     }
@@ -292,19 +293,34 @@ impl BlobStoreFileCacher {
         self.state.lock().await.total_size
     }
 
-    async fn evict_if_needed(&self) {
+    /// Evict LRU entries until under `max_cache_size`. `keep` is the hash just
+    /// inserted by the caller (empty string when there is none, e.g. startup
+    /// scan): it is never evicted, so a single blob at/over the cap cannot delete
+    /// itself and make its own fetch fail - the cache just sits one blob over cap.
+    async fn evict_if_needed(&self, keep: &str) {
         let mut state = self.state.lock().await;
         while state.total_size > self.max_cache_size && !state.entries.is_empty() {
+            // Peek the LRU before removing: if it is the just-inserted entry (the
+            // only case where the MRU is also the LRU), stop rather than
+            // self-evict.
+            match state.entries.peek_lru() {
+                Some((k, _)) if k.as_str() == keep => break,
+                Some(_) => {}
+                None => break,
+            }
             if let Some((hash, size)) = state.entries.pop_lru() {
                 let path = self.cache_dir.join(&hash);
                 if let Err(e) = tokio::fs::remove_file(&path).await {
-                    tracing::warn!(path = %path.display(), error = %e, "Failed to evict cached file");
-                } else {
-                    state.total_size = state.total_size.saturating_sub(size);
-                    if let Some(metrics) = &self.metrics {
-                        metrics.blob_cache_evictions_total.add(1, &[]);
-                        metrics.blob_cache_size_bytes.add(-(size as i64), &[]);
-                    }
+                    // Most likely NotFound (unlinked out-of-band). The entry is
+                    // already gone from `entries`, so drop its size accounting too
+                    // - leaving it counted would inflate total_size permanently and
+                    // make every later insert over-evict live, in-use blobs.
+                    tracing::warn!(path = %path.display(), error = %e, "Failed to evict cached file; dropping its size accounting anyway");
+                }
+                state.total_size = state.total_size.saturating_sub(size);
+                if let Some(metrics) = &self.metrics {
+                    metrics.blob_cache_evictions_total.add(1, &[]);
+                    metrics.blob_cache_size_bytes.add(-(size as i64), &[]);
                 }
             }
         }
@@ -314,7 +330,7 @@ impl BlobStoreFileCacher {
         let delta: i64;
         {
             let mut state = self.state.lock().await;
-            let old_size = state.entries.put(hash_hex, size).unwrap_or(0);
+            let old_size = state.entries.put(hash_hex.clone(), size).unwrap_or(0);
             state.total_size = state.total_size + size - old_size;
             delta = size as i64 - old_size as i64;
         }
@@ -323,7 +339,8 @@ impl BlobStoreFileCacher {
         {
             metrics.blob_cache_size_bytes.add(delta, &[]);
         }
-        self.evict_if_needed().await;
+        // Protect the entry just inserted from being the one evicted.
+        self.evict_if_needed(&hash_hex).await;
     }
 
     async fn touch(&self, hash_hex: &str) {
@@ -538,8 +555,16 @@ impl FileCacher for BlobStoreFileCacher {
         let cached = self.cache_path(&hash_hex);
 
         if !cached.exists() {
-            let cached_ok = tokio::fs::copy(src, &cached).await.is_ok();
-            if cached_ok {
+            // Write to a unique temp file then atomically rename into place, EXACTLY
+            // like the fetch path (`ensure_cached`). A direct `copy(src, &cached)`
+            // opens the final content-addressed path with O_CREAT|O_TRUNC, so the
+            // blob is visible via `exists()` while still being streamed; a
+            // concurrent `fetch_to_path` for the same hash would then treat the
+            // half-written file as a cache hit and hard-link a truncated inode into
+            // a sandbox (spurious exit-127 / wrong verdict). The rename publishes
+            // the blob atomically, fully written.
+            let temp_path = self.cache_dir.join(format!("{}.tmp", uuid::Uuid::new_v4()));
+            if tokio::fs::copy(src, &temp_path).await.is_ok() {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -547,10 +572,20 @@ impl FileCacher for BlobStoreFileCacher {
                     // into sandbox dirs and exec'd; a stable executable fixpoint
                     // across all sites prevents a shared-inode perms race that
                     // strips the exec bit mid-run (spurious exit-127 RuntimeError).
-                    let _ =
-                        std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o755));
+                    // Set on the temp BEFORE the rename so the published inode is
+                    // already exec-ready the instant it becomes visible.
+                    let _ = std::fs::set_permissions(
+                        &temp_path,
+                        std::fs::Permissions::from_mode(0o755),
+                    );
                 }
-                self.record_cache_entry(hash_hex.clone(), file_size).await;
+                if tokio::fs::rename(&temp_path, &cached).await.is_ok() {
+                    self.record_cache_entry(hash_hex.clone(), file_size).await;
+                } else {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                }
+            } else {
+                let _ = tokio::fs::remove_file(&temp_path).await;
             }
         } else {
             self.touch(&hash_hex).await;
