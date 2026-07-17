@@ -162,25 +162,44 @@ pub async fn can_access_problem_via_contest<C: sea_orm::ConnectionTrait>(
 
     let now = chrono::Utc::now();
 
-    let has_public = contest::Entity::find_active()
-        .filter(contest::Column::Id.is_in(contest_ids.clone()))
-        .filter(contest::Column::IsPublic.eq(true))
-        .filter(contest::Column::StartTime.lte(now))
-        .one(db)
-        .await?
-        .is_some();
+    // A contest only exposes its problems if it is BOTH started (StartTime<=now,
+    // problems revealed) AND within its activation window (activate_time set and
+    // <=now, not yet deactivated) - the same window check_contest_access /
+    // list_contests enforce. Without the window check, a not-yet-activated
+    // (activate_time NULL/future) or already-deactivated public contest - which is
+    // 404 everywhere else - would leak its hidden problems' statements, samples,
+    // and attachments here.
+    let within_window = |q: sea_orm::Select<contest::Entity>| {
+        q.filter(contest::Column::ActivateTime.lte(now)).filter(
+            sea_orm::Condition::any()
+                .add(contest::Column::DeactivateTime.is_null())
+                .add(contest::Column::DeactivateTime.gt(now)),
+        )
+    };
+
+    let has_public = within_window(
+        contest::Entity::find_active()
+            .filter(contest::Column::Id.is_in(contest_ids.clone()))
+            .filter(contest::Column::IsPublic.eq(true))
+            .filter(contest::Column::StartTime.lte(now)),
+    )
+    .one(db)
+    .await?
+    .is_some();
     if has_public {
         return Ok(());
     }
 
-    let started_contest_ids: Vec<i32> = contest::Entity::find_active()
-        .filter(contest::Column::Id.is_in(contest_ids))
-        .filter(contest::Column::StartTime.lte(now))
-        .select_only()
-        .column(contest::Column::Id)
-        .into_tuple()
-        .all(db)
-        .await?;
+    let started_contest_ids: Vec<i32> = within_window(
+        contest::Entity::find_active()
+            .filter(contest::Column::Id.is_in(contest_ids))
+            .filter(contest::Column::StartTime.lte(now)),
+    )
+    .select_only()
+    .column(contest::Column::Id)
+    .into_tuple()
+    .all(db)
+    .await?;
 
     if !started_contest_ids.is_empty() {
         let is_participant = contest_user::Entity::find()
