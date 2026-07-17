@@ -10,7 +10,6 @@ use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::problem::*;
 use crate::state::AppState;
-use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
 use crate::utils::problem::find_problem;
 use crate::utils::text::sanitize_db_json;
 
@@ -159,6 +158,14 @@ pub async fn delete_checker_source(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// The checker-source PUT body is JSON that `AppJson` buffers ENTIRELY in memory
+/// before `validate_checker_source` runs, which caps the useful payload at 20
+/// files x 1 MiB (~20 MiB). Reusing the 1 GiB STREAMED-upload limit here let a
+/// setter OOM the server with a handful of ~1 GiB JSON bodies (full-buffer before
+/// reject), a ~50x amplification the streaming upload paths avoid. Size it to the
+/// real max payload plus generous JSON/escaping overhead.
+const CHECKER_SOURCE_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+
 pub fn checker_source_body_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
+    DefaultBodyLimit::max(CHECKER_SOURCE_BODY_LIMIT_BYTES)
 }
