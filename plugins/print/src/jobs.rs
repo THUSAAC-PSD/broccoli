@@ -340,10 +340,18 @@ pub fn set_status(
     if new_status == status::DONE || new_status == status::FAILED {
         sets.push("printed_at = NOW()".to_string());
     }
+    // A station may only report progress (printing/done/failed) on a job that is
+    // actually in flight - one it CLAIMED or is already PRINTING. Without this
+    // precondition, any holder of a valid station token could set a still-pending
+    // (unclaimed) job to `done` (silent suppression: it is never printed) or
+    // clobber the state of a job another station is mid-print on. Mirrors the
+    // status guards on claim_job / approve_job / cancel_job.
     let mut sql = format!(
-        "UPDATE print_job SET {} WHERE id = {}",
+        "UPDATE print_job SET {} WHERE id = {} AND status IN ({}, {})",
         sets.join(", "),
-        p.bind(id)
+        p.bind(id),
+        p.bind(status::CLAIMED.to_string()),
+        p.bind(status::PRINTING.to_string()),
     );
     if let Some(cid) = contest_filter {
         sql.push_str(&format!(" AND contest_id = {}", p.bind(cid)));
