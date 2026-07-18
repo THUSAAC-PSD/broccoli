@@ -120,10 +120,14 @@ fn resolve_compiled(
     let mut command = vec![compiler.to_string()];
     command.extend(flags.iter().cloned());
     command.extend(extra_compile_flags.iter().cloned());
-    command.push(primary.to_string());
+    // Prefix source filenames with `./` so a name like `-DNDEBUG` is passed as a
+    // PATH, never parsed as a compiler flag (argument injection into a trusted
+    // co-compiled grader). Defense in depth: `validate_flat_filename` already
+    // rejects a leading `-` at upload, but the plugin should not trust that.
+    command.push(format!("./{primary}"));
     for f in &all_files {
         if *f != primary {
-            command.push(f.to_string());
+            command.push(format!("./{f}"));
         }
     }
     command.push("-o".into());

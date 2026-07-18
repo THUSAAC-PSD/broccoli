@@ -34,7 +34,7 @@ fn cpp_single_file() {
     );
     let compile = result.compile.unwrap();
     assert_eq!(compile.command[0], "/usr/bin/g++");
-    assert!(compile.command.contains(&"solution.cpp".to_string()));
+    assert!(compile.command.contains(&"./solution.cpp".to_string()));
     assert!(compile.command.contains(&"-o".to_string()));
     assert_eq!(result.run.command, vec!["./solution"]);
     assert!(result.run.extra_files.is_empty());
@@ -50,9 +50,9 @@ fn cpp_with_grader_stubs() {
         &[],
     );
     let compile = result.compile.unwrap();
-    assert!(compile.command.contains(&"solution.cpp".to_string()));
-    assert!(compile.command.contains(&"grader.cpp".to_string()));
-    assert!(compile.command.contains(&"grader.h".to_string()));
+    assert!(compile.command.contains(&"./solution.cpp".to_string()));
+    assert!(compile.command.contains(&"./grader.cpp".to_string()));
+    assert!(compile.command.contains(&"./grader.h".to_string()));
     assert_eq!(
         compile.cache_inputs,
         vec!["solution.cpp", "grader.cpp", "grader.h"]
@@ -134,7 +134,7 @@ fn c_compiles_with_gcc() {
     let source_pos = compile
         .command
         .iter()
-        .position(|a| a == "solution.c")
+        .position(|a| a == "./solution.c")
         .unwrap();
     assert!(lm_pos > source_pos, "-lm should be after source files");
 }
@@ -214,8 +214,8 @@ fn cpp_with_additional_file_refs() {
     ];
     let result = resolve::resolve_cpp(&input, None, "/usr/bin/g++", &default_cpp_flags(), &[]);
     let compile = result.compile.unwrap();
-    assert!(compile.command.contains(&"grader.cpp".to_string()));
-    assert!(compile.command.contains(&"grader.h".to_string()));
+    assert!(compile.command.contains(&"./grader.cpp".to_string()));
+    assert!(compile.command.contains(&"./grader.h".to_string()));
     assert_eq!(
         compile.cache_inputs,
         vec!["solution.cpp", "grader.cpp", "grader.h"]
