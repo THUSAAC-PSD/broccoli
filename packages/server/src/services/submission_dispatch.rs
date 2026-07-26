@@ -9,7 +9,10 @@ use sea_orm::prelude::Expr;
 use sea_orm::*;
 use tracing::{Instrument, error, info, instrument, warn};
 
-use crate::entity::{problem, submission, submission_judgement, test_case, test_case_result};
+use crate::entity::{
+    judgement_reset::ClearJudgementColumns, problem, submission, submission_judgement, test_case,
+    test_case_result,
+};
 use crate::hooks;
 use crate::state::AppState;
 
@@ -294,11 +297,15 @@ async fn mark_submission_dispatch_system_error(
 /// those:
 /// * plugin-finalized - `status == Judged AND verdict == SystemError` (manager
 ///   compile failure, lost operation result, or a transient per-testcase
-///   SystemError that aggregates to SystemError since severity 5 dominates);
+///   SystemError that aggregates to SystemError because it outranks every
+///   contestant-code verdict — though a plugin custom `Other(_)` verdict or a
+///   `CompileError` in the same result set ranks higher still and would stand
+///   instead; see `broccoli_types::types::Verdict::severity`);
 /// * stuck-handler terminal / dispatch-exhaustion - `status == SystemError`
 ///   (`record_dispatch_failure`, `mark_submission_dispatch_system_error`, and
 ///   the stuck detector all land here with a NULL verdict). Reusing only the
 ///   first shape abandoned these, leaving a system fault as the verdict.
+///
 /// A contestant `CompileError` (`status == CompilationError`) and any own-code
 /// verdict (`status == Judged` with WA/TLE/MLE/RE) are left strictly alone.
 ///
@@ -384,37 +391,14 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
             submission_judgement::Column::Status,
             Expr::value(SubmissionStatus::Pending.to_string()),
         )
-        .col_expr(
-            submission_judgement::Column::Verdict,
-            Expr::value(None::<String>),
-        )
-        .col_expr(
-            submission_judgement::Column::ErrorCode,
-            Expr::value(None::<String>),
-        )
-        .col_expr(
-            submission_judgement::Column::ErrorMessage,
-            Expr::value(None::<String>),
-        )
-        .col_expr(
-            submission_judgement::Column::Score,
-            Expr::value(None::<f64>),
-        )
-        .col_expr(
-            submission_judgement::Column::TimeUsed,
-            Expr::value(None::<i32>),
-        )
-        .col_expr(
-            submission_judgement::Column::MemoryUsed,
-            Expr::value(None::<i32>),
-        )
+        // clear_judgement_columns() NULLs every judged-output column,
+        // including CompileOutput — which the hand-rolled list this replaced
+        // had silently omitted (dormant today only because finalize nulls
+        // compile_output for non-CE verdicts; see entity/judgement_reset.rs).
+        .clear_judgement_columns()
         .col_expr(
             submission_judgement::Column::IsFinalized,
             Expr::value(false),
-        )
-        .col_expr(
-            submission_judgement::Column::FinalizedAt,
-            Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         .col_expr(
             submission_judgement::Column::RetryCount,
@@ -445,23 +429,7 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
             submission::Column::Status,
             Expr::value(SubmissionStatus::Pending.to_string()),
         )
-        .col_expr(submission::Column::Verdict, Expr::value(None::<String>))
-        .col_expr(
-            submission::Column::CompileOutput,
-            Expr::value(None::<String>),
-        )
-        .col_expr(submission::Column::ErrorCode, Expr::value(None::<String>))
-        .col_expr(
-            submission::Column::ErrorMessage,
-            Expr::value(None::<String>),
-        )
-        .col_expr(submission::Column::Score, Expr::value(None::<f64>))
-        .col_expr(submission::Column::TimeUsed, Expr::value(None::<i32>))
-        .col_expr(submission::Column::MemoryUsed, Expr::value(None::<i32>))
-        .col_expr(
-            submission::Column::JudgedAt,
-            Expr::value(None::<chrono::DateTime<chrono::Utc>>),
-        )
+        .clear_judgement_columns()
         .col_expr(submission::Column::RetryCount, Expr::value(new_retry))
         .col_expr(
             submission::Column::OwnerServerId,
@@ -994,6 +962,13 @@ mod tests {
     /// Drive a submission + its current judgement into the post-plugin
     /// finalized state, then return the judgement id. `status`/`verdict` let a
     /// test exercise the gate (e.g. a real SystemError vs a CompileError).
+    ///
+    /// Both rows are deliberately seeded with a NON-NULL `compile_output`:
+    /// today's finalize path nulls it for non-CE verdicts, which kept a
+    /// missing `CompileOutput` in this module's hand-rolled reset list
+    /// invisible to every test. Seeding it makes the requeue tests prove the
+    /// reset actually clears it (it is user-visible via the submission
+    /// response when a status co-populates it).
     async fn finalize_judgement(
         db: &DatabaseConnection,
         sub: &submission::Model,
@@ -1010,6 +985,10 @@ mod tests {
                 submission::Column::Verdict,
                 Expr::value(verdict.as_ref().map(|v| v.as_str().to_string())),
             )
+            .col_expr(
+                submission::Column::CompileOutput,
+                Expr::value(Some("leftover compile diagnostics".to_string())),
+            )
             .col_expr(submission::Column::RetryCount, Expr::value(retry_count))
             .filter(submission::Column::Id.eq(sub.id))
             .exec(db)
@@ -1022,6 +1001,7 @@ mod tests {
             is_finalized: Set(true),
             status: Set(status),
             verdict: Set(verdict),
+            compile_output: Set(Some("leftover compile diagnostics".to_string())),
             judge_epoch: Set(epoch),
             retry_count: Set(retry_count),
             owner_server_id: Set(Some("srv-A".to_string())),
@@ -1077,6 +1057,11 @@ mod tests {
         assert_eq!(resub.judge_epoch, 1, "submission epoch is bumped");
         assert_eq!(resub.status, SubmissionStatus::Pending, "reset to Pending");
         assert_eq!(resub.verdict, None, "verdict cleared for re-judge");
+        assert_eq!(
+            resub.compile_output, None,
+            "seeded compile_output is cleared on the submission — the \
+             hand-rolled reset list this pins against once omitted it"
+        );
         assert_eq!(resub.retry_count, 1, "retry budget consumed");
         assert_eq!(
             resub.owner_server_id.as_deref(),
@@ -1095,6 +1080,13 @@ mod tests {
         assert!(j.is_current, "still the current judgement");
         assert_eq!(j.status, SubmissionStatus::Pending);
         assert_eq!(j.verdict, None);
+        assert_eq!(
+            j.compile_output, None,
+            "seeded compile_output is cleared on the judgement — this column \
+             was missing from the pre-extraction reset list (user-visible via \
+             the submission response if a future path co-populates it with a \
+             SystemError-shaped status)"
+        );
         assert_eq!(j.retry_count, 1);
         assert_eq!(
             j.owner_server_id.as_deref(),
