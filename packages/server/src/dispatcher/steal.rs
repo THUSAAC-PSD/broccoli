@@ -12,7 +12,10 @@ use uuid::Uuid;
 
 use crate::dispatcher::permits::DispatcherReservation;
 use crate::dlq::DlqService;
-use crate::entity::{code_run, submission, submission_judgement, test_case_result};
+use crate::entity::{
+    code_run, judgement_reset::ClearJudgementColumns, submission, submission_judgement,
+    test_case_result,
+};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -398,38 +401,7 @@ async fn claim_submissions(
                 submission::Column::Status,
                 sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
             )
-            .col_expr(
-                submission::Column::Verdict,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::CompileOutput,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::ErrorCode,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::Score,
-                sea_orm::sea_query::Expr::value(None::<f64>).into(),
-            )
-            .col_expr(
-                submission::Column::TimeUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission::Column::MemoryUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission::Column::JudgedAt,
-                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-            )
+            .clear_judgement_columns()
             .filter(submission::Column::Id.is_in(plan.redispatch_ids.clone()))
             .exec(&txn)
             .await?;
@@ -649,38 +621,7 @@ async fn claim_deferred_judgements(
                 submission_judgement::Column::Status,
                 sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
             )
-            .col_expr(
-                submission_judgement::Column::Verdict,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::CompileOutput,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::ErrorCode,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::Score,
-                sea_orm::sea_query::Expr::value(None::<f64>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::TimeUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::MemoryUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission_judgement::Column::FinalizedAt,
-                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-            )
+            .clear_judgement_columns()
             .filter(submission_judgement::Column::Id.is_in(plan.redispatch_ids.clone()))
             .exec(&txn)
             .await?;
@@ -826,38 +767,7 @@ async fn claim_deferred_judgements(
                     [judgement.retry_count],
                 ),
             )
-            .col_expr(
-                submission::Column::Verdict,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::CompileOutput,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::ErrorCode,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::Score,
-                sea_orm::sea_query::Expr::value(None::<f64>).into(),
-            )
-            .col_expr(
-                submission::Column::TimeUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission::Column::MemoryUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission::Column::JudgedAt,
-                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-            )
+            .clear_judgement_columns()
             .filter(submission::Column::Id.eq(judgement.submission_id))
             .exec(&txn)
             .await?;
@@ -935,38 +845,7 @@ async fn claim_code_runs(
                 code_run::Column::Status,
                 sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
             )
-            .col_expr(
-                code_run::Column::Verdict,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                code_run::Column::CompileOutput,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                code_run::Column::ErrorCode,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                code_run::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                code_run::Column::Score,
-                sea_orm::sea_query::Expr::value(None::<f64>).into(),
-            )
-            .col_expr(
-                code_run::Column::TimeUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                code_run::Column::MemoryUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                code_run::Column::JudgedAt,
-                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-            )
+            .clear_judgement_columns()
             .filter(code_run::Column::Id.is_in(plan.redispatch_ids.clone()))
             .exec(&txn)
             .await?;

@@ -3,7 +3,9 @@ use common::{SubmissionDlqErrorCode, SubmissionStatus};
 use sea_orm::{ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter};
 
 use crate::entity::{
-    code_run, code_run_result, submission, submission_judgement, test_case_result,
+    code_run, code_run_result,
+    judgement_reset::{ClearJudgementColumns, ClearJudgementFields},
+    submission, submission_judgement, test_case_result,
 };
 
 use super::{STUCK_RECOVERY_STATUSES, StuckRecovery, detector_retry_lease};
@@ -39,38 +41,7 @@ pub(super) async fn recover_stuck_submission_without_steal(
             submission::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
-        .col_expr(
-            submission::Column::Verdict,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission::Column::CompileOutput,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission::Column::ErrorCode,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission::Column::ErrorMessage,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission::Column::Score,
-            sea_orm::sea_query::Expr::value(None::<f64>).into(),
-        )
-        .col_expr(
-            submission::Column::TimeUsed,
-            sea_orm::sea_query::Expr::value(None::<i32>).into(),
-        )
-        .col_expr(
-            submission::Column::MemoryUsed,
-            sea_orm::sea_query::Expr::value(None::<i32>).into(),
-        )
-        .col_expr(
-            submission::Column::JudgedAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-        )
+        .clear_judgement_columns()
         .filter(submission::Column::Id.eq(submission.id))
         .filter(submission::Column::JudgeEpoch.eq(submission.judge_epoch))
         .filter(submission::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
@@ -96,14 +67,7 @@ pub(super) async fn recover_stuck_submission_without_steal(
     redispatch_model.judge_epoch = new_epoch;
     redispatch_model.owner_server_id = owner_server_id;
     redispatch_model.lease_heartbeat_at = lease_heartbeat_at;
-    redispatch_model.verdict = None;
-    redispatch_model.compile_output = None;
-    redispatch_model.error_code = None;
-    redispatch_model.error_message = None;
-    redispatch_model.score = None;
-    redispatch_model.time_used = None;
-    redispatch_model.memory_used = None;
-    redispatch_model.judged_at = None;
+    redispatch_model.clear_judgement_fields();
 
     Ok(StuckRecovery::RedispatchSubmission {
         model: redispatch_model,
@@ -147,38 +111,7 @@ pub(super) async fn recover_stuck_code_run_without_steal(
             code_run::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
-        .col_expr(
-            code_run::Column::Verdict,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            code_run::Column::CompileOutput,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            code_run::Column::ErrorCode,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            code_run::Column::ErrorMessage,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            code_run::Column::Score,
-            sea_orm::sea_query::Expr::value(None::<f64>).into(),
-        )
-        .col_expr(
-            code_run::Column::TimeUsed,
-            sea_orm::sea_query::Expr::value(None::<i32>).into(),
-        )
-        .col_expr(
-            code_run::Column::MemoryUsed,
-            sea_orm::sea_query::Expr::value(None::<i32>).into(),
-        )
-        .col_expr(
-            code_run::Column::JudgedAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-        )
+        .clear_judgement_columns()
         .filter(code_run::Column::Id.eq(run.id))
         .filter(code_run::Column::JudgeEpoch.eq(run.judge_epoch))
         .filter(code_run::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
@@ -195,14 +128,7 @@ pub(super) async fn recover_stuck_code_run_without_steal(
     redispatch_model.judge_epoch = new_epoch;
     redispatch_model.owner_server_id = owner_server_id;
     redispatch_model.lease_heartbeat_at = lease_heartbeat_at;
-    redispatch_model.verdict = None;
-    redispatch_model.compile_output = None;
-    redispatch_model.error_code = None;
-    redispatch_model.error_message = None;
-    redispatch_model.score = None;
-    redispatch_model.time_used = None;
-    redispatch_model.memory_used = None;
-    redispatch_model.judged_at = None;
+    redispatch_model.clear_judgement_fields();
 
     Ok(StuckRecovery::RedispatchCodeRun {
         model: redispatch_model,
@@ -249,38 +175,7 @@ pub(super) async fn recover_stuck_judgement_without_steal(
                 submission::Column::LeaseHeartbeatAt,
                 sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
             )
-            .col_expr(
-                submission::Column::Verdict,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::CompileOutput,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::ErrorCode,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(None::<String>).into(),
-            )
-            .col_expr(
-                submission::Column::Score,
-                sea_orm::sea_query::Expr::value(None::<f64>).into(),
-            )
-            .col_expr(
-                submission::Column::TimeUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission::Column::MemoryUsed,
-                sea_orm::sea_query::Expr::value(None::<i32>).into(),
-            )
-            .col_expr(
-                submission::Column::JudgedAt,
-                sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-            )
+            .clear_judgement_columns()
             .filter(submission::Column::Id.eq(sub.id))
             .filter(submission::Column::JudgeEpoch.eq(judgement.judge_epoch))
             .filter(submission::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
@@ -317,38 +212,7 @@ pub(super) async fn recover_stuck_judgement_without_steal(
             submission_judgement::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
-        .col_expr(
-            submission_judgement::Column::Verdict,
-            sea_orm::sea_query::Expr::value(None::<common::Verdict>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::CompileOutput,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::ErrorCode,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::ErrorMessage,
-            sea_orm::sea_query::Expr::value(None::<String>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::Score,
-            sea_orm::sea_query::Expr::value(None::<f64>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::TimeUsed,
-            sea_orm::sea_query::Expr::value(None::<i32>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::MemoryUsed,
-            sea_orm::sea_query::Expr::value(None::<i32>).into(),
-        )
-        .col_expr(
-            submission_judgement::Column::FinalizedAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
-        )
+        .clear_judgement_columns()
         .filter(submission_judgement::Column::Id.eq(judgement.id))
         .filter(submission_judgement::Column::JudgeEpoch.eq(judgement.judge_epoch))
         .filter(submission_judgement::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
