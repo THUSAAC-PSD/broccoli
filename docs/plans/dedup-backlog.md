@@ -11,7 +11,9 @@ Done already (for reference on the pattern):
   `operation_batch.rs` / `evaluate_batch` (commit e618f98); a later
   drain-on-refill-failure fix then landed once instead of twice.
 - `entity/judgement_reset.rs` — single source for the judged-output column clear
-  list used by `dispatcher/steal.rs` and `dlq/stuck/recovery.rs`.
+  list used by `dispatcher/steal.rs`, `dlq/stuck/recovery.rs`, and
+  `services/submission_dispatch.rs` (whose pre-extraction judgement reset was
+  missing `CompileOutput`).
 - `Verdict::severity` — canonical table now lives only in
   `broccoli_types::types::Verdict`; `common::Verdict` delegates and carries a
   drift-pin test.
