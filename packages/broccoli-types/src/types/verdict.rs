@@ -16,6 +16,22 @@ pub enum Verdict {
 }
 
 impl Verdict {
+    /// Aggregation rank used by `max_by_key` when collapsing per-test-case
+    /// verdicts into a single submission verdict. This is the canonical
+    /// ordering for BOTH the guest SDK and the host (`common::Verdict`
+    /// delegates here — do not fork a second table).
+    ///
+    /// Contract:
+    /// - `Other(_)` outranks every standard failure verdict, including
+    ///   `SystemError`: a plugin that emits a custom verdict means it, and
+    ///   the custom verdict must surface as the submission verdict (the
+    ///   original custom-verdict design, commit 14b8a17, ranked it 255 on
+    ///   the host for exactly this reason).
+    /// - `CompileError` stays above `Other(_)` because the finalize
+    ///   pipeline special-cases it (status becomes `CompilationError`,
+    ///   verdict column is nulled, compile output is captured); a custom
+    ///   verdict must not mask that machinery in the pathological case
+    ///   where both appear in one result set.
     pub fn severity(&self) -> u8 {
         match self {
             Self::Accepted => 0,
@@ -26,8 +42,8 @@ impl Verdict {
             Self::MemoryLimitExceeded => 3,
             Self::RuntimeError => 4,
             Self::SystemError => 5,
-            Self::CompileError => 6,
-            Self::Other(_) => 5,
+            Self::Other(_) => 6,
+            Self::CompileError => 7,
         }
     }
 
@@ -156,10 +172,37 @@ mod tests {
         assert!(Verdict::TimeLimitExceeded.severity() < Verdict::MemoryLimitExceeded.severity());
         assert!(Verdict::MemoryLimitExceeded.severity() < Verdict::RuntimeError.severity());
         assert!(Verdict::RuntimeError.severity() < Verdict::SystemError.severity());
-        assert!(Verdict::SystemError.severity() < Verdict::CompileError.severity());
+        // Custom plugin verdicts outrank every standard failure verdict —
+        // a plugin that emits one means it to surface (see severity() docs).
+        assert!(Verdict::SystemError.severity() < Verdict::Other("PluginStatus".into()).severity());
+        // CompileError stays on top so the finalize pipeline's CE
+        // special-casing can never be masked by a custom verdict.
+        assert!(
+            Verdict::Other("PluginStatus".into()).severity() < Verdict::CompileError.severity()
+        );
         assert_eq!(Verdict::Skipped.severity(), 0);
         assert_eq!(Verdict::Cancelled.severity(), 0);
-        assert_eq!(Verdict::Other("PluginStatus".into()).severity(), 5);
+    }
+
+    #[test]
+    fn max_by_key_aggregation_prefers_custom_over_system_error() {
+        // Mirrors the aggregation in server-sdk finalize_code_run: the
+        // submission verdict is the max-severity per-test-case verdict.
+        let verdicts = vec![
+            Verdict::Accepted,
+            Verdict::SystemError,
+            Verdict::Other("PartialCredit".into()),
+            Verdict::WrongAnswer,
+        ];
+        let winner = verdicts.iter().max_by_key(|v| v.severity()).unwrap();
+        assert_eq!(*winner, Verdict::Other("PartialCredit".into()));
+
+        let with_ce = vec![
+            Verdict::Other("PartialCredit".into()),
+            Verdict::CompileError,
+        ];
+        let winner = with_ce.iter().max_by_key(|v| v.severity()).unwrap();
+        assert_eq!(*winner, Verdict::CompileError);
     }
 
     #[test]

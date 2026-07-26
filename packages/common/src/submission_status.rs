@@ -177,17 +177,29 @@ impl Verdict {
         }
     }
 
+    /// Delegates to the canonical severity table in `broccoli_types` so the
+    /// host and the WASM guest SDK can never disagree on aggregation order
+    /// again (they did: this copy ranked `Other` at 255 while the SDK copy
+    /// ranked it 5, putting a plugin custom verdict above everything on one
+    /// side and below `CompileError` — tied with `SystemError` — on the
+    /// other). See `broccoli_types::types::Verdict::severity` for the
+    /// ordering contract. This enum has no `CompileError` variant because
+    /// compile failures are represented as
+    /// `SubmissionStatus::CompilationError` with a NULL verdict column.
     pub fn severity(&self) -> u8 {
+        use broccoli_types::types::Verdict as Sdk;
         match self {
-            Self::Accepted => 0,
-            Self::Skipped => 0,
-            Self::Cancelled => 0,
-            Self::WrongAnswer => 1,
-            Self::TimeLimitExceeded => 2,
-            Self::MemoryLimitExceeded => 3,
-            Self::RuntimeError => 4,
-            Self::SystemError => 5,
-            Self::Other(_) => 255,
+            Self::Accepted => Sdk::Accepted.severity(),
+            Self::WrongAnswer => Sdk::WrongAnswer.severity(),
+            Self::TimeLimitExceeded => Sdk::TimeLimitExceeded.severity(),
+            Self::MemoryLimitExceeded => Sdk::MemoryLimitExceeded.severity(),
+            Self::RuntimeError => Sdk::RuntimeError.severity(),
+            Self::SystemError => Sdk::SystemError.severity(),
+            Self::Skipped => Sdk::Skipped.severity(),
+            Self::Cancelled => Sdk::Cancelled.severity(),
+            // String::new() does not allocate; this is a zero-cost probe of
+            // the canonical table.
+            Self::Other(_) => Sdk::Other(String::new()).severity(),
         }
     }
 }
@@ -346,6 +358,62 @@ mod tests {
         let verdict: Verdict =
             serde_json::from_str("\"PluginStatus\"").expect("deserialize verdict");
         assert_eq!(verdict, Verdict::Other("PluginStatus".to_string()));
+    }
+
+    #[test]
+    fn severity_matches_canonical_sdk_table_for_all_variants() {
+        // Drift pin: every host variant must rank exactly as its SDK
+        // counterpart. If this fails, someone forked the severity table
+        // again — fix it in broccoli_types, not here.
+        use broccoli_types::types::Verdict as Sdk;
+        let pairs: &[(Verdict, Sdk)] = &[
+            (Verdict::Accepted, Sdk::Accepted),
+            (Verdict::WrongAnswer, Sdk::WrongAnswer),
+            (Verdict::TimeLimitExceeded, Sdk::TimeLimitExceeded),
+            (Verdict::MemoryLimitExceeded, Sdk::MemoryLimitExceeded),
+            (Verdict::RuntimeError, Sdk::RuntimeError),
+            (Verdict::SystemError, Sdk::SystemError),
+            (Verdict::Skipped, Sdk::Skipped),
+            (Verdict::Cancelled, Sdk::Cancelled),
+            (
+                Verdict::Other("PluginStatus".into()),
+                Sdk::Other("PluginStatus".into()),
+            ),
+        ];
+        for (host, sdk) in pairs {
+            assert_eq!(
+                host.severity(),
+                sdk.severity(),
+                "severity drift for {host:?}"
+            );
+        }
+        // Custom verdicts outrank standard failures on the host too.
+        assert!(Verdict::Other("X".into()).severity() > Verdict::SystemError.severity());
+    }
+
+    #[test]
+    fn from_sdk_verdict_preserves_db_string_representation() {
+        // The SDK collapses CompileError into "SystemError" for the DB
+        // (compile failures live in SubmissionStatus, not the verdict
+        // column); the From impl must agree with that collapse, and every
+        // other variant must round-trip its string form unchanged.
+        use broccoli_types::types::Verdict as Sdk;
+        let cases: &[Sdk] = &[
+            Sdk::Accepted,
+            Sdk::WrongAnswer,
+            Sdk::TimeLimitExceeded,
+            Sdk::MemoryLimitExceeded,
+            Sdk::RuntimeError,
+            Sdk::SystemError,
+            Sdk::CompileError,
+            Sdk::Skipped,
+            Sdk::Cancelled,
+            Sdk::Other("PluginStatus".into()),
+        ];
+        for sdk in cases {
+            let host: Verdict = sdk.clone().into();
+            assert_eq!(host.as_str(), sdk.to_db_str(), "string drift for {sdk:?}");
+        }
     }
 
     #[test]
