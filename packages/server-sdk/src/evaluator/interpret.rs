@@ -79,6 +79,24 @@ pub fn interpret_fused_result(
     };
 
     let sandbox = &check_result.sandbox_result;
+    // A checker step whose own sandbox failed internally (isolate `XX`, or a
+    // redirect file lost after a clean exit under load) is an infrastructure
+    // fault, not a contestant verdict: surface it as a retryable SystemError
+    // rather than feeding the missing comparator output to the checker.
+    if sandbox.status_kind() == SandboxStatus::InternalError {
+        return Ok(TestCaseVerdict {
+            test_case_id,
+            verdict: Verdict::SystemError,
+            score: 0.0,
+            time_used_ms,
+            memory_used_kb,
+            message: Some(
+                "checker step hit a sandbox internal error (infrastructure failure)".into(),
+            ),
+            stdout: exec_stdout,
+            stderr: exec_stderr,
+        });
+    }
     // Both checkers write their verdict message to stderr (broccoli-compare's
     // stdout carries the display preview, testlib's stderr carries quitf output).
     let message = sandbox.stderr.clone();
@@ -158,6 +176,26 @@ pub(crate) fn precheck_verdict(
     }
 
     if let Some(compile_result) = result.task_results.get("compile") {
+        // A clobbered box can make the compiler exit non-zero (e.g. its source
+        // file vanished mid-run) with the declared stderr redirect also missing;
+        // isolate tags that as InternalError. Check it BEFORE the exit-code
+        // branch so an infrastructure fault becomes a retryable SystemError, not
+        // a terminal CompileError that never self-heals. Mirrors the exec arm.
+        if compile_result.sandbox_result.status_kind() == SandboxStatus::InternalError {
+            return Some(TestCaseVerdict {
+                test_case_id,
+                verdict: Verdict::SystemError,
+                score: 0.0,
+                time_used_ms: None,
+                memory_used_kb: None,
+                message: Some(
+                    opt_nonempty(&compile_result.sandbox_result.message)
+                        .unwrap_or_else(|| "Compilation sandbox reported an internal error".into()),
+                ),
+                stdout: None,
+                stderr: None,
+            });
+        }
         if let Some(exit_code) = compile_result.sandbox_result.exit_code {
             if exit_code != 0 {
                 return Some(TestCaseVerdict {
@@ -269,7 +307,28 @@ pub(crate) fn precheck_verdict(
                     stderr: exec_stderr,
                 });
             }
-            SandboxStatus::Ok | SandboxStatus::InternalError | SandboxStatus::Unknown => {}
+            SandboxStatus::InternalError => {
+                // The sandbox itself failed (isolate `XX`, or a redirect file that
+                // vanished after a clean exit under concurrent load). This is a
+                // system condition, never the contestant's code, so surface it as
+                // a retryable SystemError instead of scoring the (lost) output as
+                // a terminal WrongAnswer/TLE that never self-heals.
+                return Some(TestCaseVerdict {
+                    test_case_id,
+                    verdict: Verdict::SystemError,
+                    score: 0.0,
+                    time_used_ms: extract_time_used(result),
+                    memory_used_kb: extract_memory_used(result),
+                    message: Some(
+                        opt_nonempty(&sandbox.message).unwrap_or_else(|| {
+                            "Execution sandbox reported an internal error".into()
+                        }),
+                    ),
+                    stdout: exec_stdout,
+                    stderr: exec_stderr,
+                });
+            }
+            SandboxStatus::Ok | SandboxStatus::Unknown => {}
         }
     }
 
@@ -404,6 +463,27 @@ mod tests {
     }
 
     #[test]
+    fn precheck_compile_internal_error_is_system_error() {
+        // A box clobbered mid-compile makes the compiler exit non-zero (its source
+        // vanished) with the declared stderr redirect also missing -> tagged
+        // InternalError. The InternalError guard must fire BEFORE the exit-code
+        // branch, so this becomes a retryable SystemError, not a terminal
+        // CompileError that never self-heals.
+        let compile = task(
+            false,
+            ExecutionResult {
+                exit_code: Some(1),
+                sandbox_status: SandboxStatus::InternalError,
+                status: "XX".into(),
+                stderr: String::new(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("compile", compile)])).unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
     fn precheck_time_limit_exceeded() {
         let exec = task(
             false,
@@ -476,7 +556,111 @@ mod tests {
         assert!(msg.contains("no step results"), "got: {msg}");
     }
 
+    #[test]
+    fn precheck_exec_internal_error_is_system_error() {
+        // A redirect file that vanished after a clean exit (concurrency/infra) is
+        // tagged InternalError by the sandbox; it must become a retryable
+        // SystemError, never a terminal WrongAnswer scored off the lost output.
+        let exec = task(
+            true,
+            ExecutionResult {
+                exit_code: Some(0),
+                sandbox_status: SandboxStatus::InternalError,
+                status: "XX".into(),
+                stdout: String::new(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("compile", compile_ok()), ("exec", exec)])).unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn precheck_exec_internal_error_via_raw_status_fallback() {
+        // Results without the typed field (older workers) still classify via the
+        // raw `XX` status string.
+        let exec = task(
+            true,
+            ExecutionResult {
+                exit_code: Some(0),
+                status: "XX".into(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("exec", exec)])).unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn precheck_present_but_empty_output_is_not_infra() {
+        // A file that is PRESENT but empty is legitimate empty program output, not
+        // an infrastructure fault: precheck must pass it through to the checker
+        // (which may score WrongAnswer) rather than looping forever on retries.
+        let exec = task(
+            true,
+            ExecutionResult {
+                exit_code: Some(0),
+                status: "OK".into(),
+                stdout: String::new(),
+                ..Default::default()
+            },
+        );
+        assert!(
+            precheck_verdict(1, &op(vec![("compile", compile_ok()), ("exec", exec)])).is_none(),
+            "empty-but-present output must not be reclassified as a system error"
+        );
+    }
+
     // ----- interpret_fused_result -----
+
+    #[test]
+    fn fused_exec_internal_error_is_system_error() {
+        // Even with a check step present, an InternalError exec short-circuits to
+        // SystemError before the checker is consulted (mock checker would Err with
+        // a different message, so the message proves precheck won).
+        let host = Host::mock();
+        let exec = task(
+            true,
+            ExecutionResult {
+                exit_code: Some(0),
+                sandbox_status: SandboxStatus::InternalError,
+                status: "XX".into(),
+                ..Default::default()
+            },
+        );
+        let result = op(vec![
+            ("compile", compile_ok()),
+            ("exec", exec),
+            ("check", exec_ok()),
+        ]);
+        let v = interpret_fused_result(&host.checker, 1, &result, "tokens", "check").unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+        assert!(!v.message.unwrap().contains("Checker interpret failed"));
+    }
+
+    #[test]
+    fn fused_check_internal_error_is_system_error() {
+        // The checker step's own sandbox failed internally -> infrastructure, not
+        // a contestant verdict. The mock checker must not be consulted.
+        let host = Host::mock();
+        let check = task(
+            true,
+            ExecutionResult {
+                exit_code: Some(0),
+                sandbox_status: SandboxStatus::InternalError,
+                status: "XX".into(),
+                ..Default::default()
+            },
+        );
+        let result = op(vec![
+            ("compile", compile_ok()),
+            ("exec", exec_ok()),
+            ("check", check),
+        ]);
+        let v = interpret_fused_result(&host.checker, 1, &result, "tokens", "check").unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+        assert!(v.message.unwrap().contains("infrastructure failure"));
+    }
 
     #[test]
     fn fused_propagates_run_failure_without_calling_checker() {
