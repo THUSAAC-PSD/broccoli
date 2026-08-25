@@ -223,13 +223,23 @@ pub fn build_operation(
         vec![]
     };
 
+    // Raise the exec process limit to the runtime's floor when it needs more than
+    // the (tight, single-process) admin default - e.g. the JVM, which aborts at
+    // init if it cannot spawn its GC/JIT/VM helper threads. Admin authority over
+    // memory/time/stack is untouched; only the process cap moves, and only upward.
+    let mut exec_limits = config.exec_limits(time_limit_s, memory_limit_kb);
+    if let Some(floor) = lang.run.min_process_limit {
+        let effective = exec_limits.process_limit.unwrap_or(0).max(floor);
+        exec_limits.process_limit = Some(effective);
+    }
+
     let exec_step = Step {
         id: "exec".to_string(),
         kind: StepKind::Testcase,
         env_ref: "sandbox".to_string(),
         argv: lang.run.command.clone(),
         conf: RunOptions {
-            resource_limits: config.exec_limits(time_limit_s, memory_limit_kb),
+            resource_limits: exec_limits,
             wait: true,
             env_rules: vec![],
             ..Default::default()
@@ -409,6 +419,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./solution".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
@@ -419,6 +430,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["/usr/bin/python3".to_string(), "solution.py".to_string()],
                 extra_files: vec!["solution.py".to_string()],
+                min_process_limit: None,
             },
         }
     }
@@ -610,6 +622,38 @@ mod tests {
         assert_eq!(exec.conf.resource_limits.process_limit, Some(4));
         // 1000ms = 1.0s, wall_time = 1.0 * 5.0 = 5.0s
         assert_eq!(exec.conf.resource_limits.wall_time_limit, Some(5.0));
+    }
+
+    /// A runtime floor (`RunSpec.min_process_limit`) raises the exec process cap
+    /// above the tight single-process default. This is the JVM path: the default
+    /// `exec_process_limit` of 1 aborts the VM at init, so the language resolver
+    /// hands up a floor and the op builder must honor it.
+    #[test]
+    fn runtime_process_floor_raises_tight_exec_limit() {
+        let mut lang = compiled_lang();
+        lang.run.min_process_limit = Some(64);
+        // Default config leaves exec_process_limit at its tight value of 1.
+        let ops = build_operation(&make_req(), &lang, &default_config(), None).unwrap();
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.process_limit, Some(64));
+    }
+
+    /// The floor only ever moves the cap upward. When an admin has already
+    /// configured a higher exec process limit than the runtime's floor, the
+    /// configured value wins - the floor is a `max`, not an override.
+    #[test]
+    fn runtime_process_floor_never_lowers_configured_limit() {
+        let mut lang = compiled_lang();
+        lang.run.min_process_limit = Some(64);
+        let config = SandboxConfig {
+            exec_process_limit: 128,
+            ..SandboxConfig::default()
+        };
+        let ops = build_operation(&make_req(), &lang, &config, None).unwrap();
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.process_limit, Some(128));
     }
 
     #[test]

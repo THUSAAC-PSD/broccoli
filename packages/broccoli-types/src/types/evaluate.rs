@@ -716,4 +716,13 @@ mod output_spec_tests {
 pub struct RunSpec {
     pub command: Vec<String>,
     pub extra_files: Vec<String>,
+    /// Minimum process/thread count the runtime needs to execute at all, when
+    /// larger than the evaluator's configured exec process limit. Single-process
+    /// languages (C/C++/Python) leave this `None` and keep the tight default;
+    /// threaded runtimes like the JVM (which spawns GC/JIT/VM helper threads at
+    /// startup and dies with `pthread_create ... EAGAIN` otherwise) raise it to
+    /// their floor. Evaluators take `max(configured_limit, min_process_limit)`,
+    /// so admin authority over memory/time/stack is unaffected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_process_limit: Option<u32>,
 }

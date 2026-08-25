@@ -486,6 +486,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./checker".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
@@ -537,6 +538,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./checker".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         };
         extend_cache_inputs_with_bundle(&mut resolved, &["testlib.h".to_string()]);

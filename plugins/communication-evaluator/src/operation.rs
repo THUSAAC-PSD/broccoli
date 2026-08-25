@@ -305,7 +305,7 @@ pub fn build_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::{CompileSpec, RunSpec, SourceFile};
+    use broccoli_server_sdk::types::{CompileSpec, JudgeFile, RunSpec, SourceFile};
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -346,6 +346,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./solution".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
@@ -367,6 +368,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./manager".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }

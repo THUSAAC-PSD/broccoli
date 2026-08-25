@@ -46,6 +46,14 @@ pub const LANGUAGES: &[LanguageMeta] = &[
 
 pub const LANGUAGE_IDS: &[&str] = &["c", "cpp", "python3", "java"];
 
+/// Minimum process/thread count the JVM needs to start. openjdk spawns a fixed
+/// set of helper threads at boot (VM thread, reference handler, finalizer,
+/// signal dispatcher) plus GC/JIT worker pools. 64 clears the fixed threads with
+/// headroom while staying bounded (memory and time remain capped by the problem's
+/// limits via the sandbox cgroup). This is a floor, not the real fix for thread
+/// blow-up: see `JAVA_ACTIVE_PROCESSORS`.
+const JAVA_MIN_PROCESS_LIMIT: u32 = 64;
+
 fn default_source(lang: &str) -> &str {
     match lang {
         "c" => "solution.c",
@@ -146,6 +154,7 @@ fn resolve_compiled(
         run: RunSpec {
             command: vec![format!("./{basename}")],
             extra_files: vec![],
+            min_process_limit: None,
         },
     }
 }
@@ -200,6 +209,7 @@ pub fn resolve_python3(
         run: RunSpec {
             command: vec![interpreter.to_string(), primary.to_string()],
             extra_files: all_files.iter().map(|s| s.to_string()).collect(),
+            min_process_limit: None,
         },
     }
 }
@@ -239,6 +249,7 @@ pub fn resolve_java(
         run: RunSpec {
             command: vec![runner.to_string(), "-cp".into(), ".".into(), basename],
             extra_files: vec![],
+            min_process_limit: Some(JAVA_MIN_PROCESS_LIMIT),
         },
     }
 }

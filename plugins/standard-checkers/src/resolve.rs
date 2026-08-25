@@ -727,6 +727,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./checker".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
