@@ -208,6 +208,48 @@ impl OperationHandler {
         let mut task_results = HashMap::new();
         let mut global_success = true;
 
+        // Channel keep-alive write fds (root prevention for the fused-checker FIFO
+        // deadlock). Each channel is a named FIFO the producer step writes and the
+        // consumer step reads via a concurrent `open(O_RDONLY)`, which blocks in
+        // the kernel until *some* writer opens the O_WRONLY end. If the producer
+        // never opens it (its exec fork/spawn EAGAIN-exhausts, artifact missing),
+        // the consumer blocks forever -> the whole operation hangs and the queue
+        // message is orphaned. We hold an O_RDWR fd on each producer's FIFO here:
+        // O_RDWR never blocks on open, so the consumer's rendezvous always
+        // succeeds, and dropping the fd the instant the producer's future resolves
+        // (success OR failure) delivers EOF -- a finished producer's own writes are
+        // already flushed, a failed producer yields empty input. The fd MUST close
+        // on producer-resolution rather than after the layer: the consumer runs
+        // concurrently in the SAME layer and needs EOF to finish, so a writer held
+        // past `join_all` would starve every normal solution into a deadlock. A
+        // failed producer that resolves before the consumer even opens is the one
+        // residual race; the worker-side isolate `--wait` hard timeout is the
+        // backstop that turns it into a self-healing SystemError, never a hang.
+        let mut channel_keepalives: HashMap<String, Vec<std::fs::File>> = HashMap::new();
+        if let Some(ref dir) = shared_channels_dir {
+            let mut producer_of: HashMap<String, String> = HashMap::new();
+            for task in &operation.tasks {
+                for ch in step_produced_channels(task, &channel_names) {
+                    // First writer wins; a channel has a single logical producer.
+                    producer_of.entry(ch).or_insert_with(|| task.id.clone());
+                }
+            }
+            for channel in &operation.channels {
+                // Only manage a keep-alive for channels with an identifiable
+                // producer step. An orphan channel (consumed, never produced) keeps
+                // its pre-existing behavior; there is no safe moment to close a
+                // writer we can't tie to a producer's completion.
+                if let Some(producer_id) = producer_of.get(&channel.name)
+                    && let Some(file) = open_channel_keepalive(&dir.join(&channel.name))
+                {
+                    channel_keepalives
+                        .entry(producer_id.clone())
+                        .or_default()
+                        .push(file);
+                }
+            }
+        }
+
         // Run the execution layers under a panic guard so the sandbox + channels
         // cleanup below ALWAYS runs. A panicking step future - or the `?` on a
         // dependency-graph inconsistency - would otherwise unwind straight past
@@ -234,14 +276,23 @@ impl OperationHandler {
                             .unwrap_or(false)
                     });
 
-                    futures.push(self.execute_step_with_deps(
+                    // Hand this step the keep-alive fds for any channels it
+                    // produces; they drop -- delivering EOF to the concurrent
+                    // consumer -- the moment its future resolves, below.
+                    let produced_keepalives = channel_keepalives.remove(task_id);
+                    let step_future = self.execute_step_with_deps(
                         task,
                         &environments,
                         &step_working_dirs,
                         deps_ok,
                         shared_channels_dir.as_deref(),
                         &channel_names,
-                    ));
+                    );
+                    futures.push(async move {
+                        let result = step_future.await;
+                        drop(produced_keepalives);
+                        result
+                    });
                 }
 
                 let results = join_all(futures).await;
@@ -627,5 +678,150 @@ impl OperationHandler {
             sandbox_result: exec_result,
             collected_outputs,
         })
+    }
+}
+
+/// Channels this step *produces* (writes): any output redirect (stdout/stderr)
+/// bound to a `Pipe` whose name is a declared operation channel. The consumer
+/// side (a `Pipe` on `stdin`) is deliberately excluded -- only a producer's
+/// write end needs a keep-alive.
+fn step_produced_channels(step: &Step, channel_names: &HashSet<String>) -> Vec<String> {
+    let mut produced = Vec::new();
+    for target in [&step.io.stdout, &step.io.stderr] {
+        if let IOTarget::Pipe { name } = target
+            && channel_names.contains(name)
+        {
+            produced.push(name.clone());
+        }
+    }
+    produced
+}
+
+/// Open a keep-alive fd on a channel FIFO. `O_RDWR` is deliberate: unlike
+/// `O_RDONLY`/`O_WRONLY`, opening a FIFO read-write never blocks on the
+/// open-rendezvous, so holding this fd guarantees a concurrent consumer's
+/// `open(O_RDONLY)` returns immediately. Dropping it later delivers EOF.
+/// A failure here is non-fatal: the consumer simply reverts to relying on the
+/// worker hard-timeout backstop, so we warn and continue rather than abort the
+/// whole operation.
+fn open_channel_keepalive(fifo_path: &Path) -> Option<std::fs::File> {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(fifo_path)
+    {
+        Ok(file) => Some(file),
+        Err(e) => {
+            warn!(
+                path = %fifo_path.display(),
+                error = %e,
+                "Failed to open channel keep-alive fd; consumer relies on the worker hard timeout"
+            );
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod channel_keepalive_tests {
+    use super::*;
+    use broccoli_types::types::{IOConfig, StepKind};
+
+    fn step_with_io(id: &str, io: IOConfig) -> Step {
+        Step {
+            id: id.to_string(),
+            kind: StepKind::default(),
+            env_ref: "env".to_string(),
+            argv: vec![],
+            conf: RunOptions::default(),
+            io,
+            collect: vec![],
+            depends_on: vec![],
+            cache: None,
+            mounts: vec![],
+        }
+    }
+
+    #[test]
+    fn produced_channels_counts_stdout_pipe_only() {
+        let channels: HashSet<String> = ["sol_out".to_string()].into_iter().collect();
+
+        // stdout Pipe on a declared channel -> produced.
+        let producer = step_with_io(
+            "exec",
+            IOConfig {
+                stdout: IOTarget::Pipe {
+                    name: "sol_out".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            step_produced_channels(&producer, &channels),
+            vec!["sol_out".to_string()]
+        );
+
+        // stdin Pipe (the consumer side) is NOT a producer.
+        let consumer = step_with_io(
+            "check",
+            IOConfig {
+                stdin: IOTarget::Pipe {
+                    name: "sol_out".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        assert!(step_produced_channels(&consumer, &channels).is_empty());
+
+        // A Pipe that is not a declared channel is a box-local pipe, not a channel.
+        let box_pipe = step_with_io(
+            "other",
+            IOConfig {
+                stdout: IOTarget::Pipe {
+                    name: "not_a_channel".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        assert!(step_produced_channels(&box_pipe, &channels).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keepalive_unblocks_reader_open_and_missing_path_is_none() {
+        // A path that does not exist -> None (non-fatal).
+        assert!(
+            open_channel_keepalive(Path::new("/nonexistent/broccoli/keepalive/fifo")).is_none()
+        );
+
+        // Create a real FIFO and prove the keep-alive writer lets an O_RDONLY
+        // open return immediately instead of blocking on the FIFO rendezvous.
+        let dir = std::env::temp_dir().join(format!("broccoli-ka-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("sol_out");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(status.success(), "mkfifo failed");
+
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+
+        let reader_path = fifo.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            // Without a writer present this open would block forever.
+            let opened = std::fs::OpenOptions::new().read(true).open(&reader_path);
+            let _ = tx.send(opened.is_ok());
+        });
+
+        let unblocked = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("O_RDONLY open blocked despite keep-alive writer");
+        assert!(unblocked, "reader failed to open the FIFO");
+
+        drop(keepalive);
+        reader.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
