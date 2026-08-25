@@ -30,12 +30,14 @@ pub struct OperationHandler {
 
 struct EnvironmentList {
     id: String,
-    box_id: String,
+    /// RAII reservation for this environment's isolate box id; released when the
+    /// environment (and thus this struct) is dropped. See [`box_id::BoxId`].
+    box_id: box_id::BoxId,
     working_dir: PathBuf,
 }
 
 impl EnvironmentList {
-    fn new(id: String, box_id: String, working_dir: PathBuf) -> Self {
+    fn new(id: String, box_id: box_id::BoxId, working_dir: PathBuf) -> Self {
         Self {
             id,
             box_id,

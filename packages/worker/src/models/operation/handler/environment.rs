@@ -271,7 +271,11 @@ impl OperationHandler {
         environments: &HashMap<String, EnvironmentList>,
     ) -> Result<()> {
         for env in environments.values() {
-            if let Err(e) = self.sandbox_manager.remove_sandbox(&env.box_id).await {
+            if let Err(e) = self
+                .sandbox_manager
+                .remove_sandbox(env.box_id.as_str())
+                .await
+            {
                 error!(env_id = %env.id, error = %e, "Failed to cleanup sandbox");
             }
         }

@@ -5,7 +5,7 @@ use super::super::sandbox::{
     DirectoryOptions, DirectoryRule, ExecutionResult, RunOptions, SandboxManager,
 };
 use super::super::task_cache::TaskCacheStore;
-use super::box_id::{NEXT_BOX_ID, allocate_box_id};
+use super::box_id::{allocate_box_id, next_channel_seq};
 use super::metrics::{sandbox_exit_kind, sandbox_status_label, step_kind};
 use super::paths::{
     platform_tool_directory_rule, resolve_step_output_src, stage_step_output_file,
@@ -18,7 +18,6 @@ use std::collections::{HashMap, HashSet};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tracing::{Instrument, debug, error, info, instrument, warn};
 
@@ -86,7 +85,7 @@ impl OperationHandler {
             let box_id = allocate_box_id();
             debug!(env_id = %env_config.id, box_id = %box_id, "Initializing environment");
 
-            let working_dir = match self.create_sandbox(&box_id).await {
+            let working_dir = match self.create_sandbox(box_id.as_str()).await {
                 Ok(dir) => dir,
                 Err(e) => {
                     self.cleanup_environments(&environments).await.ok();
@@ -98,7 +97,8 @@ impl OperationHandler {
                 .load_environment_files(&working_dir, &env_config.files_in)
                 .await
             {
-                if let Err(cleanup_err) = self.sandbox_manager.remove_sandbox(&box_id).await {
+                if let Err(cleanup_err) = self.sandbox_manager.remove_sandbox(box_id.as_str()).await
+                {
                     error!(box_id = %box_id, error = %cleanup_err, "Failed to clean up sandbox after file loading failure");
                 }
                 self.cleanup_environments(&environments).await?;
@@ -123,7 +123,7 @@ impl OperationHandler {
             let dir = std::env::temp_dir().join(format!(
                 "broccoli-channels-{}-{}-{}",
                 std::process::id(),
-                NEXT_BOX_ID.fetch_add(1, Ordering::Relaxed),
+                next_channel_seq(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_nanos())
@@ -611,7 +611,7 @@ impl OperationHandler {
 
         let exec_result = self
             .sandbox_manager
-            .execute(&env.box_id, step.argv.clone(), &run_opts)
+            .execute(env.box_id.as_str(), step.argv.clone(), &run_opts)
             .await
             .map_err(|e| {
                 error!(step_id = %step.id, error = %e, "Step execution failed");
