@@ -21,6 +21,12 @@ import type { Plugin, ResolvedConfig } from 'vite';
  * dynamically loaded module (including cross-origin plugin bundles).
  */
 
+/**
+ * Every `@broccoli/web-sdk/*` subpath a plugin bundle may import must be listed
+ * here: plugins externalize these specifiers and rely on the host's import map
+ * to resolve them at runtime. A missing entry makes the plugin fail to load with
+ * "Failed to resolve module specifier". Keep in sync with web-sdk's subpaths.
+ */
 export const SDK_SHARED_DEPS = [
   '@broccoli/web-sdk',
   '@broccoli/web-sdk/api',
@@ -28,6 +34,7 @@ export const SDK_SHARED_DEPS = [
   '@broccoli/web-sdk/contest',
   '@broccoli/web-sdk/hooks',
   '@broccoli/web-sdk/i18n',
+  '@broccoli/web-sdk/permissions',
   '@broccoli/web-sdk/plugin',
   '@broccoli/web-sdk/problem',
   '@broccoli/web-sdk/sidebar',
