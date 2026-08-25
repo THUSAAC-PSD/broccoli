@@ -13,6 +13,7 @@ import type { SubmissionEntry } from '@/features/submission/hooks/use-submission
 import { getSubmissionScoreDisplay } from '../utils/score-display';
 import { getVerdictBadge } from '../utils/verdict';
 import { PinnedSubmissionGroup } from './PinnedSubmissionGroup';
+import { formatMemory } from './TestCaseRow';
 
 const DEFAULT_VISIBLE_COUNT = 5;
 
@@ -271,7 +272,7 @@ export function RecentSubmissionOverview({
                   )}
                   {row.memoryUsed != null && (
                     <span>
-                      {t('result.memory', { value: String(row.memoryUsed) })}
+                      {t('result.memory', { value: formatMemory(row.memoryUsed) })}
                     </span>
                   )}
                 </div>
