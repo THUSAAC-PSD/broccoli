@@ -175,9 +175,15 @@ fn java_uses_glob_output() {
         &[],
     );
     let compile = result.compile.unwrap();
-    assert_eq!(compile.command, vec!["javac", "Solver.java"]);
+    assert_eq!(
+        compile.command,
+        vec!["javac", "-J-XX:ActiveProcessorCount=1", "Solver.java"]
+    );
     assert_eq!(compile.outputs, vec![OutputSpec::Glob("*.class".into())]);
-    assert_eq!(result.run.command, vec!["java", "-cp", ".", "Solver"]);
+    assert_eq!(
+        result.run.command,
+        vec!["java", "-XX:ActiveProcessorCount=1", "-cp", ".", "Solver"]
+    );
 }
 
 #[test]

@@ -54,6 +54,21 @@ pub const LANGUAGE_IDS: &[&str] = &["c", "cpp", "python3", "java"];
 /// blow-up: see `JAVA_ACTIVE_PROCESSORS`.
 const JAVA_MIN_PROCESS_LIMIT: u32 = 64;
 
+/// Number of processors the JVM is told to size its thread pools against, via
+/// `-XX:ActiveProcessorCount`. Without this the JVM sizes ParallelGCThreads,
+/// JIT compiler threads and the ForkJoinPool common pool to the *host* CPU count,
+/// not the sandbox. On a large judge host (e.g. 96 cores) a single default
+/// `java` wants ~74 threads (ParallelGCThreads alone is ~63), which overruns the
+/// per-box process cap and every run fails with EAGAIN ("unable to create native
+/// thread") under load - independent of how much real work the solution does.
+/// Pinning the JVM's processor view to a small constant decouples thread count
+/// from host size: the VM then needs ~12 threads and comfortably fits the cap.
+/// 1 matches the conventional single-core competitive-judge execution model
+/// (isolate accounts CPU time, and contest solutions are single-threaded), which
+/// also selects SerialGC and a single compiler thread - the minimal, most
+/// deterministic footprint. Flag is JDK-version stable (present since JDK 10).
+const JAVA_ACTIVE_PROCESSORS: u32 = 1;
+
 fn default_source(lang: &str) -> &str {
     match lang {
         "c" => "solution.c",
@@ -227,6 +242,14 @@ pub fn resolve_java(
     let (primary, basename) = resolve_primary("java", &all_files, ep);
 
     let mut command = vec![compiler.to_string()];
+    // `javac` is itself a JVM: without pinning it also sizes its GC/JIT thread
+    // pools to the host CPU count and can EAGAIN under load, exactly like the run
+    // step. `-J<opt>` forwards an option to javac's own VM, so mirror the run
+    // step's `-XX:ActiveProcessorCount` on the compile path. See the run command
+    // and `JAVA_ACTIVE_PROCESSORS`.
+    command.push(format!(
+        "-J-XX:ActiveProcessorCount={JAVA_ACTIVE_PROCESSORS}"
+    ));
     command.extend(flags.iter().cloned());
     command.extend(extra_compile_flags.iter().cloned());
     command.push(primary.to_string());
@@ -247,7 +270,13 @@ pub fn resolve_java(
             resource_limits: None,
         }),
         run: RunSpec {
-            command: vec![runner.to_string(), "-cp".into(), ".".into(), basename],
+            command: vec![
+                runner.to_string(),
+                format!("-XX:ActiveProcessorCount={JAVA_ACTIVE_PROCESSORS}"),
+                "-cp".into(),
+                ".".into(),
+                basename,
+            ],
             extra_files: vec![],
             min_process_limit: Some(JAVA_MIN_PROCESS_LIMIT),
         },
