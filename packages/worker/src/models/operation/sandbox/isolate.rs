@@ -603,6 +603,28 @@ fn is_transient_exec_failure(result: &ExecutionResult) -> bool {
         && result.stderr.contains("Resource temporarily unavailable")
 }
 
+/// Worker-side hard-timeout backstop for a single `isolate --run`.
+///
+/// isolate's `--wall-time`/`--extra-time` bound the guest program's own run,
+/// but not a child wedged BEFORE it execs (a blocking `open()` on a channel
+/// FIFO with no writer never lets isolate's wall clock start). So the backstop
+/// is the declared wall limit plus grace plus a fixed margin (isolate startup +
+/// our own kill/cleanup slack). A step with no wall limit (e.g. compile) falls
+/// back to a generous absolute default so a long-but-legitimate step is never
+/// killed. This is a backstop, not a verdict clock: it must sit safely ABOVE
+/// any time isolate itself would enforce.
+fn worker_hard_timeout(limits: &ResourceLimits) -> std::time::Duration {
+    const MARGIN_SECS: f64 = 30.0;
+    const DEFAULT_SECS: f64 = 300.0;
+    match limits.wall_time_limit {
+        Some(wall) if wall > 0.0 => {
+            let extra = limits.extra_time.unwrap_or(0.0).max(0.0);
+            std::time::Duration::from_secs_f64(wall + extra + MARGIN_SECS)
+        }
+        _ => std::time::Duration::from_secs_f64(DEFAULT_SECS),
+    }
+}
+
 /// CPU-seconds offset used to reconcile isolate's reported `time` (and `--time`
 /// limit) into a single step's own CPU.
 ///
@@ -732,9 +754,64 @@ impl IsolateSandboxManager {
         })?;
         let stdout_task = tokio::spawn(read_capped_child_pipe(stdout));
         let stderr_task = tokio::spawn(read_capped_child_pipe(stderr));
-        let status = child.wait().await.map_err(|err| {
-            SandboxError::Execution(format!("failed to wait for isolate --run: {err}"))
-        })?;
+
+        // Worker-side hard backstop around `isolate --wait`. isolate's own
+        // `--wall-time` only advances once the guest program is RUNNING, so it
+        // does NOT reap a child wedged in a PRE-exec syscall - e.g. a fused
+        // check step's `open()` of the channel FIFO `/channels/sol_out`, which
+        // blocks in the kernel waiting for a writer that a failed/EAGAIN'd exec
+        // step never opened. Such a child hangs forever and `child.wait()` never
+        // returns; with no bound here the whole task future parks, the MQ
+        // message is never acked, and the submission is orphaned permanently
+        // (only a worker restart frees it). Bound the wait at the step's wall
+        // limit + margin (or an absolute default when no wall limit is set);
+        // anything past that is definitely wedged. On elapse: SIGKILL the
+        // `isolate --run` we spawned AND `isolate --cleanup` the box (the keeper
+        // + sandboxed child survive the parent's death via reparenting, so
+        // killing our handle alone would leave them holding the FIFO), then
+        // return an InternalError-tagged result so the evaluator maps it to a
+        // retryable SystemError (self-heals via the bounded stuck/system-error
+        // retry) rather than a terminal misverdict.
+        let hard_timeout = worker_hard_timeout(&run_options.resource_limits);
+        let status = match tokio::time::timeout(hard_timeout, child.wait()).await {
+            Ok(wait_res) => wait_res.map_err(|err| {
+                SandboxError::Execution(format!("failed to wait for isolate --run: {err}"))
+            })?,
+            Err(_elapsed) => {
+                tracing::error!(
+                    box_id = %box_id,
+                    timeout_secs = hard_timeout.as_secs_f64(),
+                    "isolate --run exceeded the worker hard timeout; killing and cleaning the box"
+                );
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                let mut cleanup = Command::new(&self.isolate_bin);
+                cleanup.arg(format!("--box-id={box_id}"));
+                if self.enable_cgroups {
+                    cleanup.arg("--cg");
+                }
+                cleanup.arg("--cleanup");
+                if let Err(err) = cleanup.output().await {
+                    tracing::warn!(
+                        box_id = %box_id,
+                        error = %err,
+                        "isolate --cleanup after hard-timeout failed"
+                    );
+                }
+                stdout_task.abort();
+                stderr_task.abort();
+                return Ok(ExecutionResult {
+                    killed: true,
+                    sandbox_status: SandboxStatus::InternalError,
+                    status: "XX".to_string(),
+                    message: format!(
+                        "isolate --run exceeded the worker hard timeout of {:.0}s (sandbox wedged; internal error)",
+                        hard_timeout.as_secs_f64()
+                    ),
+                    ..Default::default()
+                });
+            }
+        };
         let output_stdout = join_pipe_capture(stdout_task, "stdout").await?;
         let output_stderr = join_pipe_capture(stderr_task, "stderr").await?;
 
@@ -846,6 +923,43 @@ mod tests {
         // offset is ever applied, regardless of what a prior step consumed.
         assert_eq!(cpu_time_offset(false, 0.0), 0.0);
         assert_eq!(cpu_time_offset(false, 1.5), 0.0);
+    }
+
+    #[test]
+    fn worker_hard_timeout_sits_above_the_wall_limit() {
+        // Backstop must exceed the wall limit (+ extra grace) so it never fires
+        // on a run that isolate would itself enforce, but is finite so a wedged
+        // pre-exec child is always reaped.
+        let limits = ResourceLimits {
+            wall_time_limit: Some(10.0),
+            extra_time: Some(2.0),
+            ..Default::default()
+        };
+        let d = worker_hard_timeout(&limits).as_secs_f64();
+        assert!(d > 12.0, "backstop {d}s must exceed wall+extra=12s");
+        assert!(
+            d < 60.0,
+            "backstop {d}s should be a tight margin, not open-ended"
+        );
+    }
+
+    #[test]
+    fn worker_hard_timeout_falls_back_without_wall_limit() {
+        // A step with no wall limit (e.g. compile) gets a generous absolute
+        // default, never a tiny/zero bound that could kill a legitimate step.
+        let limits = ResourceLimits {
+            wall_time_limit: None,
+            ..Default::default()
+        };
+        let d = worker_hard_timeout(&limits).as_secs_f64();
+        assert!(d >= 300.0, "no-wall-limit fallback {d}s must be generous");
+
+        // A zero/nonsensical wall limit also takes the safe fallback, not 30s.
+        let zero = ResourceLimits {
+            wall_time_limit: Some(0.0),
+            ..Default::default()
+        };
+        assert!(worker_hard_timeout(&zero).as_secs_f64() >= 300.0);
     }
 
     #[test]
