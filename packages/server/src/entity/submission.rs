@@ -55,6 +55,12 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(128))", nullable)]
     pub owner_server_id: Option<String>,
     pub lease_heartbeat_at: Option<DateTimeUtc>,
+    /// Immutable dispatch anchor: stamped once when the row is (re-)dispatched
+    /// and NEVER refreshed (unlike `lease_heartbeat_at`, which the lease fiber
+    /// bumps every pass). Lets the stuck-job detector bound a job's in-flight
+    /// dispatch age independent of a still-live server's heartbeat refresh.
+    #[sea_orm(nullable)]
+    pub leased_at: Option<DateTimeUtc>,
     #[sea_orm(default_value = 0)]
     pub retry_count: i32,
 

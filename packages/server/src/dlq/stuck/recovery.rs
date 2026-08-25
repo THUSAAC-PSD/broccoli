@@ -41,6 +41,10 @@ pub(super) async fn recover_stuck_submission_without_steal(
             submission::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
+        .col_expr(
+            submission::Column::LeasedAt,
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+        )
         .clear_judgement_columns()
         .filter(submission::Column::Id.eq(submission.id))
         .filter(submission::Column::JudgeEpoch.eq(submission.judge_epoch))
@@ -67,6 +71,7 @@ pub(super) async fn recover_stuck_submission_without_steal(
     redispatch_model.judge_epoch = new_epoch;
     redispatch_model.owner_server_id = owner_server_id;
     redispatch_model.lease_heartbeat_at = lease_heartbeat_at;
+    redispatch_model.leased_at = lease_heartbeat_at;
     redispatch_model.clear_judgement_fields();
 
     Ok(StuckRecovery::RedispatchSubmission {
@@ -111,6 +116,10 @@ pub(super) async fn recover_stuck_code_run_without_steal(
             code_run::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
+        .col_expr(
+            code_run::Column::LeasedAt,
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+        )
         .clear_judgement_columns()
         .filter(code_run::Column::Id.eq(run.id))
         .filter(code_run::Column::JudgeEpoch.eq(run.judge_epoch))
@@ -128,6 +137,7 @@ pub(super) async fn recover_stuck_code_run_without_steal(
     redispatch_model.judge_epoch = new_epoch;
     redispatch_model.owner_server_id = owner_server_id;
     redispatch_model.lease_heartbeat_at = lease_heartbeat_at;
+    redispatch_model.leased_at = lease_heartbeat_at;
     redispatch_model.clear_judgement_fields();
 
     Ok(StuckRecovery::RedispatchCodeRun {
@@ -175,6 +185,10 @@ pub(super) async fn recover_stuck_judgement_without_steal(
                 submission::Column::LeaseHeartbeatAt,
                 sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
             )
+            .col_expr(
+                submission::Column::LeasedAt,
+                sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            )
             .clear_judgement_columns()
             .filter(submission::Column::Id.eq(sub.id))
             .filter(submission::Column::JudgeEpoch.eq(judgement.judge_epoch))
@@ -212,6 +226,10 @@ pub(super) async fn recover_stuck_judgement_without_steal(
             submission_judgement::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
         )
+        .col_expr(
+            submission_judgement::Column::LeasedAt,
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+        )
         .clear_judgement_columns()
         .filter(submission_judgement::Column::Id.eq(judgement.id))
         .filter(submission_judgement::Column::JudgeEpoch.eq(judgement.judge_epoch))
@@ -230,6 +248,7 @@ pub(super) async fn recover_stuck_judgement_without_steal(
     sub.retry_count = new_retry_count;
     sub.owner_server_id = owner_server_id;
     sub.lease_heartbeat_at = lease_heartbeat_at;
+    sub.leased_at = lease_heartbeat_at;
     if let Some(target) = judgement.target_worker_id.clone() {
         sub.target_worker_id = Some(target);
     }
@@ -312,6 +331,7 @@ async fn open_retry_submission_judgement(
         judge_epoch: Set(new_epoch),
         owner_server_id: Set(owner_server_id),
         lease_heartbeat_at: Set(lease_heartbeat_at),
+        leased_at: Set(lease_heartbeat_at),
         created_at: Set(chrono::Utc::now()),
         finalized_at: Set(None),
         ..Default::default()

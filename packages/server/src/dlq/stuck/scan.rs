@@ -106,6 +106,12 @@ async fn detect_and_handle_stuck_jobs(
         Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
     let pending_orphan_threshold =
         Utc::now() - chrono::Duration::seconds(PENDING_ORPHAN_TIMEOUT_SECS);
+    // Dispatch-age cap threshold (`None` = disabled): an owned row whose
+    // immutable `leased_at` predates this instant is recovered even if its
+    // `lease_heartbeat_at` is fresh, because a live server refreshes the
+    // heartbeat of a silently-wedged worker's row indefinitely.
+    let inflight_cap_threshold = (config.max_inflight_secs != 0)
+        .then(|| Utc::now() - chrono::Duration::seconds(config.max_inflight_secs as i64));
 
     observe_old_queued_backlog(db, queued_observability_threshold).await?;
 
@@ -115,6 +121,12 @@ async fn detect_and_handle_stuck_jobs(
     // - Owned Pending/Compiling/Running rows are stale only when their
     //   lease heartbeat is missing or older than the wide-net threshold.
     // - Queued rows are intentionally excluded from row-level recovery.
+    let mut submission_lease_stale = Condition::any()
+        .add(submission::Column::LeaseHeartbeatAt.is_null())
+        .add(submission::Column::LeaseHeartbeatAt.lt(timeout_threshold));
+    if let Some(cap) = inflight_cap_threshold {
+        submission_lease_stale = submission_lease_stale.add(submission::Column::LeasedAt.lt(cap));
+    }
     let stuck_submission_ids: Vec<i32> = submission::Entity::find()
         .select_only()
         .column(submission::Column::Id)
@@ -130,11 +142,7 @@ async fn detect_and_handle_stuck_jobs(
                 .add(
                     Condition::all()
                         .add(submission::Column::OwnerServerId.is_not_null())
-                        .add(
-                            Condition::any()
-                                .add(submission::Column::LeaseHeartbeatAt.is_null())
-                                .add(submission::Column::LeaseHeartbeatAt.lt(timeout_threshold)),
-                        ),
+                        .add(submission_lease_stale),
                 ),
         )
         .into_tuple()
@@ -154,6 +162,7 @@ async fn detect_and_handle_stuck_jobs(
                 config,
                 max_stuck_retries,
                 timeout_threshold,
+                inflight_cap_threshold,
             )
             .await
             {
@@ -166,6 +175,12 @@ async fn detect_and_handle_stuck_jobs(
         }
     }
 
+    let mut code_run_lease_stale = Condition::any()
+        .add(code_run::Column::LeaseHeartbeatAt.is_null())
+        .add(code_run::Column::LeaseHeartbeatAt.lt(timeout_threshold));
+    if let Some(cap) = inflight_cap_threshold {
+        code_run_lease_stale = code_run_lease_stale.add(code_run::Column::LeasedAt.lt(cap));
+    }
     let stuck_code_run_ids: Vec<i32> = code_run::Entity::find()
         .select_only()
         .column(code_run::Column::Id)
@@ -181,11 +196,7 @@ async fn detect_and_handle_stuck_jobs(
                 .add(
                     Condition::all()
                         .add(code_run::Column::OwnerServerId.is_not_null())
-                        .add(
-                            Condition::any()
-                                .add(code_run::Column::LeaseHeartbeatAt.is_null())
-                                .add(code_run::Column::LeaseHeartbeatAt.lt(timeout_threshold)),
-                        ),
+                        .add(code_run_lease_stale),
                 ),
         )
         .into_tuple()
@@ -204,6 +215,7 @@ async fn detect_and_handle_stuck_jobs(
                 config,
                 max_stuck_retries,
                 timeout_threshold,
+                inflight_cap_threshold,
             )
             .await
             {
@@ -212,6 +224,13 @@ async fn detect_and_handle_stuck_jobs(
         }
     }
 
+    let mut judgement_lease_stale = Condition::any()
+        .add(submission_judgement::Column::LeaseHeartbeatAt.is_null())
+        .add(submission_judgement::Column::LeaseHeartbeatAt.lt(timeout_threshold));
+    if let Some(cap) = inflight_cap_threshold {
+        judgement_lease_stale =
+            judgement_lease_stale.add(submission_judgement::Column::LeasedAt.lt(cap));
+    }
     let stuck_judgement_ids: Vec<i32> = submission_judgement::Entity::find()
         .select_only()
         .column(submission_judgement::Column::Id)
@@ -228,14 +247,7 @@ async fn detect_and_handle_stuck_jobs(
                 .add(
                     Condition::all()
                         .add(submission_judgement::Column::OwnerServerId.is_not_null())
-                        .add(
-                            Condition::any()
-                                .add(submission_judgement::Column::LeaseHeartbeatAt.is_null())
-                                .add(
-                                    submission_judgement::Column::LeaseHeartbeatAt
-                                        .lt(timeout_threshold),
-                                ),
-                        ),
+                        .add(judgement_lease_stale),
                 ),
         )
         .into_tuple()
@@ -254,6 +266,7 @@ async fn detect_and_handle_stuck_jobs(
                 config,
                 max_stuck_retries,
                 timeout_threshold,
+                inflight_cap_threshold,
             )
             .await
             {

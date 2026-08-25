@@ -37,6 +37,7 @@ fn base_submission(id: i32, now: chrono::DateTime<Utc>) -> submission::Model {
         target_worker_id: None,
         owner_server_id: None,
         lease_heartbeat_at: None,
+        leased_at: None,
         retry_count: 1,
         created_at: now - chrono::Duration::minutes(10),
         judged_at: None,
@@ -63,6 +64,7 @@ fn base_code_run(id: i32, now: chrono::DateTime<Utc>) -> code_run::Model {
         custom_test_cases: serde_json::json!([]),
         owner_server_id: None,
         lease_heartbeat_at: None,
+        leased_at: None,
         retry_count: 1,
         judge_epoch: 4,
         created_at: now - chrono::Duration::minutes(10),
@@ -95,6 +97,7 @@ fn base_judgement(
         judge_epoch: 4,
         owner_server_id: None,
         lease_heartbeat_at: None,
+        leased_at: None,
         retry_count: 1,
         created_at: now - chrono::Duration::minutes(10),
         finalized_at: None,
@@ -113,6 +116,10 @@ fn assert_log_sets_detector_lease(log: &str, table: &str) {
     assert!(
         log.contains("\\\"lease_heartbeat_at\\\""),
         "expected lease_heartbeat_at write, got:\n{log}"
+    );
+    assert!(
+        log.contains("\\\"leased_at\\\""),
+        "expected leased_at dispatch-anchor write, got:\n{log}"
     );
     assert!(
         log.contains("server-1"),
@@ -185,9 +192,11 @@ fn old_queued_rows_are_observed_not_recovered() {
             None,
             now - chrono::Duration::minutes(10),
             None,
+            None,
             queued_threshold,
             orphan_pending_threshold,
             lease_threshold,
+            None,
         ),
         StuckDisposition::ObserveQueued
     );
@@ -206,9 +215,11 @@ fn old_pending_without_owner_is_recovered_after_orphan_timeout() {
             None,
             now - chrono::Duration::minutes(10),
             None,
+            None,
             queued_threshold,
             orphan_pending_threshold,
             lease_threshold,
+            None,
         ),
         StuckDisposition::Recover
     );
@@ -227,9 +238,11 @@ fn owned_execution_state_with_fresh_lease_is_ignored_even_when_old() {
             Some("server-1"),
             now - chrono::Duration::hours(12),
             Some(now - chrono::Duration::seconds(10)),
+            None,
             queued_threshold,
             orphan_pending_threshold,
             lease_threshold,
+            None,
         ),
         StuckDisposition::Ignore
     );
@@ -248,9 +261,11 @@ fn owned_rows_with_stale_or_missing_lease_are_recovered() {
             Some("server-1"),
             now - chrono::Duration::seconds(30),
             Some(now - chrono::Duration::hours(7)),
+            None,
             queued_threshold,
             orphan_pending_threshold,
             lease_threshold,
+            None,
         ),
         StuckDisposition::Recover
     );
@@ -260,12 +275,117 @@ fn owned_rows_with_stale_or_missing_lease_are_recovered() {
             Some("server-1"),
             now - chrono::Duration::seconds(30),
             None,
+            None,
             queued_threshold,
             orphan_pending_threshold,
             lease_threshold,
+            None,
         ),
         StuckDisposition::Recover
     );
+}
+
+#[test]
+fn owned_fresh_lease_but_over_inflight_cap_is_recovered() {
+    // The silent-wedge case: a live server keeps refreshing lease_heartbeat_at,
+    // so the stale-lease branch never fires, but the immutable leased_at anchor
+    // is older than the in-flight cap. The cap term must still recover the row.
+    let now = Utc::now();
+    let queued_threshold = now - chrono::Duration::seconds(300);
+    let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+    let lease_threshold = now - chrono::Duration::hours(6);
+    let inflight_cap = Some(now - chrono::Duration::hours(1));
+
+    assert_eq!(
+        stuck_disposition(
+            &SubmissionStatus::Running,
+            Some("server-1"),
+            now - chrono::Duration::hours(2),
+            // Fresh heartbeat: the stale-lease branch is vacuous here.
+            Some(now - chrono::Duration::seconds(5)),
+            // Anchor older than the cap: the cap branch fires.
+            Some(now - chrono::Duration::hours(2)),
+            queued_threshold,
+            orphan_pending_threshold,
+            lease_threshold,
+            inflight_cap,
+        ),
+        StuckDisposition::Recover
+    );
+}
+
+#[test]
+fn owned_fresh_lease_within_inflight_cap_is_ignored() {
+    let now = Utc::now();
+    let queued_threshold = now - chrono::Duration::seconds(300);
+    let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+    let lease_threshold = now - chrono::Duration::hours(6);
+    let inflight_cap = Some(now - chrono::Duration::hours(1));
+
+    assert_eq!(
+        stuck_disposition(
+            &SubmissionStatus::Running,
+            Some("server-1"),
+            now - chrono::Duration::minutes(2),
+            Some(now - chrono::Duration::seconds(5)),
+            // Anchor newer than the cap: still legitimately in flight.
+            Some(now - chrono::Duration::seconds(30)),
+            queued_threshold,
+            orphan_pending_threshold,
+            lease_threshold,
+            inflight_cap,
+        ),
+        StuckDisposition::Ignore
+    );
+}
+
+#[test]
+fn disabled_inflight_cap_never_recovers_on_dispatch_age_alone() {
+    // max_inflight_secs = 0 -> inflight_cap_threshold = None. A very old anchor
+    // under a fresh heartbeat must NOT recover: the cap is opt-in.
+    let now = Utc::now();
+    let queued_threshold = now - chrono::Duration::seconds(300);
+    let orphan_pending_threshold = now - chrono::Duration::seconds(300);
+    let lease_threshold = now - chrono::Duration::hours(6);
+
+    assert_eq!(
+        stuck_disposition(
+            &SubmissionStatus::Running,
+            Some("server-1"),
+            now - chrono::Duration::hours(5),
+            Some(now - chrono::Duration::seconds(5)),
+            Some(now - chrono::Duration::hours(5)),
+            queued_threshold,
+            orphan_pending_threshold,
+            lease_threshold,
+            None,
+        ),
+        StuckDisposition::Ignore
+    );
+}
+
+#[test]
+fn inflight_capped_is_null_safe_on_both_sides() {
+    let now = Utc::now();
+    let cap = now - chrono::Duration::hours(1);
+    // Both present, anchor older than cap -> capped.
+    assert!(inflight_capped(
+        Some(now - chrono::Duration::hours(2)),
+        Some(cap)
+    ));
+    // Both present, anchor newer than cap -> not capped.
+    assert!(!inflight_capped(
+        Some(now - chrono::Duration::seconds(30)),
+        Some(cap)
+    ));
+    // Legacy / pre-dispatch row with no anchor -> never capped.
+    assert!(!inflight_capped(None, Some(cap)));
+    // Cap disabled -> never capped, however old the anchor.
+    assert!(!inflight_capped(
+        Some(now - chrono::Duration::hours(9)),
+        None
+    ));
+    assert!(!inflight_capped(None, None));
 }
 
 #[test]
@@ -310,6 +430,7 @@ async fn direct_submission_recovery_sql_claims_detector_lease() {
         judge_epoch: submission.judge_epoch + 1,
         owner_server_id: None,
         lease_heartbeat_at: None,
+        leased_at: None,
         retry_count: 0,
         created_at: now,
         finalized_at: None,
@@ -333,6 +454,10 @@ async fn direct_submission_recovery_sql_claims_detector_lease() {
     assert_eq!(retry_count, submission.retry_count + 1);
     assert_eq!(model.owner_server_id.as_deref(), Some("server-1"));
     assert!(model.lease_heartbeat_at.is_some());
+    assert!(
+        model.leased_at.is_some(),
+        "redispatch stamps leased_at anchor"
+    );
 
     let log = format!("{:?}", db.into_transaction_log());
     assert_log_sets_detector_lease(&log, "submission");
@@ -360,6 +485,10 @@ async fn direct_code_run_recovery_sql_claims_detector_lease() {
     assert_eq!(retry_count, code_run.retry_count + 1);
     assert_eq!(model.owner_server_id.as_deref(), Some("server-1"));
     assert!(model.lease_heartbeat_at.is_some());
+    assert!(
+        model.leased_at.is_some(),
+        "redispatch stamps leased_at anchor"
+    );
 
     let log = format!("{:?}", db.into_transaction_log());
     assert_log_sets_detector_lease(&log, "code_run");
@@ -396,6 +525,10 @@ async fn direct_deferred_judgement_recovery_sql_claims_detector_lease() {
     assert_eq!(retry_count, judgement.retry_count + 1);
     assert_eq!(model.owner_server_id.as_deref(), Some("server-1"));
     assert!(model.lease_heartbeat_at.is_some());
+    assert!(
+        model.leased_at.is_some(),
+        "redispatch stamps leased_at anchor"
+    );
 
     let log = format!("{:?}", db.into_transaction_log());
     assert!(

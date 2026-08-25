@@ -293,6 +293,10 @@ pub async fn recover_orphaned_leases(
             submission::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
         )
+        .col_expr(
+            submission::Column::LeasedAt,
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+        )
         .filter(submission::Column::OwnerServerId.eq(server_id))
         .filter(submission::Column::Status.is_in(leased()))
         .exec(db)
@@ -308,6 +312,10 @@ pub async fn recover_orphaned_leases(
             code_run::Column::LeaseHeartbeatAt,
             sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
         )
+        .col_expr(
+            code_run::Column::LeasedAt,
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+        )
         .filter(code_run::Column::OwnerServerId.eq(server_id))
         .filter(code_run::Column::Status.is_in(leased()))
         .exec(db)
@@ -321,6 +329,10 @@ pub async fn recover_orphaned_leases(
         )
         .col_expr(
             submission_judgement::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+        )
+        .col_expr(
+            submission_judgement::Column::LeasedAt,
             sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
         )
         // Scoped strictly to `owner_server_id = <self>`: a sibling replica's rows
@@ -383,6 +395,10 @@ async fn claim_submissions(
             )
             .col_expr(
                 submission::Column::LeaseHeartbeatAt,
+                sea_orm::sea_query::Expr::cust("NOW()").into(),
+            )
+            .col_expr(
+                submission::Column::LeasedAt,
                 sea_orm::sea_query::Expr::cust("NOW()").into(),
             )
             .col_expr(
@@ -532,6 +548,7 @@ async fn open_stolen_submission_judgements(
             // (`owner_server_id IS NULL AND created_at < threshold`) mid-re-judge.
             owner_server_id: Set(Some(server_id.to_string())),
             lease_heartbeat_at: Set(Some(chrono::Utc::now())),
+            leased_at: Set(Some(chrono::Utc::now())),
             created_at: Set(chrono::Utc::now()),
             finalized_at: Set(None),
             ..Default::default()
@@ -603,6 +620,10 @@ async fn claim_deferred_judgements(
             )
             .col_expr(
                 submission_judgement::Column::LeaseHeartbeatAt,
+                sea_orm::sea_query::Expr::cust("NOW()").into(),
+            )
+            .col_expr(
+                submission_judgement::Column::LeasedAt,
                 sea_orm::sea_query::Expr::cust("NOW()").into(),
             )
             .col_expr(
@@ -754,6 +775,10 @@ async fn claim_deferred_judgements(
                 submission::Column::LeaseHeartbeatAt,
                 sea_orm::sea_query::Expr::cust("NOW()").into(),
             )
+            .col_expr(
+                submission::Column::LeasedAt,
+                sea_orm::sea_query::Expr::cust("NOW()").into(),
+            )
             // Never LOWER the submission's dispatch-retry count: claim_submissions
             // accumulates it on the submission row and terminalizes when it exceeds
             // the cap, but a deferred judgement carries its own (often fresh, 0)
@@ -792,6 +817,7 @@ async fn claim_deferred_judgements(
         }
         sub.owner_server_id = Some(server_id.to_string());
         sub.lease_heartbeat_at = judgement.lease_heartbeat_at;
+        sub.leased_at = judgement.leased_at;
         sub.retry_count = judgement.retry_count;
         dispatches.push((sub, judgement.id, judgement.is_current));
     }
@@ -827,6 +853,10 @@ async fn claim_code_runs(
             )
             .col_expr(
                 code_run::Column::LeaseHeartbeatAt,
+                sea_orm::sea_query::Expr::cust("NOW()").into(),
+            )
+            .col_expr(
+                code_run::Column::LeasedAt,
                 sea_orm::sea_query::Expr::cust("NOW()").into(),
             )
             .col_expr(

@@ -204,6 +204,10 @@ async fn claim_queued_submissions(
             sea_orm::sea_query::Expr::cust("NOW()").into(),
         )
         .col_expr(
+            submission::Column::LeasedAt,
+            sea_orm::sea_query::Expr::cust("NOW()").into(),
+        )
+        .col_expr(
             submission::Column::RetryCount,
             sea_orm::sea_query::Expr::col(submission::Column::RetryCount)
                 .add(1)
@@ -260,6 +264,10 @@ async fn claim_queued_code_runs(
         )
         .col_expr(
             code_run::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::cust("NOW()").into(),
+        )
+        .col_expr(
+            code_run::Column::LeasedAt,
             sea_orm::sea_query::Expr::cust("NOW()").into(),
         )
         .col_expr(
@@ -328,6 +336,10 @@ async fn claim_queued_judgements(
         )
         .col_expr(
             submission_judgement::Column::LeaseHeartbeatAt,
+            sea_orm::sea_query::Expr::cust("NOW()").into(),
+        )
+        .col_expr(
+            submission_judgement::Column::LeasedAt,
             sea_orm::sea_query::Expr::cust("NOW()").into(),
         )
         .col_expr(

@@ -18,9 +18,9 @@ use super::recovery::{
 };
 use super::{
     PENDING_ORPHAN_TIMEOUT_SECS, QUEUED_OBSERVABILITY_THRESHOLD_SECS, STUCK_RECOVERY_STATUSES,
-    StuckDisposition, StuckRecovery, should_recover_directly, stuck_code_run_message_id,
-    stuck_disposition, stuck_retries_exceeded_message, stuck_retry_budget_exhausted,
-    stuck_submission_judgement_message_id,
+    StuckDisposition, StuckRecovery, inflight_capped, should_recover_directly,
+    stuck_code_run_message_id, stuck_disposition, stuck_retries_exceeded_message,
+    stuck_retry_budget_exhausted, stuck_submission_judgement_message_id,
 };
 
 pub(super) async fn handle_stuck_submission(
@@ -29,6 +29,7 @@ pub(super) async fn handle_stuck_submission(
     config: &DlqConfig,
     max_stuck_retries: u32,
     timeout_threshold: chrono::DateTime<Utc>,
+    inflight_cap_threshold: Option<chrono::DateTime<Utc>>,
 ) -> anyhow::Result<()> {
     let queued_observability_threshold =
         Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
@@ -53,9 +54,11 @@ pub(super) async fn handle_stuck_submission(
             submission.owner_server_id.as_deref(),
             submission.created_at,
             submission.lease_heartbeat_at,
+            submission.leased_at,
             queued_observability_threshold,
             pending_orphan_threshold,
             timeout_threshold,
+            inflight_cap_threshold,
         ) != StuckDisposition::Recover
     {
         txn.rollback().await?;
@@ -63,6 +66,17 @@ pub(super) async fn handle_stuck_submission(
     }
 
     let current_retry_count = submission.retry_count;
+    // A row past the dispatch-age cap is recovered directly even when lease
+    // steal is enabled (it typically still has a fresh heartbeat, which the
+    // steal sweeper keys off of, so steal would otherwise never touch it).
+    // Doing so cannot double-dispatch with a concurrent steal: this detector
+    // holds the row under `SELECT ... FOR UPDATE` and the steal sweeper uses
+    // `FOR UPDATE SKIP LOCKED`, and every recovery/reclaim path stamps both
+    // `lease_heartbeat_at` and `leased_at` to NOW() and bumps the judge epoch
+    // in one transaction. Whichever transaction wins the row lock invalidates
+    // the other's precondition, so the loser re-reads a fresh, non-stuck row
+    // and no-ops. Recovery here is epoch-gated + row-locked.
+    let is_inflight_capped = inflight_capped(submission.leased_at, inflight_cap_threshold);
 
     let recovery = if stuck_retry_budget_exhausted(current_retry_count, max_stuck_retries) {
         // Retry budget exhausted: keep the terminal SystemError path and
@@ -131,7 +145,9 @@ pub(super) async fn handle_stuck_submission(
             .await?;
             StuckRecovery::Terminal
         }
-    } else if should_recover_directly(state.config.server.dispatcher_lease_steal_enabled, None) {
+    } else if should_recover_directly(state.config.server.dispatcher_lease_steal_enabled, None)
+        || is_inflight_capped
+    {
         recover_stuck_submission_without_steal(&txn, &submission, &state.config.server.id).await?
     } else {
         StuckRecovery::Skip
@@ -179,6 +195,7 @@ pub(super) async fn handle_stuck_code_run(
     config: &DlqConfig,
     max_stuck_retries: u32,
     timeout_threshold: chrono::DateTime<Utc>,
+    inflight_cap_threshold: Option<chrono::DateTime<Utc>>,
 ) -> anyhow::Result<()> {
     let queued_observability_threshold =
         Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
@@ -203,9 +220,11 @@ pub(super) async fn handle_stuck_code_run(
             run.owner_server_id.as_deref(),
             run.created_at,
             run.lease_heartbeat_at,
+            run.leased_at,
             queued_observability_threshold,
             pending_orphan_threshold,
             timeout_threshold,
+            inflight_cap_threshold,
         ) != StuckDisposition::Recover
     {
         txn.rollback().await?;
@@ -213,6 +232,7 @@ pub(super) async fn handle_stuck_code_run(
     }
 
     let current_retry_count = run.retry_count;
+    let is_inflight_capped = inflight_capped(run.leased_at, inflight_cap_threshold);
 
     let recovery = if stuck_retry_budget_exhausted(current_retry_count, max_stuck_retries) {
         let system_error_message = stuck_retries_exceeded_message(max_stuck_retries);
@@ -249,7 +269,9 @@ pub(super) async fn handle_stuck_code_run(
         }
         mark_code_run_system_error(&txn, run.id, "STUCK_JOB", &system_error_message).await?;
         StuckRecovery::Terminal
-    } else if should_recover_directly(state.config.server.dispatcher_lease_steal_enabled, None) {
+    } else if should_recover_directly(state.config.server.dispatcher_lease_steal_enabled, None)
+        || is_inflight_capped
+    {
         recover_stuck_code_run_without_steal(&txn, &run, &state.config.server.id).await?
     } else {
         StuckRecovery::Skip
@@ -297,6 +319,7 @@ pub(super) async fn handle_stuck_submission_judgement(
     config: &DlqConfig,
     max_stuck_retries: u32,
     timeout_threshold: chrono::DateTime<Utc>,
+    inflight_cap_threshold: Option<chrono::DateTime<Utc>>,
 ) -> anyhow::Result<()> {
     let queued_observability_threshold =
         Utc::now() - chrono::Duration::seconds(QUEUED_OBSERVABILITY_THRESHOLD_SECS);
@@ -322,9 +345,11 @@ pub(super) async fn handle_stuck_submission_judgement(
             judgement.owner_server_id.as_deref(),
             judgement.created_at,
             judgement.lease_heartbeat_at,
+            judgement.leased_at,
             queued_observability_threshold,
             pending_orphan_threshold,
             timeout_threshold,
+            inflight_cap_threshold,
         ) != StuckDisposition::Recover
     {
         txn.rollback().await?;
@@ -332,6 +357,7 @@ pub(super) async fn handle_stuck_submission_judgement(
     }
 
     let current_retry_count = judgement.retry_count;
+    let is_inflight_capped = inflight_capped(judgement.leased_at, inflight_cap_threshold);
 
     let recovery = if stuck_retry_budget_exhausted(current_retry_count, max_stuck_retries) {
         let system_error_message = stuck_retries_exceeded_message(max_stuck_retries);
@@ -402,7 +428,8 @@ pub(super) async fn handle_stuck_submission_judgement(
     } else if should_recover_directly(
         state.config.server.dispatcher_lease_steal_enabled,
         Some(judgement.is_current),
-    ) {
+    ) || is_inflight_capped
+    {
         recover_stuck_judgement_without_steal(&txn, &judgement, &state.config.server.id).await?
     } else {
         StuckRecovery::Skip

@@ -49,14 +49,28 @@ fn should_recover_directly(lease_steal_enabled: bool, judgement_is_current: Opti
     !lease_steal_enabled || judgement_is_current == Some(false)
 }
 
+/// True when an owned row's immutable `leased_at` dispatch anchor is older than
+/// the in-flight cap. NULL-safe on both sides: a row with no anchor (legacy /
+/// pre-dispatch) or a disabled cap (`None`) never trips. This is the branch that
+/// recovers a silently-wedged worker whose lease a live server keeps refreshing,
+/// so `lease_heartbeat_at` alone never goes stale.
+pub(super) fn inflight_capped(
+    leased_at: Option<chrono::DateTime<Utc>>,
+    inflight_cap_threshold: Option<chrono::DateTime<Utc>>,
+) -> bool {
+    matches!((leased_at, inflight_cap_threshold), (Some(leased), Some(cap)) if leased < cap)
+}
+
 fn stuck_disposition(
     status: &SubmissionStatus,
     owner_server_id: Option<&str>,
     created_at: chrono::DateTime<Utc>,
     lease_heartbeat_at: Option<chrono::DateTime<Utc>>,
+    leased_at: Option<chrono::DateTime<Utc>>,
     queued_observability_threshold: chrono::DateTime<Utc>,
     pending_orphan_threshold: chrono::DateTime<Utc>,
     lease_stale_threshold: chrono::DateTime<Utc>,
+    inflight_cap_threshold: Option<chrono::DateTime<Utc>>,
 ) -> StuckDisposition {
     if status == &SubmissionStatus::Queued {
         return if owner_server_id.is_none() && created_at < queued_observability_threshold {
@@ -75,7 +89,13 @@ fn stuck_disposition(
             StuckDisposition::Recover
         }
         None => StuckDisposition::Ignore,
-        Some(_) if lease_heartbeat_at.is_none_or(|heartbeat| heartbeat < lease_stale_threshold) => {
+        // Owned rows recover on EITHER a stale/missing lease heartbeat OR an
+        // over-cap dispatch age. The cap term is what fires when a live server
+        // keeps the heartbeat fresh for a worker that has silently died.
+        Some(_)
+            if lease_heartbeat_at.is_none_or(|heartbeat| heartbeat < lease_stale_threshold)
+                || inflight_capped(leased_at, inflight_cap_threshold) =>
+        {
             StuckDisposition::Recover
         }
         Some(_) => StuckDisposition::Ignore,

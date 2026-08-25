@@ -16,6 +16,14 @@ pub struct DlqConfig {
     pub retry_cleanup_interval_secs: u64,
     #[serde(default = "default_dlq_retry_max_age_secs")]
     pub retry_max_age_secs: u64,
+    /// Hard cap on how long a row may sit in a claimed, non-terminal state
+    /// (`Pending`/`Compiling`/`Running`) measured from its immutable `leased_at`
+    /// dispatch anchor - independent of `lease_heartbeat_at`, which a live server
+    /// keeps refreshing even for a silently-wedged worker. Past this age the
+    /// stuck-job detector recovers the row directly. Well above the worst-case
+    /// legitimate evaluate, below the 6h `stuck_job_timeout_secs` net. `0` disables.
+    #[serde(default = "default_dlq_max_inflight_secs")]
+    pub max_inflight_secs: u64,
 }
 
 fn default_dlq_max_retries() -> u8 {
@@ -39,6 +47,9 @@ fn default_dlq_retry_cleanup_interval_secs() -> u64 {
 fn default_dlq_retry_max_age_secs() -> u64 {
     7200
 }
+fn default_dlq_max_inflight_secs() -> u64 {
+    3600
+}
 
 impl Default for DlqConfig {
     fn default() -> Self {
@@ -50,6 +61,7 @@ impl Default for DlqConfig {
             stuck_job_scan_interval_secs: default_dlq_stuck_job_scan_interval_secs(),
             retry_cleanup_interval_secs: default_dlq_retry_cleanup_interval_secs(),
             retry_max_age_secs: default_dlq_retry_max_age_secs(),
+            max_inflight_secs: default_dlq_max_inflight_secs(),
         }
     }
 }

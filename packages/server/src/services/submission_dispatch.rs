@@ -186,6 +186,7 @@ pub(crate) async fn ensure_active_judgement_id(
                 let mut am: submission_judgement::ActiveModel = j.clone().into();
                 am.owner_server_id = Set(sub.owner_server_id.clone());
                 am.lease_heartbeat_at = Set(Some(Utc::now()));
+                am.leased_at = Set(Some(Utc::now()));
                 if let Err(e) = am.update(db).await {
                     warn!(
                         error = %e,
@@ -238,6 +239,11 @@ pub(crate) async fn ensure_active_judgement_id(
         // (and, before the lockstep-epoch fix, hanging the submission).
         owner_server_id: Set(sub.owner_server_id.clone()),
         lease_heartbeat_at: Set(Some(Utc::now())),
+        // `created_at` intentionally mirrors the submission's original creation
+        // time, but `leased_at` is the *dispatch* anchor and must be NOW - it
+        // marks when this judgement started its in-flight evaluation for the
+        // stuck-detector's in-flight cap.
+        leased_at: Set(Some(Utc::now())),
         created_at: Set(sub.created_at),
         finalized_at: Set(None),
         ..Default::default()
@@ -412,6 +418,10 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
             submission_judgement::Column::LeaseHeartbeatAt,
             Expr::value(Some(now)),
         )
+        .col_expr(
+            submission_judgement::Column::LeasedAt,
+            Expr::value(Some(now)),
+        )
         .filter(submission_judgement::Column::Id.eq(judgement_id))
         .filter(submission_judgement::Column::JudgeEpoch.eq(expected_epoch))
         .exec(&txn)
@@ -436,6 +446,7 @@ pub(crate) async fn requeue_judgement_for_system_error_retry(
             Expr::value(Some(server_id.to_string())),
         )
         .col_expr(submission::Column::LeaseHeartbeatAt, Expr::value(Some(now)))
+        .col_expr(submission::Column::LeasedAt, Expr::value(Some(now)))
         .filter(submission::Column::Id.eq(submission_id))
         .filter(submission::Column::JudgeEpoch.eq(expected_epoch))
         .exec(&txn)
