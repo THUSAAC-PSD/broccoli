@@ -160,13 +160,33 @@ pub fn save_credentials_full(
     }
 
     let content = serde_json::to_string_pretty(&file)?;
-    std::fs::write(&creds_path, &content).context("Failed to write credentials file")?;
 
+    // Create the file 0600 from the start so the bearer/refresh tokens are never
+    // even briefly world-readable. `std::fs::write` would create with the default
+    // umask (typically 0644) and only tighten afterwards, leaving a window in
+    // which another local user could read the credentials.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&creds_path, perms)?;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&creds_path)
+            .context("Failed to open credentials file")?;
+        // Normalize perms too, in case the file predates this and is still 0644.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(content.as_bytes())
+            .context("Failed to write credentials file")?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&creds_path, &content).context("Failed to write credentials file")?;
     }
 
     Ok(())
