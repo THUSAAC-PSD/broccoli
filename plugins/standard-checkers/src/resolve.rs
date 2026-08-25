@@ -99,7 +99,7 @@ pub fn resolve_builtin(format: &str, input: &ResolveCheckerInput) -> Result<Chec
     // Float identity: map config tolerances to BOTH flags so a custom rel_tol
     // never flips AC<->WA once fused (broccoli-compare's combined rule needs both).
     if format == "tokens-float" {
-        let (abs_tol, rel_tol) = float_tolerances(input.config.as_ref());
+        let (abs_tol, rel_tol) = float_tolerances(input.config.as_ref())?;
         argv.push("--epsilon".to_string());
         argv.push(format_tol(abs_tol));
         argv.push("--rel-epsilon".to_string());
@@ -392,18 +392,24 @@ pub(crate) fn judge_file_to_session_file(file: &JudgeFile) -> SessionFile {
     }
 }
 
-/// Parse `{ abs_tol, rel_tol }` from the checker config, falling back to the
-/// WASM defaults for either missing field.
-fn float_tolerances(config: Option<&serde_json::Value>) -> (f64, f64) {
-    let abs = config
-        .and_then(|c| c.get("abs_tol"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or(DEFAULT_ABS_TOL);
-    let rel = config
-        .and_then(|c| c.get("rel_tol"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or(DEFAULT_REL_TOL);
-    (abs, rel)
+/// Parse `{ abs_tol, rel_tol }` from the checker config. A missing (or null)
+/// field falls back to the WASM default; a field that is present but not a
+/// number is a configuration error rather than a silent fallback to the tight
+/// default, which would otherwise turn a mistyped tolerance (e.g. the string
+/// `"1e-3"`) into spurious WrongAnswers with no error surfaced.
+fn float_tolerances(config: Option<&serde_json::Value>) -> Result<(f64, f64), String> {
+    let one = |key: &str, default: f64| -> Result<f64, String> {
+        match config.and_then(|c| c.get(key)) {
+            None | Some(serde_json::Value::Null) => Ok(default),
+            Some(v) => v
+                .as_f64()
+                .ok_or_else(|| format!("checker config `{key}` must be a number, got {v}")),
+        }
+    };
+    Ok((
+        one("abs_tol", DEFAULT_ABS_TOL)?,
+        one("rel_tol", DEFAULT_REL_TOL)?,
+    ))
 }
 
 /// Render an f64 tolerance for the broccoli-compare argv. Rust's f64 `Display`
