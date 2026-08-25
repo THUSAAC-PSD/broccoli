@@ -47,6 +47,17 @@ pub struct WorkerConfig {
     pub enable_cgroups: bool,
     #[serde(default = "default_sandbox_backend")]
     pub sandbox_backend: String,
+    /// Maximum submissions judged in parallel on this worker.
+    ///
+    /// Each in-flight box forks several processes (the `isolate --run` we
+    /// spawn, isolate's keeper, the guest, and one extra exec+check pair per
+    /// fused communication step), so the peak process/thread count scales with
+    /// this value. Size it against the container's `pids`/`nproc` limit with
+    /// headroom: if worker logs show "Transient fork failure spawning isolate
+    /// --run (EAGAIN)", the container is out of fork headroom - either lower
+    /// `max_concurrency` or raise the container's `--pids-limit` / `nproc`
+    /// ulimit. The bounded spawn retry only smooths brief spikes, not a
+    /// persistently undersized limit.
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
     #[serde(default = "default_dedup_ttl_secs")]

@@ -603,6 +603,17 @@ fn is_transient_exec_failure(result: &ExecutionResult) -> bool {
         && result.stderr.contains("Resource temporarily unavailable")
 }
 
+/// True when a `Command::spawn` failure is a transient fork EAGAIN.
+///
+/// A `fork()`/`clone()` that fails because the worker is momentarily out of
+/// PID/thread headroom sets errno to EAGAIN. It is distinct from the guest's
+/// own execve EAGAIN (`is_transient_exec_failure`, which inspects a completed
+/// run): this fires before isolate exists, on the raw spawn error. Matching on
+/// the OS errno rather than the message keeps it locale-independent.
+fn is_fork_eagain(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(libc::EAGAIN)
+}
+
 /// Worker-side hard-timeout backstop for a single `isolate --run`.
 ///
 /// isolate's `--wall-time`/`--extra-time` bound the guest program's own run,
@@ -743,9 +754,45 @@ impl IsolateSandboxManager {
         command.arg("--run").arg("--").args(&rewritten_argv);
 
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|err| {
-            SandboxError::Execution(format!("failed to spawn isolate --run: {err}"))
-        })?;
+
+        // Spawning `isolate --run` is itself a fork() in the worker process.
+        // Under worker-level PID/thread exhaustion (many concurrent judged
+        // boxes on a container with a tight pids/nproc limit) that fork can
+        // fail with EAGAIN ("Resource temporarily unavailable") BEFORE isolate
+        // ever runs - distinct from a *guest* execve EAGAIN, which surfaces as
+        // a completed run (exit 127) caught by `is_transient_exec_failure`.
+        // Here there is no ExecutionResult, only an io::Error, so the guest
+        // path can never see it; without a retry the fork EAGAIN maps straight
+        // to a terminal error and (via the SystemError retry) burns a stuck
+        // attempt on what is a momentary, self-clearing resource spike. A
+        // failed spawn touches no box state, so retrying is side-effect-free:
+        // back off briefly to let peer boxes drain and free fork headroom.
+        // Bounded by MAX_SPAWN_RETRIES; past the cap the error propagates and
+        // still self-heals via the outer SystemError retry.
+        const MAX_SPAWN_RETRIES: usize = 3;
+        let mut spawn_attempt = 0;
+        let mut child = loop {
+            match command.spawn() {
+                Ok(child) => break child,
+                Err(err) if spawn_attempt < MAX_SPAWN_RETRIES && is_fork_eagain(&err) => {
+                    let backoff_ms = 25u64 << spawn_attempt;
+                    tracing::warn!(
+                        box_id = %box_id,
+                        attempt = spawn_attempt + 1,
+                        backoff_ms,
+                        "Transient fork failure spawning isolate --run (EAGAIN); retrying after backoff",
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                    spawn_attempt += 1;
+                    continue;
+                }
+                Err(err) => {
+                    return Err(SandboxError::Execution(format!(
+                        "failed to spawn isolate --run: {err}"
+                    )));
+                }
+            }
+        };
         let stdout = child.stdout.take().ok_or_else(|| {
             SandboxError::Execution("failed to capture isolate stdout".to_string())
         })?;
@@ -915,6 +962,23 @@ mod tests {
             box_dir,
             Path::new("/channels/stderr")
         ));
+    }
+
+    #[test]
+    fn fork_eagain_is_classified_by_errno() {
+        // A spawn that fails with EAGAIN is the retryable worker-fork case; any
+        // other errno (EACCES, ENOENT) or a non-OS error is NOT and must
+        // propagate immediately rather than burn the bounded spawn retries.
+        assert!(is_fork_eagain(&std::io::Error::from_raw_os_error(
+            libc::EAGAIN
+        )));
+        assert!(!is_fork_eagain(&std::io::Error::from_raw_os_error(
+            libc::EACCES
+        )));
+        assert!(!is_fork_eagain(&std::io::Error::from_raw_os_error(
+            libc::ENOENT
+        )));
+        assert!(!is_fork_eagain(&std::io::Error::other("not an os error")));
     }
 
     #[test]
