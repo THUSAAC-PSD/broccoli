@@ -96,7 +96,16 @@ pub(crate) fn apply_feedback_filter(
             return Ok(submission);
         }
     };
-    if !full_scoreboard_visible_for_phase(&phase, false, contest_config.scoreboard_visibility) {
+    // The gate protects PEERS only: a contestant must not read another
+    // contestant's scoring through the submission endpoint when the scoreboard
+    // withholds it. An owner always sees their own submission's feedback per the
+    // contest `feedback_level` (tokened owners already returned the full record
+    // above) -- own-feedback is governed by tokens + feedback_level, not by
+    // scoreboard visibility. This mirrors the ICPC filter, which exempts owners
+    // unconditionally ("a team always sees its own results, even while frozen").
+    if !is_owner
+        && !full_scoreboard_visible_for_phase(&phase, false, contest_config.scoreboard_visibility)
+    {
         redact_submission_for_level(&mut submission, FeedbackLevel::None);
         return Ok(submission);
     }
