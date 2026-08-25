@@ -100,6 +100,36 @@ fn is_fifo(path: &Path) -> bool {
     }
 }
 
+/// Whether a declared `--stdout`/`--stderr` redirect target is a box-local file
+/// whose data the worker reads back from the host after the run.
+///
+/// isolate creates box-local redirect files (a box-relative path such as
+/// `output.txt`) inside `box_dir` before exec, so after a clean exit their
+/// absence is a genuine infra fault -> retryable [`SandboxStatus::InternalError`].
+///
+/// An ABSOLUTE redirect target is an in-box path into a bind-mounted directory -
+/// e.g. a channel FIFO at `/channels/<name>` (see `prepare_io_target`). Its data
+/// is streamed to the consumer (the fused check step reads the FIFO directly);
+/// there is nothing for the worker to read back. Crucially, `Path::join` drops
+/// the base for an absolute argument, so `box_dir.join("/channels/x")` resolves
+/// to the HOST path `/channels/x`, which never exists on the host - reading it
+/// back would ALWAYS "fail". Keying on box-locality (the resolved path staying
+/// under `box_dir`) rather than a hardcoded `/channels` prefix stays correct for
+/// any bind-mounted redirect target, and treats streamed targets as empty (never
+/// a fault). Without this guard every channel-redirected step is misflagged as an
+/// infra failure.
+///
+/// The `starts_with` predicate is component-wise, not canonicalizing, so it would
+/// misjudge a `..`-escaping box-relative path. That input is unreachable here:
+/// `prepare_io_target` runs `safe_join` on every `File` redirect target and
+/// rejects any absolute or `..` component before it becomes a redirect path, and
+/// pipe/channel targets are absolute. Were such a path to slip through it still
+/// fails safe - it resolves off-box, the read-back finds nothing, and the step
+/// retries as a SystemError rather than silently scoring empty output.
+fn is_box_local_redirect(box_dir: &Path, declared: &Path) -> bool {
+    box_dir.join(declared).starts_with(box_dir)
+}
+
 async fn read_capped_child_pipe<R>(mut reader: R) -> Result<Vec<u8>, std::io::Error>
 where
     R: AsyncRead + Unpin,
@@ -137,6 +167,33 @@ async fn join_pipe_capture(
         .map_err(|err| {
             SandboxError::Execution(format!("failed to read isolate {stream_name}: {err}"))
         })
+}
+
+/// Read a declared, non-FIFO redirect file back after a run.
+///
+/// isolate creates a `--stdout`/`--stderr` redirect file before exec, so after a
+/// clean (exit 0/1) run the file MUST exist. The two outcomes the caller treats
+/// differently:
+/// - `Ok(text)` - file present (possibly empty: a legitimate empty program
+///   output, which must stay a normal verdict, never a retry).
+/// - `Err(())` - file absent/unreadable: the box was clobbered or torn down
+///   under us (a concurrency/infra fault), which the caller surfaces as an
+///   internal sandbox error (-> retryable SystemError), NOT as empty output.
+///
+/// FIFO redirects are handled by the caller (streamed; nothing to read back).
+async fn read_declared_redirect(resolved: &Path, stream: &str) -> Result<String, ()> {
+    match read_text_preview(resolved).await {
+        Ok(s) => Ok(s),
+        Err(e) => {
+            tracing::warn!(
+                path = %resolved.display(),
+                error = %e,
+                stream,
+                "Declared output file missing after execution; treating as sandbox internal error"
+            );
+            Err(())
+        }
+    }
 }
 
 fn parse_box_id(id: Option<&str>) -> Result<String, SandboxError> {
@@ -695,46 +752,52 @@ impl IsolateSandboxManager {
                             "sandbox working directory not found for box id: {box_id}"
                         ))
                     })?;
+                let mut infra_failure = false;
                 result.stdout = if let Some(stdout_path) = &run_options.stdout {
                     let resolved = box_dir.join(stdout_path);
-                    if is_fifo(&resolved) {
+                    if is_fifo(&resolved) || !is_box_local_redirect(&box_dir, stdout_path) {
                         String::new()
                     } else {
-                        match read_text_preview(&resolved).await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                tracing::warn!(
-                                    path = %resolved.display(),
-                                    error = %e,
-                                    "Failed to read stdout file after execution"
-                                );
+                        read_declared_redirect(&resolved, "stdout")
+                            .await
+                            .unwrap_or_else(|()| {
+                                infra_failure = true;
                                 String::new()
-                            }
-                        }
+                            })
                     }
                 } else {
                     text_preview_from_bytes(output_stdout, false)
                 };
                 result.stderr = if let Some(stderr_path) = &run_options.stderr {
                     let resolved = box_dir.join(stderr_path);
-                    if is_fifo(&resolved) {
+                    if is_fifo(&resolved) || !is_box_local_redirect(&box_dir, stderr_path) {
                         String::new()
                     } else {
-                        match read_text_preview(&resolved).await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                tracing::warn!(
-                                    path = %resolved.display(),
-                                    error = %e,
-                                    "Failed to read stderr file after execution"
-                                );
+                        read_declared_redirect(&resolved, "stderr")
+                            .await
+                            .unwrap_or_else(|()| {
+                                infra_failure = true;
                                 String::new()
-                            }
-                        }
+                            })
                     }
                 } else {
                     text_preview_from_bytes(output_stderr, false)
                 };
+
+                if infra_failure {
+                    // A declared redirect vanished after a clean exit: the box was
+                    // clobbered or torn down concurrently. Tag it as an internal
+                    // sandbox error so the evaluator maps it to a retryable
+                    // SystemError (which self-heals) instead of scoring the missing
+                    // output as a terminal WrongAnswer/TLE that never recovers.
+                    result.sandbox_status = SandboxStatus::InternalError;
+                    result.status = "XX".to_string();
+                    if result.message.is_empty() {
+                        result.message =
+                            "sandbox output file missing after execution (internal error)"
+                                .to_string();
+                    }
+                }
                 Ok(result)
             }
             _ => Err(SandboxError::Unknown(format!(
@@ -748,6 +811,34 @@ impl IsolateSandboxManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn box_relative_redirect_is_box_local() {
+        // A box-relative redirect file is created by isolate inside box_dir, so
+        // it is read back and its absence after a clean exit is a real fault.
+        let box_dir = Path::new("/var/local/lib/isolate/0/box");
+        assert!(is_box_local_redirect(box_dir, Path::new("output.txt")));
+        assert!(is_box_local_redirect(box_dir, Path::new("sub/out.txt")));
+    }
+
+    #[test]
+    fn absolute_channel_redirect_is_not_box_local() {
+        // Regression guard: a fused exec redirects stdout to the in-box channel
+        // FIFO `/channels/<name>`. `Path::join` drops box_dir for an absolute
+        // arg, so box_dir.join("/channels/sol_out") == "/channels/sol_out" (a
+        // host path that never exists). It MUST be treated as streamed (skip the
+        // read-back existence check), NOT misflagged as a missing-file infra
+        // fault - otherwise every fused submission fails with SystemError.
+        let box_dir = Path::new("/var/local/lib/isolate/0/box");
+        assert!(!is_box_local_redirect(
+            box_dir,
+            Path::new("/channels/sol_out")
+        ));
+        assert!(!is_box_local_redirect(
+            box_dir,
+            Path::new("/channels/stderr")
+        ));
+    }
 
     #[test]
     fn cpu_offset_is_zero_without_cgroups() {

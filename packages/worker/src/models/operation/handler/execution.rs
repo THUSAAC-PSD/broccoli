@@ -2,7 +2,7 @@ use super::super::cache_leader::{CacheLeaderElector, LeaderRole, NoopCacheLeader
 use super::super::file_cacher::FileCacher;
 use super::super::models::*;
 use super::super::sandbox::{
-    DirectoryOptions, DirectoryRule, ExecutionResult, RunOptions, SandboxManager,
+    DirectoryOptions, DirectoryRule, ExecutionResult, RunOptions, SandboxManager, SandboxStatus,
 };
 use super::super::task_cache::TaskCacheStore;
 use super::box_id::{allocate_box_id, next_channel_seq};
@@ -548,6 +548,14 @@ impl OperationHandler {
                 return TaskExecutionResult {
                     task_id: step.id.clone(),
                     success: false,
+                    // Reaching here means execute_step returned Err BEFORE the
+                    // sandbox ran the step: a malformed operation (invalid pipe
+                    // name, unsafe redirect path) or an environment setup failure.
+                    // Such errors are deterministic -- they fail identically on
+                    // retry -- so they stay a terminal default (status "UNKNOWN").
+                    // The self-healing InternalError is reserved for genuine sandbox
+                    // infrastructure faults, tagged inside execute_step at the
+                    // sandbox_manager.execute() call site.
                     sandbox_result: ExecutionResult::default(),
                     collected_outputs: HashMap::new(),
                 };
@@ -660,14 +668,39 @@ impl OperationHandler {
             directory_rules,
         };
 
-        let exec_result = self
+        let exec_result = match self
             .sandbox_manager
             .execute(env.box_id.as_str(), step.argv.clone(), &run_opts)
             .await
-            .map_err(|e| {
+        {
+            Ok(result) => result,
+            Err(e) => {
+                // The sandbox failed to run the step AT ALL (fork/spawn EAGAIN,
+                // isolate init failure, ...). This is an infrastructure fault, never
+                // the contestant's output, so tag it InternalError: precheck_verdict
+                // / interpret_fused_result then classify it as a self-healing
+                // SystemError instead of letting a default "UNKNOWN" fall through to
+                // the checker, which -- now that the channel keep-alive delivers EOF
+                // -- would score the empty channel as a terminal WrongAnswer that
+                // never self-heals. Malformed-operation errors fail earlier, in
+                // prepare_io, and deliberately never reach this arm.
                 error!(step_id = %step.id, error = %e, "Step execution failed");
-                anyhow!("Sandbox execution failed: {}", e)
-            })?;
+                return Ok(TaskExecutionResult {
+                    task_id: step.id.clone(),
+                    success: false,
+                    sandbox_result: ExecutionResult {
+                        sandbox_status: SandboxStatus::InternalError,
+                        status: "XX".to_string(),
+                        message: format!(
+                            "step '{}' failed to execute (sandbox error): {e}",
+                            step.id
+                        ),
+                        ..ExecutionResult::default()
+                    },
+                    collected_outputs: HashMap::new(),
+                });
+            }
+        };
 
         let success = exec_result.exit_code == Some(0);
         let collected_outputs = self.collect_output(&env.working_dir, &step.collect).await?;
